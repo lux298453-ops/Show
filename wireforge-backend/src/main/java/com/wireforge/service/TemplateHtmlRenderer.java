@@ -3013,7 +3013,7 @@ public class TemplateHtmlRenderer {
                 }
                 String norm = page.getBackgroundImage().replace('\\', '/');
                 String fn = norm.substring(norm.lastIndexOf('/') + 1);
-                Path inDesigns = Paths.get("designs", fn);
+                Path inDesigns = Path.of("designs", fn);
                 if (Files.exists(inDesigns)) {
                     return javax.imageio.ImageIO.read(inDesigns.toFile());
                 }
