@@ -1,0 +1,56 @@
+# Build outputs
+target/
+dist/
+wireforge-dist/
+node_modules/
+*.jar
+*.war
+*.class
+
+# Root screenshots, temp logs and test scripts
+/*.png
+/*.jpg
+/*.jpeg
+/*.html
+/*.txt
+/*.zip
+/*.log
+check_*.js
+dump_*.js
+verify_*.js
+probe-*.mjs
+probe-*.txt
+decode-*.mjs
+analyze-*.mjs
+build-repro.mjs
+make_zip.py
+run-*.ps1
+start-*.ps1
+scan-interactions.*
+*.err.log
+
+# Frontend test scripts
+wireforge-frontend/run_*.mjs
+wireforge-frontend/.env.local
+
+# Backend target
+wireforge-backend/target/
+wireforge-backend/*.jar
+wireforge-backend/*.log
+wireforge-backend/$
+
+# Database dumps (keep init.sql)
+wireforge_dev_backup.sql
+wireforge_dev_latest.sql
+
+# IDE & OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Root miscellaneous scratch files
+/*.js
+/*.mjs
+/*.json

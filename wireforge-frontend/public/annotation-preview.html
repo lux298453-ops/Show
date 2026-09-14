@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>标志说明（说明标注）设计方案对比与效果演示</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background-color: #0b0f19;
+      color: #334155;
+    }
+    /* 手机外壳仿真 */
+    .phone-mockup {
+      width: 375px;
+      height: 720px;
+      border-radius: 40px;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.6), 0 0 0 10px #1e293b, 0 0 0 12px #334155;
+      overflow: hidden;
+      position: relative;
+      background: #f8fafc;
+      flex-shrink: 0;
+    }
+    /* 徽标脉冲效果 */
+    @keyframes badge-pulse {
+      0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1.08); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+      100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    .pulse-pin {
+      animation: badge-pulse 2.2s infinite ease-in-out;
+    }
+    .tab-btn.active {
+      background: #10b981;
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+    }
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0,0,0,0.03);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.2);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-emerald-500 selection:text-white">
+
+  <!-- 顶部导航栏 -->
+  <header class="bg-slate-900/95 backdrop-blur-xl border-b border-slate-800 sticky top-0 z-50 px-8 py-4 flex items-center justify-between text-white">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+        <i class="fa-solid fa-pen-ruler text-white text-sm"></i>
+      </div>
+      <div>
+        <h1 class="text-base font-bold tracking-tight flex items-center gap-2">
+          标志说明（Annotation）交互与排版方案设计
+          <span class="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">4 套工业级方案</span>
+        </h1>
+        <p class="text-xs text-slate-400">结合 Figma Dev Mode、蓝湖、摹客 RP、Axure 现代产品实践对比</p>
+      </div>
+    </div>
+
+    <!-- 方案切换 Tab 栏 -->
+    <div class="flex bg-slate-800/90 p-1 rounded-xl border border-slate-700/70 text-xs font-semibold">
+      <button onclick="switchScheme(1)" id="tab-1" class="tab-btn active px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer">
+        <span class="w-4 h-4 rounded-full bg-black/20 flex items-center justify-center text-[10px]">1</span>
+        <span>微章浮窗流 (Figma Dev Mode)</span>
+      </button>
+      <button onclick="switchScheme(2)" id="tab-2" class="tab-btn px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5 cursor-pointer">
+        <span class="w-4 h-4 rounded-full bg-black/20 flex items-center justify-center text-[10px]">2</span>
+        <span>侧边规格卡 (蓝湖/摹客 PRD)</span>
+      </button>
+      <button onclick="switchScheme(3)" id="tab-3" class="tab-btn px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5 cursor-pointer">
+        <span class="w-4 h-4 rounded-full bg-black/20 flex items-center justify-center text-[10px]">3</span>
+        <span>智能折线便签 (工程图纸流)</span>
+      </button>
+      <button onclick="switchScheme(4)" id="tab-4" class="tab-btn px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5 cursor-pointer">
+        <span class="w-4 h-4 rounded-full bg-black/20 flex items-center justify-center text-[10px]">4</span>
+        <span>右侧全局抽屉 (Master Drawer)</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 主演示容器 -->
+  <main class="flex-1 bg-slate-950 p-8 flex flex-col items-center justify-center overflow-x-auto relative">
+    
+    <!-- ================= 方案一：Figma Dev Mode 徽章浮窗流 ================= -->
+    <section id="scheme-1" class="scheme-section w-full max-w-6xl flex gap-10 items-start justify-center">
+      <!-- 手机原型模拟 -->
+      <div class="phone-mockup relative bg-[#1E1B2E] text-white select-none">
+        <!-- 顶部状态栏 -->
+        <div class="h-10 px-6 flex justify-between items-center text-xs text-slate-300 font-medium pt-2">
+          <span>08:30</span>
+          <div class="flex items-center gap-1.5 text-[11px]">
+            <i class="fa-solid fa-signal"></i>
+            <i class="fa-solid fa-wifi"></i>
+            <i class="fa-solid fa-battery-full"></i>
+          </div>
+        </div>
+        <!-- 导航栏 -->
+        <div class="h-14 px-5 flex items-center justify-between border-b border-white/5">
+          <div class="flex items-center gap-3">
+            <i class="fa-solid fa-chevron-left text-sm cursor-pointer hover:opacity-80"></i>
+            <span class="font-bold text-base">装扮预览</span>
+          </div>
+          <i class="fa-solid fa-ellipsis text-sm text-slate-400"></i>
+        </div>
+        <!-- 角色形象主体展示区 -->
+        <div class="p-6 flex flex-col items-center justify-center mt-6 relative">
+          <div class="w-48 h-48 rounded-full bg-gradient-to-b from-indigo-500/20 to-purple-500/10 border border-indigo-500/30 flex items-center justify-center shadow-inner relative">
+            <span class="text-6xl animate-bounce" style="animation-duration: 3s;">🦊</span>
+            <!-- 标注徽章 1: 形象主体点击 -->
+            <button onclick="toggleFlyout(1)" class="pulse-pin absolute -top-1 right-2 w-7 h-7 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/50 cursor-pointer border-2 border-white transition-transform active:scale-90" title="点击查看说明">
+              1
+            </button>
+          </div>
+          <span class="text-sm font-semibold mt-3 text-slate-200">涂山苏苏 · 逍遥之游</span>
+        </div>
+
+        <!-- 右侧悬浮功能 Dock 菜单 -->
+        <div class="absolute right-4 bottom-20 w-12 bg-white/10 backdrop-blur-md rounded-3xl p-1.5 flex flex-col gap-3 border border-white/15 shadow-xl items-center">
+          <div class="relative w-9 h-9 rounded-2xl bg-white/10 flex items-center justify-center text-xs hover:bg-white/20 cursor-pointer">
+            <i class="fa-solid fa-hand-pointer text-amber-300"></i>
+            <!-- 标注徽章 2: 右侧 Dock 菜单 -->
+            <button onclick="toggleFlyout(2)" class="pulse-pin absolute -top-1.5 -left-1.5 w-5 h-5 bg-emerald-500 text-slate-950 font-black text-[10px] rounded-full flex items-center justify-center shadow-md border border-white cursor-pointer" title="点击查看说明">
+              2
+            </button>
+          </div>
+          <div class="w-9 h-9 rounded-2xl bg-white/5 flex items-center justify-center text-xs hover:bg-white/20 cursor-pointer">
+            <i class="fa-solid fa-mobile-screen text-slate-300"></i>
+          </div>
+          <div class="w-9 h-9 rounded-2xl bg-white/5 flex items-center justify-center text-xs hover:bg-white/20 cursor-pointer">
+            <i class="fa-solid fa-bell text-slate-300"></i>
+          </div>
+        </div>
+
+        <!-- 底部主操作区 -->
+        <div class="absolute bottom-6 left-5 right-5 flex gap-3">
+          <button class="flex-1 py-3 bg-white/10 hover:bg-white/15 border border-white/15 rounded-2xl text-xs font-bold text-white transition-all">
+            换装试用
+          </button>
+          <div class="relative flex-1">
+            <button class="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 rounded-2xl text-xs font-bold text-white shadow-lg shadow-orange-500/30 transition-all cursor-pointer">
+              立即启用
+            </button>
+            <!-- 标注徽章 3: 底部购买按钮 -->
+            <button onclick="toggleFlyout(3)" class="pulse-pin absolute -top-2 -right-2 w-6 h-6 bg-emerald-500 text-slate-950 font-black text-xs rounded-full flex items-center justify-center shadow-md border-2 border-white cursor-pointer" title="点击查看说明">
+              3
+            </button>
+          </div>
+        </div>
+
+        <!-- 方案一弹出的高保真 Flyout 说明卡片 (支持交互查看) -->
+        <div id="flyout-card" class="absolute left-6 right-6 top-64 bg-slate-900/95 backdrop-blur-2xl border border-emerald-500/40 rounded-2xl p-4 shadow-2xl z-40 transition-all transform duration-200">
+          <div class="flex items-center justify-between pb-2 border-b border-white/10 mb-2.5">
+            <div class="flex items-center gap-2">
+              <span id="flyout-num" class="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 font-bold text-[11px] flex items-center justify-center">1</span>
+              <span id="flyout-title" class="font-bold text-xs text-white">形象主体触碰动效</span>
+              <span class="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-medium border border-emerald-500/30">⚡ 交互动效</span>
+            </div>
+            <button onclick="closeFlyout()" class="text-slate-400 hover:text-white text-xs cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="space-y-2 text-xs">
+            <p id="flyout-desc" class="text-slate-300 leading-relaxed">用户单指点击形象时，角色播放专属待机迎宾动作（如挥手微笑），并随机触发一条语音气泡。</p>
+            <div class="bg-slate-800/80 rounded-xl p-2.5 border border-white/5 space-y-1">
+              <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                <span class="font-semibold text-slate-300">目标页面：</span>
+                <span id="flyout-target" class="text-emerald-400 font-mono">当前页原地动效</span>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                <span class="font-semibold text-slate-300">前置条件：</span>
+                <span class="text-slate-300">未静音状态下播放音效，静音仅播放骨骼动效</span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-white/5 flex justify-between items-center text-[10px] text-slate-400">
+            <span>支持按 Esc 或点击任意处关闭</span>
+            <span class="text-emerald-400 font-semibold">Figma Dev Mode 规范</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 方案解析面板 -->
+      <div class="flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-6 text-white space-y-5">
+        <div class="flex items-center justify-between">
+          <span class="px-3 py-1 bg-emerald-500/20 text-emerald-400 text-xs font-bold rounded-full border border-emerald-500/30">
+            方案 1 · 现代极简微章与悬浮气泡 (Figma Dev Mode 模式)
+          </span>
+          <span class="text-xs text-slate-400">推荐指数：★★★★★</span>
+        </div>
+
+        <h3 class="text-lg font-bold text-white">核心设计理念</h3>
+        <p class="text-xs text-slate-300 leading-relaxed">
+          彻底摒弃“在每个画框右侧硬塞一个巨大面板”的传统做法。直接在画框上的目标控件旁打上小巧带微动效的<strong class="text-emerald-400">数字微章（Pin）</strong>。点击微章或悬停时，弹出精致的毛玻璃说明气泡卡。
+        </p>
+
+        <div class="grid grid-cols-2 gap-4 text-xs">
+          <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+            <span class="font-bold text-emerald-400 flex items-center gap-1.5 mb-2">
+              <i class="fa-solid fa-circle-check"></i> 突出优势
+            </span>
+            <ul class="space-y-1.5 text-slate-300 list-disc list-inside">
+              <li><strong>画框间距紧凑</strong>：多画框布局整洁，不会被侧边说明框挤开几百像素；</li>
+              <li><strong>零视线转移</strong>：说明直接附着在控件旁，不需要眼球在页面与说明框之间来回寻找；</li>
+              <li><strong>缩放丝滑</strong>：缩放画布时只有小徽章缩放，绝无大卡片重绘卡顿。</li>
+            </ul>
+          </div>
+          <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+            <span class="font-bold text-amber-400 flex items-center gap-1.5 mb-2">
+              <i class="fa-solid fa-lightbulb"></i> 交互机制
+            </span>
+            <ul class="space-y-1.5 text-slate-300 list-disc list-inside">
+              <li>点击画框上的徽章 ①/②/③ 展开悬浮卡；</li>
+              <li>支持按 Tab 键在不同说明点之间顺畅跳跃；</li>
+              <li>可在顶栏一键勾选“显示/隐藏所有徽章”。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="bg-emerald-950/30 border border-emerald-500/20 p-4 rounded-2xl text-xs text-emerald-200/90 flex items-center justify-between">
+          <span>💡 体验提示：点击左侧手机屏幕中的数字微章 ①、②、③，即可实时体验浮窗切换效果！</span>
+          <button onclick="toggleFlyout(2)" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-all text-xs cursor-pointer">
+            体验微章 ②
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 方案二：蓝湖/摹客 PRD 侧边结构化规格卡 ================= -->
+    <section id="scheme-2" class="scheme-section hidden w-full max-w-6xl flex gap-10 items-start justify-center">
+      <!-- 手机原型模拟 -->
+      <div class="phone-mockup relative bg-[#1E1B2E] text-white select-none">
+        <div class="h-10 px-6 flex justify-between items-center text-xs text-slate-300 font-medium pt-2">
+          <span>08:30</span>
+          <div class="flex items-center gap-1.5 text-[11px]"><i class="fa-solid fa-wifi"></i><i class="fa-solid fa-battery-full"></i></div>
+        </div>
+        <div class="h-14 px-5 flex items-center justify-between border-b border-white/5">
+          <span class="font-bold text-base">功能设置</span>
+        </div>
+        <!-- 列表内容 -->
+        <div class="p-5 space-y-4 text-xs">
+          <div class="bg-white/10 p-4 rounded-2xl flex justify-between items-center border border-white/10 relative">
+            <div>
+              <p class="font-bold text-white text-sm">桌面挂件</p>
+              <p class="text-slate-400 text-[11px] mt-0.5">在手机桌面添加快捷互动形象</p>
+            </div>
+            <div class="w-11 h-6 rounded-full bg-emerald-500 flex items-center justify-end px-1 shadow-inner">
+              <div class="w-4 h-4 rounded-full bg-white shadow"></div>
+            </div>
+            <span class="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center border border-white">1</span>
+          </div>
+
+          <div class="bg-white/10 p-4 rounded-2xl flex justify-between items-center border border-white/10 relative">
+            <div>
+              <p class="font-bold text-white text-sm">视频铃声</p>
+              <p class="text-slate-400 text-[11px] mt-0.5">来电时展示 3D 专属动效与音效</p>
+            </div>
+            <div class="w-11 h-6 rounded-full bg-slate-600 flex items-center px-1 shadow-inner">
+              <div class="w-4 h-4 rounded-full bg-white shadow"></div>
+            </div>
+            <span class="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center border border-white">2</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 方案二展示的侧边高颜值结构化 PRD 卡片 -->
+      <div class="w-80 bg-white rounded-3xl border border-slate-200 shadow-2xl p-5 flex flex-col gap-4 text-slate-800">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-xs font-bold">
+              <i class="fa-solid fa-list-check"></i>
+            </span>
+            <span class="font-bold text-sm text-slate-900">交互与逻辑说明 (2)</span>
+          </div>
+          <span class="text-[11px] text-slate-400">可双击编辑</span>
+        </div>
+
+        <!-- 结构化条目 1 -->
+        <div class="p-3.5 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200/80 hover:border-indigo-300 rounded-2xl transition-all cursor-pointer space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center">1</span>
+              <span class="font-bold text-xs text-slate-900">桌面挂件开关</span>
+            </div>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">⚡ 状态切换</span>
+          </div>
+          <div class="bg-white p-2.5 rounded-xl border border-slate-200/60 text-[11px] text-slate-600 space-y-1">
+            <div class="text-slate-800 font-semibold">【业务逻辑】</div>
+            <p>开启后向系统申请浮窗权限；若系统未授权，则唤起系统权限申请引导弹窗。</p>
+          </div>
+          <div class="flex items-center gap-2 text-[10px] text-slate-400">
+            <span class="bg-slate-200/60 px-1.5 py-0.5 rounded text-slate-600">默认关闭</span>
+            <span>更新时间：昨天 16:40</span>
+          </div>
+        </div>
+
+        <!-- 结构化条目 2 -->
+        <div class="p-3.5 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200/80 hover:border-indigo-300 rounded-2xl transition-all cursor-pointer space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center">2</span>
+              <span class="font-bold text-xs text-slate-900">视频铃声设置</span>
+            </div>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">⚡ 页面跳转</span>
+          </div>
+          <div class="bg-white p-2.5 rounded-xl border border-slate-200/60 text-[11px] text-slate-600 space-y-1">
+            <div class="flex items-center gap-1 text-slate-700 font-semibold">
+              <span>跳转链路：</span>
+              <span class="text-indigo-600 font-mono">功能设置 ➔ 壁纸设置页</span>
+            </div>
+            <p>需联网校验用户账号是否具备 VIP 装扮权限。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 方案解析面板 -->
+      <div class="flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-6 text-white space-y-5">
+        <span class="px-3 py-1 bg-indigo-500/20 text-indigo-400 text-xs font-bold rounded-full border border-indigo-500/30">
+          方案 2 · 侧边结构化规格卡 (蓝湖 / 摹客 PRD 模式)
+        </span>
+        <h3 class="text-lg font-bold text-white">核心设计理念</h3>
+        <p class="text-xs text-slate-300 leading-relaxed">
+          保留在画框右侧展示面板的直观习惯，但彻底重构排版：<strong>不再是一大段灰底纯文本</strong>，而是分解为【触发源】+【交互动作 Badge】+【结构化业务规则卡】+【跳转目标面包屑】，信息层级一目了然。
+        </p>
+        <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs space-y-2 text-slate-300">
+          <p><strong class="text-indigo-400">适合团队：</strong>需要将原型直接交付给前端、Android/iOS 工程师和测试人员的场景。</p>
+          <p><strong class="text-indigo-400">改进点：</strong>相比现有的简陋文本框，条目更像现代敏捷看板的卡片，字号层次清晰，支持富文本标签。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 方案三：智能折线便签 (工程图纸流) ================= -->
+    <section id="scheme-3" class="scheme-section hidden w-full max-w-6xl flex gap-10 items-start justify-center">
+      <!-- 带有 SVG 引线的画布 -->
+      <div class="relative flex items-center">
+        <!-- 手机原型模拟 -->
+        <div class="phone-mockup relative bg-[#0B132B] text-white select-none">
+          <div class="h-10 px-6 flex justify-between items-center text-xs text-slate-400 font-medium pt-2">
+            <span>08:30</span>
+            <div class="flex items-center gap-1.5"><i class="fa-solid fa-signal"></i></div>
+          </div>
+          <div class="p-6 space-y-8">
+            <div id="target-el-1" class="p-4 bg-white/5 border border-cyan-500/40 rounded-2xl relative">
+              <span class="text-cyan-400 font-bold text-sm">形象挂件卡片</span>
+              <p class="text-xs text-slate-400 mt-1">展示已装扮的耀宝角色</p>
+            </div>
+            <div id="target-el-2" class="p-4 bg-white/5 border border-purple-500/40 rounded-2xl relative">
+              <span class="text-purple-400 font-bold text-sm">每日祈福抽奖</span>
+              <p class="text-xs text-slate-400 mt-1">点击消耗 100 钻抽奖</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- SVG 智能折线 (Axure 经典引线) -->
+        <svg class="w-28 h-[720px] pointer-events-none" viewBox="0 0 112 720">
+          <!-- 线条 1 -->
+          <circle cx="10" cy="110" r="4" fill="#06b6d4" />
+          <path d="M 10 110 L 60 110 L 105 130" fill="none" stroke="#06b6d4" stroke-width="2" stroke-dasharray="4 2" />
+          <!-- 线条 2 -->
+          <circle cx="10" cy="205" r="4" fill="#a855f7" />
+          <path d="M 10 205 L 50 205 L 105 250" fill="none" stroke="#a855f7" stroke-width="2" stroke-dasharray="4 2" />
+        </svg>
+
+        <!-- 右侧吸附式折线便签条 -->
+        <div class="w-72 flex flex-col gap-8 text-xs">
+          <!-- 便签 1 -->
+          <div class="bg-cyan-950/80 border-l-4 border-cyan-400 p-3.5 rounded-r-2xl border-y border-r border-cyan-500/30 text-white shadow-xl space-y-1.5">
+            <div class="flex items-center gap-2">
+              <span class="w-4 h-4 rounded-full bg-cyan-400 text-slate-950 font-black text-[10px] flex items-center justify-center">1</span>
+              <span class="font-bold text-cyan-300">双击更换挂件形象</span>
+            </div>
+            <p class="text-slate-300 text-[11px] leading-relaxed">双击直接唤起「更换耀宝形象」底部半屏抽屉，支持长按拖动排序。</p>
+          </div>
+
+          <!-- 便签 2 -->
+          <div class="bg-purple-950/80 border-l-4 border-purple-400 p-3.5 rounded-r-2xl border-y border-r border-purple-500/30 text-white shadow-xl space-y-1.5 mt-8">
+            <div class="flex items-center gap-2">
+              <span class="w-4 h-4 rounded-full bg-purple-400 text-slate-950 font-black text-[10px] flex items-center justify-center">2</span>
+              <span class="font-bold text-purple-300">防重复连点节流</span>
+            </div>
+            <p class="text-slate-300 text-[11px] leading-relaxed">点击后按钮进入 1.2s 旋转加载态，防止并发扣减钻石余额。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 方案解析面板 -->
+      <div class="flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-6 text-white space-y-5">
+        <span class="px-3 py-1 bg-cyan-500/20 text-cyan-400 text-xs font-bold rounded-full border border-cyan-500/30">
+          方案 3 · 智能折线便签条 (经典工业工程图流)
+        </span>
+        <h3 class="text-lg font-bold text-white">核心设计理念</h3>
+        <p class="text-xs text-slate-300 leading-relaxed">
+          源自工业图纸与 Axure RP 的经典设计。用一条纤细平滑的<strong class="text-cyan-400">指引折线</strong>直接连通控件与右侧便签，并采用便签颜色编码（如跳转用青色、异常用紫色、警告用琥珀色）。
+        </p>
+        <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs space-y-2 text-slate-300">
+          <p><strong class="text-cyan-400">视觉指引极强：</strong>读者一眼便知哪一段文字对应哪一个按钮，完全不存在认错的可能。</p>
+          <p><strong class="text-cyan-400">便签独立呼吸：</strong>每个说明条目独立为一条便签卡，错落有致，不再是挤在一个框里的长列表。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 方案四：全局右侧 PRD 抽屉面板流 (Master Workspace Drawer) ================= -->
+    <section id="scheme-4" class="scheme-section hidden w-full max-w-6xl flex gap-10 items-start justify-center">
+      <!-- 手机原型模拟 (极度清爽，只有极简微标) -->
+      <div class="phone-mockup relative bg-[#18181B] text-white select-none">
+        <div class="h-10 px-6 flex justify-between items-center text-xs text-slate-400 pt-2">
+          <span>08:30</span><i class="fa-solid fa-battery-full"></i>
+        </div>
+        <div class="p-6 space-y-5">
+          <div class="flex items-center justify-between border-b border-white/10 pb-4">
+            <span class="font-bold text-base">耀宝家园</span>
+            <span class="w-6 h-6 rounded-full bg-rose-500/20 text-rose-400 text-xs flex items-center justify-center font-bold border border-rose-500/40">1</span>
+          </div>
+          <div class="h-44 rounded-2xl bg-gradient-to-br from-indigo-900/40 to-slate-800 p-4 flex flex-col justify-between border border-white/5 relative">
+            <span class="text-xs font-semibold text-slate-300">互动形象养成面板</span>
+            <span class="absolute bottom-3 right-3 w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs flex items-center justify-center font-bold border border-amber-500/40">2</span>
+          </div>
+          <div class="p-4 rounded-2xl bg-white/5 border border-white/5 flex justify-between items-center relative">
+            <span class="text-xs text-slate-300">探险任务清单</span>
+            <span class="w-6 h-6 rounded-full bg-teal-500/20 text-teal-400 text-xs flex items-center justify-center font-bold border border-teal-500/40">3</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 全局右侧大工作台抽屉 -->
+      <div class="w-96 bg-slate-900 border border-slate-700/80 rounded-3xl p-5 text-white shadow-2xl flex flex-col gap-4">
+        <div class="flex items-center justify-between pb-3 border-b border-white/10">
+          <div>
+            <h4 class="font-bold text-sm flex items-center gap-2">
+              <i class="fa-solid fa-book-open text-emerald-400"></i>
+              <span>页面交互规格说明书</span>
+            </h4>
+            <p class="text-[11px] text-slate-400 mt-0.5">当前选中：耀宝家园 (共 3 处说明)</p>
+          </div>
+          <div class="flex gap-1">
+            <button class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs" title="导出 Markdown"><i class="fa-solid fa-file-export"></i></button>
+            <button class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs" title="收起抽屉"><i class="fa-solid fa-chevron-right"></i></button>
+          </div>
+        </div>
+
+        <!-- 筛选过滤器 -->
+        <div class="flex gap-1.5 text-[11px] font-semibold">
+          <button class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white">全部 (3)</button>
+          <button class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">仅跳转 (1)</button>
+          <button class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">仅业务逻辑 (2)</button>
+        </div>
+
+        <!-- 详细说明列表 -->
+        <div class="space-y-3 overflow-y-auto max-h-[500px] pr-1">
+          <div class="p-3.5 bg-slate-950 rounded-2xl border border-white/5 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-xs text-rose-400 flex items-center gap-1.5">
+                <span class="w-4 h-4 rounded-full bg-rose-500 text-slate-950 text-[10px] flex items-center justify-center font-black">1</span>
+                顶部导航状态监控
+              </span>
+              <span class="text-[9px] bg-rose-500/10 text-rose-300 px-1.5 py-0.5 rounded border border-rose-500/20">系统状态</span>
+            </div>
+            <p class="text-slate-300 text-xs leading-relaxed">网络断开时，标题右侧展示「离线模式」红色小圆点，并禁止发起云端存档同步请求。</p>
+          </div>
+
+          <div class="p-3.5 bg-slate-950 rounded-2xl border border-white/5 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-xs text-amber-400 flex items-center gap-1.5">
+                <span class="w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[10px] flex items-center justify-center font-black">2</span>
+                养成面板等级计算
+              </span>
+              <span class="text-[9px] bg-amber-500/10 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/20">经验规则</span>
+            </div>
+            <p class="text-slate-300 text-xs leading-relaxed">亲密度达到 1000 点触发升星动画，同时向后台下发装扮解锁上报。</p>
+          </div>
+
+          <div class="p-3.5 bg-slate-950 rounded-2xl border border-white/5 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-xs text-teal-400 flex items-center gap-1.5">
+                <span class="w-4 h-4 rounded-full bg-teal-500 text-slate-950 text-[10px] flex items-center justify-center font-black">3</span>
+                探险任务跳转
+              </span>
+              <span class="text-[9px] bg-teal-500/10 text-teal-300 px-1.5 py-0.5 rounded border border-teal-500/20">⚡ 跳转</span>
+            </div>
+            <p class="text-slate-300 text-xs leading-relaxed">点击打开「探险任务列表弹窗」，完成任务后即时刷新金币与经验值。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 方案解析面板 -->
+      <div class="flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-6 text-white space-y-5">
+        <span class="px-3 py-1 bg-purple-500/20 text-purple-400 text-xs font-bold rounded-full border border-purple-500/30">
+          方案 4 · 全局右侧 PRD 抽屉面板 (Master Workspace Drawer)
+        </span>
+        <h3 class="text-lg font-bold text-white">核心设计理念</h3>
+        <p class="text-xs text-slate-300 leading-relaxed">
+          类似 Notion / Linear 的现代沉浸式设计。<strong>画框旁边没有任何面板挤占空间</strong>，画框只贴轻巧的小标号；当点击某个画框或点击顶栏“说明文档”时，右侧平滑滑出全局 PRD 抽屉，展示该页面的完整业务规范。
+        </p>
+        <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs space-y-2 text-slate-300">
+          <p><strong class="text-purple-400">终极整洁：</strong>画布无论放 10 个还是 50 个画框，排版都像设计稿一样整整齐齐，绝不凌乱；</p>
+          <p><strong class="text-purple-400">大屏阅读极佳：</strong>开发人员可以在右侧宽敞的面板里通读整个模块的业务逻辑，不用对着狭窄的小卡片吃力阅读。</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 底部对比总结栏 -->
+  <footer class="bg-slate-900 border-t border-slate-800 px-8 py-4 text-xs text-slate-400 flex items-center justify-between">
+    <div class="flex items-center gap-6">
+      <span class="text-slate-300 font-semibold">快速比对建议：</span>
+      <span>• 若偏好<strong>“随看随点、所见即所得、零占地”</strong> ➔ 选 <strong>方案 1（Figma 微章浮窗）</strong></span>
+      <span>• 若偏好<strong>“开发对照写代码、结构化卡片”</strong> ➔ 选 <strong>方案 2（结构化规格卡）</strong></span>
+      <span>• 若偏好<strong>“画布最清爽、通读完整 PRD”</strong> ➔ 选 <strong>方案 4（右侧全局抽屉）</strong></span>
+    </div>
+    <div class="text-emerald-400 font-medium">
+      可以在浏览器中直接双击该 HTML 打开体验，选定后即可一键落地到项目！
+    </div>
+  </footer>
+
+  <script>
+    // 方案切换逻辑
+    function switchScheme(num) {
+      for (let i = 1; i <= 4; i++) {
+        document.getElementById(`tab-${i}`).classList.remove('active', 'text-white');
+        document.getElementById(`tab-${i}`).classList.add('text-slate-400');
+        document.getElementById(`scheme-${i}`).classList.add('hidden');
+      }
+      const activeTab = document.getElementById(`tab-${num}`);
+      activeTab.classList.add('active');
+      activeTab.classList.remove('text-slate-400');
+      document.getElementById(`scheme-${num}`).classList.remove('hidden');
+    }
+
+    // 方案一的徽章点击互动
+    const flyoutData = {
+      1: {
+        num: 1,
+        title: '形象主体触碰动效',
+        target: '当前页原地动效',
+        desc: '用户单指点击形象时，角色播放专属待机迎宾动作（如挥手微笑），并随机触发一条语音气泡。'
+      },
+      2: {
+        num: 2,
+        title: '侧边悬浮 Dock 菜单',
+        target: '个性装扮特效设置页',
+        desc: '点击顶部手势动效图标，平滑跳转到装扮特效详情，支持切换试用不同待机动效与来电铃声。'
+      },
+      3: {
+        num: 3,
+        title: '底部立即启用 CTA',
+        target: '装扮应用成功 Toast',
+        desc: '若用户已拥有此装扮则直接应用到手机桌面；若未解锁则弹出钻石购买或活动获取引导弹窗。'
+      }
+    };
+
+    function toggleFlyout(id) {
+      const card = document.getElementById('flyout-card');
+      const data = flyoutData[id];
+      if (data) {
+        document.getElementById('flyout-num').innerText = data.num;
+        document.getElementById('flyout-title').innerText = data.title;
+        document.getElementById('flyout-target').innerText = data.target;
+        document.getElementById('flyout-desc').innerText = data.desc;
+        card.style.display = 'block';
+      }
+    }
+
+    function closeFlyout() {
+      document.getElementById('flyout-card').style.display = 'none';
+    }
+  </script>
+</body>
+</html>

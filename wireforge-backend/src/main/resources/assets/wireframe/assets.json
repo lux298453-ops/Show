@@ -1,0 +1,54 @@
+{
+  "avatars": {
+    "description": "人物头像",
+    "files": [
+      "avatar-01.svg",
+      "avatar-02.svg",
+      "avatar-03.svg",
+      "avatar-04.svg",
+      "avatar-05.svg"
+    ]
+  },
+  "products": {
+    "description": "产品图片",
+    "files": [
+      "product-01.svg",
+      "product-02.svg",
+      "product-03.svg",
+      "product-04.svg"
+    ]
+  },
+  "icons": {
+    "description": "功能图标",
+    "files": [
+      "activity.svg", "bell.svg", "book.svg", "box.svg", "calendar.svg",
+      "camera.svg", "chart.svg", "chat.svg", "check-circle.svg",
+      "chevron-left.svg", "chevron-right.svg", "clock.svg",
+      "credit-card.svg", "download.svg", "edit.svg", "eye.svg",
+      "heart.svg", "home.svg", "info.svg", "layers.svg", "lightbulb.svg",
+      "lock.svg", "mail.svg", "map-pin.svg", "menu.svg", "message-square.svg",
+      "message.svg", "mic.svg", "monitor.svg", "pencil.svg", "person.svg",
+      "phone.svg", "plus.svg", "profile.svg", "refresh.svg", "search.svg",
+      "settings-gear.svg", "settings.svg", "shield.svg", "stack.svg",
+      "star.svg", "sync.svg", "table.svg", "tag.svg", "target.svg",
+      "trash.svg", "trending-down.svg", "trending-up.svg", "upload.svg",
+      "user.svg", "x-circle.svg", "x.svg"
+    ]
+  },
+  "backgrounds": {
+    "description": "背景图",
+    "files": [
+      "bg-01.svg",
+      "bg-02.svg",
+      "bg-03.svg",
+      "bg-04.svg"
+    ]
+  },
+  "effects": {
+    "description": "特效占位",
+    "files": [
+      "glow.svg",
+      "gradient.svg"
+    ]
+  }
+}

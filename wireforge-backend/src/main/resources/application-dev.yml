@@ -1,0 +1,29 @@
+# ============================================================
+# dev profile —— 项目副本专用：与原项目数据完全隔离
+#
+# 用法：
+#   后端：mvn spring-boot:run -Dspring-boot.run.profiles=dev
+#     或 java -jar wireforge.jar --spring.profiles.active=dev
+#   首次运行前需建库：
+#     mysql -uroot -p -e "CREATE DATABASE IF NOT EXISTS wireforge_dev DEFAULT CHARSET utf8mb4"
+#
+# 隔离点：
+#   1. 独立数据库 wireforge_dev（schema.sql 会在此库自动建表，不影响原 wireforge 库）
+#   2. 设计稿目录指向本副本自己的 designs 文件夹（不读原项目目录）
+#   3. 端口 8091（若需与原项目同时运行互不冲突；前端代理见下方说明）
+# ============================================================
+
+server:
+  port: 8091
+
+spring:
+  datasource:
+    # 关键隔离项：副本固定使用独立库 wireforge_dev
+    url: jdbc:mysql://127.0.0.1:3306/wireforge_dev?useUnicode=true&characterEncoding=UTF-8&connectionTimeZone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+
+wireforge:
+  # 本副本自带的设计稿目录
+  designs-dir: D:/idea/Project/html版本/html不是很好版/designs
+  # 副本调试期间建议不开自动生成，避免每次启动都调 AI / 写入数据；
+  # 需要时改为 true 或启动参数 --wireforge.auto-analyze=true
+  auto-analyze: false

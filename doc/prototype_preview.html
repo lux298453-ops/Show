@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WireProto — 设计稿→可交互线框原型 v2.1</title>
+<style>
+:root{--bg-canvas:#1a1a2e;--bg-sidebar:#16213e;--bg-panel:#0f3460;--bg-node:#1e2a4a;--bg-node-header:#253258;--border-node:#3a3a5c;--border-active:#00d9ff;--text-primary:#e0e0e0;--text-secondary:#8892b0;--text-muted:#5a6378;--accent:#00d9ff;--accent-green:#00e676;--accent-orange:#ff9800;--accent-red:#ff5252;--accent-purple:#bb86fc;--grid-color:rgba(255,255,255,0.03);--grid-major:rgba(255,255,255,0.06);--shadow:0 4px 20px rgba(0,0,0,0.4);--shadow-lg:0 8px 32px rgba(0,0,0,0.5);--radius:8px}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;font-family:'Segoe UI','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;background:var(--bg-canvas);color:var(--text-primary);font-size:13px}
+#app{display:flex;flex-direction:column;width:100%;height:100%}
+.toolbar{display:flex;align-items:center;gap:10px;height:52px;padding:0 16px;background:var(--bg-sidebar);border-bottom:1px solid rgba(255,255,255,0.06);z-index:100;flex-shrink:0}
+.toolbar .logo{font-size:16px;font-weight:700;color:var(--accent);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.toolbar .logo .version{color:var(--text-muted);font-weight:400;font-size:11px}
+.toolbar .divider{width:1px;height:24px;background:rgba(255,255,255,0.08)}
+.toolbar .btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:var(--text-primary);cursor:pointer;font-size:12px;transition:all 0.15s;white-space:nowrap}
+.toolbar .btn:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.2)}
+.toolbar .btn.primary{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
+.toolbar .btn.primary:hover{background:#33e0ff;box-shadow:0 0 12px rgba(0,217,255,0.3)}
+.toolbar .btn.active{background:rgba(0,217,255,0.15);border-color:var(--accent);color:var(--accent)}
+.toolbar .spacer{flex:1}
+.toolbar .mode-switch{display:flex;gap:2px;padding:3px;background:rgba(0,0,0,0.3);border-radius:8px}
+.toolbar .mode-switch .btn{border:none;background:transparent;padding:5px 14px}
+.toolbar .mode-switch .btn.active{background:var(--accent);color:#000;font-weight:600}
+.toolbar .zoom-display{font-size:12px;color:var(--text-secondary);min-width:50px;text-align:center;font-variant-numeric:tabular-nums}
+.main-area{display:flex;flex:1;overflow:hidden}
+.left-sidebar{width:240px;background:var(--bg-sidebar);border-right:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-header{padding:12px 14px;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between}
+.sidebar-header .add-btn{cursor:pointer;color:var(--accent);font-size:16px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px}
+.file-list{flex:1;overflow-y:auto;padding:6px 0}
+.file-item{display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer;transition:all 0.12s;position:relative}
+.file-item:hover{background:rgba(255,255,255,0.04)}
+.file-item.active{background:rgba(0,217,255,0.08)}
+.file-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent)}
+.file-item .file-icon{width:24px;height:24px;border-radius:4px;background:var(--bg-panel);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.file-item .file-info{flex:1;min-width:0}
+.file-item .file-name{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-item .file-status{font-size:10px;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:4px}
+.file-item .status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.status-done{background:var(--accent-green)}
+.status-pending{background:var(--accent-orange)}
+.status-processing{background:var(--accent);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.file-item .file-elements{font-size:10px;color:var(--text-muted);margin-top:1px}
+.sidebar-bottom{padding:12px 14px;border-top:1px solid rgba(255,255,255,0.06)}
+.sidebar-bottom .stat-row{display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px}
+.sidebar-bottom .stat-value{color:var(--accent);font-weight:600}
+.canvas-container{flex:1;position:relative;overflow:hidden;background:var(--bg-canvas);background-image:linear-gradient(var(--grid-color) 1px,transparent 1px),linear-gradient(90deg,var(--grid-color) 1px,transparent 1px),linear-gradient(var(--grid-major) 1px,transparent 1px),linear-gradient(90deg,var(--grid-major) 1px,transparent 1px);background-size:20px 20px,20px 20px,100px 100px,100px 100px;cursor:grab}
+.canvas-container.panning{cursor:grabbing}
+.canvas-content{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+.edges-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.box-selection{position:absolute;border:1.5px dashed var(--accent);background:rgba(0,217,255,0.05);pointer-events:none;z-index:10;display:none}
+.node{position:absolute;user-select:none;background:var(--bg-node);border:1px solid var(--border-node);border-radius:var(--radius);box-shadow:var(--shadow);transition:border-color 0.15s,box-shadow 0.15s;cursor:move}
+.node:hover{border-color:rgba(255,255,255,0.2)}
+.node.selected{border-color:var(--border-active);box-shadow:0 0 0 1px var(--border-active),0 4px 20px rgba(0,217,255,0.15)}
+.node.multi-selected{border-color:var(--accent-green);box-shadow:0 0 0 1px var(--accent-green),0 4px 20px rgba(0,230,118,0.1)}
+.node-header{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.06);font-size:11px;font-weight:600;color:var(--text-secondary);background:var(--bg-node-header);border-radius:var(--radius) var(--radius) 0 0}
+.node-type-badge{font-size:9px;padding:2px 6px;border-radius:3px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+.badge-screenshot{background:rgba(255,152,0,0.2);color:var(--accent-orange)}
+.badge-wireframe{background:rgba(0,230,118,0.15);color:var(--accent-green)}
+.badge-interaction{background:rgba(187,134,252,0.15);color:var(--accent-purple)}
+.node-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ann-count{font-size:9px;color:var(--text-muted);background:rgba(255,255,255,0.05);padding:1px 6px;border-radius:8px}
+.collapse-btn{width:16px;height:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);font-size:10px;border-radius:3px}
+.collapse-btn:hover{background:rgba(255,255,255,0.1);color:var(--text-primary)}
+.node-body{padding:10px}
+.node-body.wf-node-body{padding:0;width:580px;height:400px;position:relative}
+.node.collapsed .node-body{display:none}
+.node-port{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--border-node);border:2px solid var(--bg-canvas);cursor:crosshair;transition:all 0.15s;z-index:5}
+.node-port:hover{background:var(--accent);box-shadow:0 0 8px rgba(0,217,255,0.4)}
+.node-port.input{left:-6px;top:50%;transform:translateY(-50%)}
+.node-port.output{right:-6px;top:50%;transform:translateY(-50%)}
+.screenshot-preview{width:200px;height:360px;border-radius:4px;overflow:hidden;background:#2a2a3e;position:relative;border:1px solid rgba(255,255,255,0.06)}
+.mock-screen{width:100%;height:100%;display:flex;flex-direction:column;font-size:9px}
+.mock-statusbar{height:16px;background:#1a1a2e;display:flex;align-items:center;justify-content:space-between;padding:0 8px;color:#666;font-size:8px}
+.mock-header{height:36px;background:linear-gradient(135deg,#3a3a5c,#2a2a4a);display:flex;align-items:center;padding:0 10px;gap:6px}
+.mock-header .h-line{height:3px;border-radius:2px;background:rgba(255,255,255,0.3)}
+.h-line.w20{width:20px}.h-line.w40{width:40px}
+.mock-search{height:24px;margin:8px;border-radius:4px;background:rgba(255,255,255,0.08);display:flex;align-items:center;padding:0 8px}
+.mock-search .h-line{height:3px;border-radius:2px;background:rgba(255,255,255,0.2);width:80px}
+.mock-banner{height:60px;margin:0 8px 8px;border-radius:6px;background:linear-gradient(135deg,#4a3a6a,#3a2a5a);position:relative}
+.mock-banner::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.15)}
+.mock-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 8px}
+.mock-card{height:70px;border-radius:6px;background:rgba(255,255,255,0.06);display:flex;flex-direction:column;justify-content:flex-end;padding:6px;gap:3px}
+.mock-card .h-line{height:3px;border-radius:2px;background:rgba(255,255,255,0.2)}
+.h-line.w80{width:80%}.h-line.w60{width:60%}
+.mock-list{padding:0 8px;display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.mock-list-item{height:40px;border-radius:4px;background:rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px;padding:0 8px}
+.mock-list-item .avatar{width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,0.1);flex-shrink:0}
+.mock-list-item .lines{flex:1;display:flex;flex-direction:column;gap:2px}
+.mock-list-item .h-line{height:3px;border-radius:2px;background:rgba(255,255,255,0.15)}
+.mock-tabbar{height:36px;margin-top:auto;background:rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:space-around}
+.mock-tabbar .tab{width:16px;height:16px;border-radius:4px;background:rgba(255,255,255,0.1)}
+.mock-tabbar .tab.active{background:var(--accent)}
+.mock-screen-2 .mock-header{background:linear-gradient(135deg,#1a4a3a,#0a3a2a)}
+.mock-screen-2 .mock-banner{background:linear-gradient(135deg,#2a5a4a,#1a4a3a)}
+.mock-screen-2 .mock-card{background:rgba(0,230,118,0.05)}
+.mock-screen-3 .mock-header{background:linear-gradient(135deg,#4a2a2a,#3a1a1a)}
+.mock-screen-3 .mock-banner{background:linear-gradient(135deg,#5a3a3a,#4a2a2a)}
+.mock-screen-3 .mock-card{background:rgba(255,82,82,0.05)}
+.wireframe-canvas{width:200px;height:360px;border-radius:4px;overflow:hidden;background:#f5f5f5;position:absolute;left:190px;top:10px;border:1px solid #ddd;z-index:2}
+.wf-element{position:absolute;cursor:pointer;transition:outline 0.1s}
+.wf-element:hover{outline:2px solid var(--accent);outline-offset:1px}
+.wf-element.selected{outline:2px solid var(--accent);outline-offset:1px}
+.wf-element.ann-hover{outline:2px solid var(--accent-orange);outline-offset:1px}
+.wf-element.has-interaction::after{content:'';position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--accent-purple)}
+.wf-tooltip{position:absolute;padding:4px 8px;background:rgba(0,0,0,0.85);border-radius:4px;font-size:10px;color:#fff;pointer-events:none;z-index:100;white-space:nowrap;opacity:0;transition:opacity 0.15s;transform:translateX(-50%)}
+.wf-tooltip.visible{opacity:1}
+.wf-image{background:#e0e0e0;border:1px solid #bbb}
+.wf-image::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(45deg);width:60%;height:1px;background:#bbb}
+.wf-image::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);width:60%;height:1px;background:#bbb}
+.wf-text{background:transparent}
+.wf-text .line{position:absolute;height:1.5px;background:#888;border-radius:1px}
+.wf-button{background:transparent;border:1.5px solid #555;border-radius:4px;display:flex;align-items:center;justify-content:center}
+.wf-button .label{font-size:9px;color:#555;font-weight:600}
+.wf-input{background:transparent;border:1.5px solid #888;border-radius:2px}
+.wf-input .placeholder{position:absolute;top:50%;left:6px;transform:translateY(-50%);font-size:8px;color:#aaa}
+.wf-navbar{background:#e8e8e8;border-bottom:1.5px solid #999;display:flex;align-items:center;justify-content:space-around}
+.wf-navbar .tab{width:14px;height:14px;border:1.5px solid #999;border-radius:2px}
+.wf-navbar .tab.active{background:#999}
+.wf-card{background:#f0f0f0;border:1.5px solid #ccc;border-radius:6px}
+.wf-container{background:#fafafa;border:1.5px dashed #ccc;border-radius:4px}
+/* ===== 标注文本框 ===== */
+.annotation-box{position:absolute;width:150px;background:#ffffff;border:1px solid #333;border-radius:4px;padding:6px 8px;cursor:move;z-index:6;box-shadow:2px 2px 0 rgba(0,0,0,0.18);font-size:10px;color:#222;line-height:1.45}
+.annotation-box:hover{box-shadow:2px 2px 0 rgba(0,0,0,0.18),0 0 0 1px var(--accent-orange)}
+.annotation-box.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),2px 2px 0 rgba(0,0,0,0.18)}
+.ann-head{display:flex;align-items:center;gap:5px;margin-bottom:3px}
+.ann-number{width:15px;height:15px;border-radius:50%;background:#222;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ann-title{font-weight:700;font-size:10px;color:#111;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ann-text{color:#444;outline:none}
+.ann-text[contenteditable="true"]{background:rgba(0,217,255,0.08);border-radius:2px}
+.leader-svg{position:absolute;left:0;top:0;width:580px;height:400px;pointer-events:none;z-index:5;overflow:visible}
+.interaction-node{width:180px}
+.interaction-node .node-body{display:flex;flex-direction:column;gap:5px}
+.interaction-row{display:flex;align-items:center;gap:6px;padding:6px 8px;background:rgba(187,134,252,0.08);border-radius:4px;font-size:10px}
+.interaction-row:hover{background:rgba(187,134,252,0.15)}
+.interaction-row .trigger{color:var(--accent-purple);font-weight:600}
+.interaction-row .arrow{color:var(--text-muted)}
+.interaction-row .target{color:var(--accent)}
+.right-panel{width:280px;background:var(--bg-sidebar);border-left:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;flex-shrink:0}
+.panel-tabs{display:flex;border-bottom:1px solid rgba(255,255,255,0.06)}
+.panel-tabs .tab-btn{flex:1;padding:10px;text-align:center;font-size:11px;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.15s}
+.panel-tabs .tab-btn:hover{color:var(--text-secondary)}
+.panel-tabs .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.panel-body{flex:1;overflow-y:auto}
+.panel-section{border-bottom:1px solid rgba(255,255,255,0.04)}
+.panel-section-title{padding:10px 14px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px}
+.panel-content{padding:0 14px 14px}
+.field-group{margin-bottom:10px}
+.field-label{font-size:10px;color:var(--text-muted);margin-bottom:4px;display:block}
+.field-input{width:100%;padding:6px 8px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.08);border-radius:4px;color:var(--text-primary);font-size:12px}
+.field-input:focus{outline:none;border-color:var(--accent)}
+.field-select{width:100%;padding:6px 8px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.08);border-radius:4px;color:var(--text-primary);font-size:12px}
+.field-textarea{width:100%;padding:6px 8px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.08);border-radius:4px;color:var(--text-primary);font-size:12px;min-height:70px;resize:vertical;font-family:inherit;line-height:1.5}
+.field-textarea:focus{outline:none;border-color:var(--accent)}
+.field-row{display:flex;gap:8px}
+.field-row .field-group{flex:1}
+.interaction-list{display:flex;flex-direction:column;gap:6px}
+.interaction-item{padding:8px;background:rgba(187,134,252,0.06);border:1px solid rgba(187,134,252,0.15);border-radius:6px;font-size:11px}
+.interaction-item .ix-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.ix-trigger{color:var(--accent-purple);font-weight:600}
+.ix-target{color:var(--text-secondary)}
+.ix-target .target-name{color:var(--accent)}
+.empty-state{text-align:center;padding:30px 14px;color:var(--text-muted);font-size:12px}
+.empty-state .icon{font-size:32px;margin-bottom:8px;opacity:0.3}
+.json-view{padding:14px;font-family:'Consolas','Monaco',monospace;font-size:11px;line-height:1.6;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary)}
+.json-view .key{color:var(--accent)}
+.json-view .string{color:var(--accent-green)}
+.json-view .number{color:var(--accent-orange)}
+.status-bar{height:28px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--bg-sidebar);border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-muted);flex-shrink:0}
+.status-item{display:flex;align-items:center;gap:4px}
+.status-dot-sm{width:6px;height:6px;border-radius:50%}
+.shortcut-hint kbd{padding:1px 4px;background:rgba(255,255,255,0.06);border-radius:3px;border:1px solid rgba(255,255,255,0.08);font-size:10px}
+.preview-overlay{position:absolute;inset:0;background:#0d1117;z-index:200;display:none;flex-direction:column}
+.preview-overlay.active{display:flex}
+.preview-header{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--bg-sidebar);border-bottom:1px solid rgba(255,255,255,0.06)}
+.preview-header .title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.page-indicator{font-size:11px;color:var(--text-muted);padding:2px 8px;background:rgba(0,217,255,0.1);border-radius:4px}
+.preview-header .actions{display:flex;gap:8px;align-items:center}
+.btn-share{background:var(--accent-purple);color:#000;border:none;font-weight:600;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px}
+.btn-close{background:var(--accent);color:#000;font-weight:600;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:12px}
+.preview-device{flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;padding:20px}
+.preview-phone{width:375px;height:720px;background:#f5f5f5;border-radius:24px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.1);position:relative;border:10px solid #1a1a2e}
+.preview-phone.slide-in-right{animation:slideInRight 0.4s ease}
+.preview-phone.slide-in-left{animation:slideInLeft 0.4s ease}
+@keyframes slideInRight{from{transform:translateX(40px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes slideInLeft{from{transform:translateX(-40px);opacity:0}to{transform:translateX(0);opacity:1}}
+.preview-phone .wf-element{cursor:pointer}
+.preview-phone .back-btn{position:absolute;top:8px;left:8px;width:32px;height:32px;background:rgba(0,0,0,0.05);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;color:#555;z-index:10}
+.preview-phone .back-btn:hover{background:rgba(0,0,0,0.1)}
+.preview-phone::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:120px;height:22px;background:#1a1a2e;border-radius:0 0 12px 12px;z-index:5}
+.preview-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;background:var(--bg-panel);border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-size:12px;z-index:300;display:none;animation:slideUp 0.3s ease}
+@keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.scan-progress{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;z-index:50;display:none}
+.scan-progress.active{display:block}
+.scanner{width:200px;height:360px;border:2px solid var(--accent);border-radius:8px;position:relative;overflow:hidden;margin:0 auto 16px;background:rgba(0,217,255,0.02)}
+.scan-line{position:absolute;left:0;right:0;height:2px;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:scanMove 1.5s linear infinite}
+@keyframes scanMove{0%{top:0}100%{top:100%}}
+.scan-text{color:var(--accent);font-size:14px;font-weight:600}
+.scan-sub{color:var(--text-muted);font-size:11px;margin-top:4px}
+.scan-bar{width:200px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;margin:12px auto 0;overflow:hidden}
+.scan-bar-fill{height:100%;background:var(--accent);border-radius:2px;transition:width 0.4s ease;width:0%}
+.scan-results{margin-top:12px;font-size:11px;color:var(--text-muted);display:flex;gap:12px;justify-content:center}
+.scan-results .stat{text-align:center}
+.scan-results .stat-value{color:var(--accent-green);font-size:16px;font-weight:700}
+.context-menu{position:fixed;z-index:500;background:var(--bg-sidebar);border:1px solid rgba(255,255,255,0.1);border-radius:8px;box-shadow:var(--shadow-lg);min-width:160px;padding:4px;display:none}
+.context-menu.active{display:block}
+.context-menu-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:12px;color:var(--text-primary)}
+.context-menu-item:hover{background:rgba(255,255,255,0.06)}
+.context-menu-item .icon{width:16px;text-align:center}
+.context-menu-item.danger{color:var(--accent-red)}
+.context-menu-divider{height:1px;background:rgba(255,255,255,0.06);margin:4px 0}
+.minimap{position:absolute;bottom:10px;right:10px;width:180px;height:120px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);border-radius:6px;overflow:hidden;z-index:50}
+.minimap-content{position:relative;width:100%;height:100%}
+.minimap-node{position:absolute;background:var(--text-muted);border-radius:1px}
+.minimap-viewport{position:absolute;border:1.5px solid var(--accent);background:rgba(0,217,255,0.05)}
+.onboarding-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:none;align-items:center;justify-content:center}
+.onboarding-overlay.active{display:flex}
+.onboarding-card{width:480px;background:var(--bg-sidebar);border-radius:16px;border:1px solid rgba(255,255,255,0.1);box-shadow:var(--shadow-lg);padding:32px;text-align:center}
+.onboarding-card h2{font-size:22px;margin-bottom:8px;color:var(--accent)}
+.onboarding-card p{font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:16px}
+.features{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;text-align:left}
+.feature{padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06)}
+.feature .f-icon{font-size:20px;margin-bottom:6px}
+.feature .f-title{font-size:12px;font-weight:600;margin-bottom:2px}
+.feature .f-desc{font-size:10px;color:var(--text-muted)}
+.btn-start{padding:10px 32px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+.btn-start:hover{background:#33e0ff;box-shadow:0 0 16px rgba(0,217,255,0.3)}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="toolbar">
+    <div class="logo">⚡ WireProto <span class="version">v2.1</span></div>
+    <div class="divider"></div>
+    <button class="btn primary" id="btnScan">📡 扫描设计稿目录</button>
+    <button class="btn" id="btnUpload">📤 上传</button>
+    <button class="btn active" id="btnToggleAnnotations" title="显示/隐藏标注说明">📝 标注</button>
+    <div class="divider"></div>
+    <button class="btn" id="btnZoomOut">−</button>
+    <div class="zoom-display" id="zoomDisplay">100%</div>
+    <button class="btn" id="btnZoomIn">+</button>
+    <button class="btn" id="btnFitView" title="适应视图 (F)">⤢ 适应</button>
+    <div class="spacer"></div>
+    <div class="mode-switch">
+      <button class="btn active" id="btnEditMode">✏️ 编辑</button>
+      <button class="btn" id="btnPreviewMode">▶️ 预览</button>
+    </div>
+  </div>
+
+  <div class="main-area">
+    <div class="left-sidebar">
+      <div class="sidebar-header"><span>📁 设计稿列表</span><span class="add-btn">+</span></div>
+      <div class="file-list" id="fileList"></div>
+      <div class="sidebar-bottom">
+        <div class="stat-row"><span>总元素</span><span class="stat-value" id="statElements">0</span></div>
+        <div class="stat-row"><span>总交互</span><span class="stat-value" id="statInteractions">0</span></div>
+        <div class="stat-row"><span>总标注</span><span class="stat-value" id="statAnnotations">0</span></div>
+      </div>
+    </div>
+
+    <div class="canvas-container" id="canvasContainer">
+      <div class="canvas-content" id="canvasContent">
+        <svg class="edges-svg" id="edgesSvg"></svg>
+      </div>
+      <div class="box-selection" id="boxSelection"></div>
+      <div class="scan-progress" id="scanProgress">
+        <div class="scanner"><div class="scan-line"></div></div>
+        <div class="scan-text" id="scanText">正在扫描设计稿...</div>
+        <div class="scan-sub" id="scanSub">检测 UI 元素中</div>
+        <div class="scan-bar"><div class="scan-bar-fill" id="scanBarFill"></div></div>
+        <div class="scan-results" id="scanResults" style="display:none;">
+          <div class="stat"><div class="stat-value" id="scanResultPages">0</div><div>页面</div></div>
+          <div class="stat"><div class="stat-value" id="scanResultElements">0</div><div>元素</div></div>
+          <div class="stat"><div class="stat-value" id="scanResultInteractions">0</div><div>交互</div></div>
+          <div class="stat"><div class="stat-value" id="scanResultAnnotations">0</div><div>标注</div></div>
+        </div>
+      </div>
+      <div class="minimap" id="minimap"><div class="minimap-content" id="minimapContent"></div></div>
+    </div>
+
+    <div class="right-panel" id="rightPanel">
+      <div class="panel-tabs">
+        <div class="tab-btn active" data-tab="props">📋 属性</div>
+        <div class="tab-btn" data-tab="json">{} JSON</div>
+        <div class="tab-btn" data-tab="annotations">📝 标注</div>
+      </div>
+      <div class="panel-body">
+        <div id="tabProps">
+          <div class="panel-section">
+            <div class="panel-section-title">元素属性</div>
+            <div class="panel-content" id="propertyPanel"><div class="empty-state"><div class="icon">🖱️</div>点击画布上的元素查看属性</div></div>
+          </div>
+          <div class="panel-section" id="interactionPanel" style="display:none;">
+            <div class="panel-section-title">🔗 交互配置</div>
+            <div class="panel-content" id="interactionContent"></div>
+          </div>
+        </div>
+        <div id="tabJson" style="display:none;">
+          <div class="panel-section">
+            <div class="panel-section-title">结构化 JSON</div>
+            <div class="json-view" id="jsonView"><div class="empty-state"><div class="icon">{}</div>选择元素后显示 JSON Schema</div></div>
+          </div>
+        </div>
+        <div id="tabAnnotations" style="display:none;">
+          <div class="panel-section">
+            <div class="panel-section-title">📝 标注说明</div>
+            <div class="panel-content" id="annotationContent"><div class="empty-state"><div class="icon">📝</div>选择元素后编辑标注</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-item"><span class="status-dot-sm status-done"></span><span>ScreenCoder 已连接</span></div>
+    <div class="status-item"><span id="elementCount">0</span> 元素 · <span id="pageCount">0</span> 页面 · <span id="interactionCount">0</span> 交互 · <span id="annotationCount">0</span> 标注</div>
+    <div class="spacer" style="flex:1"></div>
+    <div class="status-item"><span class="shortcut-hint"><kbd>双击标注</kbd> 编辑文本</span></div>
+    <div class="status-item"><span class="shortcut-hint"><kbd>F</kbd> 适应视图</span></div>
+    <div class="status-item"><span class="shortcut-hint"><kbd>Esc</kbd> 取消选择</span></div>
+    <div class="status-item"><span class="shortcut-hint"><kbd>Shift+拖拽</kbd> 框选</span></div>
+    <div class="status-item"><span>模型: Qwen-VL-Max</span></div>
+  </div>
+
+  <div class="preview-overlay" id="previewOverlay">
+    <div class="preview-header">
+      <div class="title">📱 交互原型预览 <span class="page-indicator" id="previewPageName">首页</span></div>
+      <div class="actions">
+        <select id="previewPageSelect" class="field-select" style="width:120px;"></select>
+        <button class="btn-share" id="btnShare">🔗 分享</button>
+        <button class="btn-close" id="btnClosePreview">✕ 关闭</button>
+      </div>
+    </div>
+    <div class="preview-device"><div class="preview-phone" id="previewPhone"></div></div>
+  </div>
+
+  <div class="preview-toast" id="previewToast"></div>
+  <div class="context-menu" id="contextMenu"></div>
+
+  <div class="onboarding-overlay" id="onboardingOverlay">
+    <div class="onboarding-card">
+      <h2>⚡ WireProto</h2>
+      <p>将设计稿截图自动转换为可交互线框原型。ComfyUI 风格画布，AI 驱动的元素识别、交互推断与标注生成。</p>
+      <div class="features">
+        <div class="feature"><div class="f-icon">📡</div><div class="f-title">自动扫描</div><div class="f-desc">监听目录，自动检测新增设计稿</div></div>
+        <div class="feature"><div class="f-icon">🤖</div><div class="f-title">AI 识别</div><div class="f-desc">ScreenCoder + VLM 识别 UI 元素</div></div>
+        <div class="feature"><div class="f-icon">🖼️</div><div class="f-title">线框生成</div><div class="f-desc">高保真 → 低保真线框转换</div></div>
+        <div class="feature"><div class="f-icon">📝</div><div class="f-title">标注说明</div><div class="f-desc">黑色引线连接文本框说明功能玩法</div></div>
+        <div class="feature"><div class="f-icon">🎨</div><div class="f-title">ComfyUI 画布</div><div class="f-desc">拖拽、缩放、连线编辑</div></div>
+        <div class="feature"><div class="f-icon">📱</div><div class="f-title">交互预览</div><div class="f-desc">一键生成可交互原型</div></div>
+      </div>
+      <button class="btn-start" id="btnOnboardingStart">开始使用</button>
+    </div>
+  </div>
+</div>
+<script>
+// ==========================================
+// Constants & State
+// ==========================================
+const WF_BODY_W = 580, WF_BODY_H = 400;
+const WF_CANVAS_X = 190, WF_CANVAS_Y = 10;
+const ANN_W = 150;
+
+const state = {
+  nodes: [], edges: [],
+  selectedNodeIds: [],
+  selectedElementId: null,
+  zoom: 1, panX: 0, panY: 0,
+  isPanning: false, panStartX: 0, panStartY: 0,
+  isDragging: false, dragNodeId: null, dragOffsetX: 0, dragOffsetY: 0,
+  isBoxSelecting: false, boxStartX: 0, boxStartY: 0,
+  mode: 'edit',
+  showAnnotations: true,
+  files: [
+    { id: 'f1', name: '首页.png', status: 'done', nodeIds: ['n1','n2','n3'], elements: 10 },
+    { id: 'f2', name: '商品详情.png', status: 'done', nodeIds: ['n4','n5','n6'], elements: 9 },
+    { id: 'f3', name: '个人中心.png', status: 'done', nodeIds: ['n7','n8','n9'], elements: 8 },
+    { id: 'f4', name: '购物车.png', status: 'pending', nodeIds: [], elements: 0 },
+    { id: 'f5', name: '登录页.png', status: 'pending', nodeIds: [], elements: 0 },
+    { id: 'f6', name: '搜索页.png', status: 'pending', nodeIds: [], elements: 0 },
+  ],
+};
+
+// ==========================================
+// Node Data (含标注)
+// ==========================================
+const nodeData = {
+  n1: { type:'screenshot', x:40, y:60, label:'首页.png', width:232, height:440, pageId:'p1', collapsed:false },
+  n2: { type:'wireframe', x:330, y:60, label:'首页 — 线框', width:582, height:440, pageId:'p1', collapsed:false,
+    elements: [
+      { id:'e1', type:'navbar', x:8, y:8, w:184, h:28, label:'导航栏', interaction:null },
+      { id:'e2', type:'image', x:8, y:44, w:184, h:56, label:'Banner', interaction:{trigger:'click',action:'navigate',target:'p2'} },
+      { id:'e3', type:'button', x:60, y:108, w:80, h:24, label:'立即查看', interaction:{trigger:'click',action:'navigate',target:'p2'} },
+      { id:'e4', type:'card', x:8, y:140, w:88, h:64, label:'商品卡片', interaction:{trigger:'click',action:'navigate',target:'p2'} },
+      { id:'e5', type:'card', x:104, y:140, w:88, h:64, label:'商品卡片', interaction:{trigger:'click',action:'navigate',target:'p2'} },
+      { id:'e6', type:'card', x:8, y:212, w:88, h:64, label:'商品卡片', interaction:{trigger:'click',action:'navigate',target:'p2'} },
+      { id:'e7', type:'card', x:104, y:212, w:88, h:64, label:'商品卡片', interaction:{trigger:'click',action:'navigate',target:'p2'} },
+      { id:'e8', type:'input', x:8, y:284, w:184, h:24, label:'搜索框', interaction:{trigger:'focus',action:'input',target:null} },
+      { id:'e9', type:'button', x:120, y:316, w:72, h:22, label:'搜索', interaction:{trigger:'click',action:'navigate',target:'p1'} },
+      { id:'e10', type:'navbar', x:8, y:348, w:184, h:28, label:'底部Tab', interaction:{trigger:'click',action:'navigate',target:'p3'} },
+    ],
+    annotations: [
+      { id:'a1', elementId:'e2', side:'left', x:10, y:50, text:'Banner 轮播区：每 3 秒自动切换，点击进入活动详情页' },
+      { id:'a2', elementId:'e3', side:'right', x:420, y:100, text:'主 CTA 按钮：点击跳转商品详情页，转化漏斗第一步' },
+      { id:'a3', elementId:'e4', side:'left', x:10, y:150, text:'商品卡片：展示缩略图与价格，点击查看详情' },
+      { id:'a4', elementId:'e8', side:'right', x:420, y:235, text:'搜索框：点击弹出搜索历史与热门关键词' },
+      { id:'a5', elementId:'e9', side:'right', x:420, y:305, text:'搜索按钮：提交关键词并跳转搜索结果页' },
+      { id:'a6', elementId:'e10', side:'left', x:10, y:320, text:'底部导航：首页 / 分类 / 购物车 / 我的，四 Tab 切换' },
+    ]
+  },
+  n3: { type:'interaction', x:960, y:140, label:'交互逻辑', width:180, collapsed:false,
+    interactions: [
+      { trigger:'点击 Banner', target:'商品详情页', targetId:'p2', type:'navigate' },
+      { trigger:'点击商品卡片', target:'商品详情页', targetId:'p2', type:'navigate' },
+      { trigger:'点击底部Tab', target:'个人中心', targetId:'p3', type:'navigate' },
+      { trigger:'搜索按钮', target:'搜索结果', targetId:'p1', type:'navigate' },
+    ]
+  },
+  n4: { type:'screenshot', x:40, y:580, label:'商品详情.png', width:232, height:440, pageId:'p2', collapsed:false },
+  n5: { type:'wireframe', x:330, y:580, label:'商品详情 — 线框', width:582, height:440, pageId:'p2', collapsed:false,
+    elements: [
+      { id:'e11', type:'navbar', x:8, y:8, w:184, h:28, label:'返回导航', interaction:{trigger:'click',action:'navigate',target:'p1'} },
+      { id:'e12', type:'image', x:8, y:44, w:184, h:120, label:'商品主图', interaction:null },
+      { id:'e13', type:'text', x:8, y:172, w:140, h:12, label:'商品标题文字', interaction:null },
+      { id:'e14', type:'text', x:8, y:190, w:80, h:10, label:'¥99.00', interaction:null },
+      { id:'e15', type:'container', x:8, y:208, w:184, h:60, label:'规格选择区', interaction:null },
+      { id:'e16', type:'button', x:8, y:278, w:88, h:28, label:'加入购物车', interaction:{trigger:'click',action:'popup',target:'cart_popup'} },
+      { id:'e17', type:'button', x:104, y:278, w:88, h:28, label:'立即购买', interaction:{trigger:'click',action:'navigate',target:'p4'} },
+      { id:'e18', type:'card', x:8, y:316, w:184, h:40, label:'商品详情描述', interaction:null },
+      { id:'e19', type:'navbar', x:8, y:362, w:184, h:24, label:'底部操作栏', interaction:null },
+    ],
+    annotations: [
+      { id:'a11', elementId:'e11', side:'left', x:10, y:12, text:'返回导航：点击返回首页' },
+      { id:'a12', elementId:'e12', side:'right', x:420, y:70, text:'商品图轮播：左右滑动切换，双指缩放查看细节' },
+      { id:'a13', elementId:'e15', side:'left', x:10, y:200, text:'规格选择：点击弹出 SKU 面板（颜色 / 尺寸 / 数量）' },
+      { id:'a14', elementId:'e16', side:'left', x:10, y:285, text:'加入购物车：成功后顶部弹出提示 Toast' },
+      { id:'a15', elementId:'e17', side:'right', x:420, y:290, text:'立即购买：跳过购物车直达订单确认页' },
+    ]
+  },
+  n6: { type:'interaction', x:960, y:660, label:'交互逻辑', width:180, collapsed:false,
+    interactions: [
+      { trigger:'点击返回', target:'首页', targetId:'p1', type:'navigate' },
+      { trigger:'加入购物车', target:'弹窗:已加入', targetId:'cart_popup', type:'popup' },
+      { trigger:'立即购买', target:'购物车', targetId:'p4', type:'navigate' },
+    ]
+  },
+  n7: { type:'screenshot', x:1230, y:60, label:'个人中心.png', width:232, height:440, pageId:'p3', collapsed:false },
+  n8: { type:'wireframe', x:1520, y:60, label:'个人中心 — 线框', width:582, height:440, pageId:'p3', collapsed:false,
+    elements: [
+      { id:'e20', type:'image', x:8, y:8, w:184, h:60, label:'用户头像区', interaction:null },
+      { id:'e21', type:'text', x:8, y:76, w:80, h:10, label:'用户昵称', interaction:null },
+      { id:'e22', type:'container', x:8, y:94, w:184, h:40, label:'我的订单', interaction:{trigger:'click',action:'navigate',target:'p1'} },
+      { id:'e23', type:'container', x:8, y:142, w:184, h:40, label:'我的收藏', interaction:{trigger:'click',action:'navigate',target:'p2'} },
+      { id:'e24', type:'container', x:8, y:190, w:184, h:40, label:'收货地址', interaction:null },
+      { id:'e25', type:'container', x:8, y:238, w:184, h:40, label:'优惠券', interaction:null },
+      { id:'e26', type:'button', x:8, y:288, w:184, h:28, label:'设置', interaction:{trigger:'click',action:'navigate',target:'p5'} },
+      { id:'e27', type:'button', x:8, y:324, w:184, h:28, label:'退出登录', interaction:{trigger:'click',action:'navigate',target:'p5'} },
+    ],
+    annotations: [
+      { id:'a21', elementId:'e20', side:'left', x:10, y:15, text:'头像区：点击进入资料编辑，可换头像与昵称' },
+      { id:'a22', elementId:'e22', side:'right', x:420, y:95, text:'我的订单：按待付款 / 待发货 / 待收货筛选' },
+      { id:'a23', elementId:'e23', side:'left', x:10, y:150, text:'我的收藏：左滑可删除收藏商品' },
+      { id:'a24', elementId:'e26', side:'left', x:10, y:285, text:'设置：修改密码、通知开关、清除缓存' },
+      { id:'a25', elementId:'e27', side:'right', x:420, y:330, text:'退出登录：清除登录态并返回登录页' },
+    ]
+  },
+  n9: { type:'interaction', x:2150, y:140, label:'交互逻辑', width:180, collapsed:false,
+    interactions: [
+      { trigger:'我的订单', target:'首页', targetId:'p1', type:'navigate' },
+      { trigger:'我的收藏', target:'商品详情', targetId:'p2', type:'navigate' },
+      { trigger:'设置/退出', target:'登录页', targetId:'p5', type:'navigate' },
+    ]
+  },
+};
+
+const pageNames = { p1:'首页', p2:'商品详情', p3:'个人中心', p4:'购物车', p5:'登录页' };
+const interactionTypeColors = { navigate:'var(--accent)', popup:'var(--accent-orange)', input:'var(--accent-green)', carousel:'var(--accent-purple)' };
+const AI_ANN_POOL = [
+  '点击触发页面跳转，携带当前上下文参数',
+  '长按可触发快捷操作菜单',
+  '该区域支持下拉刷新，松手后加载最新数据',
+  '点击后弹出确认对话框，二次确认防误触',
+  '滑动切换内容，支持惯性滚动与吸顶效果',
+  '双击可快速收藏，再次双击取消',
+];
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function $(id) { return document.getElementById(id); }
+
+// ==========================================
+// Init
+// ==========================================
+function init() {
+  state.nodes = Object.entries(nodeData).map(([id, data]) => ({ id, ...data }));
+  state.edges = [
+    { source:'n1', target:'n2', label:'ScreenCoder 分析' },
+    { source:'n2', target:'n3', label:'交互推断' },
+    { source:'n4', target:'n5', label:'ScreenCoder 分析' },
+    { source:'n5', target:'n6', label:'交互推断' },
+    { source:'n7', target:'n8', label:'ScreenCoder 分析' },
+    { source:'n8', target:'n9', label:'交互推断' },
+    { source:'n3', target:'n6', label:'页面跳转', dashed:true },
+    { source:'n3', target:'n9', label:'页面跳转', dashed:true },
+  ];
+  renderFileList();
+  renderNodes();
+  renderEdges();
+  updateStatus();
+  updateSidebarStats();
+  setupCanvasInteraction();
+  setupToolbar();
+  setupContextMenu();
+  setupKeyboard();
+  setupPanelTabs();
+  $('onboardingOverlay').classList.add('active');
+  $('btnOnboardingStart').addEventListener('click', () => {
+    $('onboardingOverlay').classList.remove('active');
+    selectNode('n2');
+    setTimeout(fitView, 100);
+  });
+}
+
+// ==========================================
+// File List
+// ==========================================
+function renderFileList() {
+  const list = $('fileList');
+  list.innerHTML = state.files.map(f => {
+    const isActive = (f.nodeIds||[]).some(id => state.selectedNodeIds.includes(id));
+    return `<div class="file-item ${isActive?'active':''}" data-file-id="${f.id}">
+      <div class="file-icon">${f.status==='done'?'🖼️':'📄'}</div>
+      <div class="file-info">
+        <div class="file-name">${f.name}</div>
+        <div class="file-status"><span class="status-dot status-${f.status}"></span>${f.status==='done'?'已分析':f.status==='processing'?'分析中...':'待分析'}</div>
+        ${f.elements>0?`<div class="file-elements">${f.elements} 个元素</div>`:''}
+      </div></div>`;
+  }).join('');
+  list.querySelectorAll('.file-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const file = state.files.find(f => f.id === item.dataset.fileId);
+      if (file && file.nodeIds.length > 0) {
+        const wfNode = file.nodeIds.find(id => state.nodes.find(n => n.id===id)?.type==='wireframe');
+        if (wfNode) selectNode(wfNode);
+      }
+    });
+  });
+}
+
+// ==========================================
+// Render Nodes
+// ==========================================
+function renderNodes() {
+  const container = $('canvasContent');
+  container.querySelectorAll('.node').forEach(n => n.remove());
+  state.nodes.forEach(node => {
+    const el = createNodeElement(node);
+    container.appendChild(el);
+    if (node.type === 'wireframe') {
+      bindWireframeEvents(el, node);
+      requestAnimationFrame(() => { layoutAnnotations(node); renderLeaderLines(node); });
+    }
+  });
+}
+
+function createNodeElement(node) {
+  const div = document.createElement('div');
+  div.className = 'node';
+  div.id = `node-${node.id}`;
+  div.style.left = node.x + 'px';
+  div.style.top = node.y + 'px';
+  div.dataset.nodeId = node.id;
+  if (state.selectedNodeIds.includes(node.id)) div.classList.add('selected');
+  if (node.collapsed) div.classList.add('collapsed');
+
+  const badgeClass = node.type==='screenshot'?'badge-screenshot':node.type==='wireframe'?'badge-wireframe':'badge-interaction';
+  const typeLabel = node.type==='screenshot'?'设计稿':node.type==='wireframe'?'线框':'交互';
+  const annCount = node.annotations ? node.annotations.length : 0;
+
+  let bodyHtml = '';
+  if (node.type==='screenshot') bodyHtml = createScreenshotBody(node);
+  else if (node.type==='wireframe') bodyHtml = createWireframeBody(node);
+  else bodyHtml = createInteractionBody(node);
+
+  div.innerHTML = `
+    <div class="node-header">
+      <span class="node-type-badge ${badgeClass}">${typeLabel}</span>
+      <span class="node-title">${node.label}</span>
+      ${annCount>0?`<span class="ann-count">📝 ${annCount}</span>`:''}
+      <span class="collapse-btn">${node.collapsed?'▸':'▾'}</span>
+    </div>
+    <div class="node-body ${node.type==='wireframe'?'wf-node-body':''}">${bodyHtml}</div>
+    <div class="node-port input"></div>
+    <div class="node-port output"></div>`;
+
+  div.addEventListener('mousedown', (e) => {
+    if (e.target.classList.contains('node-port')) return;
+    if (e.target.closest('.annotation-box')) return;
+    if (state.mode === 'preview') return;
+    e.stopPropagation();
+    if (e.shiftKey) {
+      if (!state.selectedNodeIds.includes(node.id)) state.selectedNodeIds.push(node.id);
+      updateNodeSelection();
+      return;
+    }
+    if (!state.selectedNodeIds.includes(node.id)) selectNode(node.id);
+    state.isDragging = true;
+    state.dragNodeId = node.id;
+    state.dragOffsetX = (e.clientX - state.panX) / state.zoom - node.x;
+    state.dragOffsetY = (e.clientY - state.panY) / state.zoom - node.y;
+  });
+
+  div.querySelector('.collapse-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    node.collapsed = !node.collapsed;
+    div.classList.toggle('collapsed');
+    div.querySelector('.collapse-btn').textContent = node.collapsed ? '▸' : '▾';
+    renderEdges();
+  });
+  return div;
+}
+
+function createScreenshotBody(node) {
+  const cls = node.pageId==='p1'?'mock-screen':node.pageId==='p2'?'mock-screen mock-screen-2':'mock-screen mock-screen-3';
+  return `<div class="screenshot-preview"><div class="${cls}">
+    <div class="mock-statusbar"><span>9:41</span><span>100%</span></div>
+    <div class="mock-header"><div class="h-line w20"></div><div class="h-line w40"></div><div style="flex:1"></div><div class="h-line w20"></div></div>
+    <div class="mock-search"><div class="h-line"></div></div>
+    <div class="mock-banner"></div>
+    <div class="mock-grid">
+      <div class="mock-card"><div class="h-line w80"></div><div class="h-line w60"></div></div>
+      <div class="mock-card"><div class="h-line w80"></div><div class="h-line w60"></div></div>
+      <div class="mock-card"><div class="h-line w80"></div><div class="h-line w60"></div></div>
+      <div class="mock-card"><div class="h-line w80"></div><div class="h-line w60"></div></div>
+    </div>
+    <div class="mock-list">
+      <div class="mock-list-item"><div class="avatar"></div><div class="lines"><div class="h-line" style="width:60%"></div><div class="h-line" style="width:40%"></div></div></div>
+      <div class="mock-list-item"><div class="avatar"></div><div class="lines"><div class="h-line" style="width:60%"></div><div class="h-line" style="width:40%"></div></div></div>
+    </div>
+    <div class="mock-tabbar"><div class="tab active"></div><div class="tab"></div><div class="tab"></div><div class="tab"></div></div>
+  </div></div>`;
+}
+
+// Wireframe body: canvas center + annotation boxes + leader SVG
+function createWireframeBody(node) {
+  const elements = (node.elements||[]).map(el => {
+    let cls = `wf-element wf-${el.type}`, inner = '';
+    let style = `left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px;`;
+    if (el.type==='button') inner = `<span class="label">${el.label}</span>`;
+    else if (el.type==='text') inner = `<div class="line" style="left:0;top:50%;width:100%;transform:translateY(-50%);"></div>`;
+    else if (el.type==='input') inner = `<span class="placeholder">${el.label}</span>`;
+    else if (el.type==='navbar') inner = `<div class="tab active"></div><div class="tab"></div><div class="tab"></div><div class="tab"></div>`;
+    else if (el.type==='card'||el.type==='container') { style += `display:flex;align-items:center;justify-content:center;`; inner = `<span style="font-size:8px;color:#aaa;">${el.label}</span>`; }
+    if (el.interaction) cls += ' has-interaction';
+    return `<div class="${cls}" data-el-id="${el.id}" style="${style}">${inner}</div>`;
+  }).join('');
+
+  const sortedAnns = [...(node.annotations||[])].sort((a,b) => a.y - b.y);
+  const anns = sortedAnns.map((a, idx) => {
+    const elData = node.elements.find(e => e.id === a.elementId);
+    return `<div class="annotation-box" data-ann-id="${a.id}" style="left:${a.x}px;top:${a.y}px;display:${state.showAnnotations?'block':'none'};">
+      <div class="ann-head"><span class="ann-number">${idx+1}</span><span class="ann-title">${elData?elData.label:'标注'}</span></div>
+      <div class="ann-text" title="双击编辑">${a.text}</div>
+    </div>`;
+  }).join('');
+
+  return `<svg class="leader-svg" style="display:${state.showAnnotations?'block':'none'};"></svg>
+    <div class="wireframe-canvas">${elements}</div>${anns}`;
+}
+
+function createInteractionBody(node) {
+  return (node.interactions||[]).map(ix => `
+    <div class="interaction-row">
+      <span class="trigger" style="color:${interactionTypeColors[ix.type]||'var(--accent-purple)'}">${ix.trigger}</span>
+      <span class="arrow">→</span>
+      <span class="target">${ix.target}</span>
+    </div>`).join('');
+}
+
+// ==========================================
+// Wireframe Events (elements + annotations)
+// ==========================================
+function bindWireframeEvents(nodeEl, node) {
+  nodeEl.querySelectorAll('.wf-element').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.mode === 'preview') return;
+      selectElement(node.id, el.dataset.elId);
+    });
+    el.addEventListener('mouseenter', () => {
+      const d = node.elements.find(x => x.id === el.dataset.elId);
+      if (d) showElementTooltip(el, d);
+    });
+    el.addEventListener('mouseleave', hideElementTooltip);
+  });
+
+  nodeEl.querySelectorAll('.annotation-box').forEach(annEl => {
+    const annId = annEl.dataset.annId;
+    const ann = (node.annotations||[]).find(a => a.id === annId);
+    if (!ann) return;
+
+    // Drag or click-select
+    annEl.addEventListener('mousedown', (e) => {
+      if (state.mode === 'preview') return;
+      if (e.target.isContentEditable) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX, startY = e.clientY;
+      const origX = ann.x, origY = ann.y;
+      let moved = false;
+      function onMove(ev) {
+        const dx = (ev.clientX - startX) / state.zoom;
+        const dy = (ev.clientY - startY) / state.zoom;
+        if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+        if (!moved) return;
+        ann.x = clamp(origX + dx, 0, WF_BODY_W - ANN_W);
+        ann.y = clamp(origY + dy, 0, WF_BODY_H - 40);
+        annEl.style.left = ann.x + 'px';
+        annEl.style.top = ann.y + 'px';
+        renderLeaderLines(node);
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (!moved) selectElement(node.id, ann.elementId);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Hover: highlight element + line
+    annEl.addEventListener('mouseenter', () => {
+      const elDom = nodeEl.querySelector(`.wf-element[data-el-id="${ann.elementId}"]`);
+      if (elDom) elDom.classList.add('ann-hover');
+      highlightLine(nodeEl, annId, true);
+    });
+    annEl.addEventListener('mouseleave', () => {
+      const elDom = nodeEl.querySelector(`.wf-element[data-el-id="${ann.elementId}"]`);
+      if (elDom) elDom.classList.remove('ann-hover');
+      highlightLine(nodeEl, annId, false);
+    });
+
+    // Double-click edit
+    const textEl = annEl.querySelector('.ann-text');
+    textEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      textEl.contentEditable = 'true';
+      textEl.focus();
+      document.execCommand('selectAll', false, null);
+    });
+    textEl.addEventListener('blur', () => {
+      if (textEl.contentEditable === 'true') {
+        textEl.contentEditable = 'false';
+        ann.text = textEl.innerText.trim();
+        renderLeaderLines(node);
+      }
+    });
+    textEl.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); textEl.blur(); }
+      if (e.key === 'Escape') { textEl.innerText = ann.text; textEl.blur(); }
+    });
+  });
+}
+
+function highlightLine(nodeEl, annId, on) {
+  const line = nodeEl.querySelector(`[data-line-ann="${annId}"]`);
+  if (!line) return;
+  if (on) {
+    line.setAttribute('stroke', 'var(--accent-orange)');
+    line.setAttribute('stroke-width', '2.5');
+  } else {
+    const node = state.nodes.find(n => `node-${n.id}` === nodeEl.id);
+    if (node) renderLeaderLines(node);
+  }
+}
+
+function refreshWireframeNode(node) {
+  const nodeEl = $(`node-${node.id}`);
+  if (!nodeEl) return;
+  nodeEl.querySelector('.node-body').innerHTML = createWireframeBody(node);
+  bindWireframeEvents(nodeEl, node);
+  const badge = nodeEl.querySelector('.ann-count');
+  if (badge) badge.textContent = `📝 ${(node.annotations||[]).length}`;
+  requestAnimationFrame(() => { layoutAnnotations(node); renderLeaderLines(node); });
+}
+
+// ==========================================
+// Annotation Layout & Leader Lines
+// ==========================================
+function layoutAnnotations(node) {
+  const nodeEl = $(`node-${node.id}`);
+  if (!nodeEl || !node.annotations) return;
+  ['left','right'].forEach(side => {
+    const list = node.annotations.filter(a => a.side===side).sort((a,b) => a.y-b.y);
+    let cursor = 0;
+    list.forEach(a => {
+      const el = nodeEl.querySelector(`[data-ann-id="${a.id}"]`);
+      if (!el) return;
+      if (a.y < cursor) { a.y = cursor; el.style.top = a.y + 'px'; }
+      cursor = a.y + el.offsetHeight + 10;
+    });
+  });
+}
+
+function renderLeaderLines(node) {
+  const nodeEl = $(`node-${node.id}`);
+  if (!nodeEl) return;
+  const svg = nodeEl.querySelector('.leader-svg');
+  const body = nodeEl.querySelector('.wf-node-body');
+  if (!svg || !body) return;
+  const bodyRect = body.getBoundingClientRect();
+  const zoom = state.zoom || 1;
+  let html = '';
+
+  (node.annotations||[]).forEach(a => {
+    const elData = node.elements.find(e => e.id === a.elementId);
+    const annEl = nodeEl.querySelector(`[data-ann-id="${a.id}"]`);
+    if (!elData || !annEl) return;
+
+    const r = annEl.getBoundingClientRect();
+    const bx = (r.left - bodyRect.left) / zoom;
+    const by = (r.top - bodyRect.top) / zoom;
+    const bw = r.width / zoom;
+    const bh = r.height / zoom;
+
+    const ecx = WF_CANVAS_X + elData.x + elData.w / 2;
+    const ecy = WF_CANVAS_Y + elData.y + elData.h / 2;
+    const boxCX = bx + bw / 2;
+    const ax = boxCX >= ecx ? WF_CANVAS_X + elData.x + elData.w : WF_CANVAS_X + elData.x;
+    const px = boxCX >= ecx ? bx : bx + bw;
+    const py = by + bh / 2;
+
+    const isSelected = state.selectedElementId === a.elementId;
+    const stroke = isSelected ? 'var(--accent)' : '#1a1a1a';
+    const w = isSelected ? 2.5 : 1.5;
+    const midX = (ax + px) / 2;
+
+    html += `<path data-line-ann="${a.id}" d="M ${ax} ${ecy} L ${midX} ${ecy} L ${midX} ${py} L ${px} ${py}" fill="none" stroke="${stroke}" stroke-width="${w}"/>`;
+    html += `<circle cx="${ax}" cy="${ecy}" r="3" fill="${stroke}"/>`;
+  });
+  svg.innerHTML = html;
+}
+
+function syncAnnotationSelection(nodeId, elementId) {
+  const nodeEl = $(`node-${nodeId}`);
+  if (!nodeEl) return;
+  const node = state.nodes.find(n => n.id === nodeId);
+  nodeEl.querySelectorAll('.annotation-box').forEach(b => b.classList.remove('selected'));
+  const ann = (node?.annotations||[]).find(a => a.elementId === elementId);
+  if (ann) {
+    const box = nodeEl.querySelector(`[data-ann-id="${ann.id}"]`);
+    if (box) box.classList.add('selected');
+  }
+  if (node) renderLeaderLines(node);
+}
+
+function addAnnotation(node, element) {
+  if (!node.annotations) node.annotations = [];
+  const side = (element.x + element.w/2) < 100 ? 'left' : 'right';
+  node.annotations.push({
+    id: 'a_' + Date.now(),
+    elementId: element.id,
+    side,
+    x: side === 'left' ? 10 : 420,
+    y: clamp(WF_CANVAS_Y + element.y, 0, WF_BODY_H - 60),
+    text: '双击编辑标注说明…',
+  });
+  refreshWireframeNode(node);
+  selectElement(node.id, element.id);
+  showToast($('previewToast'), '📝 已添加标注，双击文本框编辑内容');
+}
+
+// ==========================================
+// Tooltip
+// ==========================================
+let tooltipEl = null;
+function showElementTooltip(domEl, data) {
+  hideElementTooltip();
+  tooltipEl = document.createElement('div');
+  tooltipEl.className = 'wf-tooltip visible';
+  const typeNames = { button:'按钮', input:'输入框', image:'图片', text:'文本', card:'卡片', container:'容器', navbar:'导航栏' };
+  tooltipEl.innerHTML = `<strong>${typeNames[data.type]||data.type}</strong> — ${data.label}${data.interaction?'<br>🔗 有交互':''}`;
+  document.body.appendChild(tooltipEl);
+  const rect = domEl.getBoundingClientRect();
+  tooltipEl.style.left = rect.left + rect.width/2 + 'px';
+  tooltipEl.style.top = rect.top - 30 + 'px';
+}
+function hideElementTooltip() { if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; } }
+
+// ==========================================
+// Render Edges
+// ==========================================
+function renderEdges() {
+  const svg = $('edgesSvg');
+  svg.innerHTML = '';
+  svg.setAttribute('width', '3000');
+  svg.setAttribute('height', '2000');
+  state.edges.forEach(edge => {
+    const s = state.nodes.find(n => n.id === edge.source);
+    const t = state.nodes.find(n => n.id === edge.target);
+    if (!s || !t) return;
+    const x1 = s.x + (s.width||200), y1 = s.y + (s.collapsed?20:60);
+    const x2 = t.x, y2 = t.y + (t.collapsed?20:60);
+    const midX = (x1+x2)/2;
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke', edge.dashed?'rgba(187,134,252,0.4)':'rgba(0,217,255,0.4)');
+    path.setAttribute('stroke-width','2');
+    if (edge.dashed) path.setAttribute('stroke-dasharray','6,4');
+    svg.appendChild(path);
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    arrow.setAttribute('points', `${x2},${y2} ${x2-6},${y2-3} ${x2-6},${y2+3}`);
+    arrow.setAttribute('fill', edge.dashed?'rgba(187,134,252,0.6)':'rgba(0,217,255,0.6)');
+    svg.appendChild(arrow);
+    if (edge.label) {
+      const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+      text.setAttribute('x', midX); text.setAttribute('y', y1-8);
+      text.setAttribute('fill','#8892b0'); text.setAttribute('font-size','10'); text.setAttribute('text-anchor','middle');
+      text.textContent = edge.label;
+      svg.appendChild(text);
+    }
+  });
+}
+
+// ==========================================
+// Canvas Interaction
+// ==========================================
+function setupCanvasInteraction() {
+  const container = $('canvasContainer');
+  container.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.node') || e.target.closest('.minimap')) return;
+    if (state.mode === 'preview') return;
+    if (e.shiftKey) {
+      state.isBoxSelecting = true;
+      const rect = container.getBoundingClientRect();
+      state.boxStartX = (e.clientX - rect.left - state.panX) / state.zoom;
+      state.boxStartY = (e.clientY - rect.top - state.panY) / state.zoom;
+      const box = $('boxSelection');
+      box.style.display = 'block';
+      box.style.left = (e.clientX - rect.left) + 'px';
+      box.style.top = (e.clientY - rect.top) + 'px';
+      box.style.width = '0px'; box.style.height = '0px';
+      return;
+    }
+    state.isPanning = true;
+    state.panStartX = e.clientX - state.panX;
+    state.panStartY = e.clientY - state.panY;
+    container.classList.add('panning');
+    deselectAll();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (state.isPanning) {
+      state.panX = e.clientX - state.panStartX;
+      state.panY = e.clientY - state.panStartY;
+      updateTransform();
+    }
+    if (state.isBoxSelecting) {
+      const rect = container.getBoundingClientRect();
+      const curX = (e.clientX - rect.left - state.panX) / state.zoom;
+      const curY = (e.clientY - rect.top - state.panY) / state.zoom;
+      const box = $('boxSelection');
+      const x = Math.min(state.boxStartX, curX), y = Math.min(state.boxStartY, curY);
+      const w = Math.abs(curX - state.boxStartX), h = Math.abs(curY - state.boxStartY);
+      box.style.left = (x*state.zoom + state.panX) + 'px';
+      box.style.top = (y*state.zoom + state.panY) + 'px';
+      box.style.width = w*state.zoom + 'px';
+      box.style.height = h*state.zoom + 'px';
+      state.selectedNodeIds = [];
+      state.nodes.forEach(node => {
+        const nw = node.width||200, nh = node.height||400;
+        if (node.x < x+w && node.x+nw > x && node.y < y+h && node.y+nh > y) state.selectedNodeIds.push(node.id);
+      });
+      updateNodeSelection();
+    }
+    if (state.isDragging && state.dragNodeId) {
+      const node = state.nodes.find(n => n.id === state.dragNodeId);
+      if (node) {
+        node.x = (e.clientX - state.panX)/state.zoom - state.dragOffsetX;
+        node.y = (e.clientY - state.panY)/state.zoom - state.dragOffsetY;
+        const el = $(`node-${node.id}`);
+        if (el) { el.style.left = node.x+'px'; el.style.top = node.y+'px'; }
+        renderEdges();
+        updateMinimap();
+      }
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (state.isBoxSelecting) {
+      state.isBoxSelecting = false;
+      $('boxSelection').style.display = 'none';
+      if (state.selectedNodeIds.length > 0) {
+        const node = state.nodes.find(n => n.id === state.selectedNodeIds[0]);
+        if (node) renderPropertyPanel(node);
+      }
+    }
+    state.isPanning = false;
+    state.isDragging = false;
+    state.dragNodeId = null;
+    $('canvasContainer').classList.remove('panning');
+  });
+
+  container.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newZoom = clamp(state.zoom * delta, 0.15, 3);
+    const rect = container.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    state.panX = mx - (mx - state.panX) * (newZoom/state.zoom);
+    state.panY = my - (my - state.panY) * (newZoom/state.zoom);
+    state.zoom = newZoom;
+    updateTransform();
+  });
+}
+
+function updateTransform() {
+  $('canvasContent').style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+  $('zoomDisplay').textContent = Math.round(state.zoom*100) + '%';
+  updateMinimap();
+}
+
+// ==========================================
+// Selection
+// ==========================================
+function selectNode(nodeId) {
+  state.selectedNodeIds = [nodeId];
+  state.selectedElementId = null;
+  updateNodeSelection();
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (node) { renderPropertyPanel(node); renderFileList(); }
+}
+
+function selectElement(nodeId, elementId) {
+  state.selectedNodeIds = [nodeId];
+  state.selectedElementId = elementId;
+  updateNodeSelection();
+  document.querySelectorAll('.wf-element').forEach(e => e.classList.remove('selected'));
+  const el = document.querySelector(`#node-${nodeId} .wf-element[data-el-id="${elementId}"]`);
+  if (el) el.classList.add('selected');
+  const node = state.nodes.find(n => n.id === nodeId);
+  if (node) {
+    const element = node.elements.find(e => e.id === elementId);
+    renderPropertyPanel(node, element);
+    renderFileList();
+    syncAnnotationSelection(nodeId, elementId);
+  }
+}
+
+function updateNodeSelection() {
+  document.querySelectorAll('.node').forEach(n => {
+    n.classList.remove('selected','multi-selected');
+    if (state.selectedNodeIds.includes(n.dataset.nodeId)) {
+      n.classList.add(state.selectedNodeIds.length > 1 ? 'multi-selected' : 'selected');
+    }
+  });
+}
+
+function deselectAll() {
+  state.selectedNodeIds = [];
+  state.selectedElementId = null;
+  updateNodeSelection();
+  document.querySelectorAll('.wf-element').forEach(e => e.classList.remove('selected'));
+  document.querySelectorAll('.annotation-box').forEach(b => b.classList.remove('selected'));
+  renderPropertyPanel(null);
+  renderFileList();
+}
+
+// ==========================================
+// Property Panel
+// ==========================================
+function renderPropertyPanel(node, element) {
+  const panel = $('propertyPanel');
+  const ixPanel = $('interactionPanel');
+  const ixContent = $('interactionContent');
+
+  if (!node) {
+    panel.innerHTML = '<div class="empty-state"><div class="icon">🖱️</div>点击画布上的元素查看属性</div>';
+    ixPanel.style.display = 'none';
+    return;
+  }
+
+  if (element) {
+    panel.innerHTML = `
+      <div class="field-group"><label class="field-label">元素 ID</label><input class="field-input" value="${element.id}" readonly></div>
+      <div class="field-group"><label class="field-label">元素类型</label>
+        <select class="field-select">${['button','input','image','text','card','container','navbar'].map(t=>`<option ${element.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div class="field-group"><label class="field-label">标签文本</label><input class="field-input" value="${element.label||''}"></div>
+      <div class="field-row">
+        <div class="field-group"><label class="field-label">X</label><input class="field-input" type="number" value="${element.x}"></div>
+        <div class="field-group"><label class="field-label">Y</label><input class="field-input" type="number" value="${element.y}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label class="field-label">宽度</label><input class="field-input" type="number" value="${element.w}"></div>
+        <div class="field-group"><label class="field-label">高度</label><input class="field-input" type="number" value="${element.h}"></div>
+      </div>
+      <div class="field-group"><label class="field-label">来源</label><input class="field-input" value="AI 识别 (Qwen-VL)" readonly style="opacity:0.6;"></div>`;
+
+    if (element.interaction) {
+      ixPanel.style.display = 'block';
+      ixContent.innerHTML = `
+        <div class="interaction-list"><div class="interaction-item">
+          <div class="ix-header"><span class="ix-trigger">${element.interaction.trigger}</span></div>
+          <div class="ix-target">动作: <span style="color:var(--accent-orange)">${element.interaction.action}</span><br>目标: <span class="target-name">${element.interaction.target?pageNames[element.interaction.target]||element.interaction.target:'—'}</span></div>
+        </div></div>
+        <button class="btn" style="width:100%;margin-top:8px;justify-content:center;padding:6px;border-radius:4px;background:rgba(187,134,252,0.1);border:1px solid rgba(187,134,252,0.3);color:var(--accent-purple);cursor:pointer;font-size:11px;">+ 添加交互</button>`;
+    } else {
+      ixPanel.style.display = 'block';
+      ixContent.innerHTML = `
+        <div class="empty-state" style="padding:14px;"><div style="font-size:11px;margin-bottom:8px;">该元素暂无交互配置</div></div>
+        <button class="btn" style="width:100%;justify-content:center;padding:6px;border-radius:4px;background:rgba(187,134,252,0.1);border:1px solid rgba(187,134,252,0.3);color:var(--accent-purple);cursor:pointer;font-size:11px;">+ 添加交互</button>`;
+    }
+
+    updateJsonView(node, element);
+    updateAnnotationView(node, element);
+  } else {
+    panel.innerHTML = `
+      <div class="field-group"><label class="field-label">节点 ID</label><input class="field-input" value="${node.id}" readonly></div>
+      <div class="field-group"><label class="field-label">节点类型</label><input class="field-input" value="${node.type}" readonly style="opacity:0.6;"></div>
+      <div class="field-group"><label class="field-label">名称</label><input class="field-input" value="${node.label}"></div>
+      <div class="field-row">
+        <div class="field-group"><label class="field-label">位置 X</label><input class="field-input" type="number" value="${node.x}"></div>
+        <div class="field-group"><label class="field-label">位置 Y</label><input class="field-input" type="number" value="${node.y}"></div>
+      </div>
+      ${node.type==='wireframe'?`
+      <div class="field-group"><label class="field-label">元素数量</label><input class="field-input" value="${node.elements?.length||0} 个" readonly style="opacity:0.6;"></div>
+      <div class="field-group"><label class="field-label">标注数量</label><input class="field-input" value="${node.annotations?.length||0} 条" readonly style="opacity:0.6;"></div>
+      <div class="field-group"><label class="field-label">所属页面</label><input class="field-input" value="${pageNames[node.pageId]||'—'}" readonly style="opacity:0.6;"></div>`:''}
+      ${node.type==='screenshot'?`
+      <div class="field-group"><label class="field-label">来源文件</label><input class="field-input" value="${node.label}" readonly style="opacity:0.6;"></div>
+      <div class="field-group"><label class="field-label">分析状态</label><input class="field-input" value="✅ ScreenCoder 已完成" readonly style="opacity:0.6;color:var(--accent-green);"></div>`:''}`;
+    ixPanel.style.display = 'none';
+  }
+}
+
+// ==========================================
+// JSON View
+// ==========================================
+function updateJsonView(node, element) {
+  const view = $('jsonView');
+  if (!element) { view.innerHTML = '<div class="empty-state"><div class="icon">{}</div>选择元素后显示 JSON Schema</div>'; return; }
+  const ann = (node.annotations||[]).find(a => a.elementId === element.id);
+  const data = { ...element, annotation: ann ? ann.text : null };
+  const json = JSON.stringify(data, null, 2);
+  view.innerHTML = json
+    .replace(/"([^"]+)":/g, '<span class="key">"$1"</span>:')
+    .replace(/: "([^"]*)"/g, ': <span class="string">"$1"</span>')
+    .replace(/: (\d+)/g, ': <span class="number">$1</span>')
+    .replace(/: (null|true|false)/g, ': <span style="color:var(--accent-red)">$1</span>');
+}
+
+// ==========================================
+// Annotation Panel
+// ==========================================
+function updateAnnotationView(node, element) {
+  const view = $('annotationContent');
+  if (!element) { view.innerHTML = '<div class="empty-state"><div class="icon">📝</div>选择元素后编辑标注</div>'; return; }
+  const ann = (node.annotations||[]).find(a => a.elementId === element.id);
+  view.innerHTML = `
+    <div class="field-group">
+      <label class="field-label">关联元素: <span style="color:var(--accent)">${element.label}</span></label>
+      <textarea class="field-textarea" id="annTextarea">${ann ? ann.text : ''}</textarea>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" id="btnSaveAnn" style="flex:1;justify-content:center;padding:6px;border-radius:4px;background:rgba(0,217,255,0.08);border:1px solid rgba(0,217,255,0.2);color:var(--accent);cursor:pointer;font-size:11px;">💾 ${ann?'保存标注':'创建标注'}</button>
+      <button class="btn" id="btnAiAnn" style="flex:1;justify-content:center;padding:6px;border-radius:4px;background:rgba(187,134,252,0.08);border:1px solid rgba(187,134,252,0.2);color:var(--accent-purple);cursor:pointer;font-size:11px;">🤖 AI 生成</button>
+    </div>
+    <div style="margin-top:10px;font-size:10px;color:var(--text-muted);line-height:1.5;">
+      💡 标注会以黑色引线连接文本框和线框元素，用于说明功能或玩法。双击画布上的标注框可直接编辑。
+    </div>`;
+
+  $('btnSaveAnn').addEventListener('click', () => {
+    const text = $('annTextarea').value.trim();
+    if (!text) return;
+    if (ann) { ann.text = text; refreshWireframeNode(node); selectElement(node.id, element.id); }
+    else {
+      const side = (element.x + element.w/2) < 100 ? 'left' : 'right';
+      node.annotations = node.annotations || [];
+      node.annotations.push({ id:'a_'+Date.now(), elementId:element.id, side, x: side==='left'?10:420, y: clamp(WF_CANVAS_Y+element.y, 0, WF_BODY_H-60), text });
+      refreshWireframeNode(node);
+      selectElement(node.id, element.id);
+    }
+    showToast($('previewToast'), '💾 标注已保存');
+  });
+  $('btnAiAnn').addEventListener('click', () => {
+    const text = AI_ANN_POOL[Math.floor(Math.random()*AI_ANN_POOL.length)];
+    $('annTextarea').value = text;
+    showToast($('previewToast'), '🤖 AI 已生成标注，点击保存生效');
+  });
+}
+
+// ==========================================
+// Panel Tabs
+// ==========================================
+function setupPanelTabs() {
+  document.querySelectorAll('.panel-tabs .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.panel-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.dataset.tab;
+      $('tabProps').style.display = tab==='props'?'block':'none';
+      $('tabJson').style.display = tab==='json'?'block':'none';
+      $('tabAnnotations').style.display = tab==='annotations'?'block':'none';
+    });
+  });
+}
+
+// ==========================================
+// Context Menu
+// ==========================================
+function setupContextMenu() {
+  const menu = $('contextMenu');
+  $('canvasContainer').addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (state.mode === 'preview') return;
+    const nodeEl = e.target.closest('.node');
+    const elEl = e.target.closest('.wf-element');
+    const annEl = e.target.closest('.annotation-box');
+    let items = [];
+
+    if (annEl) {
+      const node = state.nodes.find(n => n.id === nodeEl.dataset.nodeId);
+      const ann = node?.annotations?.find(a => a.id === annEl.dataset.annId);
+      items = [
+        { icon:'✏️', label:'编辑标注', action: () => { const t = annEl.querySelector('.ann-text'); t.contentEditable='true'; t.focus(); } },
+        { icon:'🤖', label:'AI 重新生成', action: () => { if (ann) { ann.text = AI_ANN_POOL[Math.floor(Math.random()*AI_ANN_POOL.length)]; refreshWireframeNode(node); } } },
+        { divider:true },
+        { icon:'🗑️', label:'删除标注', danger:true, action: () => {
+          node.annotations = node.annotations.filter(a => a.id !== ann.id);
+          refreshWireframeNode(node); updateStatus(); updateSidebarStats();
+        }},
+      ];
+    } else if (elEl) {
+      const node = state.nodes.find(n => n.id === nodeEl.dataset.nodeId);
+      const el = node?.elements.find(x => x.id === elEl.dataset.elId);
+      const hasAnn = node?.annotations?.some(a => a.elementId === el?.id);
+      items = [
+        { icon:'✏️', label:'编辑元素', action: () => { if (el) selectElement(node.id, el.id); } },
+        { icon:'📝', label: hasAnn ? '编辑标注' : '添加标注', action: () => {
+          if (!el) return;
+          if (hasAnn) { selectElement(node.id, el.id); }
+          else addAnnotation(node, el);
+        }},
+        { icon:'🔗', label:'添加交互', action: () => { if (el) selectElement(node.id, el.id); } },
+        { divider:true },
+        { icon:'🗑️', label:'删除元素', danger:true, action: () => {} },
+      ];
+    } else if (nodeEl) {
+      const node = state.nodes.find(n => n.id === nodeEl.dataset.nodeId);
+      items = [
+        { icon: node?.collapsed?'▸':'▾', label: node?.collapsed?'展开':'折叠', action: () => {
+          if (node) { node.collapsed = !node.collapsed; nodeEl.classList.toggle('collapsed'); nodeEl.querySelector('.collapse-btn').textContent = node.collapsed?'▸':'▾'; renderEdges(); }
+        }},
+        { icon:'📋', label:'复制节点', action: () => {} },
+        { divider:true },
+        { icon:'🗑️', label:'删除节点', danger:true, action: () => {} },
+      ];
+    } else {
+      items = [
+        { icon:'➕', label:'添加节点', action: () => {} },
+        { icon:'⤢', label:'适应视图', action: fitView },
+        { icon:'📡', label:'扫描设计稿', action: startScan },
+      ];
+    }
+
+    menu.innerHTML = items.map(item => item.divider ? '<div class="context-menu-divider"></div>' :
+      `<div class="context-menu-item ${item.danger?'danger':''}"><span class="icon">${item.icon}</span>${item.label}</div>`).join('');
+    menu.classList.add('active');
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+    const actions = items.filter(x => !x.divider);
+    menu.querySelectorAll('.context-menu-item').forEach((item, i) => {
+      item.addEventListener('click', () => { actions[i]?.action(); menu.classList.remove('active'); });
+    });
+  });
+  document.addEventListener('click', () => menu.classList.remove('active'));
+}
+
+// ==========================================
+// Keyboard
+// ==========================================
+function setupKeyboard() {
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable) return;
+    if (e.key==='f'||e.key==='F') fitView();
+    if (e.key==='Escape') {
+      if ($('previewOverlay').classList.contains('active')) $('btnEditMode').click();
+      else deselectAll();
+    }
+    if (e.key==='Delete' && state.selectedNodeIds.length>0) {
+      showToast($('previewToast'), `🗑️ 已删除 ${state.selectedNodeIds.length} 个节点`);
+      deselectAll();
+    }
+    if (e.ctrlKey && e.key==='a') { e.preventDefault(); state.selectedNodeIds = state.nodes.map(n=>n.id); updateNodeSelection(); }
+  });
+}
+
+// ==========================================
+// Status & Stats
+// ==========================================
+function updateStatus() {
+  const allElements = state.nodes.filter(n=>n.type==='wireframe').flatMap(n=>n.elements||[]);
+  const interactions = allElements.filter(e=>e.interaction);
+  const annotations = state.nodes.filter(n=>n.type==='wireframe').flatMap(n=>n.annotations||[]);
+  const pages = [...new Set(state.nodes.filter(n=>n.pageId).map(n=>n.pageId))];
+  $('elementCount').textContent = allElements.length;
+  $('pageCount').textContent = pages.length;
+  $('interactionCount').textContent = interactions.length;
+  $('annotationCount').textContent = annotations.length;
+}
+
+function updateSidebarStats() {
+  const allElements = state.nodes.filter(n=>n.type==='wireframe').flatMap(n=>n.elements||[]);
+  const interactions = allElements.filter(e=>e.interaction);
+  const annotations = state.nodes.filter(n=>n.type==='wireframe').flatMap(n=>n.annotations||[]);
+  $('statElements').textContent = allElements.length;
+  $('statInteractions').textContent = interactions.length;
+  $('statAnnotations').textContent = annotations.length;
+}
+
+// ==========================================
+// Minimap
+// ==========================================
+function updateMinimap() {
+  const content = $('minimapContent');
+  if (!content) return;
+  const maxRight = Math.max(...state.nodes.map(n => n.x + (n.width||200)), 100);
+  const maxBottom = Math.max(...state.nodes.map(n => n.y + (n.height||400)), 100);
+  const scale = Math.min(160/maxRight, 100/maxBottom);
+  let html = '';
+  state.nodes.forEach(node => {
+    const color = node.type==='screenshot'?'var(--accent-orange)':node.type==='wireframe'?'var(--accent-green)':'var(--accent-purple)';
+    html += `<div class="minimap-node" style="left:${node.x*scale}px;top:${node.y*scale}px;width:${(node.width||200)*scale}px;height:${(node.height||400)*scale}px;background:${color};"></div>`;
+  });
+  const container = $('canvasContainer');
+  html += `<div class="minimap-viewport" style="left:${(-state.panX/state.zoom)*scale}px;top:${(-state.panY/state.zoom)*scale}px;width:${(container.clientWidth/state.zoom)*scale}px;height:${(container.clientHeight/state.zoom)*scale}px;"></div>`;
+  content.innerHTML = html;
+}
+
+// ==========================================
+// Toolbar
+// ==========================================
+function setupToolbar() {
+  $('btnZoomIn').addEventListener('click', () => { state.zoom = Math.min(3, state.zoom*1.2); updateTransform(); });
+  $('btnZoomOut').addEventListener('click', () => { state.zoom = Math.max(0.15, state.zoom/1.2); updateTransform(); });
+  $('btnFitView').addEventListener('click', fitView);
+  $('btnScan').addEventListener('click', startScan);
+
+  $('btnToggleAnnotations').addEventListener('click', () => {
+    state.showAnnotations = !state.showAnnotations;
+    $('btnToggleAnnotations').classList.toggle('active', state.showAnnotations);
+    document.querySelectorAll('.annotation-box').forEach(b => b.style.display = state.showAnnotations?'block':'none');
+    document.querySelectorAll('.leader-svg').forEach(s => s.style.display = state.showAnnotations?'block':'none');
+    showToast($('previewToast'), state.showAnnotations ? '📝 标注已显示' : '📝 标注已隐藏');
+  });
+
+  $('btnEditMode').addEventListener('click', () => {
+    state.mode = 'edit';
+    $('btnEditMode').classList.add('active');
+    $('btnPreviewMode').classList.remove('active');
+    $('previewOverlay').classList.remove('active');
+  });
+  $('btnPreviewMode').addEventListener('click', () => {
+    state.mode = 'preview';
+    $('btnPreviewMode').classList.add('active');
+    $('btnEditMode').classList.remove('active');
+    startPreview();
+  });
+  $('btnClosePreview').addEventListener('click', () => $('btnEditMode').click());
+  $('previewPageSelect').addEventListener('change', (e) => renderPreviewPage(e.target.value));
+  $('btnShare').addEventListener('click', () => showToast($('previewToast'), '🔗 分享链接已复制: wireproto.app/p/abc123'));
+}
+
+function fitView() {
+  if (state.nodes.length===0) return;
+  const minX = Math.min(...state.nodes.map(n=>n.x));
+  const maxX = Math.max(...state.nodes.map(n=>n.x+(n.width||200)));
+  const minY = Math.min(...state.nodes.map(n=>n.y));
+  const maxY = Math.max(...state.nodes.map(n=>n.y+(n.height||400)));
+  const container = $('canvasContainer');
+  const cw = container.clientWidth-100, ch = container.clientHeight-100;
+  state.zoom = Math.min(cw/(maxX-minX), ch/(maxY-minY), 1);
+  state.panX = 50 - minX*state.zoom;
+  state.panY = 50 - minY*state.zoom;
+  updateTransform();
+}
+
+// ==========================================
+// Scan Animation
+// ==========================================
+function startScan() {
+  const progress = $('scanProgress');
+  const scanText = $('scanText'), scanSub = $('scanSub'), scanBar = $('scanBarFill'), scanResults = $('scanResults');
+  progress.classList.add('active');
+  scanResults.style.display = 'none';
+  scanBar.style.width = '0%';
+
+  const steps = [
+    { text:'正在扫描设计稿...', sub:'检测目录 /data/screens/', pct:5 },
+    { text:'ScreenCoder 初始化...', sub:'加载 Qwen-VL-Max 模型', pct:15 },
+    { text:'区域检测中...', sub:'block_parsor.py 运行中', pct:25 },
+    { text:'HTML 代码生成...', sub:'html_generator.py 并行处理 4 区域', pct:38 },
+    { text:'UI 元素检测...', sub:'UIED 引擎运行中', pct:50 },
+    { text:'CIoU 对齐...', sub:'mapping.py 元素映射', pct:60 },
+    { text:'结构化 JSON 转换...', sub:'html_to_json.py 解析中', pct:70 },
+    { text:'交互推断中...', sub:'interaction_infer.py VLM 分析', pct:80 },
+    { text:'线框化处理...', sub:'wireframe_style.py 转换中', pct:88 },
+    { text:'AI 生成标注说明...', sub:'annotation_generator.py 调用 VLM', pct:95 },
+    { text:'✅ 扫描完成!', sub:'3 个设计稿已分析, 27 个元素, 16 条标注', pct:100 },
+  ];
+  let i = 0;
+  const interval = setInterval(() => {
+    if (i >= steps.length) {
+      clearInterval(interval);
+      scanResults.style.display = 'flex';
+      $('scanResultPages').textContent = '3';
+      $('scanResultElements').textContent = '27';
+      $('scanResultInteractions').textContent = '12';
+      $('scanResultAnnotations').textContent = '16';
+      setTimeout(() => {
+        progress.classList.remove('active');
+        state.files.forEach(f => { if (f.status==='pending') { f.status='done'; f.elements = Math.floor(Math.random()*8)+5; } });
+        renderFileList();
+        updateSidebarStats();
+      }, 1500);
+      return;
+    }
+    scanText.textContent = steps[i].text;
+    scanSub.textContent = steps[i].sub;
+    scanBar.style.width = steps[i].pct + '%';
+    i++;
+  }, 400);
+}
+
+// ==========================================
+// Preview Mode
+// ==========================================
+function startPreview() {
+  const overlay = $('previewOverlay');
+  const select = $('previewPageSelect');
+  const pages = [...new Set(state.nodes.filter(n=>n.pageId).map(n=>n.pageId))];
+  select.innerHTML = pages.map(p => `<option value="${p}">${pageNames[p]}</option>`).join('');
+  overlay.classList.add('active');
+  renderPreviewPage(pages[0]);
+}
+
+let lastPreviewPage = null;
+function renderPreviewPage(pageId) {
+  const phone = $('previewPhone');
+  $('previewPageName').textContent = pageNames[pageId]||'未知页面';
+  const wfNode = state.nodes.find(n => n.type==='wireframe' && n.pageId===pageId);
+  if (!wfNode) { phone.innerHTML = '<div style="padding:20px;text-align:center;color:#999;font-size:12px;padding-top:200px;">该页面暂无线框数据</div>'; return; }
+
+  const pages = ['p1','p2','p3'];
+  const direction = lastPreviewPage && pages.indexOf(pageId) < pages.indexOf(lastPreviewPage) ? 'left' : 'right';
+  phone.className = `preview-phone slide-in-${direction}`;
+  lastPreviewPage = pageId;
+
+  const scaleX = 375/200, scaleY = 720/400;
+  const backBtn = pageId!=='p1' ? '<div class="back-btn" id="previewBackBtn">←</div>' : '';
+
+  phone.innerHTML = backBtn + wfNode.elements.map(el => {
+    let cls = `wf-element wf-${el.type}`, inner = '';
+    let style = `left:${el.x*scaleX}px;top:${el.y*scaleY}px;width:${el.w*scaleX}px;height:${el.h*scaleY}px;`;
+    if (el.type==='button') inner = `<span class="label" style="font-size:11px;">${el.label}</span>`;
+    else if (el.type==='text') inner = `<div class="line" style="left:0;top:50%;width:100%;transform:translateY(-50%);"></div>`;
+    else if (el.type==='input') inner = `<span class="placeholder" style="font-size:10px;">${el.label}</span>`;
+    else if (el.type==='navbar') inner = `<div class="tab active"></div><div class="tab"></div><div class="tab"></div><div class="tab"></div>`;
+    else if (el.type==='card'||el.type==='container') { style += `display:flex;align-items:center;justify-content:center;`; inner = `<span style="font-size:10px;color:#aaa;">${el.label}</span>`; }
+    if (el.interaction) { cls += ' has-interaction'; style += 'cursor:pointer;'; }
+    return `<div class="${cls}" data-el-id="${el.id}" style="${style}">${inner}</div>`;
+  }).join('');
+
+  const backBtnEl = $('previewBackBtn');
+  if (backBtnEl) backBtnEl.addEventListener('click', () => renderPreviewPage('p1'));
+
+  phone.querySelectorAll('.wf-element').forEach(el => {
+    el.addEventListener('click', () => {
+      const element = wfNode.elements.find(x => x.id === el.dataset.elId);
+      if (element && element.interaction) handlePreviewInteraction(element.interaction);
+    });
+  });
+}
+
+function handlePreviewInteraction(interaction) {
+  const toast = $('previewToast');
+  if (interaction.action==='navigate' && interaction.target) {
+    showToast(toast, `🔗 跳转到: ${pageNames[interaction.target]}`);
+    setTimeout(() => {
+      renderPreviewPage(interaction.target);
+      $('previewPageSelect').value = interaction.target;
+    }, 500);
+  } else if (interaction.action==='popup') showToast(toast, `💬 弹窗: ${interaction.target}`);
+  else if (interaction.action==='input') showToast(toast, `⌨️ 输入框获得焦点`);
+}
+
+function showToast(toast, message) {
+  toast.textContent = message;
+  toast.style.display = 'block';
+  setTimeout(() => { toast.style.display = 'none'; }, 2000);
+}
+
+init();
+</script>
+</body>
+</html>

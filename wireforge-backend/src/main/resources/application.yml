@@ -1,0 +1,56 @@
+server:
+  port: ${PORT:${SERVER_PORT:8090}}
+
+spring:
+  application:
+    name: wireforge-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:wireforge}?useUnicode=true&characterEncoding=UTF-8&connectionTimeZone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=${MYSQL_USE_SSL:false}}
+    username: ${SPRING_DATASOURCE_USERNAME:${MYSQL_USER:root}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${MYSQL_PASSWORD:abc123}}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  sql:
+    init:
+      mode: ${SQL_INIT_MODE:always}
+      schema-locations: classpath:schema.sql
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+
+wireforge:
+  # 设计稿目录：支持通过环境变量 DESIGNS_DIR 指定，默认当前目录下的 designs
+  designs-dir: ${DESIGNS_DIR:designs}
+  # 启动时自动把目录中的新设计稿转成可交互线框原型
+  auto-analyze: ${WIREFORGE_AUTO_ANALYZE:false}
+  # mock=true 鏃朵笉璋冪敤 AI锛岃繑鍥炲唴缃ず渚嬫暟鎹紙鐢ㄤ簬涓浆绔欎笉鍙敤鏃惰仈璋冨墠绔級
+  mock: ${WIREFORGE_MOCK:false}
+  # 绱犳潗搴撹矾寰勶紙classpath 涓嬮缃殑涓繚鐪熷崰浣嶇礌鏉愶級
+  assets:
+    path: ${WIREFORGE_ASSETS_PATH:classpath:assets/wireframe}
+  ai:
+    # 涓浆绔?OpenAI 鍏煎 API锛堜笌 AiDocumentPlatform 鍚屼竴涓浆绔欙級
+    base-url: ${AI_BASE_URL:https://api.flintic.uk}
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:gpt-5.5}
+    # 整页 HTML 生成专用模型（留空=用上面的 model）；HTML 直出对代码能力要求高，建议配中转站里最强的模型
+    html-model: ${AI_HTML_MODEL:}
+    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:32768}
+    timeout-seconds: ${AI_TIMEOUT_SECONDS:150}
+    # 回修闭环：生成 HTML 后用无头 Chromium 渲染截图，对比原稿纠错（需先 playwright install chromium）
+    repair: ${WIREFORGE_AI_REPAIR:true}
+    repair-rounds: ${WIREFORGE_AI_REPAIR_ROUNDS:1}
