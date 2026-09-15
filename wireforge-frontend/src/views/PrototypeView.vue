@@ -505,7 +505,7 @@
                   <!-- Interactive Action Tip -->
                   <div v-if="item.interactionType === 'navigate'" class="mt-2 pt-1.5 border-t border-slate-700/40 text-[10px] text-emerald-400/80 flex items-center gap-1">
                     <Compass class="w-3 h-3" />
-                    <span>点击卡片直接在模拟器中体验跳转</span>
+                    <span>在真机屏幕中点击该组件即可体验跳转</span>
                   </div>
                 </div>
               </div>
@@ -1371,23 +1371,11 @@ function onSimCardClick(item: SimAnnItem) {
   sendSpotlightToIframe(item, targetEl)
 
   if (item.interactionType === 'navigate') {
-    if (item.targetPageId) {
-      showToast(`⚡ 执行跳转: ${item.interactionTarget || '目标页面'}`)
-      slideClass.value = ''
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          slideClass.value = 'slide-in-right'
-          previewPageId.value = item.targetPageId!
-          setTimeout(() => (slideClass.value = ''), 400)
-        })
-      })
-    } else if (item.interactionTarget) {
-      onProtoNavigate(item.interactionTarget)
-    }
+    showToast(`🎯 已定位: ${item.title}${item.interactionTarget ? ` (去向: ${item.interactionTarget})` : ''}`)
   } else if (item.interactionType === 'modal') {
-    showToast(`⚡ 唤起弹窗: ${item.interactionTarget || item.title}`)
+    showToast(`🎯 已定位弹窗组件: ${item.title}`)
   } else if (item.interactionType === 'toggle') {
-    showToast(`⚡ 切换状态: ${item.title}`)
+    showToast(`🎯 已定位开关组件: ${item.title}`)
   } else {
     showToast(`📌 组件说明: ${item.title}`)
   }
