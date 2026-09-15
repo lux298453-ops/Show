@@ -378,13 +378,13 @@
                     <!-- 业务说明元素聚光灯与呼吸高亮框 -->
                     <transition name="fade-fast">
                       <div
-                        v-if="activeSimElement"
+                        v-if="displaySpotlightRect"
                         class="sim-spotlight-box pointer-events-none absolute z-40 transition-all duration-300"
                         :style="{
-                          left: `${activeSimElement.x - 3}px`,
-                          top: `${activeSimElement.y - 3}px`,
-                          width: `${activeSimElement.width + 6}px`,
-                          height: `${activeSimElement.height + 6}px`,
+                          left: `${displaySpotlightRect.x - 3}px`,
+                          top: `${displaySpotlightRect.y - 3}px`,
+                          width: `${displaySpotlightRect.width + 6}px`,
+                          height: `${displaySpotlightRect.height + 6}px`,
                         }"
                       >
                         <!-- 呼吸外发光光圈 -->
@@ -1088,6 +1088,8 @@ const previewHeight = computed(() => {
 })
 
 watch(previewPageId, () => {
+  selectedSimAnnId.value = null
+  clearSpotlightInIframe()
   nextTick(updatePhoneScale)
 })
 
@@ -1259,6 +1261,8 @@ const simAnnList = computed<SimAnnItem[]>(() => {
   return rawList
 })
 
+const activeSpotlightRect = ref<{ x: number; y: number; width: number; height: number } | null>(null)
+
 const activeSimAnn = computed(() => simAnnList.value.find((a) => a.id === selectedSimAnnId.value))
 const activeSimElement = computed(() => {
   if (!previewPage.value || !activeSimAnn.value?.elementId) return null
@@ -1266,11 +1270,24 @@ const activeSimElement = computed(() => {
 })
 const activeSimAnnTitle = computed(() => activeSimAnn.value?.title || '')
 
-function scrollToElementInSimulator(el: Element | null) {
-  if (!el || !simScrollRef.value) return
+const displaySpotlightRect = computed(() => {
+  if (activeSpotlightRect.value) return activeSpotlightRect.value
+  if (activeSimElement.value) {
+    return {
+      x: activeSimElement.value.x,
+      y: activeSimElement.value.y,
+      width: activeSimElement.value.width,
+      height: activeSimElement.value.height,
+    }
+  }
+  return null
+})
+
+function scrollToSimulatorY(y: number, height: number) {
+  if (!simScrollRef.value) return
   nextTick(() => {
     if (!simScrollRef.value) return
-    const targetTop = Math.max(0, el.y - previewHeight.value / 2 + el.height / 2)
+    const targetTop = Math.max(0, y - previewHeight.value / 2 + height / 2)
     simScrollRef.value.scrollTo({
       top: targetTop,
       behavior: 'smooth',
@@ -1278,14 +1295,68 @@ function scrollToElementInSimulator(el: Element | null) {
   })
 }
 
+function scrollToElementInSimulator(el: Element | null) {
+  if (!el) return
+  scrollToSimulatorY(el.y, el.height)
+}
+
+function sendSpotlightToIframe(item: SimAnnItem, targetEl: Element | null) {
+  const iframes = document.querySelectorAll<HTMLIFrameElement>('iframe.html-frame')
+  const payload = {
+    type: 'wf-spotlight',
+    active: true,
+    elementId: item.elementId,
+    label: targetEl?.label || item.title,
+    targetPageName: item.interactionTarget || null,
+    x: targetEl?.x ?? null,
+    y: targetEl?.y ?? null,
+    w: targetEl?.width ?? null,
+    h: targetEl?.height ?? null,
+  }
+  iframes.forEach((ifr) => {
+    try {
+      ifr.contentWindow?.postMessage(payload, '*')
+    } catch {}
+  })
+}
+
+function clearSpotlightInIframe() {
+  activeSpotlightRect.value = null
+  const iframes = document.querySelectorAll<HTMLIFrameElement>('iframe.html-frame')
+  iframes.forEach((ifr) => {
+    try {
+      ifr.contentWindow?.postMessage({ type: 'wf-spotlight', active: false }, '*')
+    } catch {}
+  })
+}
+
+function onSimMessage(ev: MessageEvent) {
+  if (!ev.data) return
+  if (ev.data.type === 'wf-spotlight-rect' && ev.data.rect) {
+    activeSpotlightRect.value = ev.data.rect
+    scrollToSimulatorY(ev.data.rect.y, ev.data.rect.height)
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('message', onSimMessage)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('message', onSimMessage)
+})
+
 const simInteractiveCount = computed(() => simAnnList.value.filter((a) => !!a.interactionType).length)
 
 function onSimCardClick(item: SimAnnItem) {
   selectedSimAnnId.value = item.id
+  activeSpotlightRect.value = null
   const targetEl = previewPage.value?.elements.find((e) => e.id === item.elementId) || null
   if (targetEl) {
     scrollToElementInSimulator(targetEl)
   }
+  sendSpotlightToIframe(item, targetEl)
+
   if (item.interactionType === 'navigate') {
     if (item.targetPageId) {
       showToast(`⚡ 执行跳转: ${item.interactionTarget || '目标页面'}`)
@@ -1314,6 +1385,8 @@ function handlePreviewClick(el: Element) {
   const matchedAnn = simAnnList.value.find((a) => a.elementId === el.id)
   if (matchedAnn) {
     selectedSimAnnId.value = matchedAnn.id
+    activeSpotlightRect.value = null
+    sendSpotlightToIframe(matchedAnn, el)
     nextTick(() => {
       const cardEl = document.getElementById(`sim-ann-${matchedAnn.id}`)
       if (cardEl) {

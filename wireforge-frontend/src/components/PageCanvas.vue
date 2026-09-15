@@ -332,6 +332,22 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       transform: scale(0.96) !important;
       transition: transform 0.06s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
+    /* 业务说明联动发光呼吸框 */
+    .wf-spotlight-target {
+      outline: 2.5px solid #10b981 !important;
+      outline-offset: 2px !important;
+      border-radius: 8px !important;
+      animation: wfSpotlightPulse 1.6s ease-in-out infinite !important;
+      z-index: 9999 !important;
+    }
+    @keyframes wfSpotlightPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.75), 0 0 10px rgba(16, 185, 129, 0.5) !important;
+      }
+      50% {
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0), 0 0 22px rgba(16, 185, 129, 0.85) !important;
+      }
+    }
   </style>`
   const runtime = `<script data-wf-inject>(function(){
     var isInteractive = ${initialInteractive ? 'true' : 'false'};
@@ -339,10 +355,99 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       document.body.classList.add('wf-interactive');
     }
     window.addEventListener('message', function(ev){
-      if(ev.data && ev.data.type === 'wf-interactive'){
+      if(!ev.data) return;
+      if(ev.data.type === 'wf-interactive'){
         isInteractive = !!ev.data.on;
         if(isInteractive) document.body.classList.add('wf-interactive');
         else document.body.classList.remove('wf-interactive');
+      }
+      if(ev.data.type === 'wf-spotlight'){
+        var prev = document.querySelectorAll('.wf-spotlight-target');
+        for (var i = 0; i < prev.length; i++) prev[i].classList.remove('wf-spotlight-target');
+
+        var info = ev.data;
+        if (!info || !info.active) return;
+
+        var target = null;
+        if (info.targetPageName) {
+          target = document.querySelector('[data-nav="' + info.targetPageName + '"]')
+            || document.querySelector('[data-nav*="' + info.targetPageName + '"]');
+        }
+        if (!target && info.label) {
+          var cleanLabel = (info.label || '').trim();
+          if (cleanLabel) {
+            target = document.querySelector('[data-nav="' + cleanLabel + '"]')
+              || document.querySelector('[data-modal="' + cleanLabel + '"]');
+            if (!target) {
+              var all = document.querySelectorAll('.wf-btn, .wf-ic, .wf-act, .wf-sw, .wf-ck, .wf-t, [data-nav], .wf-tabit, .wf-el');
+              for (var j = 0; j < all.length; j++) {
+                var txt = (all[j].innerText || all[j].textContent || '').trim();
+                if (txt === cleanLabel) {
+                  target = all[j];
+                  break;
+                }
+              }
+            }
+            if (!target && cleanLabel.length >= 2) {
+              var all2 = document.querySelectorAll('.wf-btn, .wf-ic, .wf-act, .wf-sw, .wf-ck, .wf-t, [data-nav], .wf-tabit, .wf-el');
+              for (var j2 = 0; j2 < all2.length; j2++) {
+                var txt2 = (all2[j2].innerText || all2[j2].textContent || '').trim();
+                if (txt2 && (txt2.indexOf(cleanLabel) !== -1 || cleanLabel.indexOf(txt2) !== -1)) {
+                  target = all2[j2];
+                  break;
+                }
+              }
+            }
+          }
+        }
+        if (info.x != null && info.y != null) {
+          var candidates = document.querySelectorAll('.wf-el, .wf-btn, .wf-ic, .wf-act, .wf-sw, .wf-ck, [data-nav], .wf-tabit');
+          var minD = 999999;
+          var targetCenterX = info.x + (info.w || 0) / 2;
+          var targetCenterY = info.y + (info.h || 0) / 2;
+          var bodyRect = document.body.getBoundingClientRect();
+          var closestByCoord = null;
+          for (var k = 0; k < candidates.length; k++) {
+            var c = candidates[k];
+            var cbRect = c.getBoundingClientRect();
+            var w = cbRect.width;
+            var h = cbRect.height;
+            if (w <= 0 || h <= 0 || (w >= 360 && h >= 700)) continue;
+            var cx = (cbRect.left - bodyRect.left) + w / 2;
+            var cy = (cbRect.top - bodyRect.top) + h / 2;
+            var d = Math.hypot(cx - targetCenterX, cy - targetCenterY);
+            if (d < minD) {
+              minD = d;
+              closestByCoord = c;
+            }
+          }
+          if (!target || (closestByCoord && minD < 80)) {
+            if (!target) {
+              target = closestByCoord;
+            } else if (closestByCoord) {
+              var tRect = target.getBoundingClientRect();
+              var tDist = Math.hypot((tRect.left - bodyRect.left + tRect.width/2) - targetCenterX, (tRect.top - bodyRect.top + tRect.height/2) - targetCenterY);
+              if (minD < 45 && minD < tDist - 30) {
+                target = closestByCoord;
+              }
+            }
+          }
+        }
+
+        if (target) {
+          target.classList.add('wf-spotlight-target');
+          var bRect = target.getBoundingClientRect();
+          var bodyRect = document.body.getBoundingClientRect();
+          var finalLeft = Math.round(bRect.left - bodyRect.left);
+          var finalTop = Math.round(bRect.top - bodyRect.top);
+          var finalW = Math.round(bRect.width);
+          var finalH = Math.round(bRect.height);
+          parent.postMessage({
+            type: 'wf-spotlight-rect',
+            rect: { x: finalLeft, y: finalTop, width: finalW, height: finalH },
+            elementId: info.elementId
+          }, '*');
+        }
       }
     });
 
