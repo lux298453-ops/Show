@@ -712,6 +712,7 @@ async function onReanalyzeChecked() {
 }
 const backStack = ref<number[]>([])
 function onProtoBack() {
+  clearSpotlightInIframe()
   const prev = backStack.value.pop()
   if (prev != null && pages.value.some((p) => p.id === prev)) {
     if (mode.value === 'preview' && previewPageId.value != null) {
@@ -729,6 +730,7 @@ function onProtoBack() {
 
 // ===== 整页 HTML 内的跨页跳转：点击 data-nav 元素 → 切换到目标页原型 =====
 function onProtoNavigate(pageName: string) {
+  clearSpotlightInIframe()
   const current = mode.value === 'preview' ? previewPageId.value : focusPageId.value ?? null
   if (current != null) backStack.value.push(current)
   const nameKey = pageName.trim()
@@ -1271,6 +1273,7 @@ const activeSimElement = computed(() => {
 const activeSimAnnTitle = computed(() => activeSimAnn.value?.title || '')
 
 const displaySpotlightRect = computed(() => {
+  if (!selectedSimAnnId.value || !activeSimAnn.value) return null
   if (activeSpotlightRect.value) return activeSpotlightRect.value
   if (activeSimElement.value) {
     return {
@@ -1305,7 +1308,9 @@ function sendSpotlightToIframe(item: SimAnnItem, targetEl: Element | null) {
   const payload = {
     type: 'wf-spotlight',
     active: true,
+    pageId: previewPage.value?.id || null,
     elementId: item.elementId,
+    elementType: targetEl?.type || null,
     label: targetEl?.label || item.title,
     targetPageName: item.interactionTarget || null,
     x: targetEl?.x ?? null,
@@ -1321,6 +1326,7 @@ function sendSpotlightToIframe(item: SimAnnItem, targetEl: Element | null) {
 }
 
 function clearSpotlightInIframe() {
+  selectedSimAnnId.value = null
   activeSpotlightRect.value = null
   const iframes = document.querySelectorAll<HTMLIFrameElement>('iframe.html-frame')
   iframes.forEach((ifr) => {
@@ -1333,6 +1339,8 @@ function clearSpotlightInIframe() {
 function onSimMessage(ev: MessageEvent) {
   if (!ev.data) return
   if (ev.data.type === 'wf-spotlight-rect' && ev.data.rect) {
+    if (!selectedSimAnnId.value || !activeSimAnn.value) return
+    if (ev.data.pageId && ev.data.pageId !== previewPageId.value) return
     activeSpotlightRect.value = ev.data.rect
     scrollToSimulatorY(ev.data.rect.y, ev.data.rect.height)
   }
@@ -1349,6 +1357,11 @@ onUnmounted(() => {
 const simInteractiveCount = computed(() => simAnnList.value.filter((a) => !!a.interactionType).length)
 
 function onSimCardClick(item: SimAnnItem) {
+  if (selectedSimAnnId.value === item.id) {
+    clearSpotlightInIframe()
+    return
+  }
+
   selectedSimAnnId.value = item.id
   activeSpotlightRect.value = null
   const targetEl = previewPage.value?.elements.find((e) => e.id === item.elementId) || null

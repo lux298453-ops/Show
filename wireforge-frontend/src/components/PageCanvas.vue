@@ -368,76 +368,101 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         var info = ev.data;
         if (!info || !info.active) return;
 
-        var target = null;
-        if (info.targetPageName) {
-          target = document.querySelector('[data-nav="' + info.targetPageName + '"]')
-            || document.querySelector('[data-nav*="' + info.targetPageName + '"]');
-        }
-        if (!target && info.label) {
-          var cleanLabel = (info.label || '').trim();
+        var candidates = document.querySelectorAll('.wf-el, .wf-btn, .wf-ic, .wf-act, .wf-sw, .wf-ck, .wf-t, [data-nav], .wf-tabit, .wf-card');
+        var bodyRect = document.body.getBoundingClientRect();
+        var bestCandidate = null;
+        var highestScore = -999999;
+
+        var targetCenterX = (info.x != null && info.w != null) ? (info.x + info.w / 2) : info.x;
+        var targetCenterY = (info.y != null && info.h != null) ? (info.y + info.h / 2) : info.y;
+        var cleanLabel = (info.label || '').trim();
+        var reqType = (info.elementType || '').toLowerCase();
+
+        for (var k = 0; k < candidates.length; k++) {
+          var c = candidates[k];
+          var cbRect = c.getBoundingClientRect();
+          var w = cbRect.width;
+          var h = cbRect.height;
+          if (w <= 0 || h <= 0 || (w >= 360 && h >= 700)) continue;
+
+          var cLeft = cbRect.left - bodyRect.left;
+          var cTop = cbRect.top - bodyRect.top;
+          var cx = cLeft + w / 2;
+          var cy = cTop + h / 2;
+
+          var score = 0;
+
+          // 1. 类型判定 (核心防串位：文本绝不误指到图标，图标绝不误指到文本)
+          var cCls = c.className || '';
+          var isTextEl = cCls.indexOf('wf-t') !== -1;
+          var isIconEl = cCls.indexOf('wf-ic') !== -1 || cCls.indexOf('wf-tabic') !== -1;
+          var isBtnEl = cCls.indexOf('wf-btn') !== -1 || cCls.indexOf('wf-act') !== -1;
+          var isCardEl = cCls.indexOf('wf-card') !== -1;
+          var isTabEl = cCls.indexOf('wf-tab') !== -1;
+
+          if (reqType === 'text') {
+            if (isTextEl) score += 700;
+            else if (isIconEl) score -= 1000;
+          } else if (reqType === 'icon') {
+            if (isIconEl) score += 700;
+            else if (isTextEl) score -= 1000;
+          } else if (reqType === 'button') {
+            if (isBtnEl) score += 600;
+          } else if (reqType === 'card') {
+            if (isCardEl) score += 500;
+          } else if (reqType === 'tabs' || reqType === 'tab') {
+            if (isTabEl) score += 600;
+          }
+
+          // 2. 文案匹配
+          var cText = (c.innerText || c.textContent || '').trim();
           if (cleanLabel) {
-            target = document.querySelector('[data-nav="' + cleanLabel + '"]')
-              || document.querySelector('[data-modal="' + cleanLabel + '"]');
-            if (!target) {
-              var all = document.querySelectorAll('.wf-btn, .wf-ic, .wf-act, .wf-sw, .wf-ck, .wf-t, [data-nav], .wf-tabit, .wf-el');
-              for (var j = 0; j < all.length; j++) {
-                var txt = (all[j].innerText || all[j].textContent || '').trim();
-                if (txt === cleanLabel) {
-                  target = all[j];
-                  break;
-                }
-              }
-            }
-            if (!target && cleanLabel.length >= 2) {
-              var all2 = document.querySelectorAll('.wf-btn, .wf-ic, .wf-act, .wf-sw, .wf-ck, .wf-t, [data-nav], .wf-tabit, .wf-el');
-              for (var j2 = 0; j2 < all2.length; j2++) {
-                var txt2 = (all2[j2].innerText || all2[j2].textContent || '').trim();
-                if (txt2 && (txt2.indexOf(cleanLabel) !== -1 || cleanLabel.indexOf(txt2) !== -1)) {
-                  target = all2[j2];
-                  break;
-                }
-              }
+            if (cText === cleanLabel) {
+              score += 500;
+            } else if (cText && (cText.indexOf(cleanLabel) !== -1 || cleanLabel.indexOf(cText) !== -1)) {
+              score += 250;
             }
           }
-        }
-        if (info.x != null && info.y != null) {
-          var candidates = document.querySelectorAll('.wf-el, .wf-btn, .wf-ic, .wf-act, .wf-sw, .wf-ck, [data-nav], .wf-tabit');
-          var minD = 999999;
-          var targetCenterX = info.x + (info.w || 0) / 2;
-          var targetCenterY = info.y + (info.h || 0) / 2;
-          var bodyRect = document.body.getBoundingClientRect();
-          var closestByCoord = null;
-          for (var k = 0; k < candidates.length; k++) {
-            var c = candidates[k];
-            var cbRect = c.getBoundingClientRect();
-            var w = cbRect.width;
-            var h = cbRect.height;
-            if (w <= 0 || h <= 0 || (w >= 360 && h >= 700)) continue;
-            var cx = (cbRect.left - bodyRect.left) + w / 2;
-            var cy = (cbRect.top - bodyRect.top) + h / 2;
+
+          // 3. 导航属性匹配
+          var cNav = c.getAttribute('data-nav') || '';
+          if (info.targetPageName && cNav) {
+            if (cNav === info.targetPageName) {
+              score += (reqType === 'text' && !isTextEl) ? 50 : 400;
+            } else if (cNav.indexOf(info.targetPageName) !== -1 || info.targetPageName.indexOf(cNav) !== -1) {
+              score += (reqType === 'text' && !isTextEl) ? 20 : 200;
+            }
+          }
+          if (cleanLabel && cNav && cNav === cleanLabel) {
+            score += (reqType === 'text' && !isTextEl) ? 50 : 300;
+          }
+
+          // 4. 坐标中心距离衰减打分
+          if (targetCenterX != null && targetCenterY != null) {
             var d = Math.hypot(cx - targetCenterX, cy - targetCenterY);
-            if (d < minD) {
-              minD = d;
-              closestByCoord = c;
-            }
+            if (d < 25) score += 450;
+            else if (d < 50) score += 300;
+            else if (d < 90) score += 150;
+            else if (d < 160) score += 50;
+            else score -= (d - 160) * 2.5;
           }
-          if (!target || (closestByCoord && minD < 80)) {
-            if (!target) {
-              target = closestByCoord;
-            } else if (closestByCoord) {
-              var tRect = target.getBoundingClientRect();
-              var tDist = Math.hypot((tRect.left - bodyRect.left + tRect.width/2) - targetCenterX, (tRect.top - bodyRect.top + tRect.height/2) - targetCenterY);
-              if (minD < 45 && minD < tDist - 30) {
-                target = closestByCoord;
-              }
-            }
+
+          // 5. 尺寸相似度加成
+          if (info.w != null && info.h != null) {
+            var dw = Math.abs(w - info.w);
+            var dh = Math.abs(h - info.h);
+            if (dw < 15 && dh < 15) score += 150;
+          }
+
+          if (score > highestScore) {
+            highestScore = score;
+            bestCandidate = c;
           }
         }
 
-        if (target) {
-          target.classList.add('wf-spotlight-target');
-          var bRect = target.getBoundingClientRect();
-          var bodyRect = document.body.getBoundingClientRect();
+        if (bestCandidate && highestScore > 0) {
+          bestCandidate.classList.add('wf-spotlight-target');
+          var bRect = bestCandidate.getBoundingClientRect();
           var finalLeft = Math.round(bRect.left - bodyRect.left);
           var finalTop = Math.round(bRect.top - bodyRect.top);
           var finalW = Math.round(bRect.width);
@@ -445,7 +470,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           parent.postMessage({
             type: 'wf-spotlight-rect',
             rect: { x: finalLeft, y: finalTop, width: finalW, height: finalH },
-            elementId: info.elementId
+            elementId: info.elementId,
+            pageId: info.pageId
           }, '*');
         }
       }
@@ -555,6 +581,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       if(a==='back'||a==='close'){
         var inModal=el.closest('.wf-modal');
         if(inModal){closeModal(inModal);return;}
+        var prev = document.querySelectorAll('.wf-spotlight-target');
+        for (var pi = 0; pi < prev.length; pi++) prev[pi].classList.remove('wf-spotlight-target');
         parent.postMessage({type:'wf-back'},'*');return;
       }
       if(a==='tab'){
@@ -566,7 +594,11 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         return;
       }
       var nav=el.getAttribute('data-nav');
-      if(nav)parent.postMessage({type:'wf-nav',page:nav},'*');
+      if(nav){
+        var prev2 = document.querySelectorAll('.wf-spotlight-target');
+        for (var pi2 = 0; pi2 < prev2.length; pi2++) prev2[pi2].classList.remove('wf-spotlight-target');
+        parent.postMessage({type:'wf-nav',page:nav},'*');
+      }
     },true);
   })();<\/script>`
   // 内容高度上报：等防溢出 fit 跑完后把整页实际高度发给父级，让 iframe/手机壳随内容自适应（避免固定高度裁剪产生滚动）
