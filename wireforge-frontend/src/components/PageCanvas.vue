@@ -109,43 +109,86 @@
           v-for="ap in annItems"
           :key="ap.id"
           :ref="(el: any) => setBoxRef(ap.id, el)"
-          class="ann-box"
-          :class="{ selected: selectedElementId != null && selectedElementId === ap.elementId, editing: editingAnnId === ap.id }"
+          class="ann-box group"
+          :class="{
+            selected: selectedElementId != null && selectedElementId === ap.elementId,
+            editing: editingAnnId === ap.id,
+            dragging: draggingAnnId === ap.id,
+            'drag-over': dragOverAnnId === ap.id,
+          }"
+          draggable="true"
+          @dragstart="onCanvasDragStart($event, ap.id)"
+          @dragover.prevent="onCanvasDragOver($event, ap.id)"
+          @dragleave="onCanvasDragLeave($event, ap.id)"
+          @drop.prevent="onCanvasDrop($event, ap.id)"
+          @dragend="onCanvasDragEnd"
           @mouseenter="onAnnHover(ap.id)"
           @mouseleave="onAnnHover(null)"
           @click.stop="onAnnClick(ap)"
-          @dblclick.stop="startEdit(ap)"
         >
-          <div class="ann-head">
-            <span class="ann-index">{{ ap.index + 1 }}</span>
-            <span class="ann-title">{{ ap.title }}</span>
-            <span
-              v-if="ap.interactionType"
-              class="ann-badge"
-              :class="ap.interactionType"
-              :title="ap.interactionTarget ? `${ap.interactionLabel}: ${ap.interactionTarget}` : (ap.interactionLabel || '')"
-            >
-              {{ ap.interactionType === 'navigate' ? '⚡ 跳转' : (ap.interactionType === 'modal' ? '⚡ 弹窗' : '⚡ 切换') }}
-            </span>
+          <!-- Editing Mode Form -->
+          <div v-if="editingAnnId === ap.id" class="ann-edit-form" @click.stop @mousedown.stop>
+            <div class="edit-row">
+              <span class="edit-label">标题</span>
+              <input
+                ref="editingTitleInputRef"
+                v-model="editTitle"
+                class="ann-edit-title-input"
+                placeholder="组件名称..."
+                @keydown.enter.prevent="finishEdit(ap)"
+                @keydown.esc.stop="cancelEdit"
+              />
+            </div>
+            <div class="edit-row">
+              <span class="edit-label">说明</span>
+              <textarea
+                ref="editingTextareaRef"
+                v-model="editText"
+                class="ann-edit-textarea"
+                rows="3"
+                placeholder="业务说明详情..."
+                @keydown.ctrl.enter.prevent="finishEdit(ap)"
+                @keydown.esc.stop="cancelEdit"
+              ></textarea>
+            </div>
+            <div class="ann-edit-actions">
+              <button class="btn-cancel" @click.stop="cancelEdit">取消</button>
+              <button class="btn-save" @click.stop="finishEdit(ap)">保存</button>
+            </div>
           </div>
-          <div v-if="ap.interactionTarget" class="ann-target-hint">
-            <span class="hint-dot"></span>
-            <span class="hint-text">{{ ap.interactionTarget }}</span>
-          </div>
-          <textarea
-            v-if="editingAnnId === ap.id"
-            :ref="(el: any) => { editingTextareaRef = el ?? null }"
-            v-model="editText"
-            class="ann-edit"
-            rows="3"
-            @blur="finishEdit(ap)"
-            @keydown.enter.prevent="finishEdit(ap)"
-            @keydown.esc.stop="cancelEdit"
-            @mousedown.stop
-          ></textarea>
-          <div v-else class="ann-text" :class="{ empty: !ap.annotation.text }" @dblclick.stop="startEdit(ap)">
-            {{ ap.annotation.text || '双击编辑说明…' }}
-          </div>
+
+          <!-- Normal Display Mode -->
+          <template v-else>
+            <div class="ann-head">
+              <span class="ann-drag-handle" title="长按拖拽调整顺序" @mousedown.stop>
+                <GripVertical class="w-3.5 h-3.5" />
+              </span>
+              <span class="ann-title" :title="ap.title">{{ ap.title }}</span>
+              <button
+                class="ann-edit-btn opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-emerald-600 rounded cursor-pointer"
+                title="编辑标题与说明"
+                @click.stop="startEdit(ap)"
+                @mousedown.stop
+              >
+                <Pencil class="w-3 h-3" />
+              </button>
+              <span
+                v-if="ap.interactionType"
+                class="ann-badge"
+                :class="ap.interactionType"
+                :title="ap.interactionTarget ? `${ap.interactionLabel}: ${ap.interactionTarget}` : (ap.interactionLabel || '')"
+              >
+                {{ ap.interactionType === 'navigate' ? '⚡ 跳转' : (ap.interactionType === 'modal' ? '⚡ 弹窗' : '⚡ 切换') }}
+              </span>
+            </div>
+            <div v-if="ap.interactionTarget" class="ann-target-hint">
+              <span class="hint-dot"></span>
+              <span class="hint-text">去向: {{ ap.interactionTarget }}</span>
+            </div>
+            <div class="ann-text" :class="{ empty: !ap.annotation.text }" @dblclick.stop="startEdit(ap)" title="双击快速编辑说明">
+              {{ ap.annotation.text || '双击编辑说明…' }}
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -154,7 +197,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { FileText, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { FileText, ChevronDown, ChevronRight, GripVertical, Pencil } from 'lucide-vue-next'
 import { getFileUrl } from '../api/http'
 import type { Annotation, Element, Page } from '../types'
 import WireframeElement from './WireframeElement.vue'
@@ -177,6 +220,10 @@ const props = withDefaults(
     interactive?: boolean
     /** 全局所有页面列表，用于解析交互跳转的目标页面名称 */
     allPages?: Page[]
+    /** 业务说明自定义排序 */
+    customOrders?: Record<number, number[]>
+    /** 业务说明自定义标题缓存 */
+    customTitles?: Record<number, string>
   }>(),
   {
     showWireframe: true,
@@ -198,7 +245,8 @@ const emit = defineEmits<{
   (e: 'elementHover', el: Element, on: boolean): void
   (e: 'annHover', annId: number | null): void
   (e: 'annClick', annId: number): void
-  (e: 'annSave', annId: number, text: string): void
+  (e: 'annSave', annId: number, text: string, title?: string): void
+  (e: 'annOrderChange', pageId: number, order: number[]): void
   (e: 'navigate', pageName: string): void
   (e: 'back'): void
   (e: 'saveHtml', payload: { pageId: number; html: string }): void
@@ -952,8 +1000,59 @@ function setBoxRef(annId: number, el: HTMLElement | null) {
 }
 
 const editingAnnId = ref<number | null>(null)
+const editTitle = ref('')
 const editText = ref('')
-let editingTextareaRef: HTMLTextAreaElement | null = null
+const editingTextareaRef = ref<HTMLTextAreaElement | null>(null)
+const editingTitleInputRef = ref<HTMLInputElement | null>(null)
+
+const draggingAnnId = ref<number | null>(null)
+const dragOverAnnId = ref<number | null>(null)
+
+function onCanvasDragStart(e: DragEvent, annId: number) {
+  draggingAnnId.value = annId
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(annId))
+  }
+}
+
+function onCanvasDragOver(e: DragEvent, targetId: number) {
+  if (draggingAnnId.value === targetId) return
+  dragOverAnnId.value = targetId
+}
+
+function onCanvasDragLeave(e: DragEvent, targetId: number) {
+  if (dragOverAnnId.value === targetId) dragOverAnnId.value = null
+}
+
+function onCanvasDrop(e: DragEvent, targetId: number) {
+  const sourceId = draggingAnnId.value
+  if (!sourceId || sourceId === targetId) {
+    dragOverAnnId.value = null
+    draggingAnnId.value = null
+    return
+  }
+
+  const currentList = [...annItems.value]
+  const srcIdx = currentList.findIndex((a) => a.id === sourceId)
+  const tgtIdx = currentList.findIndex((a) => a.id === targetId)
+
+  if (srcIdx !== -1 && tgtIdx !== -1) {
+    const [moved] = currentList.splice(srcIdx, 1)
+    currentList.splice(tgtIdx, 0, moved)
+    const newOrder = currentList.map((a) => a.id)
+    emit('annOrderChange', props.page.id, newOrder)
+    nextTick(recomputeLines)
+  }
+
+  dragOverAnnId.value = null
+  draggingAnnId.value = null
+}
+
+function onCanvasDragEnd() {
+  dragOverAnnId.value = null
+  draggingAnnId.value = null
+}
 
 // 线框画布 X 偏移：左侧为设计稿原图
 const wireX = computed(() => (showDesign ? canvasW.value * scale.value + gap : 0))
@@ -984,7 +1083,7 @@ interface AnnItem {
 
 const annItems = computed<AnnItem[]>(() => {
   const s = scale.value
-  return props.page.annotations.map((ann, idx) => {
+  const rawList = props.page.annotations.map((ann, idx) => {
     const el = props.page.elements.find((e) => e.id === ann.element_id)
     const logicalX = el ? el.x + el.width / 2 : (ann.x ?? 100)
     const logicalY = el ? el.y + Math.min(16, el.height / 2) : (ann.y ?? 100)
@@ -1021,12 +1120,15 @@ const annItems = computed<AnnItem[]>(() => {
       }
     }
 
+    const customTitle = props.customTitles?.[ann.id]
+    const effectiveTitle = customTitle || el?.label || `说明 ${idx + 1}`
+
     return {
       id: ann.id,
       index: idx,
       elementId: el?.id ?? null,
       annotation: ann,
-      title: el?.label || '标注',
+      title: effectiveTitle,
       anchorX: logicalX * s + wireX.value,
       anchorY: logicalY * s,
       interactionType,
@@ -1034,6 +1136,21 @@ const annItems = computed<AnnItem[]>(() => {
       interactionTarget,
     }
   })
+
+  // 按用户调整后的自定义顺序排序
+  const customOrder = props.customOrders?.[props.page.id]
+  if (customOrder && customOrder.length) {
+    return [...rawList].sort((a, b) => {
+      const idxA = customOrder.indexOf(a.id)
+      const idxB = customOrder.indexOf(b.id)
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      return 0
+    })
+  }
+
+  return rawList
 })
 
 // ===== 引线：从元素锚点连到面板中对应说明条目的位置（DOM 实测，随滚动更新） =====
@@ -1143,23 +1260,24 @@ function onAnnClick(ap: AnnItem) {
   emit('annClick', ap.id)
 }
 
-// ===== 双击编辑文字 =====
+// ===== 双击/点击编辑标题与说明 =====
 function startEdit(ap: AnnItem) {
   editingAnnId.value = ap.id
+  editTitle.value = ap.title
   editText.value = ap.annotation.text || ''
   nextTick(() => {
-    editingTextareaRef?.focus()
-    editingTextareaRef?.select()
+    editingTitleInputRef.value?.focus()
+    editingTitleInputRef.value?.select()
   })
 }
 
 function finishEdit(ap: AnnItem) {
   if (editingAnnId.value !== ap.id) return
+  const t = editTitle.value.trim() || ap.title
+  const txt = editText.value.trim()
   editingAnnId.value = null
-  const text = editText.value.trim()
-  if (text !== (ap.annotation.text || '')) {
-    emit('annSave', ap.id, text)
-  }
+  emit('annSave', ap.id, txt, t)
+  nextTick(recomputeLines)
 }
 
 function cancelEdit() {
@@ -1379,40 +1497,77 @@ defineExpose({ stageW, stageH })
     border-color: #a7f3d0;
     background: #f0fdf4;
     box-shadow: 0 2px 8px rgba(16, 185, 129, 0.12);
+
+    .ann-edit-btn {
+      opacity: 1;
+    }
   }
   &.selected {
     border-color: #059669;
     background: #ecfdf5;
     box-shadow: 0 0 0 1px #059669, 0 2px 10px rgba(5, 150, 105, 0.15);
   }
+  &.dragging {
+    opacity: 0.4;
+    border-style: dashed;
+    border-color: #10b981;
+  }
+  &.drag-over {
+    border-color: #059669;
+    background: #ecfdf5;
+    transform: translateY(-2px);
+    box-shadow: 0 -3px 0 0 #059669;
+  }
 
   .ann-head {
     display: flex;
     align-items: center;
     margin-bottom: 4px;
+    gap: 4px;
 
-    .ann-index {
-      flex-shrink: 0;
-      width: 18px;
-      height: 18px;
-      border-radius: 9999px;
-      background: #ecfdf5;
-      color: #059669;
-      font-size: 10px;
-      font-weight: 700;
+    .ann-drag-handle {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      margin-right: 6px;
+      color: #94a3b8;
+      cursor: grab;
+      padding: 1px;
+      border-radius: 4px;
+
+      &:hover {
+        color: #059669;
+        background: #e2e8f0;
+      }
+      &:active {
+        cursor: grabbing;
+      }
     }
     .ann-title {
       flex: 1;
       font-weight: 600;
       font-size: 11px;
-      color: #64748b;
+      color: #334155;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .ann-edit-btn {
+      opacity: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px;
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: opacity 0.15s, color 0.15s;
+
+      &:hover {
+        color: #059669;
+        background: #e2e8f0;
+      }
     }
     .ann-badge {
       flex-shrink: 0;
@@ -1420,7 +1575,7 @@ defineExpose({ stageW, stageH })
       font-weight: 600;
       padding: 1.5px 5px;
       border-radius: 4px;
-      margin-left: 6px;
+      margin-left: 4px;
       letter-spacing: 0.2px;
 
       &.navigate {
@@ -1475,20 +1630,86 @@ defineExpose({ stageW, stageH })
       font-style: italic;
     }
   }
-  .ann-edit {
-    width: 100%;
-    border: 1px solid #059669;
-    border-radius: 6px;
-    font-size: 11px;
-    line-height: 1.5;
-    padding: 6px 8px;
-    resize: vertical;
-    font-family: inherit;
-    color: #0f172a;
-    outline: none;
-    box-sizing: border-box;
-    background: #ffffff;
-    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+
+  /* Inline editing form */
+  .ann-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    .edit-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+
+      .edit-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: #64748b;
+      }
+    }
+
+    .ann-edit-title-input {
+      width: 100%;
+      border: 1px solid #059669;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 6px;
+      font-family: inherit;
+      color: #0f172a;
+      outline: none;
+      box-sizing: border-box;
+      background: #ffffff;
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+    }
+
+    .ann-edit-textarea {
+      width: 100%;
+      border: 1px solid #059669;
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1.4;
+      padding: 4px 6px;
+      resize: vertical;
+      font-family: inherit;
+      color: #0f172a;
+      outline: none;
+      box-sizing: border-box;
+      background: #ffffff;
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+    }
+
+    .ann-edit-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-top: 2px;
+
+      button {
+        font-size: 10px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+      }
+      .btn-cancel {
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #64748b;
+        &:hover {
+          background: #f1f5f9;
+        }
+      }
+      .btn-save {
+        border: none;
+        background: #059669;
+        color: #ffffff;
+        &:hover {
+          background: #047857;
+        }
+      }
+    }
   }
 }
 </style>

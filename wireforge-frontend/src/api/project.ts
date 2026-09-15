@@ -28,6 +28,7 @@ export const projectApi = {
     annId: number,
     body: {
       text?: string
+      title?: string
       positionX?: number
       positionY?: number
       boxX?: number

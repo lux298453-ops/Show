@@ -270,6 +270,8 @@
                 :show-design="true"
                 :edit-mode="fineTune && mode === 'edit'"
                 :interactive="!fineTune"
+                :custom-orders="pageAnnOrders"
+                :custom-titles="customTitles"
                 :box-w="220"
                 :gap="16"
                 @navigate="onProtoNavigate"
@@ -280,6 +282,7 @@
                 @ann-hover="hoveredAnnId = $event"
                 @ann-click="handleAnnClick"
                 @ann-save="handleAnnSave"
+                @ann-order-change="handleAnnOrderChange"
               />
             </div>
           </template>
@@ -452,9 +455,10 @@
                       ? 'bg-emerald-950/50 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.25)] ring-1 ring-emerald-500/50' 
                       : 'bg-slate-800/50 hover:bg-slate-800/80 border-slate-700/50 hover:border-slate-600/80',
                     dragOverAnnId === item.id ? 'border-t-2 !border-t-emerald-400 -translate-y-0.5' : '',
-                    draggingAnnId === item.id ? 'opacity-40 scale-[0.98]' : ''
+                    draggingAnnId === item.id ? 'opacity-40 scale-[0.98]' : '',
+                    editingSimAnnId === item.id ? '!border-emerald-500/90 !bg-slate-800' : ''
                   ]"
-                  draggable="true"
+                  :draggable="editingSimAnnId !== item.id"
                   @dragstart="onSimDragStart($event, item.id)"
                   @dragover.prevent="onSimDragOver($event, item.id)"
                   @dragleave="onSimDragLeave($event, item.id)"
@@ -462,51 +466,104 @@
                   @dragend="onSimDragEnd"
                   @click="onSimCardClick(item)"
                 >
-                  <!-- Card Header -->
-                  <div class="flex items-center justify-between gap-2 mb-1.5">
-                    <div class="flex items-center gap-1.5 overflow-hidden">
-                      <!-- Drag Handle Indicator -->
-                      <span
-                        class="text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 -ml-1 rounded"
-                        title="长按或拖拽调整顺序"
-                      >
-                        <GripVertical class="w-3.5 h-3.5" />
-                      </span>
-                      <span class="font-semibold text-xs text-white truncate">{{ item.title }}</span>
+                  <!-- Edit Form Mode -->
+                  <div v-if="editingSimAnnId === item.id" class="space-y-2 text-xs" @click.stop @mousedown.stop>
+                    <div class="space-y-1">
+                      <span class="text-[10px] font-semibold text-slate-400">组件标题</span>
+                      <input
+                        ref="simTitleInputRef"
+                        v-model="editSimTitle"
+                        class="w-full bg-slate-900 border border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-emerald-400"
+                        placeholder="组件名称..."
+                        @keydown.enter.prevent="saveSimEdit(item)"
+                        @keydown.esc.stop="cancelSimEdit"
+                      />
                     </div>
-                    <!-- Interaction Capsule -->
-                    <span
-                      v-if="item.interactionType"
-                      class="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs"
-                      :class="{
-                        'bg-teal-500/20 text-teal-300 border border-teal-500/30': item.interactionType === 'navigate',
-                        'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30': item.interactionType === 'modal',
-                        'bg-amber-500/20 text-amber-300 border border-amber-500/30': item.interactionType === 'toggle',
-                      }"
+                    <div class="space-y-1">
+                      <span class="text-[10px] font-semibold text-slate-400">业务说明详情</span>
+                      <textarea
+                        v-model="editSimText"
+                        rows="3"
+                        class="w-full bg-slate-900 border border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-emerald-400 leading-relaxed resize-none"
+                        placeholder="业务说明详情..."
+                        @keydown.ctrl.enter.prevent="saveSimEdit(item)"
+                        @keydown.esc.stop="cancelSimEdit"
+                      ></textarea>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        class="px-2.5 py-1 rounded-md text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium transition-colors cursor-pointer"
+                        @click.stop="cancelSimEdit"
+                      >
+                        取消
+                      </button>
+                      <button
+                        class="px-3 py-1 rounded-md text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors cursor-pointer shadow-xs"
+                        @click.stop="saveSimEdit(item)"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Normal Display Mode -->
+                  <template v-else>
+                    <!-- Card Header -->
+                    <div class="flex items-center justify-between gap-2 mb-1.5">
+                      <div class="flex items-center gap-1.5 overflow-hidden flex-1">
+                        <!-- Drag Handle Indicator -->
+                        <span
+                          class="text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 -ml-1 rounded"
+                          title="长按或拖拽调整顺序"
+                          @mousedown.stop
+                        >
+                          <GripVertical class="w-3.5 h-3.5" />
+                        </span>
+                        <span class="font-semibold text-xs text-white truncate" :title="item.title">{{ item.title }}</span>
+                        <!-- Edit Button on Hover -->
+                        <button
+                          class="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-emerald-400 rounded transition-opacity cursor-pointer shrink-0"
+                          title="编辑标题与说明"
+                          @click.stop="startSimEdit(item)"
+                          @mousedown.stop
+                        >
+                          <Pencil class="w-3 h-3" />
+                        </button>
+                      </div>
+                      <!-- Interaction Capsule -->
+                      <span
+                        v-if="item.interactionType"
+                        class="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs"
+                        :class="{
+                          'bg-teal-500/20 text-teal-300 border border-teal-500/30': item.interactionType === 'navigate',
+                          'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30': item.interactionType === 'modal',
+                          'bg-amber-500/20 text-amber-300 border border-amber-500/30': item.interactionType === 'toggle',
+                        }"
+                      >
+                        <span>{{ item.interactionType === 'navigate' ? '⚡ 跳转' : (item.interactionType === 'modal' ? '⚡ 弹窗' : '⚡ 切换') }}</span>
+                      </span>
+                    </div>
+
+                    <!-- Target Destination Hint -->
+                    <div
+                      v-if="item.interactionTarget"
+                      class="mb-2 px-2 py-1 rounded-md bg-slate-950/40 border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between gap-1"
                     >
-                      <span>{{ item.interactionType === 'navigate' ? '⚡ 跳转' : (item.interactionType === 'modal' ? '⚡ 弹窗' : '⚡ 切换') }}</span>
-                    </span>
-                  </div>
+                      <span class="truncate text-slate-400">去向: <span class="text-emerald-300 font-medium">{{ item.interactionTarget }}</span></span>
+                      <ChevronRight v-if="item.interactionType === 'navigate'" class="w-3 h-3 text-emerald-400 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                    </div>
 
-                  <!-- Target Destination Hint -->
-                  <div
-                    v-if="item.interactionTarget"
-                    class="mb-2 px-2 py-1 rounded-md bg-slate-950/40 border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between gap-1"
-                  >
-                    <span class="truncate text-slate-400">去向: <span class="text-emerald-300 font-medium">{{ item.interactionTarget }}</span></span>
-                    <ChevronRight v-if="item.interactionType === 'navigate'" class="w-3 h-3 text-emerald-400 shrink-0 group-hover:translate-x-0.5 transition-transform" />
-                  </div>
+                    <!-- Description Text -->
+                    <div class="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap word-break" @dblclick.stop="startSimEdit(item)" title="双击快速编辑说明">
+                      {{ item.text || '暂无业务描述' }}
+                    </div>
 
-                  <!-- Description Text -->
-                  <div class="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap word-break">
-                    {{ item.text || '暂无业务描述' }}
-                  </div>
-
-                  <!-- Interactive Action Tip -->
-                  <div v-if="item.interactionType === 'navigate'" class="mt-2 pt-1.5 border-t border-slate-700/40 text-[10px] text-emerald-400/80 flex items-center gap-1">
-                    <Compass class="w-3 h-3" />
-                    <span>在真机屏幕中点击该组件即可体验跳转</span>
-                  </div>
+                    <!-- Interactive Action Tip -->
+                    <div v-if="item.interactionType === 'navigate'" class="mt-2 pt-1.5 border-t border-slate-700/40 text-[10px] text-emerald-400/80 flex items-center gap-1">
+                      <Compass class="w-3 h-3" />
+                      <span>在真机屏幕中点击该组件即可体验跳转</span>
+                    </div>
+                  </template>
                 </div>
               </div>
             </div>
@@ -548,6 +605,7 @@ import {
   FileText,
   Compass,
   ChevronRight,
+  Pencil,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
@@ -1066,13 +1124,58 @@ function targetPageName(ix: { target_page_id?: number | null }): string {
   return pages.value.find((p) => p.id === ix.target_page_id)?.name || `#${ix.target_page_id}`
 }
 
-function handleAnnSave(annId: number, text: string) {
+function handleAnnOrderChange(pageId: number, order: number[]) {
+  pageAnnOrders.value[pageId] = order
+  saveAnnOrders()
+  showToast('📌 画布说明顺序已更新并同步')
+}
+
+// 持久化自定义说明标题 (双向同步到画布与模拟器)
+const customTitles = ref<Record<number, string>>({})
+
+function loadCustomTitles() {
+  try {
+    const saved = localStorage.getItem('wf_sim_ann_titles')
+    if (saved) {
+      customTitles.value = JSON.parse(saved)
+    }
+  } catch (e) {
+    console.error('Failed to load custom ann titles', e)
+  }
+}
+
+function saveCustomTitles() {
+  try {
+    localStorage.setItem('wf_sim_ann_titles', JSON.stringify(customTitles.value))
+  } catch (e) {
+    console.error('Failed to save custom ann titles', e)
+  }
+}
+
+loadCustomTitles()
+
+function handleAnnSave(annId: number, text: string, title?: string) {
   if (!proto.value) return
   const ann = proto.value.pages.flatMap((p) => p.annotations).find((a) => a.id === annId)
+  let el: Element | undefined
+  if (ann) {
+    const page = proto.value.pages.find((p) => p.annotations.some((x) => x.id === annId))
+    if (page) {
+      el = page.elements.find((e) => e.id === ann.element_id)
+    }
+  }
+
+  if (title) {
+    customTitles.value[annId] = title
+    saveCustomTitles()
+    if (el) el.label = title
+  }
+
   projectApi
-    .updateAnnotation(id, annId, { text })
+    .updateAnnotation(id, annId, { text, title })
     .then(() => {
       if (ann) ann.text = text
+      showToast('✅ 说明已保存')
     })
     .catch((e: any) => {
       ElMessage.error(`保存失败: ${e.message || '网络错误'}`)
@@ -1129,6 +1232,34 @@ function saveAnnOrders() {
 }
 
 loadAnnOrders()
+
+// 模拟器抽屉卡片就地编辑状态与方法
+const editingSimAnnId = ref<number | null>(null)
+const editSimTitle = ref('')
+const editSimText = ref('')
+const simTitleInputRef = ref<HTMLInputElement | null>(null)
+
+function startSimEdit(item: SimAnnItem) {
+  editingSimAnnId.value = item.id
+  editSimTitle.value = item.title
+  editSimText.value = item.text || ''
+  nextTick(() => {
+    simTitleInputRef.value?.focus()
+    simTitleInputRef.value?.select()
+  })
+}
+
+function cancelSimEdit() {
+  editingSimAnnId.value = null
+}
+
+function saveSimEdit(item: SimAnnItem) {
+  if (editingSimAnnId.value !== item.id) return
+  const t = editSimTitle.value.trim() || item.title
+  const txt = editSimText.value.trim()
+  editingSimAnnId.value = null
+  handleAnnSave(item.id, txt, t)
+}
 
 const draggingAnnId = ref<number | null>(null)
 const dragOverAnnId = ref<number | null>(null)
@@ -1234,11 +1365,14 @@ const simAnnList = computed<SimAnnItem[]>(() => {
       }
     }
 
+    const customTitle = customTitles.value[ann.id]
+    const effectiveTitle = customTitle || el?.label || `说明 ${idx + 1}`
+
     return {
       id: ann.id,
       index: idx,
       elementId: el?.id ?? null,
-      title: el?.label || `标注 ${idx + 1}`,
+      title: effectiveTitle,
       text: ann.text || '',
       interactionType,
       interactionLabel,

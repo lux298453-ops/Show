@@ -562,6 +562,15 @@ public class ProjectService {
         if (body.containsKey("text") && body.get("text") != null) {
             ann.setText(body.get("text").toString());
         }
+        String updatedTitle = null;
+        if (body.containsKey("title") && body.get("title") != null && ann.getElementId() != null) {
+            Element el = elementMapper.selectById(ann.getElementId());
+            if (el != null) {
+                el.setLabel(body.get("title").toString());
+                elementMapper.updateById(el);
+                updatedTitle = el.getLabel();
+            }
+        }
         if (body.containsKey("positionX")) {
             ann.setPositionX(toDouble(body.get("positionX")));
         }
@@ -588,6 +597,9 @@ public class ProjectService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", ann.getId());
         result.put("text", ann.getText());
+        if (updatedTitle != null) {
+            result.put("title", updatedTitle);
+        }
         result.put("positionX", ann.getPositionX());
         result.put("positionY", ann.getPositionY());
         result.put("boxX", ann.getBoxX());
