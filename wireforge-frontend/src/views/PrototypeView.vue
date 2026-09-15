@@ -356,23 +356,51 @@
                 </button>
 
                 <!-- Page View Container (Zero Padding, Full Screen Fit) -->
-                <div class="w-[375px] overflow-x-hidden overflow-y-auto" :style="{ height: `${previewHeight}px` }">
-                  <PageCanvas
-                    v-if="previewPage"
-                    :page="previewPage"
-                    :all-pages="pages"
-                    :show-wireframe="true"
-                    :show-design="false"
-                    :show-annotations="false"
-                    :edit-mode="false"
-                    :interactive="true"
-                    :box-w="0"
-                    :gap="0"
-                    @navigate="onProtoNavigate"
-                    @back="onProtoBack"
-                    @save-html="onSaveHtml"
-                    @element-click="handlePreviewClick"
-                  />
+                <div ref="simScrollRef" class="w-[375px] overflow-x-hidden overflow-y-auto custom-scrollbar relative" :style="{ height: `${previewHeight}px` }">
+                  <div class="relative min-w-[375px]">
+                    <PageCanvas
+                      v-if="previewPage"
+                      :page="previewPage"
+                      :all-pages="pages"
+                      :show-wireframe="true"
+                      :show-design="false"
+                      :show-annotations="false"
+                      :edit-mode="false"
+                      :interactive="true"
+                      :box-w="0"
+                      :gap="0"
+                      @navigate="onProtoNavigate"
+                      @back="onProtoBack"
+                      @save-html="onSaveHtml"
+                      @element-click="handlePreviewClick"
+                    />
+
+                    <!-- 业务说明元素聚光灯与呼吸高亮框 -->
+                    <transition name="fade-fast">
+                      <div
+                        v-if="activeSimElement"
+                        class="sim-spotlight-box pointer-events-none absolute z-40 transition-all duration-300"
+                        :style="{
+                          left: `${activeSimElement.x - 3}px`,
+                          top: `${activeSimElement.y - 3}px`,
+                          width: `${activeSimElement.width + 6}px`,
+                          height: `${activeSimElement.height + 6}px`,
+                        }"
+                      >
+                        <!-- 呼吸外发光光圈 -->
+                        <div class="absolute inset-0 rounded-lg border-2 sim-breathing-ring"></div>
+                        <!-- 轻微脉冲半透明高亮填充 -->
+                        <div class="absolute inset-0 rounded-lg bg-emerald-400/15 animate-pulse"></div>
+                        <!-- 悬浮组件名称标签 -->
+                        <div
+                          class="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-lg flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-200 animate-ping"></span>
+                          <span>{{ activeSimAnnTitle || '目标组件' }}</span>
+                        </div>
+                      </div>
+                    </transition>
+                  </div>
                 </div>
               </div>
             </div>
@@ -418,17 +446,31 @@
                   v-for="item in simAnnList"
                   :key="item.id"
                   :id="`sim-ann-${item.id}`"
-                  class="p-3 rounded-xl border transition-all cursor-pointer relative group"
-                  :class="selectedSimAnnId === item.id 
-                    ? 'bg-emerald-950/50 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.25)] ring-1 ring-emerald-500/50' 
-                    : 'bg-slate-800/50 hover:bg-slate-800/80 border-slate-700/50 hover:border-slate-600/80'"
+                  class="p-3 rounded-xl border transition-all cursor-pointer relative group select-none"
+                  :class="[
+                    selectedSimAnnId === item.id 
+                      ? 'bg-emerald-950/50 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.25)] ring-1 ring-emerald-500/50' 
+                      : 'bg-slate-800/50 hover:bg-slate-800/80 border-slate-700/50 hover:border-slate-600/80',
+                    dragOverAnnId === item.id ? 'border-t-2 !border-t-emerald-400 -translate-y-0.5' : '',
+                    draggingAnnId === item.id ? 'opacity-40 scale-[0.98]' : ''
+                  ]"
+                  draggable="true"
+                  @dragstart="onSimDragStart($event, item.id)"
+                  @dragover.prevent="onSimDragOver($event, item.id)"
+                  @dragleave="onSimDragLeave($event, item.id)"
+                  @drop.prevent="onSimDrop($event, item.id)"
+                  @dragend="onSimDragEnd"
                   @click="onSimCardClick(item)"
                 >
                   <!-- Card Header -->
                   <div class="flex items-center justify-between gap-2 mb-1.5">
                     <div class="flex items-center gap-1.5 overflow-hidden">
-                      <span class="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[10px] flex items-center justify-center shrink-0">
-                        {{ item.index + 1 }}
+                      <!-- Drag Handle Indicator -->
+                      <span
+                        class="text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 -ml-1 rounded"
+                        title="长按或拖拽调整顺序"
+                      >
+                        <GripVertical class="w-3.5 h-3.5" />
                       </span>
                       <span class="font-semibold text-xs text-white truncate">{{ item.title }}</span>
                     </div>
@@ -1056,8 +1098,86 @@ function openPreview() {
   mode.value = 'preview'
 }
 
+const simScrollRef = ref<HTMLElement | null>(null)
 const showSimDrawer = ref(true)
 const selectedSimAnnId = ref<number | null>(null)
+
+// 按页面持久化记录业务说明卡片的排序偏好
+const pageAnnOrders = ref<Record<number, number[]>>({})
+
+function loadAnnOrders() {
+  try {
+    const saved = localStorage.getItem('wf_sim_ann_orders')
+    if (saved) {
+      pageAnnOrders.value = JSON.parse(saved)
+    }
+  } catch (e) {
+    console.error('Failed to load custom ann orders', e)
+  }
+}
+
+function saveAnnOrders() {
+  try {
+    localStorage.setItem('wf_sim_ann_orders', JSON.stringify(pageAnnOrders.value))
+  } catch (e) {
+    console.error('Failed to save custom ann orders', e)
+  }
+}
+
+loadAnnOrders()
+
+const draggingAnnId = ref<number | null>(null)
+const dragOverAnnId = ref<number | null>(null)
+
+function onSimDragStart(e: DragEvent, annId: number) {
+  draggingAnnId.value = annId
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(annId))
+  }
+}
+
+function onSimDragOver(e: DragEvent, targetId: number) {
+  if (draggingAnnId.value === targetId) return
+  dragOverAnnId.value = targetId
+}
+
+function onSimDragLeave(e: DragEvent, targetId: number) {
+  if (dragOverAnnId.value === targetId) {
+    dragOverAnnId.value = null
+  }
+}
+
+function onSimDrop(e: DragEvent, targetId: number) {
+  const sourceId = draggingAnnId.value
+  if (!sourceId || sourceId === targetId || !previewPage.value) {
+    dragOverAnnId.value = null
+    draggingAnnId.value = null
+    return
+  }
+
+  const currentList = [...simAnnList.value]
+  const srcIdx = currentList.findIndex((a) => a.id === sourceId)
+  const tgtIdx = currentList.findIndex((a) => a.id === targetId)
+
+  if (srcIdx !== -1 && tgtIdx !== -1) {
+    const [moved] = currentList.splice(srcIdx, 1)
+    currentList.splice(tgtIdx, 0, moved)
+
+    const pageId = previewPage.value.id
+    pageAnnOrders.value[pageId] = currentList.map((a) => a.id)
+    saveAnnOrders()
+    showToast('📌 已置顶/调整该业务说明')
+  }
+
+  dragOverAnnId.value = null
+  draggingAnnId.value = null
+}
+
+function onSimDragEnd() {
+  dragOverAnnId.value = null
+  draggingAnnId.value = null
+}
 
 interface SimAnnItem {
   id: number
@@ -1074,7 +1194,7 @@ interface SimAnnItem {
 const simAnnList = computed<SimAnnItem[]>(() => {
   if (!previewPage.value) return []
   const p = previewPage.value
-  return (p.annotations || []).map((ann, idx) => {
+  const rawList = (p.annotations || []).map((ann, idx) => {
     const el = p.elements.find((e) => e.id === ann.element_id)
     let interactionType: 'navigate' | 'modal' | 'toggle' | null = null
     let interactionLabel: string | null = null
@@ -1122,12 +1242,50 @@ const simAnnList = computed<SimAnnItem[]>(() => {
       targetPageId,
     }
   })
+
+  // 按用户调整后的顺序排序
+  const customOrder = pageAnnOrders.value[p.id]
+  if (customOrder && customOrder.length) {
+    return [...rawList].sort((a, b) => {
+      const idxA = customOrder.indexOf(a.id)
+      const idxB = customOrder.indexOf(b.id)
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      return 0
+    })
+  }
+
+  return rawList
 })
+
+const activeSimAnn = computed(() => simAnnList.value.find((a) => a.id === selectedSimAnnId.value))
+const activeSimElement = computed(() => {
+  if (!previewPage.value || !activeSimAnn.value?.elementId) return null
+  return previewPage.value.elements.find((e) => e.id === activeSimAnn.value!.elementId) || null
+})
+const activeSimAnnTitle = computed(() => activeSimAnn.value?.title || '')
+
+function scrollToElementInSimulator(el: Element | null) {
+  if (!el || !simScrollRef.value) return
+  nextTick(() => {
+    if (!simScrollRef.value) return
+    const targetTop = Math.max(0, el.y - previewHeight.value / 2 + el.height / 2)
+    simScrollRef.value.scrollTo({
+      top: targetTop,
+      behavior: 'smooth',
+    })
+  })
+}
 
 const simInteractiveCount = computed(() => simAnnList.value.filter((a) => !!a.interactionType).length)
 
 function onSimCardClick(item: SimAnnItem) {
   selectedSimAnnId.value = item.id
+  const targetEl = previewPage.value?.elements.find((e) => e.id === item.elementId) || null
+  if (targetEl) {
+    scrollToElementInSimulator(targetEl)
+  }
   if (item.interactionType === 'navigate') {
     if (item.targetPageId) {
       showToast(`⚡ 执行跳转: ${item.interactionTarget || '目标页面'}`)
@@ -1163,6 +1321,7 @@ function handlePreviewClick(el: Element) {
       }
     })
   }
+  scrollToElementInSimulator(el)
   const ix = el.interaction
   if (!ix) return
   if (ix.action === 'navigate' && ix.target_page_id) {
@@ -1386,5 +1545,37 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKeydown))
       background: rgba(255, 255, 255, 0.25);
     }
   }
+}
+
+/* 业务说明联动：模拟器组件呼吸发光外圈 */
+.sim-breathing-ring {
+  border-color: #10b981;
+  animation: simBreathing 1.8s ease-in-out infinite;
+}
+
+@keyframes simBreathing {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.75), 0 0 12px rgba(16, 185, 129, 0.45);
+    border-color: rgba(52, 211, 153, 0.9);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0), 0 0 24px rgba(16, 185, 129, 0.85);
+    border-color: #10b981;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.75), 0 0 12px rgba(16, 185, 129, 0.45);
+    border-color: rgba(52, 211, 153, 0.9);
+  }
+}
+
+.fade-fast-enter-active,
+.fade-fast-leave-active {
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-fast-enter-from,
+.fade-fast-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
 }
 </style>
