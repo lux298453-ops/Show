@@ -47,12 +47,21 @@
           <span>元素微调</span>
         </label>
 
-        <!-- Top Bar Multi-user Conflict Warning -->
+        <!-- Top Bar Multi-user Exclusive Lock Status -->
         <div
-          v-if="currentConflictNotice"
-          class="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-300/80 rounded-lg text-xs font-medium text-amber-800 shadow-2xs animate-pulse"
+          v-if="fineTune && mode === 'edit'"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shadow-2xs transition-all"
+          :class="activeEditingPage ? 'bg-emerald-50 border border-emerald-300/90 text-emerald-800' : 'bg-slate-100 text-slate-600'"
         >
-          <AlertTriangle class="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <SlidersHorizontal class="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span v-if="activeEditingPage">当前独占微调：「{{ activeEditingPage.name }}」（其他未锁定页面均可自由微调）</span>
+          <span v-else>微调模式：点击任意未锁定的页面即可开始微调</span>
+        </div>
+        <div
+          v-else-if="currentConflictNotice"
+          class="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-300/80 rounded-lg text-xs font-medium text-amber-800 shadow-2xs"
+        >
+          <Lock class="w-3.5 h-3.5 text-amber-600 shrink-0" />
           <span>{{ currentConflictNotice }}</span>
         </div>
       </div>
@@ -229,6 +238,7 @@
             <div
               class="page-block absolute"
               :style="{ left: `${b.x}px`, top: `${b.y}px` }"
+              @click="onPageBlockClick(b.page.id)"
             >
               <!-- Block Header Capsule Floating Label -->
               <div
@@ -246,15 +256,26 @@
                 />
                 <GripVertical class="w-3.5 h-3.5 text-slate-400" />
                 <span class="cursor-pointer hover:underline truncate max-w-[150px]" @click.stop="focusPage(b.page.id)">{{ b.page.name }}</span>
-                <!-- Multi-user Editing Conflict Warning Badge -->
+
+                <!-- 独占锁定徽标：他人正在微调此页 -->
                 <span
                   v-if="pageEditingConflicts[b.page.id]?.conflict"
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-semibold animate-pulse select-none shrink-0"
-                  :title="`${pageEditingConflicts[b.page.id]?.editor || '其他成员'} 正在编辑该页面`"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-300 text-[10px] font-semibold select-none shrink-0"
+                  :title="`${pageEditingConflicts[b.page.id]?.editor || '其他成员'} 正在独占微调此页面，已被锁定保护`"
                 >
-                  <AlertTriangle class="w-3 h-3 text-amber-600 shrink-0" />
-                  <span>当前有人正在编辑</span>
+                  <Lock class="w-3 h-3 text-rose-500 shrink-0" />
+                  <span>{{ pageEditingConflicts[b.page.id]?.editor || '协同成员' }} 独占微调中</span>
                 </span>
+
+                <!-- 本地微调徽标：当前正独占微调此页 -->
+                <span
+                  v-else-if="fineTune && mode === 'edit' && activeEditingPageId === b.page.id"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-300 text-[10px] font-semibold select-none shrink-0 animate-pulse"
+                >
+                  <SlidersHorizontal class="w-3 h-3 text-emerald-600 shrink-0" />
+                  <span>微调中</span>
+                </span>
+
                 <button
                   class="wf-tap ml-0.5 p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-slate-100 transition-colors cursor-pointer"
                   title="放大聚焦此页"
@@ -275,33 +296,51 @@
                 </button>
               </div>
 
-              <!-- Page Canvas Component -->
-              <PageCanvas
-                :ref="(el: any) => setPageRef(b.page.id, el)"
-                :page="b.page"
-                :all-pages="pages"
-                :show-wireframe="showWireframe"
-                :show-annotations="showAnnotations"
-                :selected-element-id="selectedElementId"
-                :hovered-element-id="hoveredElementId"
-                :hovered-ann-id="hoveredAnnId"
-                :show-design="true"
-                :edit-mode="fineTune && mode === 'edit'"
-                :interactive="!fineTune"
-                :custom-orders="pageAnnOrders"
-                :custom-titles="customTitles"
-                :box-w="220"
-                :gap="16"
-                @navigate="onProtoNavigate"
-                @back="onProtoBack"
-                @save-html="onSaveHtml"
-                @element-click="handleElementClick"
-                @element-hover="handleElementHover"
-                @ann-hover="hoveredAnnId = $event"
-                @ann-click="handleAnnClick"
-                @ann-save="handleAnnSave"
-                @ann-order-change="handleAnnOrderChange"
-              />
+              <!-- Page Canvas Component with exclusive lock shield -->
+              <div class="relative">
+                <PageCanvas
+                  :ref="(el: any) => setPageRef(b.page.id, el)"
+                  :page="b.page"
+                  :all-pages="pages"
+                  :show-wireframe="showWireframe"
+                  :show-annotations="showAnnotations"
+                  :selected-element-id="selectedElementId"
+                  :hovered-element-id="hoveredElementId"
+                  :hovered-ann-id="hoveredAnnId"
+                  :show-design="true"
+                  :edit-mode="fineTune && mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
+                  :interactive="!fineTune || !!pageEditingConflicts[b.page.id]?.conflict"
+                  :custom-orders="pageAnnOrders"
+                  :custom-titles="customTitles"
+                  :box-w="220"
+                  :gap="16"
+                  @navigate="onProtoNavigate"
+                  @back="onProtoBack"
+                  @save-html="onSaveHtml"
+                  @element-click="handleElementClick"
+                  @element-hover="handleElementHover"
+                  @ann-hover="hoveredAnnId = $event"
+                  @ann-click="handleAnnClick"
+                  @ann-save="handleAnnSave"
+                  @ann-order-change="handleAnnOrderChange"
+                />
+
+                <!-- 页面级独占锁定遮罩保护层（他人微调时阻断拖拽并给出明确提示） -->
+                <div
+                  v-if="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict"
+                  class="absolute inset-0 z-20 bg-slate-950/15 backdrop-blur-[1px] rounded-2xl border-2 border-dashed border-rose-400/80 flex flex-col items-center justify-center cursor-not-allowed select-none transition-all p-4"
+                  @click.stop="showLockedToast(b.page)"
+                  @mousedown.stop
+                >
+                  <div class="px-3.5 py-2 bg-slate-900/95 text-white rounded-xl shadow-xl border border-rose-400/40 flex items-center gap-2 text-xs font-semibold backdrop-blur-md pointer-events-auto">
+                    <Lock class="w-4 h-4 text-rose-400" />
+                    <span>{{ pageEditingConflicts[b.page.id]?.editor || '其他成员' }} 正在独占微调此页</span>
+                  </div>
+                  <p class="text-[11px] text-rose-900 bg-white/95 px-2.5 py-1 rounded-md mt-2 font-medium shadow-sm border border-rose-200 pointer-events-auto">
+                    🔒 该页面已被独占锁定防覆盖，您可以自由微调其他页面
+                  </p>
+                </div>
+              </div>
             </div>
           </template>
 
@@ -636,6 +675,7 @@ import {
   Pencil,
   Users,
   AlertTriangle,
+  Lock,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
@@ -674,31 +714,49 @@ const currentConflictNotice = computed(() => {
   const focusedConflict = focusPageId.value ? pageEditingConflicts.value[focusPageId.value] : null
   if (focusedConflict?.conflict) {
     const p = pages.value.find((pg) => pg.id === focusPageId.value)
-    return `当前有人正在编辑「${p?.name || '当前页'}」`
+    return `「${p?.name || '当前页'}」正被 ${focusedConflict.editor || '其他成员'} 独占微调`
   }
   const conflictEntry = Object.entries(pageEditingConflicts.value).find(([_, v]) => v.conflict)
   if (conflictEntry) {
     const pageId = Number(conflictEntry[0])
     const p = pages.value.find((pg) => pg.id === pageId)
-    return `当前有人正在编辑「${p?.name || '页面'}」`
+    return `「${p?.name || '页面'}」已被其他成员独占微调`
   }
   return ''
 })
+
+function showLockedToast(page: Page) {
+  const editor = pageEditingConflicts.value[page.id]?.editor || '其他成员'
+  showToast(`🔒「${page.name}」正由 ${editor} 独占微调中，已开启防覆盖保护。您可以微调其他页面！`)
+}
+
+function onPageBlockClick(pageId: number) {
+  if (pageEditingConflicts.value[pageId]?.conflict) {
+    const p = pages.value.find((pg) => pg.id === pageId)
+    if (p) showLockedToast(p)
+    return
+  }
+  if (fineTune.value && mode.value === 'edit') {
+    focusPageId.value = pageId
+  }
+}
 
 function onSaveHtml(p: { pageId: number; html: string }) {
   const conflict = pageEditingConflicts.value[p.pageId]?.conflict
   if (conflict) {
     const editor = pageEditingConflicts.value[p.pageId]?.editor || '其他成员'
-    showToast(`⚠️ 警告: 当前 ${editor} 也在编辑此页面，请注意不要覆盖对方内容！`)
+    const pageName = pages.value.find((pg) => pg.id === p.pageId)?.name || '页面'
+    showToast(`🔒 保存被拦截:「${pageName}」当前正被 ${editor} 独占微调，无法覆盖其修改！`)
+    return
   }
   projectApi
-    .saveHtml(id, p.pageId, p.html)
+    .saveHtml(id, p.pageId, p.html, clientId.value)
     .then(() => {
       const page = proto.value?.pages.find((pg) => pg.id === p.pageId)
       if (page) page.html_content = p.html
-      showToast(conflict ? '⚠️ 微调已保存（请留意协同覆盖）' : '✅ 微调已保存')
+      showToast('✅ 微调已保存')
     })
-    .catch((e: any) => showToast(`❌ 保存失败: ${e?.message || '未知错误'}`))
+    .catch((e: any) => showToast(`❌ 保存失败: ${e?.response?.data?.message || e?.message || '未知错误'}`))
 }
 const mode = ref<'edit' | 'preview'>('edit')
 
@@ -1639,7 +1697,12 @@ const totalAnnotations = computed(() => pages.value.reduce((s, p) => s + p.annot
 
 const activeEditingPageId = computed<number | null>(() => {
   if (mode.value === 'edit' && fineTune.value) {
-    return focusPageId.value ?? (blocks.value[0]?.page?.id ?? null)
+    const candidate = focusPageId.value ?? (blocks.value[0]?.page?.id ?? null)
+    if (candidate && pageEditingConflicts.value[candidate]?.conflict) {
+      // 若该候选页面正被他人独占锁定，则当前用户不持有该页面锁
+      return null
+    }
+    return candidate
   }
   if (editingSimAnnId.value && previewPageId.value) {
     return previewPageId.value
@@ -1647,10 +1710,22 @@ const activeEditingPageId = computed<number | null>(() => {
   return null
 })
 
+const activeEditingPage = computed(() => {
+  if (!activeEditingPageId.value) return null
+  return pages.value.find((p) => p.id === activeEditingPageId.value) || null
+})
+
 let editStatusTimer: ReturnType<typeof setInterval> | null = null
 let lastLockedPageId: number | null = null
 
 async function syncEditingSession() {
+  // 1. 批量拉取所有页面的编辑/冲突状态
+  try {
+    const statuses = await projectApi.getAllPageEditingStatuses(id, clientId.value)
+    pageEditingConflicts.value = statuses || {}
+  } catch {}
+
+  // 2. 如果当前有合法的待锁定页面，上报独占心跳锁
   const currentEditId = activeEditingPageId.value
   if (currentEditId) {
     try {
@@ -1661,7 +1736,8 @@ async function syncEditingSession() {
       })
       lastLockedPageId = currentEditId
       if (lockRes.conflict) {
-        showToast(`⚠️ 当前有人正在编辑「${pages.value.find((p) => p.id === currentEditId)?.name || '本页'}」`)
+        const p = pages.value.find((pg) => pg.id === currentEditId)
+        showToast(`🔒「${p?.name || '本页'}」已被 ${lockRes.editor || '其他成员'} 独占微调，已为您开启只读保护`)
       }
     } catch {}
   } else if (lastLockedPageId) {
@@ -1673,11 +1749,6 @@ async function syncEditingSession() {
     } catch {}
     lastLockedPageId = null
   }
-
-  try {
-    const statuses = await projectApi.getAllPageEditingStatuses(id, clientId.value)
-    pageEditingConflicts.value = statuses || {}
-  } catch {}
 }
 
 watch(activeEditingPageId, (newId, oldId) => {

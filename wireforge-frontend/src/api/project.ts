@@ -21,8 +21,8 @@ export const projectApi = {
   regenerateHtml: (id: number, pageId: number) =>
     http.post<any, string>(`/projects/${id}/pages/${pageId}/regenerate-html`),
   /** 保存用户微调后的完整整页 HTML */
-  saveHtml: (id: number, pageId: number, html: string) =>
-    http.put<any, void>(`/projects/${id}/pages/${pageId}/html`, { html }),
+  saveHtml: (id: number, pageId: number, html: string, clientId?: string) =>
+    http.put<any, void>(`/projects/${id}/pages/${pageId}/html`, { html, clientId }),
   updateAnnotation: (
     id: number,
     annId: number,

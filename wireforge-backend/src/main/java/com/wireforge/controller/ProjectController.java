@@ -132,7 +132,8 @@ public class ProjectController {
             @PathVariable Long id,
             @PathVariable Long pageId,
             @RequestBody Map<String, String> body) {
-        projectService.updatePageHtml(pageId, body.get("html"));
+        String clientId = body.getOrDefault("clientId", "");
+        projectService.updatePageHtml(pageId, body.get("html"), clientId);
         return Result.ok(null);
     }
 

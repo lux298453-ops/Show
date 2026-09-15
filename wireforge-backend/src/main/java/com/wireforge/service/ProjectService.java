@@ -634,12 +634,28 @@ public class ProjectService {
      * 保存用户在整页原型上的手动微调：前端把调整后的完整 HTML 序列化回来，直接落库。
      */
     public void updatePageHtml(Long pageId, String html) {
+        updatePageHtml(pageId, html, null);
+    }
+
+    /**
+     * 保存用户在整页原型上的手动微调（增加页面级独占锁防覆盖校验）
+     */
+    public void updatePageHtml(Long pageId, String html, String clientId) {
         if (html == null || html.isBlank()) {
             throw new IllegalArgumentException("HTML 内容不能为空");
         }
         Page page = pageMapper.selectById(pageId);
         if (page == null) {
             throw new IllegalArgumentException("页面不存在: " + pageId);
+        }
+        // 页面级独占锁保护：如果该页面当前被其他人独占编辑且未超时，拒绝保存
+        if (clientId != null && !clientId.isBlank()) {
+            EditSession session = PAGE_EDIT_SESSIONS.get(pageId);
+            long now = System.currentTimeMillis();
+            if (session != null && !session.getClientId().equals(clientId) && (now - session.getLastHeartbeat() < 12000)) {
+                String editor = session.getUserName() != null ? session.getUserName() : "其他成员";
+                throw new IllegalStateException("页面当前正被 " + editor + " 独占微调中，无法保存覆盖！");
+            }
         }
         page.setHtmlContent(html);
         pageMapper.updateById(page);
