@@ -42,4 +42,17 @@ export const projectApi = {
     http.put<any, Record<string, unknown>>(`/projects/${id}/pages/${pageId}/position`, body),
   updatePageAnnotationOrders: (id: number, pageId: number, orderedAnnIds: number[]) =>
     http.put<any, number[]>(`/projects/${id}/pages/${pageId}/annotation-orders`, orderedAnnIds),
+  lockPageEditing: (
+    id: number,
+    pageId: number,
+    body: { clientId: string; userName?: string; active: boolean },
+  ) => http.post<any, { editing: boolean; conflict: boolean; editor?: string }>(`/projects/${id}/pages/${pageId}/edit-lock`, body),
+  getPageEditingStatus: (id: number, pageId: number, clientId: string) =>
+    http.get<any, { editing: boolean; conflict: boolean; editor?: string }>(`/projects/${id}/pages/${pageId}/edit-status`, {
+      params: { clientId },
+    }),
+  getAllPageEditingStatuses: (id: number, clientId: string) =>
+    http.get<any, Record<number, { editing: boolean; conflict: boolean; editor?: string }>>(`/projects/${id}/edit-statuses`, {
+      params: { clientId },
+    }),
 }

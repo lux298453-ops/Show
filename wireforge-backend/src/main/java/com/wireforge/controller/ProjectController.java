@@ -136,6 +136,35 @@ public class ProjectController {
         return Result.ok(null);
     }
 
+    /** 上报/释放页面编辑锁（心跳） */
+    @PostMapping("/{id}/pages/{pageId}/edit-lock")
+    public Result<Map<String, Object>> lockPageEditing(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @RequestBody Map<String, Object> body) {
+        String clientId = body.getOrDefault("clientId", "").toString();
+        String userName = body.getOrDefault("userName", "其他成员").toString();
+        boolean active = Boolean.TRUE.equals(body.get("active"));
+        return Result.ok(projectService.lockPageEditing(pageId, clientId, userName, active));
+    }
+
+    /** 查询页面编辑冲突状态 */
+    @GetMapping("/{id}/pages/{pageId}/edit-status")
+    public Result<Map<String, Object>> getPageEditingStatus(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @RequestParam(required = false, defaultValue = "") String clientId) {
+        return Result.ok(projectService.getPageEditingStatus(pageId, clientId));
+    }
+
+    /** 批量查询项目中所有正在被编辑的页面冲突状态 */
+    @GetMapping("/{id}/edit-statuses")
+    public Result<Map<Long, Map<String, Object>>> getAllPageEditingStatuses(
+            @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "") String clientId) {
+        return Result.ok(projectService.getAllPageEditingStatuses(id, clientId));
+    }
+
     /** 手动触发全局交互拓扑自动布线 */
     @PostMapping("/{id}/autowire-interactions")
     public Result<Integer> autowireInteractions(@PathVariable Long id) {

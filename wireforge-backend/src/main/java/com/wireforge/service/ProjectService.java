@@ -681,6 +681,97 @@ public class ProjectService {
         return orderedAnnIds;
     }
 
+    /**
+     * 记录各页面当前正在编辑的用户与心跳时间戳: pageId -> EditSession
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<Long, EditSession> PAGE_EDIT_SESSIONS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class EditSession {
+        private String clientId;
+        private String userName;
+        private long lastHeartbeat;
+    }
+
+    /**
+     * 上报/续期页面编辑状态（心跳），并返回冲突状态。
+     * 只要距离上次心跳不超过 10 秒，且 clientId 不同，即视为冲突（其他人正在编辑）。
+     */
+    public Map<String, Object> lockPageEditing(Long pageId, String clientId, String userName, boolean active) {
+        long now = System.currentTimeMillis();
+        // 清理超过 12 秒的过期会话
+        PAGE_EDIT_SESSIONS.entrySet().removeIf(entry -> now - entry.getValue().getLastHeartbeat() > 12000);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (!active) {
+            EditSession existing = PAGE_EDIT_SESSIONS.get(pageId);
+            if (existing != null && existing.getClientId().equals(clientId)) {
+                PAGE_EDIT_SESSIONS.remove(pageId);
+            }
+            result.put("editing", false);
+            result.put("conflict", false);
+            return result;
+        }
+
+        EditSession current = PAGE_EDIT_SESSIONS.get(pageId);
+        if (current != null && !current.getClientId().equals(clientId) && (now - current.getLastHeartbeat() < 12000)) {
+            result.put("editing", true);
+            result.put("conflict", true);
+            result.put("editor", current.getUserName() != null ? current.getUserName() : "其他成员");
+            return result;
+        }
+
+        // 无冲突，更新/持有锁
+        PAGE_EDIT_SESSIONS.put(pageId, new EditSession(clientId, userName, now));
+        result.put("editing", true);
+        result.put("conflict", false);
+        return result;
+    }
+
+    /**
+     * 查询页面的当前编辑冲突状态
+     */
+    public Map<String, Object> getPageEditingStatus(Long pageId, String clientId) {
+        long now = System.currentTimeMillis();
+        EditSession current = PAGE_EDIT_SESSIONS.get(pageId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (current != null && (now - current.getLastHeartbeat() < 12000)) {
+            boolean conflict = !current.getClientId().equals(clientId);
+            result.put("editing", true);
+            result.put("conflict", conflict);
+            result.put("editor", current.getUserName() != null ? current.getUserName() : "其他成员");
+        } else {
+            result.put("editing", false);
+            result.put("conflict", false);
+        }
+        return result;
+    }
+
+    /**
+     * 查询项目中所有正在被编辑的页面状态 (批量查询)
+     */
+    public Map<Long, Map<String, Object>> getAllPageEditingStatuses(Long projectId, String clientId) {
+        long now = System.currentTimeMillis();
+        PAGE_EDIT_SESSIONS.entrySet().removeIf(entry -> now - entry.getValue().getLastHeartbeat() > 12000);
+
+        Map<Long, Map<String, Object>> result = new LinkedHashMap<>();
+        for (Map.Entry<Long, EditSession> entry : PAGE_EDIT_SESSIONS.entrySet()) {
+            Long pageId = entry.getKey();
+            EditSession session = entry.getValue();
+            if (now - session.getLastHeartbeat() < 12000) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                boolean conflict = !session.getClientId().equals(clientId);
+                item.put("editing", true);
+                item.put("conflict", conflict);
+                item.put("editor", session.getUserName() != null ? session.getUserName() : "其他成员");
+                result.put(pageId, item);
+            }
+        }
+        return result;
+    }
+
     private String toFileUrl(String absolutePath) {
         if (absolutePath == null || absolutePath.isBlank()) return "";
         try {

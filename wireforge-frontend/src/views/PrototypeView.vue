@@ -46,6 +46,15 @@
           <SlidersHorizontal class="w-3.5 h-3.5" />
           <span>元素微调</span>
         </label>
+
+        <!-- Top Bar Multi-user Conflict Warning -->
+        <div
+          v-if="currentConflictNotice"
+          class="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-300/80 rounded-lg text-xs font-medium text-amber-800 shadow-2xs animate-pulse"
+        >
+          <AlertTriangle class="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <span>{{ currentConflictNotice }}</span>
+        </div>
       </div>
 
       <!-- Right: Zoom Controls & Preview CTA -->
@@ -237,6 +246,15 @@
                 />
                 <GripVertical class="w-3.5 h-3.5 text-slate-400" />
                 <span class="cursor-pointer hover:underline truncate max-w-[150px]" @click.stop="focusPage(b.page.id)">{{ b.page.name }}</span>
+                <!-- Multi-user Editing Conflict Warning Badge -->
+                <span
+                  v-if="pageEditingConflicts[b.page.id]?.conflict"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-semibold animate-pulse select-none shrink-0"
+                  :title="`${pageEditingConflicts[b.page.id]?.editor || '其他成员'} 正在编辑该页面`"
+                >
+                  <AlertTriangle class="w-3 h-3 text-amber-600 shrink-0" />
+                  <span>当前有人正在编辑</span>
+                </span>
                 <button
                   class="wf-tap ml-0.5 p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-slate-100 transition-colors cursor-pointer"
                   title="放大聚焦此页"
@@ -423,7 +441,17 @@
                     <FileText class="w-4 h-4" />
                   </div>
                   <div class="overflow-hidden">
-                    <div class="text-xs font-bold text-white truncate">{{ previewPage?.name || '页面说明' }}</div>
+                    <div class="text-xs font-bold text-white truncate flex items-center gap-2">
+                      <span class="truncate">{{ previewPage?.name || '页面说明' }}</span>
+                      <span
+                        v-if="previewPage && pageEditingConflicts[previewPage.id]?.conflict"
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-semibold animate-pulse border border-amber-500/30 shrink-0"
+                        :title="`${pageEditingConflicts[previewPage.id]?.editor || '其他成员'} 正在编辑该页面`"
+                      >
+                        <AlertTriangle class="w-3 h-3 text-amber-400" />
+                        <span>当前有人正在编辑</span>
+                      </span>
+                    </div>
                     <div class="text-[11px] text-slate-400 flex items-center gap-2">
                       <span>{{ simAnnList.length }} 条说明</span>
                       <span v-if="simInteractiveCount" class="text-emerald-400 font-medium">⚡ {{ simInteractiveCount }} 项交互</span>
@@ -606,6 +634,8 @@ import {
   Compass,
   ChevronRight,
   Pencil,
+  Users,
+  AlertTriangle,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
@@ -624,13 +654,49 @@ const showAnnotations = ref(true)
 /** 整页原型微调模式：拖动移动元素 / 滚轮调字号 / Del 隐藏，自动保存 */
 const fineTune = ref(false)
 
+/** 多用户并发协同编辑防覆盖检测 */
+function getOrCreateClientId(): string {
+  try {
+    let cid = sessionStorage.getItem('wf_client_id')
+    if (!cid) {
+      cid = 'user_' + Math.random().toString(36).slice(2, 9)
+      sessionStorage.setItem('wf_client_id', cid)
+    }
+    return cid
+  } catch {
+    return 'user_' + Math.random().toString(36).slice(2, 9)
+  }
+}
+const clientId = ref(getOrCreateClientId())
+const pageEditingConflicts = ref<Record<number, { editing: boolean; conflict: boolean; editor?: string }>>({})
+
+const currentConflictNotice = computed(() => {
+  const focusedConflict = focusPageId.value ? pageEditingConflicts.value[focusPageId.value] : null
+  if (focusedConflict?.conflict) {
+    const p = pages.value.find((pg) => pg.id === focusPageId.value)
+    return `当前有人正在编辑「${p?.name || '当前页'}」`
+  }
+  const conflictEntry = Object.entries(pageEditingConflicts.value).find(([_, v]) => v.conflict)
+  if (conflictEntry) {
+    const pageId = Number(conflictEntry[0])
+    const p = pages.value.find((pg) => pg.id === pageId)
+    return `当前有人正在编辑「${p?.name || '页面'}」`
+  }
+  return ''
+})
+
 function onSaveHtml(p: { pageId: number; html: string }) {
+  const conflict = pageEditingConflicts.value[p.pageId]?.conflict
+  if (conflict) {
+    const editor = pageEditingConflicts.value[p.pageId]?.editor || '其他成员'
+    showToast(`⚠️ 警告: 当前 ${editor} 也在编辑此页面，请注意不要覆盖对方内容！`)
+  }
   projectApi
     .saveHtml(id, p.pageId, p.html)
     .then(() => {
       const page = proto.value?.pages.find((pg) => pg.id === p.pageId)
       if (page) page.html_content = p.html
-      showToast('✅ 微调已保存')
+      showToast(conflict ? '⚠️ 微调已保存（请留意协同覆盖）' : '✅ 微调已保存')
     })
     .catch((e: any) => showToast(`❌ 保存失败: ${e?.message || '未知错误'}`))
 }
@@ -1571,8 +1637,62 @@ const totalElements = computed(() => pages.value.reduce((s, p) => s + p.elements
 const totalInteractions = computed(() => pages.value.reduce((s, p) => s + p.elements.filter((e) => e.interaction).length, 0))
 const totalAnnotations = computed(() => pages.value.reduce((s, p) => s + p.annotations.length, 0))
 
+const activeEditingPageId = computed<number | null>(() => {
+  if (mode.value === 'edit' && fineTune.value) {
+    return focusPageId.value ?? (blocks.value[0]?.page?.id ?? null)
+  }
+  if (editingSimAnnId.value && previewPageId.value) {
+    return previewPageId.value
+  }
+  return null
+})
+
+let editStatusTimer: ReturnType<typeof setInterval> | null = null
+let lastLockedPageId: number | null = null
+
+async function syncEditingSession() {
+  const currentEditId = activeEditingPageId.value
+  if (currentEditId) {
+    try {
+      const lockRes = await projectApi.lockPageEditing(id, currentEditId, {
+        clientId: clientId.value,
+        userName: '协同成员',
+        active: true,
+      })
+      lastLockedPageId = currentEditId
+      if (lockRes.conflict) {
+        showToast(`⚠️ 当前有人正在编辑「${pages.value.find((p) => p.id === currentEditId)?.name || '本页'}」`)
+      }
+    } catch {}
+  } else if (lastLockedPageId) {
+    try {
+      await projectApi.lockPageEditing(id, lastLockedPageId, {
+        clientId: clientId.value,
+        active: false,
+      })
+    } catch {}
+    lastLockedPageId = null
+  }
+
+  try {
+    const statuses = await projectApi.getAllPageEditingStatuses(id, clientId.value)
+    pageEditingConflicts.value = statuses || {}
+  } catch {}
+}
+
+watch(activeEditingPageId, (newId, oldId) => {
+  if (oldId && oldId !== newId) {
+    projectApi.lockPageEditing(id, oldId, { clientId: clientId.value, active: false }).catch(() => {})
+  }
+  if (newId) {
+    syncEditingSession()
+  }
+})
+
 onMounted(async () => {
   window.addEventListener('resize', updatePhoneScale)
+  editStatusTimer = setInterval(syncEditingSession, 3500)
+  syncEditingSession()
   await loadData()
 })
 
@@ -1618,6 +1738,10 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  if (editStatusTimer) clearInterval(editStatusTimer)
+  if (lastLockedPageId) {
+    projectApi.lockPageEditing(id, lastLockedPageId, { clientId: clientId.value, active: false }).catch(() => {})
+  }
   if (animTimer) clearTimeout(animTimer)
   if (dragRafId !== null) cancelAnimationFrame(dragRafId)
   if (wheelRafId !== null) cancelAnimationFrame(wheelRafId)
