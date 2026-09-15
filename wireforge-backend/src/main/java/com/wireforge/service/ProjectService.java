@@ -494,11 +494,23 @@ public class ProjectService {
         }
         vo.put("elements", elementList);
 
-        List<Annotation> annotations = annotationMapper.selectList(
-                Wrappers.<Annotation>lambdaQuery()
-                        .eq(Annotation::getPageId, page.getId())
-                        .orderByAsc(Annotation::getSortOrder)
-                        .orderByAsc(Annotation::getId));
+        List<Annotation> annotations;
+        try {
+            annotations = annotationMapper.selectList(
+                    Wrappers.<Annotation>lambdaQuery()
+                            .eq(Annotation::getPageId, page.getId())
+                            .orderByAsc(Annotation::getSortOrder)
+                            .orderByAsc(Annotation::getId));
+        } catch (Exception e) {
+            log.warn("Query annotations with sort_order failed, fallback: {}", e.getMessage());
+            annotations = annotationMapper.selectList(
+                    Wrappers.<Annotation>lambdaQuery()
+                            .select(Annotation::getId, Annotation::getPageId, Annotation::getElementId, Annotation::getText,
+                                    Annotation::getPositionX, Annotation::getPositionY, Annotation::getBoxX, Annotation::getBoxY,
+                                    Annotation::getAnchorX, Annotation::getAnchorY, Annotation::getElbowX, Annotation::getCreatedAt)
+                            .eq(Annotation::getPageId, page.getId())
+                            .orderByAsc(Annotation::getId));
+        }
         List<Map<String, Object>> annotationList = new ArrayList<>();
         for (Annotation a : annotations) {
             Map<String, Object> av = new LinkedHashMap<>();
@@ -672,10 +684,14 @@ public class ProjectService {
         }
         for (int i = 0; i < orderedAnnIds.size(); i++) {
             Long annId = orderedAnnIds.get(i);
-            Annotation ann = annotationMapper.selectById(annId);
-            if (ann != null && pageId.equals(ann.getPageId())) {
-                ann.setSortOrder(i);
-                annotationMapper.updateById(ann);
+            try {
+                Annotation ann = annotationMapper.selectById(annId);
+                if (ann != null && pageId.equals(ann.getPageId())) {
+                    ann.setSortOrder(i);
+                    annotationMapper.updateById(ann);
+                }
+            } catch (Exception e) {
+                log.warn("Update annotation sort_order failed for annId {}: {}", annId, e.getMessage());
             }
         }
         return orderedAnnIds;
