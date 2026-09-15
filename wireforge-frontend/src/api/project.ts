@@ -40,4 +40,6 @@ export const projectApi = {
   ) => http.put<any, Record<string, unknown>>(`/projects/${id}/annotations/${annId}`, body),
   updatePagePosition: (id: number, pageId: number, body: { canvasX: number; canvasY: number }) =>
     http.put<any, Record<string, unknown>>(`/projects/${id}/pages/${pageId}/position`, body),
+  updatePageAnnotationOrders: (id: number, pageId: number, orderedAnnIds: number[]) =>
+    http.put<any, number[]>(`/projects/${id}/pages/${pageId}/annotation-orders`, orderedAnnIds),
 }

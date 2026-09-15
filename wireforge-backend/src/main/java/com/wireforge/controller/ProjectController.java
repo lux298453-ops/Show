@@ -101,6 +101,15 @@ public class ProjectController {
         return Result.ok(projectService.updateAnnotation(id, annId, body));
     }
 
+    /** 批量更新页面下的说明排序 */
+    @PutMapping("/{id}/pages/{pageId}/annotation-orders")
+    public Result<List<Long>> updatePageAnnotationOrders(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @RequestBody List<Long> orderedAnnIds) {
+        return Result.ok(projectService.updatePageAnnotationOrders(id, pageId, orderedAnnIds));
+    }
+
     /** 更新页面区块在画布上的位置 */
     @PutMapping("/{id}/pages/{pageId}/position")
     public Result<Map<String, Object>> updatePagePosition(

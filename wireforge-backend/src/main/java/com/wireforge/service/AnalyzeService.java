@@ -1010,6 +1010,7 @@ public class AnalyzeService {
                 annotation.setPageId(page.getId());
                 annotation.setElementId(element.getId());
                 annotation.setText(description);
+                annotation.setSortOrder(index);
                 if (element.getPositionX() != null && element.getPositionY() != null) {
                     annotation.setPositionX(element.getPositionX() + element.getWidth() / 2.0);
                     annotation.setPositionY(element.getPositionY());

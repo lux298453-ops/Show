@@ -81,6 +81,17 @@ CREATE TABLE IF NOT EXISTS `annotation` (
   `anchor_x`    DOUBLE COMMENT '引线元素端锚点（线框逻辑坐标，NULL=自动）',
   `anchor_y`    DOUBLE COMMENT '引线元素端锚点（线框逻辑坐标，NULL=自动）',
   `elbow_x`     DOUBLE COMMENT '引线竖折线 X（画布 px，NULL=自动）',
+  `sort_order`  INT DEFAULT 0 COMMENT '排序权重（越小越靠前）',
   `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_page` (`page_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- 兼容已存在的库：仅当字段不存在时追加 annotation.sort_order 列
+SET @exist_ann_order = (SELECT COUNT(*) FROM information_schema.columns
+                        WHERE table_schema = DATABASE() AND table_name = 'annotation' AND column_name = 'sort_order');
+SET @sql_ann_order = IF(@exist_ann_order = 0,
+  'ALTER TABLE annotation ADD COLUMN sort_order INT DEFAULT 0 COMMENT \'排序权重（越小越靠前）\'',
+  'SELECT 1');
+PREPARE stmt_ann_order FROM @sql_ann_order;
+EXECUTE stmt_ann_order;
+DEALLOCATE PREPARE stmt_ann_order;

@@ -495,7 +495,10 @@ public class ProjectService {
         vo.put("elements", elementList);
 
         List<Annotation> annotations = annotationMapper.selectList(
-                Wrappers.<Annotation>lambdaQuery().eq(Annotation::getPageId, page.getId()));
+                Wrappers.<Annotation>lambdaQuery()
+                        .eq(Annotation::getPageId, page.getId())
+                        .orderByAsc(Annotation::getSortOrder)
+                        .orderByAsc(Annotation::getId));
         List<Map<String, Object>> annotationList = new ArrayList<>();
         for (Annotation a : annotations) {
             Map<String, Object> av = new LinkedHashMap<>();
@@ -509,6 +512,7 @@ public class ProjectService {
             av.put("anchor_x", a.getAnchorX());
             av.put("anchor_y", a.getAnchorY());
             av.put("elbow_x", a.getElbowX());
+            av.put("sort_order", a.getSortOrder() != null ? a.getSortOrder() : 0);
             annotationList.add(av);
         }
         vo.put("annotations", annotationList);
@@ -651,6 +655,30 @@ public class ProjectService {
         result.put("canvasX", page.getCanvasX());
         result.put("canvasY", page.getCanvasY());
         return result;
+    }
+
+    /**
+     * 批量更新页面下的业务说明卡片排序。
+     */
+    @Transactional
+    public List<Long> updatePageAnnotationOrders(Long projectId, Long pageId, List<Long> orderedAnnIds) {
+        getProject(projectId);
+        Page page = pageMapper.selectById(pageId);
+        if (page == null || !projectId.equals(page.getProjectId())) {
+            throw new IllegalStateException("页面不属于该项目: " + pageId);
+        }
+        if (orderedAnnIds == null || orderedAnnIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        for (int i = 0; i < orderedAnnIds.size(); i++) {
+            Long annId = orderedAnnIds.get(i);
+            Annotation ann = annotationMapper.selectById(annId);
+            if (ann != null && pageId.equals(ann.getPageId())) {
+                ann.setSortOrder(i);
+                annotationMapper.updateById(ann);
+            }
+        }
+        return orderedAnnIds;
     }
 
     private String toFileUrl(String absolutePath) {

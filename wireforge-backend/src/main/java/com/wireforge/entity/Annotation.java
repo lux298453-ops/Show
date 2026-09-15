@@ -25,5 +25,7 @@ public class Annotation {
     private Double anchorY;
     /** 引线竖折线 X（画布 px，null=自动） */
     private Double elbowX;
+    /** 排序权重（越小越靠前） */
+    private Integer sortOrder;
     private LocalDateTime createdAt;
 }

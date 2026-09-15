@@ -44,6 +44,8 @@ export interface Annotation {
   anchor_y?: number | null
   /** 引线竖折线 X（画布 px，null=自动） */
   elbow_x?: number | null
+  /** 排序权重（越小越靠前） */
+  sort_order?: number
 }
 
 export interface Page {

@@ -718,6 +718,10 @@ async function loadData() {
       if (p.canvas_x != null && p.canvas_y != null) {
         pageOverrides.value[p.id] = { x: p.canvas_x, y: p.canvas_y }
       }
+      // 从后端返回的数据中初始化各页面的说明排序
+      if (p.annotations && p.annotations.length) {
+        pageAnnOrders.value[p.id] = p.annotations.map((a) => a.id)
+      }
     }
     const qPage = route.query.page ? Number(route.query.page) : null
     if (qPage && proto.value.pages.some((p) => p.id === qPage)) {
@@ -1127,6 +1131,9 @@ function targetPageName(ix: { target_page_id?: number | null }): string {
 function handleAnnOrderChange(pageId: number, order: number[]) {
   pageAnnOrders.value[pageId] = order
   saveAnnOrders()
+  projectApi.updatePageAnnotationOrders(id, pageId, order).catch((e: any) => {
+    console.error('Failed to sync annotation orders to server', e)
+  })
   showToast('📌 画布说明顺序已更新并同步')
 }
 
@@ -1300,8 +1307,12 @@ function onSimDrop(e: DragEvent, targetId: number) {
     currentList.splice(tgtIdx, 0, moved)
 
     const pageId = previewPage.value.id
-    pageAnnOrders.value[pageId] = currentList.map((a) => a.id)
+    const newOrder = currentList.map((a) => a.id)
+    pageAnnOrders.value[pageId] = newOrder
     saveAnnOrders()
+    projectApi.updatePageAnnotationOrders(id, pageId, newOrder).catch((e: any) => {
+      console.error('Failed to sync annotation orders to server', e)
+    })
     showToast('📌 已置顶/调整该业务说明')
   }
 
