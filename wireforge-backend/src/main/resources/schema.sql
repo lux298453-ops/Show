@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS `annotation` (
 SET @exist_ann_order = (SELECT COUNT(*) FROM information_schema.columns
                         WHERE table_schema = DATABASE() AND table_name = 'annotation' AND column_name = 'sort_order');
 SET @sql_ann_order = IF(@exist_ann_order = 0,
-  'ALTER TABLE annotation ADD COLUMN sort_order INT DEFAULT 0 COMMENT \'排序权重（越小越靠前）\'',
+  'ALTER TABLE annotation ADD COLUMN sort_order INT DEFAULT 0',
   'SELECT 1');
 PREPARE stmt_ann_order FROM @sql_ann_order;
 EXECUTE stmt_ann_order;
