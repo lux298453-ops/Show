@@ -296,51 +296,35 @@
                 </button>
               </div>
 
-              <!-- Page Canvas Component with exclusive lock shield -->
-              <div class="relative">
-                <PageCanvas
-                  :ref="(el: any) => setPageRef(b.page.id, el)"
-                  :page="b.page"
-                  :all-pages="pages"
-                  :show-wireframe="showWireframe"
-                  :show-annotations="showAnnotations"
-                  :selected-element-id="selectedElementId"
-                  :hovered-element-id="hoveredElementId"
-                  :hovered-ann-id="hoveredAnnId"
-                  :show-design="true"
-                  :edit-mode="fineTune && mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
-                  :interactive="!fineTune || !!pageEditingConflicts[b.page.id]?.conflict"
-                  :custom-orders="pageAnnOrders"
-                  :custom-titles="customTitles"
-                  :box-w="220"
-                  :gap="16"
-                  @navigate="onProtoNavigate"
-                  @back="onProtoBack"
-                  @save-html="onSaveHtml"
-                  @element-click="handleElementClick"
-                  @element-hover="handleElementHover"
-                  @ann-hover="hoveredAnnId = $event"
-                  @ann-click="handleAnnClick"
-                  @ann-save="handleAnnSave"
-                  @ann-order-change="handleAnnOrderChange"
-                />
-
-                <!-- 页面级独占锁定遮罩保护层（他人微调时阻断拖拽并给出明确提示） -->
-                <div
-                  v-if="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict"
-                  class="absolute inset-0 z-20 bg-slate-950/15 backdrop-blur-[1px] rounded-2xl border-2 border-dashed border-rose-400/80 flex flex-col items-center justify-center cursor-not-allowed select-none transition-all p-4"
-                  @click.stop="showLockedToast(b.page)"
-                  @mousedown.stop
-                >
-                  <div class="px-3.5 py-2 bg-slate-900/95 text-white rounded-xl shadow-xl border border-rose-400/40 flex items-center gap-2 text-xs font-semibold backdrop-blur-md pointer-events-auto">
-                    <Lock class="w-4 h-4 text-rose-400" />
-                    <span>{{ pageEditingConflicts[b.page.id]?.editor || '其他成员' }} 正在独占微调此页</span>
-                  </div>
-                  <p class="text-[11px] text-rose-900 bg-white/95 px-2.5 py-1 rounded-md mt-2 font-medium shadow-sm border border-rose-200 pointer-events-auto">
-                    🔒 该页面已被独占锁定防覆盖，您可以自由微调其他页面
-                  </p>
-                </div>
-              </div>
+              <!-- Page Canvas Component -->
+              <PageCanvas
+                :ref="(el: any) => setPageRef(b.page.id, el)"
+                :page="b.page"
+                :all-pages="pages"
+                :show-wireframe="showWireframe"
+                :show-annotations="showAnnotations"
+                :selected-element-id="selectedElementId"
+                :hovered-element-id="hoveredElementId"
+                :hovered-ann-id="hoveredAnnId"
+                :show-design="true"
+                :edit-mode="fineTune && mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
+                :interactive="!fineTune || !!pageEditingConflicts[b.page.id]?.conflict"
+                :locked-by-other="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
+                :custom-orders="pageAnnOrders"
+                :custom-titles="customTitles"
+                :box-w="220"
+                :gap="16"
+                @navigate="onProtoNavigate"
+                @back="onProtoBack"
+                @save-html="onSaveHtml"
+                @element-click="handleElementClick"
+                @element-hover="handleElementHover"
+                @ann-hover="hoveredAnnId = $event"
+                @ann-click="handleAnnClick"
+                @ann-save="handleAnnSave"
+                @ann-order-change="handleAnnOrderChange"
+                @locked-click="showLockedToast(b.page)"
+              />
             </div>
           </template>
 

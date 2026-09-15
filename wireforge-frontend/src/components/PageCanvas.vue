@@ -80,6 +80,19 @@
           />
         </div>
       </div>
+
+      <!-- 独占微调保护提示：仅严丝合缝贴合线框原型手机屏幕，绝不超出 -->
+      <div
+        v-if="lockedByOther"
+        class="absolute inset-0 z-20 rounded-[14px] pointer-events-auto cursor-not-allowed flex flex-col items-center justify-end pb-8 bg-slate-950/20 backdrop-blur-[1px] transition-all"
+        @click.stop="emit('lockedClick')"
+        @mousedown.stop
+      >
+        <div class="px-3.5 py-1.5 bg-slate-900/90 text-white rounded-full shadow-lg border border-white/10 flex items-center gap-1.5 text-xs font-medium backdrop-blur-md">
+          <Lock class="w-3.5 h-3.5 text-amber-400" />
+          <span>{{ lockedByOther }} 正在独占微调</span>
+        </div>
+      </div>
     </div>
 
     <!-- 标注引线：默认隐藏，点击线稿元素或说明条目时显示对应的线 -->
@@ -197,7 +210,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { FileText, ChevronDown, ChevronRight, GripVertical, Pencil } from 'lucide-vue-next'
+import { FileText, ChevronDown, ChevronRight, GripVertical, Pencil, Lock } from 'lucide-vue-next'
 import { getFileUrl } from '../api/http'
 import type { Annotation, Element, Page } from '../types'
 import WireframeElement from './WireframeElement.vue'
@@ -224,6 +237,8 @@ const props = withDefaults(
     customOrders?: Record<number, number[]>
     /** 业务说明自定义标题缓存 */
     customTitles?: Record<number, string>
+    /** 被其他人独占锁定时编辑者名称（非空时线框手机屏幕处于独占保护） */
+    lockedByOther?: string | null
   }>(),
   {
     showWireframe: true,
@@ -237,6 +252,7 @@ const props = withDefaults(
     canvasScale: 1,
     editMode: false,
     interactive: false,
+    lockedByOther: null,
   },
 )
 
@@ -250,6 +266,7 @@ const emit = defineEmits<{
   (e: 'navigate', pageName: string): void
   (e: 'back'): void
   (e: 'saveHtml', payload: { pageId: number; html: string }): void
+  (e: 'lockedClick'): void
 }>()
 
 // Stitch 式整页直出：页面有 AI 生成的 HTML 时只展示整页视图（无 HTML 的未分析页回退组件渲染）。
