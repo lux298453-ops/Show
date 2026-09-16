@@ -52,6 +52,13 @@ release/
 .DS_Store
 Thumbs.db
 
+# Sensitive credentials & asset inventory (DO NOT PUSH)
+.env
+doc/*账号*
+doc/*资产*
+*账号与资产*
+ACCOUNTS*.md
+
 # Root miscellaneous scratch files
 /*.js
 /*.mjs
