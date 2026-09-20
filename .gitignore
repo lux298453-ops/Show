@@ -48,6 +48,7 @@ wireforge_dev_latest.sql
 .vscode/
 .workbuddy/
 release/
+backup_archive*/
 *.iml
 .DS_Store
 Thumbs.db
