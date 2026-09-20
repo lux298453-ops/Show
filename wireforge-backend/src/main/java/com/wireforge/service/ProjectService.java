@@ -484,6 +484,7 @@ public class ProjectService {
             if (!interactions.isEmpty()) {
                 Interaction first = interactions.get(0);
                 Map<String, Object> iv = new LinkedHashMap<>();
+                iv.put("id", first.getId());
                 iv.put("trigger", first.getTriggerType());
                 iv.put("action", first.getActionType());
                 iv.put("target_page_id", first.getTargetPageId());
@@ -627,7 +628,23 @@ public class ProjectService {
     }
 
     private static Double toDouble(Object value) {
-        return value == null ? null : ((Number) value).doubleValue();
+        if (value == null) return null;
+        if (value instanceof Number n) return n.doubleValue();
+        try {
+            return Double.parseDouble(value.toString().trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Long toLong(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number n) return n.longValue();
+        try {
+            return Long.parseLong(value.toString().trim());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
@@ -802,6 +819,167 @@ public class ProjectService {
             }
         }
         return result;
+    }
+
+    /**
+     * 保存或更新交互连线：若该 elementId 已有交互则更新，否则新增，保存到 interaction 表并返回保存后的 Interaction 对象。
+     */
+    @Transactional
+    public Interaction saveInteraction(Long projectId, Map<String, Object> body) {
+        getProject(projectId);
+
+        Long elementId = toLong(body.get("elementId") != null ? body.get("elementId") : body.get("element_id"));
+        if (elementId == null) {
+            throw new IllegalArgumentException("elementId 不能为空");
+        }
+
+        Element element = elementMapper.selectById(elementId);
+        if (element == null) {
+            throw new IllegalArgumentException("元素不存在: " + elementId);
+        }
+        Page elementPage = pageMapper.selectById(element.getPageId());
+        if (elementPage == null || !projectId.equals(elementPage.getProjectId())) {
+            throw new IllegalArgumentException("元素不属于该项目");
+        }
+
+        Long targetPageId = toLong(body.get("targetPageId") != null ? body.get("targetPageId") : body.get("target_page_id"));
+
+        String actionType = null;
+        if (body.get("actionType") != null) {
+            actionType = body.get("actionType").toString();
+        } else if (body.get("action_type") != null) {
+            actionType = body.get("action_type").toString();
+        } else if (body.get("action") != null) {
+            actionType = body.get("action").toString();
+        }
+
+        String triggerType = null;
+        if (body.get("triggerType") != null) {
+            triggerType = body.get("triggerType").toString();
+        } else if (body.get("trigger_type") != null) {
+            triggerType = body.get("trigger_type").toString();
+        } else if (body.get("trigger") != null) {
+            triggerType = body.get("trigger").toString();
+        }
+        if (triggerType == null || triggerType.isBlank()) {
+            triggerType = "click";
+        }
+
+        Object paramsObj = body.get("params");
+        String paramsStr = null;
+        if (paramsObj != null) {
+            if (paramsObj instanceof String s) {
+                paramsStr = s;
+            } else {
+                try {
+                    paramsStr = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(paramsObj);
+                } catch (Exception e) {
+                    paramsStr = paramsObj.toString();
+                }
+            }
+        }
+
+        List<Interaction> existingList = interactionMapper.selectList(
+                Wrappers.<Interaction>lambdaQuery().eq(Interaction::getElementId, elementId));
+        Interaction interaction;
+        if (!existingList.isEmpty()) {
+            interaction = existingList.get(0);
+            interaction.setTargetPageId(targetPageId);
+            interaction.setActionType(actionType);
+            interaction.setTriggerType(triggerType);
+            interaction.setParams(paramsStr);
+            interactionMapper.updateById(interaction);
+            for (int i = 1; i < existingList.size(); i++) {
+                interactionMapper.deleteById(existingList.get(i).getId());
+            }
+        } else {
+            interaction = new Interaction();
+            interaction.setElementId(elementId);
+            interaction.setTargetPageId(targetPageId);
+            interaction.setActionType(actionType);
+            interaction.setTriggerType(triggerType);
+            interaction.setParams(paramsStr);
+            interactionMapper.insert(interaction);
+        }
+        return interaction;
+    }
+
+    /**
+     * 删除指定的交互连线路由
+     */
+    @Transactional
+    public void deleteInteraction(Long projectId, Long interactionId) {
+        getProject(projectId);
+        Interaction interaction = interactionMapper.selectById(interactionId);
+        if (interaction == null) {
+            return;
+        }
+        Element el = elementMapper.selectById(interaction.getElementId());
+        if (el != null) {
+            Page page = pageMapper.selectById(el.getPageId());
+            if (page != null && !projectId.equals(page.getProjectId())) {
+                throw new IllegalStateException("交互连线不属于该项目");
+            }
+        }
+        interactionMapper.deleteById(interactionId);
+    }
+
+    /**
+     * 为拖拽新组件/方框提供快速注册元素能力
+     */
+    @Transactional
+    public Element createElement(Long projectId, Long pageId, Map<String, Object> body) {
+        getProject(projectId);
+        Page page = pageMapper.selectById(pageId);
+        if (page == null || !projectId.equals(page.getProjectId())) {
+            throw new IllegalArgumentException("页面不存在或不属于该项目: " + pageId);
+        }
+
+        Element element = new Element();
+        element.setPageId(pageId);
+
+        String type = body.get("type") != null ? body.get("type").toString().trim() : "box";
+        element.setType(type.isBlank() ? "box" : type);
+
+        String label = body.get("label") != null ? body.get("label").toString().trim() : "";
+        element.setLabel(label);
+
+        Double posX = body.get("positionX") != null ? toDouble(body.get("positionX")) : toDouble(body.get("x"));
+        element.setPositionX(posX != null ? posX : 0.0);
+
+        Double posY = body.get("positionY") != null ? toDouble(body.get("positionY")) : toDouble(body.get("y"));
+        element.setPositionY(posY != null ? posY : 0.0);
+
+        Double width = body.get("width") != null ? toDouble(body.get("width")) : toDouble(body.get("w"));
+        element.setWidth(width != null ? width : 100.0);
+
+        Double height = body.get("height") != null ? toDouble(body.get("height")) : toDouble(body.get("h"));
+        element.setHeight(height != null ? height : 40.0);
+
+        Object styleObj = body.get("style");
+        String styleStr = null;
+        if (styleObj != null) {
+            if (styleObj instanceof String s) {
+                styleStr = s;
+            } else {
+                try {
+                    styleStr = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(styleObj);
+                } catch (Exception e) {
+                    styleStr = styleObj.toString();
+                }
+            }
+        }
+        element.setStyle(styleStr);
+
+        String assetId = body.get("assetId") != null ? body.get("assetId").toString()
+                : (body.get("asset_id") != null ? body.get("asset_id").toString() : null);
+        element.setAssetId(assetId);
+
+        element.setCreatedBy("manual");
+        element.setCreatedAt(LocalDateTime.now());
+
+        elementMapper.insert(element);
+        return element;
     }
 
     private String toFileUrl(String absolutePath) {

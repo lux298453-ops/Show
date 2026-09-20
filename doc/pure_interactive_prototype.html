@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WireForge 纯原型可交互演示体验 (Showcase Demo)</title>
+<style>
+:root {
+  --bg-primary: #0b0f19;
+  --bg-surface: #131b2e;
+  --bg-elevated: #1e293b;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-focus: #38bdf8;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent-cyan: #00d2ff;
+  --accent-blue: #3b82f6;
+  --accent-purple: #8b5cf6;
+  --accent-gold: #fbbf24;
+  --accent-green: #10b981;
+  --phone-width: 375px;
+  --phone-height: 812px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg-primary);
+  background-image: 
+    radial-gradient(circle at 50% 15%, rgba(56, 189, 248, 0.08) 0%, transparent 60%),
+    radial-gradient(circle at 85% 85%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+  color: var(--text-main);
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部演示模式控制条 (Figma Presentation Bar) */
+.header-bar {
+  height: 54px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 50;
+  flex-shrink: 0;
+}
+
+.brand-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.3px;
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.project-tag {
+  font-size: 11px;
+  padding: 3px 8px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  font-weight: 500;
+}
+
+.device-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.device-status-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent-green);
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.center-controls {
+  display: flex;
+  align-items: center;
+  background: rgba(30, 41, 59, 0.7);
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+}
+
+.nav-select {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-size: 13px;
+  padding: 5px 12px;
+  cursor: pointer;
+  outline: none;
+  font-weight: 500;
+}
+
+.nav-select option {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-icon {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.btn-icon:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-icon.active {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+  color: #fff;
+  border: none;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.3);
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  opacity: 0.92;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45);
+}
+
+/* 主展示区域 */
+.viewport-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  padding: 20px;
+}
+
+/* 拟真 iPhone 16 Pro 外壳 */
+.device-frame {
+  width: calc(var(--phone-width) + 24px);
+  height: calc(var(--phone-height) + 24px);
+  background: #1e1e24;
+  border-radius: 54px;
+  padding: 12px;
+  box-shadow: 
+    0 0 0 2px #4a4a58,
+    0 0 0 4px #1c1c22,
+    0 25px 60px -15px rgba(0, 0, 0, 0.8),
+    0 0 100px -20px rgba(56, 189, 248, 0.15);
+  position: relative;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s;
+  user-select: none;
+}
+
+.device-frame.no-frame {
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  width: var(--phone-width);
+  height: var(--phone-height);
+}
+
+/* 屏幕核心视口 */
+.phone-screen {
+  width: var(--phone-width);
+  height: var(--phone-height);
+  background: #090d16;
+  border-radius: 42px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.device-frame.no-frame .phone-screen {
+  border-radius: 0;
+}
+
+/* 灵动岛 (Dynamic Island) */
+.dynamic-island {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 110px;
+  height: 28px;
+  background: #000;
+  border-radius: 20px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+.island-camera {
+  width: 10px;
+  height: 10px;
+  background: #111a2e;
+  border-radius: 50%;
+  border: 1px solid #1a2744;
+}
+
+.island-sensor {
+  width: 7px;
+  height: 7px;
+  background: #131b26;
+  border-radius: 50%;
+}
+
+/* 拟真状态栏 */
+.status-bar {
+  height: 44px;
+  padding: 12px 24px 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 90;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.status-bar .icons {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+
+/* 底部手势指示条 */
+.home-indicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 130px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 10px;
+  z-index: 90;
+  pointer-events: none;
+}
+
+/* 页面容器与流畅推屏转场 */
+.screen-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.screen-page {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-top: 44px;
+  padding-bottom: 74px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(100%);
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.25, 1), opacity 0.25s ease;
+  background-color: #0b1120;
+}
+
+.screen-page.active {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+  z-index: 10;
+}
+
+.screen-page.slide-back {
+  transform: translateX(-30%);
+  opacity: 0.6;
+}
+
+/* 隐藏滚动条但保留滚动 */
+.screen-page::-webkit-scrollbar {
+  display: none;
+}
+
+/* Figma 经典点击热区波纹提示 (Hotspot Hinting Ripple) */
+.hotspot-hint {
+  position: relative;
+}
+
+.hotspot-hint::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  pointer-events: none;
+  transition: all 0.2s;
+}
+
+body.show-hotspots .hotspot-hint::after,
+.hotspot-hint.pulse-active::after {
+  border-color: rgba(56, 189, 248, 0.85);
+  background: rgba(56, 189, 248, 0.15);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+  animation: pulse-border 1.2s infinite alternate;
+}
+
+@keyframes pulse-border {
+  0% { transform: scale(0.98); opacity: 0.7; }
+  100% { transform: scale(1.02); opacity: 1; }
+}
+
+/* 空白区域点击时的 Figma 涟漪 */
+.click-ripple {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.4);
+  transform: translate(-50%, -50%) scale(0);
+  animation: ripple-grow 0.4s ease-out forwards;
+  pointer-events: none;
+  z-index: 200;
+}
+
+@keyframes ripple-grow {
+  to {
+    transform: translate(-50%, -50%) scale(2.8);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   页面 1：宠物家园页 (Pet Home)
+   ========================================================================== */
+#page-home {
+  background: radial-gradient(circle at 50% 30%, #1e1b4b 0%, #0f172a 100%);
+  color: #fff;
+  position: relative;
+}
+
+.home-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+}
+
+.user-currency {
+  display: flex;
+  gap: 10px;
+}
+
+.currency-badge {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pet-hero-stage {
+  height: 380px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.floating-task-bubble {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  cursor: pointer;
+  transition: transform 0.2s;
+  animation: float 3s ease-in-out infinite alternate;
+}
+
+.floating-task-bubble:hover {
+  transform: scale(1.05);
+}
+
+.floating-task-bubble.left {
+  top: 40px;
+  left: 20px;
+}
+
+.floating-task-bubble.right {
+  top: 70px;
+  right: 20px;
+  animation-delay: -1.5s;
+}
+
+@keyframes float {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-8px); }
+}
+
+.pet-avatar-large {
+  width: 170px;
+  height: 170px;
+  background: radial-gradient(circle, #f43f5e 0%, #be123c 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 80px;
+  box-shadow: 0 0 50px rgba(244, 63, 94, 0.4);
+  position: relative;
+  animation: breathe 3s ease-in-out infinite alternate;
+}
+
+@keyframes breathe {
+  0% { transform: scale(0.97); }
+  100% { transform: scale(1.03); }
+}
+
+.pet-status-card {
+  margin: 10px 16px;
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pet-name-title {
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.progress-bar-bg {
+  width: 120px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.progress-bar-fill {
+  width: 78%;
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+}
+
+.home-shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 10px 16px;
+}
+
+.shortcut-item {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.shortcut-item:active {
+  transform: scale(0.94);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.shortcut-icon {
+  font-size: 24px;
+}
+
+.shortcut-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   页面 2：扭蛋抽奖页 (Gacha Center)
+   ========================================================================== */
+#page-gacha {
+  background: radial-gradient(circle at 50% 20%, #311042 0%, #0a0414 100%);
+}
+
+.gacha-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+}
+
+.back-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.gacha-showcase {
+  margin: 16px;
+  background: linear-gradient(145deg, rgba(236, 72, 153, 0.15), rgba(168, 85, 247, 0.1));
+  border: 1px solid rgba(236, 72, 153, 0.3);
+  border-radius: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.gacha-orb {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #f472b6, #a855f7 60%, #4c1d95 100%);
+  box-shadow: 0 0 35px rgba(236, 72, 153, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 64px;
+  margin-bottom: 12px;
+}
+
+.gacha-title {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: linear-gradient(90deg, #fbcfe8, #fed7aa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 4px;
+}
+
+.gacha-desc {
+  font-size: 12px;
+  color: #c084fc;
+}
+
+.gacha-btn-group {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.btn-gacha {
+  flex: 1;
+  padding: 14px 10px;
+  border-radius: 16px;
+  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.2s;
+  border: none;
+}
+
+.btn-gacha:active {
+  transform: scale(0.95);
+}
+
+.btn-gacha.single {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.btn-gacha.multi {
+  background: linear-gradient(135deg, #ec4899, #a855f7);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(236, 72, 153, 0.4);
+}
+
+/* ==========================================================================
+   页面 3：个性装扮待机预览 (Costume Preview)
+   ========================================================================== */
+#page-costume {
+  background: #0d131f;
+}
+
+.costume-model-view {
+  height: 380px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 110px;
+  position: relative;
+  background: radial-gradient(circle at 50% 60%, rgba(56, 189, 248, 0.15) 0%, transparent 70%);
+}
+
+.costume-tray {
+  padding: 14px 16px;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+}
+
+.costume-tray::-webkit-scrollbar {
+  display: none;
+}
+
+.tray-item {
+  width: 76px;
+  height: 90px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tray-item.active {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.3);
+}
+
+.tray-icon {
+  font-size: 32px;
+}
+
+.tray-name {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   页面 4：商城页 (Shop)
+   ========================================================================== */
+#page-shop {
+  background: #0a0e17;
+}
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.shop-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.shop-card-icon {
+  font-size: 48px;
+  padding: 10px;
+}
+
+.shop-card-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.shop-buy-btn {
+  width: 100%;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   全局底部 TabBar (全局 App Map 组件)
+   ========================================================================== */
+.global-tabbar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding-bottom: 8px;
+  z-index: 80;
+}
+
+.tabbar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s;
+  padding: 4px 14px;
+  border-radius: 10px;
+}
+
+.tabbar-item.active {
+  color: #38bdf8;
+  transform: translateY(-2px);
+}
+
+.tabbar-icon {
+  font-size: 20px;
+}
+
+.tabbar-label {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   真实弹层 (Figma Overlay / ActionSheet Modal)
+   ========================================================================== */
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-dialog {
+  width: 310px;
+  background: linear-gradient(160deg, #1e1b4b, #0f172a);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 24px;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transform: scale(0.85);
+  transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  box-shadow: 0 0 50px rgba(251, 191, 36, 0.25);
+  position: relative;
+}
+
+.modal-overlay.open .modal-dialog {
+  transform: scale(1);
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.prize-glow {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fbbf24, #f59e0b 60%, transparent 80%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 54px;
+  box-shadow: 0 0 30px rgba(251, 191, 36, 0.6);
+  margin-bottom: 14px;
+  animation: pulse-prize 1.8s infinite alternate;
+}
+
+@keyframes pulse-prize {
+  0% { transform: scale(0.95); }
+  100% { transform: scale(1.05); }
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #fbbf24;
+  margin-bottom: 6px;
+}
+
+.modal-desc {
+  font-size: 12px;
+  color: #e2e8f0;
+  margin-bottom: 20px;
+}
+
+.btn-confirm {
+  width: 100%;
+  padding: 12px;
+  border-radius: 14px;
+  background: linear-gradient(90deg, #f59e0b, #d97706);
+  color: #000;
+  font-weight: 700;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+}
+
+/* 底部任务抽屉 (Bottom Sheet) */
+.bottom-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #111827;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 24px 24px 0 0;
+  padding: 20px;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 140;
+}
+
+.bottom-sheet.open {
+  transform: translateY(0);
+}
+
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  margin: 0 auto 16px auto;
+}
+
+/* 浮动提示飘字 */
+.toast-msg {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-10px);
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 180;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.toast-msg.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+</style>
+</head>
+<body>
+
+<!-- 1. 顶部操作条 (Figma Presentation Controls) -->
+<header class="header-bar">
+  <div class="brand-section">
+    <div class="brand-logo">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M5 3v18l7-4 7 4V3z"/>
+      </svg>
+      WireForge Showcase
+    </div>
+    <span class="project-tag">纯原型模式 v1.0</span>
+    <div class="device-status-badge">
+      <span class="device-status-dot"></span>
+      <span>可交互高保真实机 (iPhone 16 Pro)</span>
+    </div>
+  </div>
+
+  <div class="center-controls">
+    <select id="pageSelect" class="nav-select" onchange="navigateTo(this.value)">
+      <option value="page-home">页面 1：耀宝宠物家园首页</option>
+      <option value="page-gacha">页面 2：限时扭蛋抽奖中心</option>
+      <option value="page-costume">页面 3：个性装扮待机预览</option>
+      <option value="page-shop">页面 4：福利兑换商城</option>
+    </select>
+  </div>
+
+  <div class="action-buttons">
+    <button class="btn-icon" id="hotspotToggleBtn" onclick="toggleHotspots()" title="开启/关闭点击可交互热区提示">
+      <span>💡 热区提示</span>
+    </button>
+    <button class="btn-icon" id="frameToggleBtn" onclick="toggleDeviceFrame()" title="切换外壳显示">
+      <span>📱 手机壳</span>
+    </button>
+    <button class="btn-icon" onclick="resetPrototype()" title="重置原型">
+      <span>↺ 重置</span>
+    </button>
+    <button class="btn-primary" onclick="copyShareLink()">
+      <span>🔗 分享原型短链</span>
+    </button>
+  </div>
+</header>
+
+<!-- 2. 主展示视口 -->
+<main class="viewport-stage" id="stage">
+  <!-- iPhone 16 Pro 外壳 -->
+  <div class="device-frame" id="deviceFrame">
+    <!-- 灵动岛 -->
+    <div class="dynamic-island">
+      <div class="island-camera"></div>
+      <div class="island-sensor"></div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <span id="liveTime">09:41</span>
+      <div class="icons">
+        <span>5G</span>
+        <span>●●●</span>
+        <span>100%</span>
+      </div>
+    </div>
+
+    <!-- 手机屏幕 -->
+    <div class="phone-screen" id="phoneScreen" onclick="handleScreenClick(event)">
+      <!-- 飘字通知 -->
+      <div class="toast-msg" id="toastMsg">+100 蓝宝石已收集！</div>
+
+      <!-- 页面集合 -->
+      <div class="screen-container">
+        
+        <!-- PAGE 1: 耀宝家园页 -->
+        <section id="page-home" class="screen-page active">
+          <div class="home-top-bar">
+            <div class="user-currency">
+              <div class="currency-badge hotspot-hint" onclick="showToast('💎 钻石余额: 1,280')">💎 1,280</div>
+              <div class="currency-badge hotspot-hint" onclick="showToast('⚡ 闪电能量: 85')">⚡ 85</div>
+            </div>
+            <div class="currency-badge hotspot-hint" onclick="openBottomSheet()">📋 任务清单</div>
+          </div>
+
+          <div class="pet-hero-stage">
+            <div class="floating-task-bubble left hotspot-hint" onclick="collectReward(this)">
+              <span>🎁 领蓝宝石</span>
+            </div>
+            <div class="floating-task-bubble right hotspot-hint" onclick="navigateTo('page-gacha')">
+              <span>🎰 扭蛋抽大奖 ›</span>
+            </div>
+
+            <!-- 宠物主体 -->
+            <div class="pet-avatar-large hotspot-hint" onclick="petInteraction()">
+              🦊
+            </div>
+          </div>
+
+          <div class="pet-status-card">
+            <div>
+              <div class="pet-name-title">✨ 典藏耀宝·赤焰狐 <span style="font-size:11px;color:#38bdf8;">Lv.12</span></div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill"></div>
+              </div>
+            </div>
+            <button class="btn-icon hotspot-hint" onclick="navigateTo('page-costume')" style="height:30px;font-size:11px;">
+              👗 装扮
+            </button>
+          </div>
+
+          <!-- 常用金刚区 -->
+          <div class="home-shortcuts-grid">
+            <div class="shortcut-item hotspot-hint" onclick="navigateTo('page-gacha')">
+              <span class="shortcut-icon">🎰</span>
+              <span class="shortcut-label">扭蛋机</span>
+            </div>
+            <div class="shortcut-item hotspot-hint" onclick="navigateTo('page-costume')">
+              <span class="shortcut-icon">🪄</span>
+              <span class="shortcut-label">个性形象</span>
+            </div>
+            <div class="shortcut-item hotspot-hint" onclick="navigateTo('page-shop')">
+              <span class="shortcut-icon">🛍️</span>
+              <span class="shortcut-label">限时商店</span>
+            </div>
+            <div class="shortcut-item hotspot-hint" onclick="openBottomSheet()">
+              <span class="shortcut-icon">📜</span>
+              <span class="shortcut-label">每日日常</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- PAGE 2: 扭蛋抽奖页 -->
+        <section id="page-gacha" class="screen-page">
+          <div class="gacha-header">
+            <div class="back-btn hotspot-hint" onclick="navigateBack()">‹</div>
+            <div style="font-weight:700;font-size:15px;">典藏扭蛋奖池</div>
+            <div class="currency-badge">💎 1,280</div>
+          </div>
+
+          <div class="gacha-showcase">
+            <div class="gacha-orb hotspot-hint" onclick="triggerGacha(10)">
+              🔮
+            </div>
+            <div class="gacha-title">加百列·极光之羽</div>
+            <div class="gacha-desc">保底 10 次内必得稀有神宠</div>
+          </div>
+
+          <div class="gacha-btn-group">
+            <button class="btn-gacha single hotspot-hint" onclick="triggerGacha(1)">
+              <span>单次祈愿</span>
+              <span style="font-size:10px;opacity:0.8;">💎 160</span>
+            </button>
+            <button class="btn-gacha multi hotspot-hint" onclick="triggerGacha(10)">
+              <span>十连祈愿 (9折)</span>
+              <span style="font-size:10px;opacity:0.9;">💎 1,440</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- PAGE 3: 个性装扮待机预览 -->
+        <section id="page-costume" class="screen-page">
+          <div class="gacha-header">
+            <div class="back-btn hotspot-hint" onclick="navigateBack()">‹</div>
+            <div style="font-weight:700;font-size:15px;">待机个性形象</div>
+            <div style="width:32px;"></div>
+          </div>
+
+          <div class="costume-model-view" id="costumeModel">
+            🐉
+          </div>
+
+          <div style="padding:0 16px;font-size:12px;font-weight:600;color:var(--text-muted);">
+            方案切换
+          </div>
+          <div class="costume-tray">
+            <div class="tray-item active hotspot-hint" onclick="switchCostume('🐉', this)">
+              <span class="tray-icon">🐉</span>
+              <span class="tray-name">龙女辰辰</span>
+            </div>
+            <div class="tray-item hotspot-hint" onclick="switchCostume('🧙‍♀️', this)">
+              <span class="tray-icon">🧙‍♀️</span>
+              <span class="tray-name">暗夜魔女</span>
+            </div>
+            <div class="tray-item hotspot-hint" onclick="switchCostume('🦊', this)">
+              <span class="tray-icon">🦊</span>
+              <span class="tray-name">赤焰灵狐</span>
+            </div>
+            <div class="tray-item hotspot-hint" onclick="switchCostume('🦄', this)">
+              <span class="tray-icon">🦄</span>
+              <span class="tray-name">梦幻独角</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- PAGE 4: 限时商城 -->
+        <section id="page-shop" class="screen-page">
+          <div class="gacha-header">
+            <div class="back-btn hotspot-hint" onclick="navigateBack()">‹</div>
+            <div style="font-weight:700;font-size:15px;">限时道具兑换</div>
+            <div class="currency-badge">💎 1,280</div>
+          </div>
+
+          <div class="shop-grid">
+            <div class="shop-card">
+              <span class="shop-card-icon">⚡</span>
+              <span class="shop-card-name">能量强心剂</span>
+              <button class="shop-buy-btn hotspot-hint" onclick="showToast('兑换成功！能量已补充')">💎 200</button>
+            </div>
+            <div class="shop-card">
+              <span class="shop-card-icon">👑</span>
+              <span class="shop-card-name">华丽王冠装扮</span>
+              <button class="shop-buy-btn hotspot-hint" onclick="showToast('兑换成功！已放入背包')">💎 880</button>
+            </div>
+            <div class="shop-card">
+              <span class="shop-card-icon">🍎</span>
+              <span class="shop-card-name">顶级营养水果</span>
+              <button class="shop-buy-btn hotspot-hint" onclick="showToast('饱食度已拉满')">💎 150</button>
+            </div>
+            <div class="shop-card">
+              <span class="shop-card-icon">🔮</span>
+              <span class="shop-card-name">幸运扭蛋券</span>
+              <button class="shop-buy-btn hotspot-hint" onclick="navigateTo('page-gacha')">去抽奖</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- 全局底部导航栏 (App Map) -->
+      <nav class="global-tabbar">
+        <div class="tabbar-item active hotspot-hint" data-page="page-home" onclick="tabNavigate('page-home')">
+          <span class="tabbar-icon">🏠</span>
+          <span class="tabbar-label">家园</span>
+        </div>
+        <div class="tabbar-item hotspot-hint" data-page="page-gacha" onclick="tabNavigate('page-gacha')">
+          <span class="tabbar-icon">🎰</span>
+          <span class="tabbar-label">扭蛋</span>
+        </div>
+        <div class="tabbar-item hotspot-hint" data-page="page-costume" onclick="tabNavigate('page-costume')">
+          <span class="tabbar-icon">👗</span>
+          <span class="tabbar-label">装扮</span>
+        </div>
+        <div class="tabbar-item hotspot-hint" data-page="page-shop" onclick="tabNavigate('page-shop')">
+          <span class="tabbar-icon">🛍️</span>
+          <span class="tabbar-label">商城</span>
+        </div>
+      </nav>
+
+      <!-- 中奖大弹层 (Modal Dialog) -->
+      <div class="modal-overlay" id="prizeModal">
+        <div class="modal-dialog">
+          <div class="modal-close-btn hotspot-hint" onclick="closeModal()">✕</div>
+          <div class="prize-glow">🧝‍♀️</div>
+          <div class="modal-title">恭喜抽中【典藏·加百列】!</div>
+          <div class="modal-desc">金色传说角色卡牌已自动入库</div>
+          <button class="btn-confirm hotspot-hint" onclick="closeModal()">开心收下</button>
+        </div>
+      </div>
+
+      <!-- 底部抽屉 (Bottom Sheet) -->
+      <div class="bottom-sheet" id="bottomSheet">
+        <div class="sheet-handle"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span style="font-weight:700;font-size:15px;">每日探险与任务</span>
+          <span class="hotspot-hint" style="color:#38bdf8;font-size:12px;cursor:pointer;" onclick="closeBottomSheet()">完成</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div class="pet-status-card" style="margin:0;padding:10px;">
+            <span>📅 每日登录打卡</span>
+            <button class="btn-icon hotspot-hint" onclick="showToast('领取成功 +50 蓝宝石')">领取</button>
+          </div>
+          <div class="pet-status-card" style="margin:0;padding:10px;">
+            <span>🦊 宠物互动 3 次</span>
+            <span style="color:#10b981;font-size:12px;font-weight:600;">已完成</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部手势横条 -->
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+// 页面历史栈 (实现真实移动端前进/后退)
+let pageHistory = ['page-home'];
+let currentPage = 'page-home';
+
+// 动态状态栏时间
+function updateLiveTime() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  document.getElementById('liveTime').innerText = `${hours}:${minutes}`;
+}
+setInterval(updateLiveTime, 1000);
+updateLiveTime();
+
+// 页面导航跳转 (带流畅转场动画)
+function navigateTo(targetPageId) {
+  if (currentPage === targetPageId) return;
+
+  const currentEl = document.getElementById(currentPage);
+  const targetEl = document.getElementById(targetPageId);
+
+  if (!targetEl) return;
+
+  currentEl.classList.remove('active');
+  currentEl.classList.add('slide-back');
+
+  targetEl.classList.remove('slide-back');
+  targetEl.classList.add('active');
+
+  pageHistory.push(targetPageId);
+  currentPage = targetPageId;
+
+  // 同步下拉框与 TabBar
+  document.getElementById('pageSelect').value = targetPageId;
+  updateTabBar(targetPageId);
+}
+
+// 页面后退
+function navigateBack() {
+  if (pageHistory.length <= 1) return;
+
+  const currentEl = document.getElementById(currentPage);
+  pageHistory.pop(); // 弹出当前页
+  const prevPageId = pageHistory[pageHistory.length - 1];
+  const prevEl = document.getElementById(prevPageId);
+
+  currentEl.classList.remove('active');
+  prevEl.classList.remove('slide-back');
+  prevEl.classList.add('active');
+
+  currentPage = prevPageId;
+  document.getElementById('pageSelect').value = prevPageId;
+  updateTabBar(prevPageId);
+}
+
+// Tab 切换导航
+function tabNavigate(targetPageId) {
+  navigateTo(targetPageId);
+}
+
+function updateTabBar(activePageId) {
+  document.querySelectorAll('.tabbar-item').forEach(item => {
+    if (item.getAttribute('data-page') === activePageId) {
+      item.classList.add('active');
+    } else {
+      item.classList.remove('active');
+    }
+  });
+}
+
+// 抽奖触发弹窗
+function triggerGacha(count) {
+  const modal = document.getElementById('prizeModal');
+  modal.classList.add('open');
+}
+
+function closeModal() {
+  const modal = document.getElementById('prizeModal');
+  modal.classList.remove('open');
+  showToast('已存入背包，可前往装扮页查看');
+}
+
+// 底部抽屉
+function openBottomSheet() {
+  document.getElementById('bottomSheet').classList.add('open');
+}
+
+function closeBottomSheet() {
+  document.getElementById('bottomSheet').classList.remove('open');
+}
+
+// 宠物互动
+function petInteraction() {
+  const avatar = document.querySelector('.pet-avatar-large');
+  avatar.style.transform = 'scale(1.2) rotate(10deg)';
+  setTimeout(() => {
+    avatar.style.transform = '';
+  }, 300);
+  showToast('❤️ 亲密度 +10！');
+}
+
+// 收集气泡奖励
+function collectReward(bubbleEl) {
+  bubbleEl.style.transform = 'scale(0)';
+  setTimeout(() => {
+    bubbleEl.style.display = 'none';
+  }, 200);
+  showToast('💎 领取蓝宝石 +100！');
+}
+
+// 装扮切换
+function switchCostume(emoji, el) {
+  document.querySelectorAll('.tray-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('costumeModel').innerText = emoji;
+  showToast(`已更换形象为: ${el.querySelector('.tray-name').innerText}`);
+}
+
+// 轻提示 (Toast)
+let toastTimer = null;
+function showToast(msg) {
+  const toast = document.getElementById('toastMsg');
+  toast.innerText = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.classList.remove('show');
+  }, 1800);
+}
+
+// Figma 经典：点击空白区域触发热区提示波纹
+function handleScreenClick(e) {
+  // 如果点击的是热区本身，不触发未命中涟漪
+  if (e.target.closest('.hotspot-hint')) return;
+
+  // 1. 生成点击涟漪
+  const rect = document.getElementById('phoneScreen').getBoundingClientRect();
+  const ripple = document.createElement('div');
+  ripple.className = 'click-ripple';
+  ripple.style.left = `${e.clientX - rect.left}px`;
+  ripple.style.top = `${e.clientY - rect.top}px`;
+  document.getElementById('phoneScreen').appendChild(ripple);
+  setTimeout(() => ripple.remove(), 400);
+
+  // 2. 闪烁当前页面的所有可点击热区 (Hotspot Hinting)
+  const hotspots = document.getElementById(currentPage).querySelectorAll('.hotspot-hint');
+  hotspots.forEach(h => {
+    h.classList.add('pulse-active');
+    setTimeout(() => h.classList.remove('pulse-active'), 800);
+  });
+}
+
+// 工具栏功能切换
+function toggleHotspots() {
+  document.body.classList.toggle('show-hotspots');
+  const btn = document.getElementById('hotspotToggleBtn');
+  btn.classList.toggle('active');
+  showToast(document.body.classList.contains('show-hotspots') ? '💡 热区常显开启' : '💡 热区常显关闭');
+}
+
+function toggleDeviceFrame() {
+  const frame = document.getElementById('deviceFrame');
+  const btn = document.getElementById('frameToggleBtn');
+  frame.classList.toggle('no-frame');
+  btn.classList.toggle('active');
+  showToast(frame.classList.contains('no-frame') ? '已切换至纯屏模式' : '已恢复拟真外壳');
+}
+
+function resetPrototype() {
+  pageHistory = ['page-home'];
+  navigateTo('page-home');
+  closeModal();
+  closeBottomSheet();
+  showToast('↺ 原型已重置至首页');
+}
+
+function copyShareLink() {
+  const shareUrl = window.location.href;
+  navigator.clipboard.writeText(shareUrl).then(() => {
+    showToast('🔗 分享短链已复制，可直接发给领导/客户');
+  }).catch(() => {
+    showToast('🔗 演示链接已就绪: ' + shareUrl);
+  });
+}
+</script>
+</body>
+</html>

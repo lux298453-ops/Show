@@ -1,6 +1,8 @@
 package com.wireforge.controller;
 
 import com.wireforge.common.Result;
+import com.wireforge.entity.Element;
+import com.wireforge.entity.Interaction;
 import com.wireforge.entity.Page;
 import com.wireforge.entity.Project;
 import com.wireforge.service.AnalyzeService;
@@ -170,5 +172,37 @@ public class ProjectController {
     @PostMapping("/{id}/autowire-interactions")
     public Result<Integer> autowireInteractions(@PathVariable Long id) {
         return Result.ok(interactionAutowireService.autowireProjectInteractions(id));
+    }
+
+    /**
+     * 添加或更新交互连线：若该 elementId 已有交互则更新，否则新增，保存到 interaction 表并返回保存后的 Interaction 对象
+     */
+    @PostMapping("/{id}/interactions")
+    public Result<Interaction> saveInteraction(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        return Result.ok(projectService.saveInteraction(id, body));
+    }
+
+    /**
+     * 删除指定的交互连线路由
+     */
+    @DeleteMapping("/{id}/interactions/{interactionId}")
+    public Result<Void> deleteInteraction(
+            @PathVariable Long id,
+            @PathVariable Long interactionId) {
+        projectService.deleteInteraction(id, interactionId);
+        return Result.ok(null);
+    }
+
+    /**
+     * 为拖拽新组件/方框提供快速注册元素能力
+     */
+    @PostMapping("/{id}/pages/{pageId}/elements")
+    public Result<Element> createElement(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @RequestBody Map<String, Object> body) {
+        return Result.ok(projectService.createElement(id, pageId, body));
     }
 }

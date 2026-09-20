@@ -34,6 +34,8 @@
         width: `${canvasW * scale}px`,
         height: `${canvasH * scale}px`,
       }"
+      @dragover="onSlotDragOver"
+      @drop="onSlotDrop"
     >
       <!-- Stitch 式整页直出视图：AI 生成的完整 HTML/CSS 页面（唯一展示形态，支持 data-nav 跨页跳转） -->
       <iframe
@@ -205,13 +207,66 @@
         </div>
       </div>
     </div>
+
+    <!-- 素材库替换弹窗 -->
+    <el-dialog
+      v-model="showAssetPicker"
+      title="🖼️ 素材库替换图片/头像"
+      width="560px"
+      append-to-body
+      :close-on-click-modal="true"
+      class="wf-asset-dialog"
+    >
+      <div class="space-y-3 select-none">
+        <!-- 分类切换 -->
+        <div class="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
+          <button
+            v-for="c in assetCategories"
+            :key="c.id"
+            class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer"
+            :class="activeAssetCat === c.id ? 'bg-white text-blue-600 shadow-2xs border border-slate-200/80' : 'text-slate-500 hover:text-slate-800'"
+            @click="activeAssetCat = c.id"
+          >
+            {{ c.name }}
+          </button>
+        </div>
+
+        <!-- 素材缩略图网格 -->
+        <div class="grid grid-cols-4 gap-3 max-h-[360px] overflow-y-auto p-1 custom-scrollbar">
+          <div
+            v-for="a in filteredAssets"
+            :key="a.id"
+            class="group relative border border-slate-200/90 rounded-xl p-2.5 flex flex-col items-center gap-1.5 hover:border-blue-500 hover:shadow-md cursor-pointer transition-all bg-white hover:bg-blue-50/20"
+            @click="selectAsset(a)"
+          >
+            <div class="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center border border-slate-200/70 shrink-0">
+              <img :src="a.url" class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+            </div>
+            <span class="text-[11px] font-semibold text-slate-700 truncate max-w-[90px]" :title="a.name">{{ a.name }}</span>
+            <span class="text-[9px] text-blue-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">点击替换</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-between items-center text-xs text-slate-400">
+          <span>点击上方任意图片即可直接替换选中元素并自动落库保存</span>
+          <button
+            class="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            @click="showAssetPicker = false"
+          >
+            取消
+          </button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { FileText, ChevronDown, ChevronRight, GripVertical, Pencil, Lock } from 'lucide-vue-next'
+import { FileText, ChevronDown, ChevronRight, GripVertical, Pencil, Lock, Image as ImageIcon } from 'lucide-vue-next'
 import { getFileUrl } from '../api/http'
+import { projectApi } from '../api/project'
 import type { Annotation, Element, Page } from '../types'
 import WireframeElement from './WireframeElement.vue'
 
@@ -267,6 +322,7 @@ const emit = defineEmits<{
   (e: 'back'): void
   (e: 'saveHtml', payload: { pageId: number; html: string }): void
   (e: 'lockedClick'): void
+  (e: 'missClick'): void
 }>()
 
 // Stitch 式整页直出：页面有 AI 生成的 HTML 时只展示整页视图（无 HTML 的未分析页回退组件渲染）。
@@ -413,6 +469,50 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         box-shadow: 0 0 0 6px rgba(16, 185, 129, 0), 0 0 22px rgba(16, 185, 129, 0.85) !important;
       }
     }
+    /* Figma 经典青色热区脉冲发光与波纹动画 */
+    .wf-hotspot-hint-pulse {
+      position: relative !important;
+      outline: 2.5px solid #06b6d4 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.45), 0 0 22px rgba(6, 182, 212, 0.7) !important;
+      background-color: rgba(6, 182, 212, 0.18) !important;
+      animation: wfHotspotPulse 0.75s ease-out !important;
+      border-radius: 8px !important;
+      transition: all 0.2s ease !important;
+    }
+    @keyframes wfHotspotPulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.8), 0 0 6px rgba(6, 182, 212, 0.5);
+        background-color: rgba(6, 182, 212, 0.08);
+      }
+      35% {
+        box-shadow: 0 0 0 6px rgba(6, 182, 212, 0.5), 0 0 26px rgba(6, 182, 212, 0.85);
+        background-color: rgba(6, 182, 212, 0.28);
+      }
+      100% {
+        box-shadow: 0 0 0 14px rgba(6, 182, 212, 0), 0 0 0 rgba(6, 182, 212, 0);
+        background-color: transparent;
+      }
+    }
+    /* 原生质感弹层遮罩与动画 */
+    .wf-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+      z-index: 99999;
+    }
+    .wf-modal.wf-show {
+      opacity: 1;
+      pointer-events: auto;
+    }
   </style>`
   const runtime = `<script data-wf-inject>(function(){
     var isInteractive = ${initialInteractive ? 'true' : 'false'};
@@ -425,6 +525,9 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         isInteractive = !!ev.data.on;
         if(isInteractive) document.body.classList.add('wf-interactive');
         else document.body.classList.remove('wf-interactive');
+      }
+      if(ev.data.type === 'wf-trigger-hotspot-hints'){
+        triggerHotspotHints();
       }
       if(ev.data.type === 'wf-spotlight'){
         var prev = document.querySelectorAll('.wf-spotlight-target');
@@ -545,6 +648,21 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     function openModal(id){var m=document.getElementById('wf-modal-'+id);if(m)m.classList.add('wf-show');}
     function closeModal(m){if(m)m.classList.remove('wf-show');}
 
+    function triggerHotspotHints(){
+      var hotspots = document.querySelectorAll('[data-nav], [data-modal], [data-action], .wf-btn, .wf-act, .wf-sw, .wf-ck, .wf-pill, .wf-tabit, .wf-segs span, .wf-tab-underline span, .wf-tabs [data-tab], button, a');
+      for (var i = 0; i < hotspots.length; i++) {
+        var h = hotspots[i];
+        h.classList.remove('wf-hotspot-hint-pulse');
+        void h.offsetWidth;
+        h.classList.add('wf-hotspot-hint-pulse');
+      }
+      setTimeout(function(){
+        for (var j = 0; j < hotspots.length; j++) {
+          hotspots[j].classList.remove('wf-hotspot-hint-pulse');
+        }
+      }, 800);
+    }
+
     document.addEventListener('click',function(e){
       // 严格动静分离：若不在真机预览交互模式下，完全忽略所有点击交互，彻底保护画布微调不受干扰
       if(!isInteractive) return;
@@ -635,7 +753,13 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         return;
       }
       var el=t&&t.closest?t.closest('[data-nav],[data-modal],[data-action],.wf-modal-dismiss'):null;
-      if(!el)return;
+      if(!el){
+        if(isInteractive){
+          triggerHotspotHints();
+          parent.postMessage({type:'wf-miss-click'},'*');
+        }
+        return;
+      }
       e.preventDefault();e.stopPropagation();
       if(el.classList.contains('wf-modal-dismiss') || el.getAttribute('data-action') === 'close'){
         var m=el.closest('.wf-modal');
@@ -735,13 +859,27 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     function outline(el,on){if(!el)return;if(on){el.style.outline='2px dashed #ef4444';el.style.outlineOffset='-1px';touched.push(el);}else{el.style.outline='';el.style.outlineOffset='';}}
     function clearHover(){outline(hovered,false);hovered=null;}
-    function cleanupStyles(){document.body.style.cursor='';for(var i=0;i<touched.length;i++){try{touched[i].style.outline='';touched[i].style.outlineOffset='';}catch(e){}}touched=[];}
+    function cleanupStyles(){
+      document.body.style.cursor='';
+      for(var i=0;i<touched.length;i++){try{touched[i].style.outline='';touched[i].style.outlineOffset='';}catch(e){}}
+      touched=[];
+      var curEditing = document.querySelector('[data-wf-editing-text="true"]');
+      if(curEditing){
+        curEditing.contentEditable='false';
+        curEditing.removeAttribute('data-wf-editing-text');
+        curEditing.style.outline='';
+        curEditing.style.outlineOffset='';
+        curEditing.style.cursor='';
+      }
+    }
     function doExport(){
       try{
         cleanupStyles();
         var clone=document.documentElement.cloneNode(true);
         var bad=clone.querySelectorAll('[data-wf-inject],#wf-edit-toast');
         for(var i=0;i<bad.length;i++)bad[i].parentNode.removeChild(bad[i]);
+        var targets=clone.querySelectorAll('.wf-current-asset-target');
+        for(var ti=0;ti<targets.length;ti++)targets[ti].classList.remove('wf-current-asset-target');
         parent.postMessage({type:'wf-save',html:'<!DOCTYPE html>\\n'+clone.outerHTML},'*');
       }catch(e){}
     }
@@ -752,7 +890,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       if(d.type==='wf-edit'){
         EDIT=!!d.on;
         document.body.style.cursor=EDIT?'pointer':'';
-        if(EDIT){pushSnapshot();showToast('微调模式已开启：右键/Alt+点击可删除，Ctrl+Z可撤回');}
+        if(EDIT){pushSnapshot();showToast('微调模式已开启：双击改文案，点击换图片，拖动移动，拖入组件');}
         else{cleanupStyles();}
       }else if(d.type==='wf-undo'){undo();}
       else if(d.type==='wf-redo'){redo();}
@@ -766,18 +904,157 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           document.body.style.transform='scale('+r+')';
           parent.postMessage({type:'wf-size',h:th},'*');
         }
+      }else if(d.type==='wf-replace-asset'){
+        var cur=document.querySelector('.wf-current-asset-target');
+        if(cur&&d.src){
+          pushSnapshot();
+          if(cur.tagName==='IMG'){
+            cur.src=d.src;
+          }else{
+            cur.style.backgroundImage='url('+d.src+')';
+            cur.style.backgroundSize='cover';
+            cur.style.backgroundPosition='center';
+          }
+          cur.classList.remove('wf-current-asset-target');
+          scheduleSave();
+          showToast('素材图片替换成功并落库');
+        }
+      }else if(d.type==='wf-insert-html'){
+        if(d.html){
+          pushSnapshot();
+          var tDiv=document.createElement('div');
+          tDiv.innerHTML=d.html.trim();
+          var newChild=tDiv.firstElementChild||tDiv;
+          document.body.appendChild(newChild);
+          scheduleSave();
+          showToast('原子组件已插入页面并持久化落库');
+        }
       }
     });
 
     document.addEventListener('mouseover',function(e){
       if(!EDIT)return;
+      var activeText = document.querySelector('[data-wf-editing-text="true"]');
+      if(activeText) return;
       if(hovered&&hovered!==e.target)outline(hovered,false);
       hovered=e.target;outline(hovered,true);
+    },true);
+
+    // 双击任意文本（h1-h6, p, span, button 等）激活 contenteditable 与蓝色虚线框，打字改文案，blur/enter 失焦自动保存落库
+    document.addEventListener('dblclick',function(e){
+      if(!EDIT)return;
+      var t=e.target;
+      if(!t||t===document.body||t===document.documentElement)return;
+      if(t.tagName==='IMG'||t.tagName==='svg'||t.closest('svg'))return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      clearHover();
+
+      t.contentEditable='true';
+      t.setAttribute('data-wf-editing-text','true');
+      t.style.outline='2px dashed #2563eb';
+      t.style.outlineOffset='2px';
+      t.style.cursor='text';
+      t.focus();
+
+      try{
+        var rng=document.createRange();
+        rng.selectNodeContents(t);
+        var s=window.getSelection();
+        s.removeAllRanges();
+        s.addRange(rng);
+      }catch(err){}
+
+      showToast('正在编辑文案：直接打字，失焦或回车自动保存');
+
+      function commitText(){
+        if(t.getAttribute('data-wf-editing-text')!=='true')return;
+        t.contentEditable='false';
+        t.removeAttribute('data-wf-editing-text');
+        t.style.outline='';
+        t.style.outlineOffset='';
+        t.style.cursor='';
+        t.removeEventListener('blur',onTextBlur);
+        t.removeEventListener('keydown',onTextKey);
+        pushSnapshot();
+        scheduleSave();
+        showToast('文案已自动修改并落库保存');
+      }
+
+      function onTextBlur(){commitText();}
+      function onTextKey(ke){
+        if(ke.key==='Enter'&&!ke.shiftKey&&!['TEXTAREA','P'].includes(t.tagName)){
+          ke.preventDefault();
+          t.blur();
+        }else if(ke.key==='Escape'){
+          t.blur();
+        }
+      }
+
+      t.addEventListener('blur',onTextBlur);
+      t.addEventListener('keydown',onTextKey);
+    },true);
+
+    // 点击图片/头像唤起素材库替换
+    document.addEventListener('click',function(e){
+      if(!EDIT)return;
+      var activeText = document.querySelector('[data-wf-editing-text="true"]');
+      if(activeText) return;
+      var t=e.target;
+      if(!t)return;
+      var isImg=t.tagName==='IMG';
+      var isAvatar=t.classList&&(t.classList.contains('wf-avatar')||t.className.indexOf('avatar')!==-1);
+      var hasBgImg=t.style&&t.style.backgroundImage&&t.style.backgroundImage!=='none'&&t.style.backgroundImage.indexOf('url(')!==-1;
+      if(isImg||isAvatar||hasBgImg){
+        e.preventDefault();
+        e.stopPropagation();
+        var prev=document.querySelectorAll('.wf-current-asset-target');
+        for(var pi=0;pi<prev.length;pi++)prev[pi].classList.remove('wf-current-asset-target');
+        t.classList.add('wf-current-asset-target');
+        var src=isImg?t.src:(hasBgImg?t.style.backgroundImage:'');
+        parent.postMessage({type:'wf-pick-asset',src:src},'*');
+        showToast('已唤起素材库替换面板');
+        return;
+      }
+    },true);
+
+    // 接收从原子组件库拖入的 drop 事件，将方框或组件插入页面 HTML 并持久化
+    document.addEventListener('dragover',function(e){
+      if(!EDIT)return;
+      e.preventDefault();
+      if(e.dataTransfer)e.dataTransfer.dropEffect='copy';
+    },true);
+
+    document.addEventListener('drop',function(e){
+      if(!EDIT)return;
+      e.preventDefault();
+      e.stopPropagation();
+      var html='';
+      if(e.dataTransfer){
+        html=e.dataTransfer.getData('text/html')||e.dataTransfer.getData('text/plain')||'';
+      }
+      if(!html)return;
+      pushSnapshot();
+      var dropTarget=document.elementFromPoint(e.clientX,e.clientY);
+      var container=dropTarget?dropTarget.closest('.wf-container,.wf-card,main,[class*="content"],body')||document.body:document.body;
+      var temp=document.createElement('div');
+      temp.innerHTML=html.trim();
+      var newEl=temp.firstElementChild||temp;
+      if(dropTarget&&dropTarget!==document.body&&dropTarget!==document.documentElement&&dropTarget.parentNode){
+        dropTarget.parentNode.insertBefore(newEl,dropTarget.nextSibling);
+      }else{
+        container.appendChild(newEl);
+      }
+      scheduleSave();
+      showToast('原子组件已插入页面并落库');
     },true);
 
     var drag=null;
     document.addEventListener('mousedown',function(e){
       if(!EDIT)return;
+      var activeText = document.querySelector('[data-wf-editing-text="true"]');
+      if(activeText || e.target.isContentEditable || e.target.getAttribute('data-wf-editing-text')==='true')return;
       window.focus();
       if(e.altKey||e.shiftKey){
         e.preventDefault();e.stopPropagation();
@@ -858,16 +1135,103 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
   return html + payload
 }
 
+// ===== 素材库选择与拖拽插入 =====
+const showAssetPicker = ref(false)
+const activeAssetCat = ref('all')
+interface AssetItem {
+  id: string
+  name: string
+  category: string
+  url: string
+}
+const assetList = ref<AssetItem[]>([])
+
+const defaultFallbackAssets: AssetItem[] = [
+  { id: 'avatar-01', name: '商务头像 1', category: 'avatar', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' },
+  { id: 'avatar-02', name: '职场头像 2', category: 'avatar', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' },
+  { id: 'avatar-03', name: '极简头像 3', category: 'avatar', url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80' },
+  { id: 'avatar-04', name: '萌宠头像 4', category: 'avatar', url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80' },
+  { id: 'banner-01', name: '科技质感背景', category: 'background', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=80' },
+  { id: 'banner-02', name: '暖色渐变背景', category: 'background', url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&auto=format&fit=crop&q=80' },
+  { id: 'prod-01', name: '数码产品展示', category: 'product', url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=300&auto=format&fit=crop&q=80' },
+  { id: 'prod-02', name: '潮流生活鞋靴', category: 'product', url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=300&auto=format&fit=crop&q=80' },
+]
+
+const assetCategories = [
+  { id: 'all', name: '全部素材' },
+  { id: 'avatar', name: '人物头像' },
+  { id: 'product', name: '商品展示' },
+  { id: 'background', name: '背景纹理' },
+]
+
+async function openAssetPicker() {
+  showAssetPicker.value = true
+  try {
+    const res = await projectApi.getAssets()
+    if (Array.isArray(res) && res.length > 0) {
+      assetList.value = res.map((a: any) => ({
+        id: a.id || a.assetId,
+        name: a.name || a.id,
+        category: a.category || 'other',
+        url: a.url || `/api/assets/${a.id || a.assetId}`,
+      }))
+    } else {
+      assetList.value = defaultFallbackAssets
+    }
+  } catch {
+    assetList.value = defaultFallbackAssets
+  }
+}
+
+const filteredAssets = computed(() => {
+  const list = assetList.value.length ? assetList.value : defaultFallbackAssets
+  if (activeAssetCat.value === 'all') return list
+  return list.filter((a) => a.category === activeAssetCat.value)
+})
+
+function selectAsset(asset: AssetItem) {
+  htmlFrameRef.value?.contentWindow?.postMessage({
+    type: 'wf-replace-asset',
+    src: asset.url,
+  }, '*')
+  showAssetPicker.value = false
+}
+
+function onSlotDragOver(e: DragEvent) {
+  if (!props.editMode) return
+  e.preventDefault()
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy'
+  }
+}
+
+function onSlotDrop(e: DragEvent) {
+  if (!props.editMode) return
+  const html = e.dataTransfer?.getData('text/html') || e.dataTransfer?.getData('text/plain')
+  if (html) {
+    e.preventDefault()
+    e.stopPropagation()
+    htmlFrameRef.value?.contentWindow?.postMessage({
+      type: 'wf-insert-html',
+      html,
+    }, '*')
+  }
+}
+
 function onIframeMessage(e: MessageEvent) {
   // 关键：只处理当前组件 iframe 自己发出的消息。iframe 的 postMessage 会广播给
   // 父窗口所有监听器，若不校验来源，A 页微调保存会污染所有页面的 HTML（全变同一页）。
   if (e.source !== htmlFrameRef.value?.contentWindow) return
-  const d = e.data as { type?: string; page?: string; html?: string; h?: number } | null
+  const d = e.data as { type?: string; page?: string; html?: string; h?: number; src?: string } | null
   if (!d) return
   if (d.type === 'wf-nav' && d.page) {
     emit('navigate', d.page)
   } else if (d.type === 'wf-back') {
     emit('back')
+  } else if (d.type === 'wf-pick-asset') {
+    openAssetPicker()
+  } else if (d.type === 'wf-miss-click') {
+    emit('missClick')
   } else if (d.type === 'wf-save' && typeof d.html === 'string' && d.html.length > 50) {
     isInternalSaving = true
     clearTimeout(saveResetTimer)
@@ -889,6 +1253,10 @@ function onIframeMessage(e: MessageEvent) {
 }
 onMounted(() => window.addEventListener('message', onIframeMessage))
 onUnmounted(() => window.removeEventListener('message', onIframeMessage))
+
+function triggerHotspots() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-trigger-hotspot-hints' }, '*')
+}
 
 const canvasW = computed(() => props.page.canvas_width || 375)
 const canvasH = computed(() => props.page.canvas_height || 812)
@@ -1301,8 +1669,8 @@ function cancelEdit() {
   editingAnnId.value = null
 }
 
-// 暴露尺寸，供父组件（无限画布）计算布局
-defineExpose({ stageW, stageH })
+// 暴露尺寸与热区提示，供父组件（无限画布）计算布局与调用
+defineExpose({ stageW, stageH, triggerHotspots })
 </script>
 
 <style scoped lang="scss">

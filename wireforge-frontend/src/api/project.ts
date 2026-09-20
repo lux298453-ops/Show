@@ -55,4 +55,20 @@ export const projectApi = {
     http.get<any, Record<number, { editing: boolean; conflict: boolean; editor?: string }>>(`/projects/${id}/edit-statuses`, {
       params: { clientId },
     }),
+  /** 保存或更新交互连线 */
+  saveInteraction: (
+    id: number,
+    body: {
+      elementId: number
+      targetPageId?: number | null
+      triggerType?: string
+      actionType?: string
+      params?: string | null
+    },
+  ) => http.post<any, any>(`/projects/${id}/interactions`, body),
+  /** 删除交互连线 */
+  deleteInteraction: (id: number, interactionId: number) =>
+    http.delete<any, void>(`/projects/${id}/interactions/${interactionId}`),
+  /** 获取素材库列表 */
+  getAssets: () => http.get<any, any[]>('/assets/list'),
 }
