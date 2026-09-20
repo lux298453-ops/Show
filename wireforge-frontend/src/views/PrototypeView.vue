@@ -315,93 +315,82 @@
           :class="{ 'is-animating': !isAnyDragging && animating, 'is-dragging': isAnyDragging }"
           :style="contentStyle"
         >
-          <!-- ===== 交互连线与弹性发光贝塞尔曲线 SVG 顶层画板 ===== -->
-          <svg
-            class="interaction-svg-layer absolute inset-0 pointer-events-none z-30"
-            style="width: 100000px; height: 100000px; overflow: visible;"
-          >
-            <defs>
-              <!-- 交互蓝色箭头 -->
-              <marker
-                id="arrow-blue"
-                viewBox="0 0 10 10"
-                refX="6"
-                refY="5"
-                markerWidth="6"
-                markerHeight="6"
-                orient="auto-start-reverse"
-              >
-                <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563eb" />
-              </marker>
-
-              <!-- 蓝色发光滤镜 -->
-              <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="3" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-
-            <!-- 持久化发光交互连线 -->
-            <g v-for="conn in allConnections" :key="conn.id">
-              <path
-                :d="conn.path"
-                fill="none"
-                stroke="#60a5fa"
-                stroke-width="5"
-                opacity="0.5"
-                filter="url(#glow-blue)"
-              />
-              <path
-                :d="conn.path"
-                fill="none"
-                stroke="#2563eb"
-                stroke-width="2.5"
-                marker-end="url(#arrow-blue)"
-              />
-            </g>
-
-            <!-- 实时鼠标拖拽弹性贝塞尔曲线 -->
-            <g v-if="activeDragLine">
-              <path
-                :d="activeDragLine.path"
-                fill="none"
-                stroke="#93c5fd"
-                stroke-width="6"
-                opacity="0.6"
-                filter="url(#glow-blue)"
-              />
-              <path
-                :d="activeDragLine.path"
-                fill="none"
-                stroke="#2563eb"
-                stroke-width="3"
-                stroke-dasharray="6,4"
-                marker-end="url(#arrow-blue)"
-              />
-            </g>
-          </svg>
-
-          <!-- 交互连线中点触发标签 (Figma 风格交互胶囊) -->
-          <div
-            v-for="conn in allConnections"
-            :key="`tag-${conn.id}`"
-            class="absolute z-35 pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-md shadow-blue-500/30 flex items-center gap-1.5 cursor-pointer select-none transition-all group"
-            :style="{ left: `${conn.midX}px`, top: `${conn.midY}px` }"
-            :title="`交互配置：${conn.triggerLabel} ➔ ${conn.actionLabel}`"
-          >
-            <Zap class="w-3 h-3 fill-white" />
-            <span>{{ conn.triggerLabel }} ➔ {{ conn.actionLabel }}</span>
-            <button
-              class="w-3.5 h-3.5 rounded-full hover:bg-blue-800 text-blue-200 hover:text-white flex items-center justify-center text-[10px] ml-0.5 cursor-pointer"
-              title="删除交互连线"
-              @click.stop="removeConnection(conn)"
+          <!-- ===== 交互连线与弹性贝塞尔曲线 SVG 顶层画板 (仅在交互连线模式下渲染，避免正常走查卡顿) ===== -->
+          <template v-if="workbenchMode === 'interactive'">
+            <svg
+              class="interaction-svg-layer absolute inset-0 pointer-events-none z-30"
+              style="width: 100%; height: 100%; overflow: visible;"
             >
-              ×
-            </button>
-          </div>
+              <defs>
+                <!-- 交互蓝色箭头 -->
+                <marker
+                  id="arrow-blue"
+                  viewBox="0 0 10 10"
+                  refX="6"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563eb" />
+                </marker>
+              </defs>
+
+              <!-- 持久化发光交互连线 (硬件加速纯矢量路径，无模糊滤镜卡顿) -->
+              <g v-for="conn in allConnections" :key="conn.id">
+                <path
+                  :d="conn.path"
+                  fill="none"
+                  stroke="rgba(59, 130, 246, 0.25)"
+                  stroke-width="6"
+                />
+                <path
+                  :d="conn.path"
+                  fill="none"
+                  stroke="#2563eb"
+                  stroke-width="2.5"
+                  marker-end="url(#arrow-blue)"
+                />
+              </g>
+
+              <!-- 实时鼠标拖拽弹性贝塞尔曲线 -->
+              <g v-if="activeDragLine">
+                <path
+                  :d="activeDragLine.path"
+                  fill="none"
+                  stroke="rgba(147, 197, 253, 0.4)"
+                  stroke-width="8"
+                />
+                <path
+                  :d="activeDragLine.path"
+                  fill="none"
+                  stroke="#2563eb"
+                  stroke-width="3"
+                  stroke-dasharray="6,4"
+                  marker-end="url(#arrow-blue)"
+                />
+              </g>
+            </svg>
+
+            <!-- 交互连线中点触发标签 (Figma 风格交互胶囊，仅展示当前聚焦或悬浮的交互) -->
+            <div
+              v-for="conn in displayedBadgeConnections"
+              :key="`tag-${conn.id}`"
+              class="absolute z-35 pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-md shadow-blue-500/30 flex items-center gap-1.5 cursor-pointer select-none transition-all group"
+              :style="{ left: `${conn.midX}px`, top: `${conn.midY}px` }"
+              :title="`交互配置：${conn.triggerLabel} ➔ ${conn.actionLabel}`"
+            >
+              <Zap class="w-3 h-3 fill-white" />
+              <span>{{ conn.triggerLabel }} ➔ {{ conn.actionLabel }}</span>
+              <button
+                class="w-3.5 h-3.5 rounded-full hover:bg-blue-800 text-blue-200 hover:text-white flex items-center justify-center text-[10px] ml-0.5 cursor-pointer"
+                title="删除交互连线"
+                @click.stop="removeConnection(conn)"
+              >
+                ×
+              </button>
+            </div>
+          </template>
 
           <!-- 交互连线模式下：各交互元素外侧渲染蓝色发光连接锚点（+） -->
           <template v-if="workbenchMode === 'interactive'">
@@ -1344,21 +1333,37 @@ const animationOptions = [
 const interactiveAnchors = computed<AnchorItem[]>(() => {
   if (workbenchMode.value !== 'interactive') return []
   const list: AnchorItem[] = []
-  for (const b of blocks.value) {
+  
+  // 仅在聚焦某页面或悬停画板时渲染高保真锚点，避免 32 个画板同时漫天堆积锚点
+  const activePageId = focusPageId.value ?? (blocks.value[0]?.page?.id ?? null)
+  const targetBlocks = activePageId
+    ? blocks.value.filter((b) => b.page.id === activePageId || (hoveredTargetBlockId.value && b.page.id === hoveredTargetBlockId.value))
+    : blocks.value
+
+  for (const b of targetBlocks) {
     const scaleVal = 1
-    const wireX = b.page.background_image ? (b.page.canvas_width || 375) * scaleVal + 16 : 0
+    const pageW = b.page.canvas_width || 375
+    const pageH = b.page.canvas_height || 812
+    const wireX = b.page.background_image ? pageW * scaleVal + 16 : 0
     const els = b.page.elements || []
-    // 候选交互元素：已有配置，或类型属于常见可交互组件，或文案适中
-    const candidates = els.filter(
-      (e) =>
-        e.interaction ||
-        ['button', 'tab', 'tabs', 'icon', 'navbar', 'item', 'card'].includes(e.type) ||
-        (e.label && e.label.trim().length >= 2 && e.label.trim().length <= 12),
-    )
-    const targetEls = candidates.length > 0 ? candidates : els.slice(0, 3)
+
+    // 严谨筛选真正具备点击交互行为的组件（按钮、图标、选项卡），剔除背景、通栏导航条和占位大框
+    const candidates = els.filter((e) => {
+      if (e.interaction && e.interaction.target_page_id) return true
+      if (e.type === 'background' || e.type === 'navbar' || e.type === 'container') return false
+      if (e.width > 350 || e.height > 140 || e.height < 16) return false
+      return ['button', 'tab', 'tabs', 'icon', 'item'].includes(e.type)
+    })
+
+    const targetEls = candidates.length > 0 ? candidates : els.filter((e) => e.interaction).slice(0, 5)
+
     for (const el of targetEls) {
-      const ax = b.x + wireX + (el.x + el.width) * scaleVal
-      const ay = b.y + (el.y + el.height / 2) * scaleVal
+      // 锚点精准吸附在按钮/控件的右侧边缘垂直居中处，严格限制在手机屏幕内
+      const rawAx = b.x + wireX + (el.x + el.width) * scaleVal
+      const rawAy = b.y + (el.y + el.height / 2) * scaleVal
+      const ax = Math.min(b.x + wireX + pageW - 6, Math.max(b.x + wireX + 10, rawAx))
+      const ay = Math.min(b.y + pageH - 12, Math.max(b.y + 12, rawAy))
+
       list.push({
         id: `anchor-${b.page.id}-${el.id}`,
         pageId: b.page.id,
@@ -1374,17 +1379,24 @@ const interactiveAnchors = computed<AnchorItem[]>(() => {
 })
 
 const allConnections = computed(() => {
+  if (workbenchMode.value !== 'interactive') return []
   const conns: any[] = []
   for (const b of blocks.value) {
     const scaleVal = 1
-    const wireX = b.page.background_image ? (b.page.canvas_width || 375) * scaleVal + 16 : 0
+    const pageW = b.page.canvas_width || 375
+    const pageH = b.page.canvas_height || 812
+    const wireX = b.page.background_image ? pageW * scaleVal + 16 : 0
     for (const el of b.page.elements || []) {
       if (el.interaction && el.interaction.target_page_id) {
         const targetB = blocks.value.find((tb) => tb.page.id === el.interaction!.target_page_id)
         if (targetB) {
-          const targetWireX = targetB.page.background_image ? (targetB.page.canvas_width || 375) * scaleVal + 16 : 0
-          const x1 = b.x + wireX + (el.x + el.width) * scaleVal
-          const y1 = b.y + (el.y + el.height / 2) * scaleVal
+          const targetPageW = targetB.page.canvas_width || 375
+          const targetWireX = targetB.page.background_image ? targetPageW * scaleVal + 16 : 0
+          const rawX1 = b.x + wireX + (el.x + el.width) * scaleVal
+          const rawY1 = b.y + (el.y + el.height / 2) * scaleVal
+          const x1 = Math.min(b.x + wireX + pageW - 4, Math.max(b.x + wireX + 10, rawX1))
+          const y1 = Math.min(b.y + pageH - 10, Math.max(b.y + 10, rawY1))
+
           const x2 = targetB.x + targetWireX
           const y2 = targetB.y + targetB.h / 2
 
@@ -1421,6 +1433,15 @@ const allConnections = computed(() => {
     }
   }
   return conns
+})
+
+// Figma 风格：仅在有聚焦页面时高亮其相关交互胶囊，或者只展示少量核心流程，绝不铺满 200+ 标签造成 DOM 卡顿
+const displayedBadgeConnections = computed(() => {
+  if (workbenchMode.value !== 'interactive') return []
+  if (focusPageId.value) {
+    return allConnections.value.filter((c) => c.fromPageId === focusPageId.value || c.toPageId === focusPageId.value)
+  }
+  return allConnections.value.slice(0, 8)
 })
 
 const activeDragLine = computed(() => {
