@@ -1247,7 +1247,7 @@ function setWorkbenchMode(m: 'design' | 'interactive') {
 }
 
 const showWireframe = ref(true)
-const showAnnotations = ref(true)
+const showAnnotations = ref(false)
 /** 整页原型微调与编辑模式：8点控制盒调整大小 / 双击改文案 / 拖动位移 / Del 删除 / 自动落库 */
 const fineTune = ref(true)
 
