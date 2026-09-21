@@ -501,6 +501,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         isInteractive = !!ev.data.on;
         if(isInteractive) document.body.classList.add('wf-interactive');
         else document.body.classList.remove('wf-interactive');
+      }
 
       if(ev.data.type === 'wf-spotlight'){
         var prev = document.querySelectorAll('.wf-spotlight-target');
