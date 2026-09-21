@@ -331,53 +331,7 @@
               @mouseenter="hoveredNodeId = b.page.id"
               @mouseleave="hoveredNodeId = null"
             >
-              <!-- ===== Figma 交互模式：具体组件加号方框与拉线手柄 ===== -->
-              <div
-                v-if="workbenchMode === 'interactive'"
-                class="figma-interactive-layer absolute inset-0 pointer-events-none z-35"
-              >
-                <div
-                  v-for="el in (b.page.elements || []).filter((e: any) => e.width >= 16 && e.height >= 14 && e.type !== 'background')"
-                  :key="`figma-el-${el.id}`"
-                  class="figma-element-target absolute pointer-events-auto transition-all"
-                  :style="{
-                    left: `${(b.page.canvas_width || 375) + 16 + el.x}px`,
-                    top: `${el.y}px`,
-                    width: `${el.width}px`,
-                    height: `${el.height}px`,
-                  }"
-                  :title="`组件：${el.label || el.type}${el.interaction?.target_page_id ? ` (已连线到「${getPageName(el.interaction.target_page_id)}」)` : ''}`"
-                  @click.stop="onInteractiveElementClick(b, el)"
-                  @mouseenter="hoveredElementId = el.id"
-                  @mouseleave="hoveredElementId = null"
-                >
-                  <!-- 悬停/选中：Figma 蓝色外框 -->
-                  <div
-                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
-                    class="absolute inset-0 rounded-sm pointer-events-none transition-all"
-                    :class="selectedElementId === el.id
-                      ? 'border-2 border-blue-500 bg-blue-500/10 ring-1 ring-blue-300/40'
-                      : 'border-[1.5px] border-blue-400 bg-blue-400/8'"
-                  />
 
-                  <!-- 元素尺寸标注（Figma 风格，悬停/选中时显示在下方） -->
-                  <div
-                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
-                    class="absolute -bottom-5 left-0 right-0 flex justify-center pointer-events-none"
-                  >
-                    <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-blue-600 text-white leading-none shadow-sm select-none whitespace-nowrap">
-                      {{ Math.round(el.width) }}×{{ Math.round(el.height) }}
-                    </span>
-                  </div>
-
-                  <!-- Figma 连线手柄：悬停/选中时显示在元素右侧边缘中点，按住即可拖动连接线 -->
-                  <div
-                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
-                    class="absolute top-1/2 -right-[5px] -translate-y-1/2 z-50 w-[10px] h-[10px] rounded-full bg-white border-[2px] border-blue-500 cursor-crosshair shadow-[0_0_0_1px_rgba(59,130,246,0.5),0_2px_6px_rgba(37,99,235,0.4)] hover:scale-150 hover:bg-blue-50 transition-transform select-none pointer-events-auto"
-                    :title="el.interaction?.target_page_id ? `按住拖动可重连（当前→「${getPageName(el.interaction.target_page_id)}」）` : `按住拖动连接线到其他画板`"
-                    @mousedown.stop="startElementConnectionDrag($event, b, el)"
-                  /></div>
-              </div>
 
               <!-- Figma 画板级别交互连线拉线手柄 (交互连线模式下：选中或悬停时呈现于原型屏幕右侧边缘) -->
               <div
@@ -480,6 +434,56 @@
                 @ann-order-change="handleAnnOrderChange"
                 @locked-click="showLockedToast(b.page)"
               />
+
+              <!-- ===== Figma 交互模式：具体组件加号方框与拉线手柄 (浮于画板与 iframe 之上，确保双击/单击精准捕获) ===== -->
+              <div
+                v-if="workbenchMode === 'interactive'"
+                class="figma-interactive-layer absolute inset-0 pointer-events-none z-38"
+              >
+                <div
+                  v-for="el in (b.page.elements || []).filter((e: any) => e.width >= 16 && e.height >= 14 && e.type !== 'background')"
+                  :key="`figma-el-${el.id}`"
+                  class="figma-element-target absolute pointer-events-auto transition-all cursor-pointer"
+                  :style="{
+                    left: `${(b.page.canvas_width || 375) + 16 + el.x}px`,
+                    top: `${el.y}px`,
+                    width: `${el.width}px`,
+                    height: `${el.height}px`,
+                  }"
+                  :title="`组件：${el.label || el.type}${el.interaction?.target_page_id ? ` (已连线到「${getPageName(el.interaction.target_page_id)}」)` : ' (双击/拖动右侧小圆点可新建连线)'}`"
+                  @click.stop="onInteractiveElementClick(b, el)"
+                  @dblclick.stop="onInteractiveElementDblClick(b, el)"
+                  @mouseenter="hoveredElementId = el.id"
+                  @mouseleave="hoveredElementId = null"
+                >
+                  <!-- 悬停/选中：Figma 标准天蓝精致外框 -->
+                  <div
+                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
+                    class="absolute inset-0 rounded-sm pointer-events-none transition-all"
+                    :class="selectedElementId === el.id
+                      ? 'border-2 border-[#0D99FF] bg-[#0D99FF]/12 ring-2 ring-[#0D99FF]/30'
+                      : 'border-[1.5px] border-[#0D99FF]/80 bg-[#0D99FF]/6'"
+                  />
+
+                  <!-- 元素尺寸标注（Figma 风格，悬停/选中时显示在下方） -->
+                  <div
+                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
+                    class="absolute -bottom-5 left-0 right-0 flex justify-center pointer-events-none"
+                  >
+                    <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-[#0D99FF] text-white leading-none shadow-sm select-none whitespace-nowrap">
+                      {{ Math.round(el.width) }}×{{ Math.round(el.height) }}
+                    </span>
+                  </div>
+
+                  <!-- Figma 连线手柄：悬停/选中时显示在元素右侧边缘中点，按住即可拖动连接线 -->
+                  <div
+                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
+                    class="absolute top-1/2 -right-[5px] -translate-y-1/2 z-50 w-[11px] h-[11px] rounded-full bg-white border-[2px] border-[#0D99FF] cursor-crosshair shadow-[0_0_0_1.5px_rgba(13,153,255,0.6),0_2px_8px_rgba(13,153,255,0.4)] hover:scale-150 hover:bg-sky-50 transition-transform select-none pointer-events-auto"
+                    :title="el.interaction?.target_page_id ? `按住拖动可重连（当前→「${getPageName(el.interaction.target_page_id)}」）` : `按住拖动连接线到其他画板`"
+                    @mousedown.stop="startElementConnectionDrag($event, b, el)"
+                  />
+                </div>
+              </div>
             </div>
           </template>
 
@@ -490,7 +494,7 @@
               style="position: absolute; left: 0; top: 0; width: 60000px; height: 60000px; overflow: visible; z-index: 45;"
             >
               <defs>
-                <!-- 激活态高亮箭头 -->
+                <!-- 激活态高亮箭头 (Figma 天蓝开放式轻灵小箭头) -->
                 <marker
                   id="figma-arrow-active"
                   viewBox="0 0 10 10"
@@ -500,9 +504,9 @@
                   markerHeight="7"
                   orient="auto"
                 >
-                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M 1.5 1.5 L 6.5 5 L 1.5 8.5" fill="none" stroke="#0D99FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </marker>
-                <!-- 常规状态箭头 -->
+                <!-- 常规状态箭头 (Figma 天蓝轻灵小箭头) -->
                 <marker
                   id="figma-arrow-normal"
                   viewBox="0 0 10 10"
@@ -512,7 +516,7 @@
                   markerHeight="6"
                   orient="auto"
                 >
-                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#3b82f6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M 1.5 1.5 L 6.5 5 L 1.5 8.5" fill="none" stroke="#0D99FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
                 </marker>
                 <!-- 实时拖拽拉线箭头 -->
                 <marker
@@ -524,42 +528,53 @@
                   markerHeight="7"
                   orient="auto"
                 >
-                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M 1.5 1.5 L 6.5 5 L 1.5 8.5" fill="none" stroke="#0D99FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </marker>
               </defs>
 
               <g v-for="conn in visibleConnections" :key="conn.id" class="figma-conn-item">
-                <!-- 外发光辅线 -->
+                <!-- 宽热区透明线 (18px 宽，点击可精准选中该连线并隐藏其他连线，敲击键盘 Backspace 键可直接删除) -->
                 <path
                   :d="conn.path"
                   fill="none"
-                  :stroke="isConnActive(conn) ? 'rgba(37, 99, 235, 0.45)' : 'rgba(59, 130, 246, 0.25)'"
+                  stroke="transparent"
+                  stroke-width="18"
+                  class="cursor-pointer pointer-events-auto"
+                  :title="`交互连线：${conn.label} ➔ ${conn.actionLabel} (点击选中此连线，按 Backspace 键可删除)`"
+                  @click.stop="selectConnection(conn)"
+                />
+
+                <!-- 外发光辅线 (0.8px-2px 柔和微光) -->
+                <path
+                  :d="conn.path"
+                  fill="none"
+                  :stroke="isConnActive(conn) ? 'rgba(13, 153, 255, 0.45)' : 'rgba(13, 153, 255, 0.18)'"
                   :stroke-width="isConnActive(conn) ? 5 : 3"
                   stroke-linecap="round"
                 />
-                <!-- Figma 经典贝塞尔曲线 (激活时 2.4px 深蓝高亮，普通态 1.8px 优雅天蓝) -->
+                <!-- Figma 纯正亮天蓝贝塞尔曲线 (还原 Figma Prototype 官方标准 1.6px 纤细轻灵设计) -->
                 <path
                   :d="conn.path"
                   fill="none"
-                  :stroke="isConnActive(conn) ? '#2563eb' : '#3b82f6'"
-                  :stroke-width="isConnActive(conn) ? 2.4 : 1.8"
+                  stroke="#0D99FF"
+                  :stroke-width="isConnActive(conn) ? 2.2 : 1.6"
                   stroke-linecap="round"
                   :marker-end="isConnActive(conn) ? 'url(#figma-arrow-active)' : 'url(#figma-arrow-normal)'"
                 />
-                <!-- 起点 Figma 节点圆圈 (白底蓝环节点) -->
+                <!-- 起点 Figma 节点圆圈 (白底蓝环小圆点) -->
                 <circle
                   :cx="conn.x1"
                   :cy="conn.y1"
                   :r="isConnActive(conn) ? 5.5 : 4.5"
                   fill="#ffffff"
-                  :stroke="isConnActive(conn) ? '#2563eb' : '#3b82f6'"
-                  :stroke-width="isConnActive(conn) ? 2.2 : 1.8"
+                  stroke="#0D99FF"
+                  :stroke-width="isConnActive(conn) ? 2.2 : 1.6"
                 />
                 <circle
                   :cx="conn.x1"
                   :cy="conn.y1"
-                  :r="isConnActive(conn) ? 2.5 : 2"
-                  :fill="isConnActive(conn) ? '#2563eb' : '#3b82f6'"
+                  :r="isConnActive(conn) ? 2.4 : 1.8"
+                  fill="#0D99FF"
                 />
               </g>
 
@@ -568,8 +583,8 @@
                 <path
                   :d="activeDragLine.path"
                   fill="none"
-                  stroke="#3b82f6"
-                  stroke-width="2.2"
+                  stroke="#0D99FF"
+                  stroke-width="2"
                   stroke-dasharray="5,4"
                   stroke-linecap="round"
                   marker-end="url(#figma-drag-arrow)"
@@ -579,14 +594,14 @@
                   :cy="activeDragLine.y1"
                   r="5.5"
                   fill="#ffffff"
-                  stroke="#2563eb"
-                  stroke-width="2.2"
+                  stroke="#0D99FF"
+                  stroke-width="2"
                 />
                 <circle
                   :cx="activeDragLine.x1"
                   :cy="activeDragLine.y1"
-                  r="2.5"
-                  fill="#2563eb"
+                  r="2.2"
+                  fill="#0D99FF"
                 />
               </g>
             </svg>
@@ -596,15 +611,16 @@
               v-for="conn in visibleConnections"
               :key="`tag-${conn.id}`"
               class="absolute pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2.5 py-0.5 rounded-full text-white text-[10px] font-medium shadow-md flex items-center gap-1 cursor-pointer select-none transition-all"
-              :class="isConnActive(conn) ? 'bg-blue-600 ring-2 ring-blue-300 ring-offset-1 scale-105 z-50' : 'bg-slate-700/90 hover:bg-blue-600 hover:scale-105 opacity-90 hover:opacity-100 z-45'"
+              :class="isConnActive(conn) ? 'bg-[#0D99FF] ring-2 ring-sky-300 ring-offset-1 scale-105 z-50' : 'bg-slate-700/90 hover:bg-[#0D99FF] hover:scale-105 opacity-90 hover:opacity-100 z-45'"
               :style="{ left: `${conn.midX}px`, top: `${conn.midY}px` }"
-              :title="`交互：${conn.label} ➔ ${conn.actionLabel} (${conn.fromPageName} → ${conn.toPageName})，点击修改或删除`"
+              :title="`交互：${conn.label} ➔ ${conn.actionLabel} (${conn.fromPageName} → ${conn.toPageName})，点击选中此连线，敲击键盘 Backspace 键可删除`"
+              @click.stop="selectConnection(conn)"
             >
               <Zap class="w-2.5 h-2.5 fill-current" />
               <span>{{ conn.label }}: {{ conn.actionLabel }}</span>
               <button
-                class="w-3 h-3 rounded-full hover:bg-black/30 text-white flex items-center justify-center text-[9px] ml-0.5 cursor-pointer"
-                title="删除交互连线"
+                class="w-3.5 h-3.5 rounded-full hover:bg-black/30 text-white flex items-center justify-center text-[9px] ml-0.5 cursor-pointer"
+                title="删除交互连线 (快捷键 Backspace)"
                 @click.stop="removeConnection(conn)"
               >
                 ×
@@ -1160,6 +1176,8 @@ function onPageBlockClick(pageId: number) {
     return
   }
   selectedNodeId.value = pageId
+  selectedConnId.value = null
+  selectedElementId.value = null
   focusPageId.value = pageId
 }
 
@@ -1604,6 +1622,7 @@ interface ConnectionItem {
   fromPageName: string
   toPageName: string
   elementId?: number
+  interactionId?: number
   label: string
   isSelfLoop: boolean
   x1: number
@@ -1710,6 +1729,7 @@ const connections = computed<ConnectionItem[]>(() => {
         fromPageName: fromNode.name,
         toPageName: toNode.name,
         elementId: el.id,
+        interactionId: el.interaction?.id,
         label: el.label || el.type,
         isSelfLoop,
         x1: startX,
@@ -1728,10 +1748,17 @@ const connections = computed<ConnectionItem[]>(() => {
   return list
 })
 
+// 单选特定连线状态：点击某条连接线时，只高亮该条连线，其他连线全部隐藏
+const selectedConnId = ref<string | null>(null)
+
 // 连线激活状态：
-// 在交互连线模式下，把所有已有连接关系全部展示出来（还原 Figma Prototype 模式全貌）
-// 在走查模式下，若点击了某节点则展示关联线，否则隐藏
+// 1. 如果选中了某条特定的连接线，其他所有连线隐藏，仅展示当前选中的连线（还原 Figma 连线点击聚焦）
+// 2. 在交互连线模式下，展示所有连线
+// 3. 在走查模式下，若点击了某节点则展示关联线，否则隐藏
 const visibleConnections = computed<ConnectionItem[]>(() => {
+  if (selectedConnId.value) {
+    return connections.value.filter((c) => c.id === selectedConnId.value)
+  }
   if (workbenchMode.value === 'interactive') {
     return connections.value
   }
@@ -1746,7 +1773,18 @@ function getPageName(pageId?: number | null): string {
   return pages.value.find((p) => p.id === pageId)?.name || '目标画板'
 }
 
+function selectConnection(conn: ConnectionItem) {
+  selectedConnId.value = conn.id
+  selectedElementId.value = conn.elementId || null
+  selectedNodeId.value = conn.fromId
+  ElMessage.info({
+    message: `已选中连线：「${conn.label} ➔ ${conn.toPageName}」，按键盘 Backspace 键可直接删除`,
+    duration: 3000,
+  })
+}
+
 function isConnActive(conn: ConnectionItem): boolean {
+  if (selectedConnId.value === conn.id) return true
   if (selectedElementId.value && conn.elementId === selectedElementId.value) return true
   if (selectedNodeId.value && (conn.fromId === selectedNodeId.value || conn.toId === selectedNodeId.value)) return true
   return false
@@ -1756,6 +1794,21 @@ function onInteractiveElementClick(b: any, el: Element) {
   selectedNodeId.value = b.page.id
   selectedElementId.value = el.id
   focusPageId.value = b.page.id
+  // 检查该按钮是否已有连线；若已有连线，只聚焦该连线，其他连线隐藏
+  const matchingConn = connections.value.find((c) => c.elementId === el.id)
+  if (matchingConn) {
+    selectedConnId.value = matchingConn.id
+  } else {
+    selectedConnId.value = null
+  }
+}
+
+function onInteractiveElementDblClick(b: any, el: Element) {
+  onInteractiveElementClick(b, el)
+  ElMessage.info({
+    message: `已选中「${el.label || el.type}」，拖拽右侧白色圆点手柄可直接连接至目标画板`,
+    duration: 3000,
+  })
 }
 
 function startElementConnectionDrag(event: MouseEvent, b: any, el: Element) {
@@ -1971,14 +2024,25 @@ async function confirmCreateInteraction() {
 
 async function removeConnection(conn: any) {
   try {
-    const sourcePage = pages.value.find((p) => p.id === conn.fromPageId)
+    if (conn.interactionId) {
+      await projectApi.deleteInteraction(id, conn.interactionId)
+    } else {
+      await projectApi.saveInteraction(id, {
+        elementId: conn.elementId,
+        pageId: conn.fromId,
+        targetPageId: null,
+      })
+    }
+    const sourcePage = pages.value.find((p) => p.id === conn.fromId || p.id === conn.fromPageId)
     if (sourcePage) {
       const el = sourcePage.elements.find((e) => e.id === conn.elementId)
       if (el && el.interaction) {
         delete el.interaction
       }
     }
-    ElMessage.success('交互连线已删除')
+    selectedConnId.value = null
+    await loadData()
+    ElMessage.success('交互连线已删除，可重新拖动圆点连接新页面')
   } catch (err: any) {
     ElMessage.error(err?.message || '删除交互失败')
   }
@@ -2116,7 +2180,8 @@ function onMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
   if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel')) return
   selectedElementId.value = null
-  // 点击空白区域 → 取消选中，所有连线恢复隐藏
+  selectedConnId.value = null
+  // 点击空白区域 → 取消选中，所有连线恢复显示
   selectedNodeId.value = null
   isDragging.value = true
   dragStart = { x: e.clientX, y: e.clientY }
@@ -2847,9 +2912,29 @@ watch(
 )
 
 function onGlobalKeydown(e: KeyboardEvent) {
-  // 1. ESC key exits preview mode immediately
-  if (e.key === 'Escape' && mode.value === 'preview') {
-    mode.value = 'edit'
+  // 1. ESC key: exits preview or cancels line selection
+  if (e.key === 'Escape') {
+    if (selectedConnId.value) {
+      selectedConnId.value = null
+      return
+    }
+    if (mode.value === 'preview') {
+      mode.value = 'edit'
+      return
+    }
+  }
+
+  // 2. Figma Prototype 连线删除快捷键 (Backspace / Delete)
+  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedConnId.value) {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+      return
+    }
+    e.preventDefault()
+    const targetConn = connections.value.find((c) => c.id === selectedConnId.value)
+    if (targetConn) {
+      removeConnection(targetConn)
+    }
     return
   }
 

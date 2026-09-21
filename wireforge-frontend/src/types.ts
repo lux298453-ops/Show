@@ -7,6 +7,7 @@ export interface Project {
 }
 
 export interface Interaction {
+  id?: number
   trigger: string
   action: string
   target_page_id?: number | null
