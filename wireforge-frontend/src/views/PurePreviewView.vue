@@ -60,20 +60,6 @@
 
       <!-- Feature Toggles & Actions -->
       <div class="flex items-center gap-1.5">
-        <!-- 💡 点击热区提示切换按钮 -->
-        <button
-          class="wf-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer"
-          :class="hotspotHintsEnabled 
-            ? 'bg-cyan-500/20 border-cyan-500/60 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.35)]' 
-            : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-slate-200'"
-          title="点击空白未命中区域时，青色波纹脉冲高亮所有交互热区 (快捷键 H)"
-          @click="toggleHotspotHints"
-        >
-          <Lightbulb class="w-3.5 h-3.5" :class="{ 'fill-cyan-400 text-cyan-400': hotspotHintsEnabled }" />
-          <span class="hidden sm:inline">热区提示</span>
-          <span v-if="hotspotHintsEnabled" class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
-        </button>
-
         <!-- 📱 手机外壳切换按钮 -->
         <button
           class="wf-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer"
@@ -171,8 +157,7 @@
           <div
             class="phone-screen relative w-[375px] bg-black overflow-hidden flex flex-col transition-all duration-300"
             :class="[
-              showDeviceFrame ? 'rounded-[44px]' : 'rounded-[28px]',
-              isPulseActive ? 'ring-2 ring-cyan-400/60 shadow-[0_0_25px_rgba(6,182,212,0.3)]' : ''
+              showDeviceFrame ? 'rounded-[44px]' : 'rounded-[28px]'
             ]"
             :style="{ height: `${screenHeight}px` }"
             @click="onScreenClick"
@@ -191,7 +176,6 @@
               <div
                 class="dynamic-island absolute top-2.5 left-1/2 -translate-x-1/2 w-[122px] h-[34px] rounded-full bg-black flex items-center justify-between px-3 shadow-md pointer-events-auto cursor-pointer hover:scale-105 transition-transform"
                 title="iPhone 16 Pro 灵动岛"
-                @click.stop="triggerHotspotHints"
               >
                 <!-- Front Camera Lens reflection -->
                 <div class="w-3 h-3 rounded-full bg-slate-950 border border-slate-800/80 flex items-center justify-center relative overflow-hidden">
@@ -238,16 +222,7 @@
               </button>
             </transition>
 
-            <!-- Hotspot Hint Floating Indicator (当发光触发时右上角微标) -->
-            <transition name="fade-fast">
-              <div
-                v-if="isPulseActive"
-                class="absolute top-14 right-3.5 z-40 px-2.5 py-1 rounded-full bg-cyan-950/80 backdrop-blur-md text-cyan-300 text-[10px] font-bold border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.4)] flex items-center gap-1.5 pointer-events-none"
-              >
-                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
-                <span>可交互热区</span>
-              </div>
-            </transition>
+
 
             <!-- ===== Prototype Content Stage with Native Push Transitions ===== -->
             <div
@@ -279,23 +254,7 @@
                 </div>
               </transition>
 
-              <!-- Wireframe Mode Hotspot Overlay Pulse (当没有 HTML 纯线框模式下的交互热区提示) -->
-              <div
-                v-if="isPulseActive && !currentPage?.html_content"
-                class="absolute inset-0 pointer-events-none z-30"
-              >
-                <div
-                  v-for="el in interactiveElements"
-                  :key="el.id"
-                  class="absolute rounded-lg border-2 border-cyan-400 bg-cyan-400/20 shadow-[0_0_15px_rgba(6,182,212,0.7)] animate-pulse"
-                  :style="{
-                    left: `${el.x}px`,
-                    top: `${el.y}px`,
-                    width: `${el.width}px`,
-                    height: `${el.height}px`,
-                  }"
-                ></div>
-              </div>
+
             </div>
 
             <!-- iOS Home Indicator Gesture Bar -->
@@ -413,7 +372,6 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Layers,
-  Lightbulb,
   Smartphone,
   RotateCcw,
   Link,
@@ -451,10 +409,8 @@ const pageTransitionName = computed(() =>
 )
 
 // 浮动功能开关
-const hotspotHintsEnabled = ref(true)
 const showDeviceFrame = ref(true)
-const isPulseActive = ref(false)
-let pulseTimer: any = null
+
 
 // 实时时间
 const currentTime = ref('')
@@ -522,37 +478,13 @@ function spawnRipple(x: number, y: number) {
   }, 600)
 }
 
-// 核心功能：Figma 经典 Hotspot Hinting
+
+// 核心功能：PageCanvas ref（保留供导航使用）
 const pageCanvasRef = ref<any>(null)
 
-function triggerHotspotHints() {
-  isPulseActive.value = false
-  if (pulseTimer) clearTimeout(pulseTimer)
-  nextTick(() => {
-    isPulseActive.value = true
-    pageCanvasRef.value?.triggerHotspots()
-    pulseTimer = setTimeout(() => {
-      isPulseActive.value = false
-    }, 850)
-  })
-}
-
-function toggleHotspotHints() {
-  hotspotHintsEnabled.value = !hotspotHintsEnabled.value
-  if (hotspotHintsEnabled.value) {
-    triggerHotspotHints()
-    showToast('💡 已开启热区提示：点击空白处将高亮可交互区域')
-  } else {
-    isPulseActive.value = false
-    showToast('已关闭热区提示')
-  }
-}
-
-// 屏幕未命中交互区域点击处理
+// 屏幕未命中交互区域点击处理（热区显示已关闭，仅保留接口不报错）
 function onScreenMissClick() {
-  if (hotspotHintsEnabled.value) {
-    triggerHotspotHints()
-  }
+  // 热区提示已关闭
 }
 
 function onScreenClick(e: MouseEvent) {
@@ -561,23 +493,17 @@ function onScreenClick(e: MouseEvent) {
 
 function onChassisClick(e: MouseEvent) {
   spawnRipple(e.clientX, e.clientY)
-  if (hotspotHintsEnabled.value) {
-    triggerHotspotHints()
-  }
 }
 
 function onViewportAreaClick(e: MouseEvent) {
   spawnRipple(e.clientX, e.clientY)
-  if (hotspotHintsEnabled.value) {
-    triggerHotspotHints()
-  }
 }
 
 function onBackgroundClick() {
-  if (hotspotHintsEnabled.value) {
-    triggerHotspotHints()
-  }
+  // 无操作
 }
+
+
 
 // 页面导航与转场
 function navigateTo(targetPageId: number) {
@@ -673,11 +599,9 @@ function exitPreview() {
   })
 }
 
-// 元素交互处理
 function handleElementClick(el: Element) {
   const ix = el.interaction
   if (!ix) {
-    if (hotspotHintsEnabled.value) triggerHotspotHints()
     return
   }
 
@@ -702,21 +626,8 @@ function handleElementClick(el: Element) {
     }
   } else if (ix.action === 'input_focus') {
     showToast(`⌨️ 聚焦输入框: ${el.label || '输入组件'}`)
-  } else {
-    if (hotspotHintsEnabled.value) triggerHotspotHints()
   }
 }
-
-// Wireframe 模式下可交互元素列表
-const interactiveElements = computed(() => {
-  if (!currentPage.value) return []
-  return currentPage.value.elements.filter(
-    (e) =>
-      e.interaction?.action === 'navigate' ||
-      e.interaction?.action === 'modal' ||
-      ['button', 'switch', 'checkbox', 'tab'].includes(e.type),
-  )
-})
 
 // 快捷键支持
 function onGlobalKeyDown(e: KeyboardEvent) {
@@ -726,8 +637,6 @@ function onGlobalKeyDown(e: KeyboardEvent) {
       return
     }
     exitPreview()
-  } else if (e.key === 'h' || e.key === 'H') {
-    toggleHotspotHints()
   } else if (e.key === 'd' || e.key === 'D') {
     showDeviceFrame.value = !showDeviceFrame.value
     showToast(showDeviceFrame.value ? '已开启手机外壳' : '已切换无框纯屏模式')
@@ -766,7 +675,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
-  if (pulseTimer) clearTimeout(pulseTimer)
   if (toastTimer) clearTimeout(toastTimer)
   window.removeEventListener('resize', updatePhoneScale)
   window.removeEventListener('keydown', onGlobalKeyDown)

@@ -469,31 +469,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         box-shadow: 0 0 0 6px rgba(16, 185, 129, 0), 0 0 22px rgba(16, 185, 129, 0.85) !important;
       }
     }
-    /* Figma 经典青色热区脉冲发光与波纹动画 */
-    .wf-hotspot-hint-pulse {
-      position: relative !important;
-      outline: 2.5px solid #06b6d4 !important;
-      outline-offset: 2px !important;
-      box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.45), 0 0 22px rgba(6, 182, 212, 0.7) !important;
-      background-color: rgba(6, 182, 212, 0.18) !important;
-      animation: wfHotspotPulse 0.75s ease-out !important;
-      border-radius: 8px !important;
-      transition: all 0.2s ease !important;
-    }
-    @keyframes wfHotspotPulse {
-      0% {
-        box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.8), 0 0 6px rgba(6, 182, 212, 0.5);
-        background-color: rgba(6, 182, 212, 0.08);
-      }
-      35% {
-        box-shadow: 0 0 0 6px rgba(6, 182, 212, 0.5), 0 0 26px rgba(6, 182, 212, 0.85);
-        background-color: rgba(6, 182, 212, 0.28);
-      }
-      100% {
-        box-shadow: 0 0 0 14px rgba(6, 182, 212, 0), 0 0 0 rgba(6, 182, 212, 0);
-        background-color: transparent;
-      }
-    }
+
     /* 原生质感弹层遮罩与动画 */
     .wf-modal {
       position: fixed;
@@ -525,10 +501,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         isInteractive = !!ev.data.on;
         if(isInteractive) document.body.classList.add('wf-interactive');
         else document.body.classList.remove('wf-interactive');
-      }
-      if(ev.data.type === 'wf-trigger-hotspot-hints'){
-        triggerHotspotHints();
-      }
+
       if(ev.data.type === 'wf-spotlight'){
         var prev = document.querySelectorAll('.wf-spotlight-target');
         for (var i = 0; i < prev.length; i++) prev[i].classList.remove('wf-spotlight-target');
@@ -648,20 +621,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     function openModal(id){var m=document.getElementById('wf-modal-'+id);if(m)m.classList.add('wf-show');}
     function closeModal(m){if(m)m.classList.remove('wf-show');}
 
-    function triggerHotspotHints(){
-      var hotspots = document.querySelectorAll('[data-nav], [data-modal], [data-action], .wf-btn, .wf-act, .wf-sw, .wf-ck, .wf-pill, .wf-tabit, .wf-segs span, .wf-tab-underline span, .wf-tabs [data-tab], button, a');
-      for (var i = 0; i < hotspots.length; i++) {
-        var h = hotspots[i];
-        h.classList.remove('wf-hotspot-hint-pulse');
-        void h.offsetWidth;
-        h.classList.add('wf-hotspot-hint-pulse');
-      }
-      setTimeout(function(){
-        for (var j = 0; j < hotspots.length; j++) {
-          hotspots[j].classList.remove('wf-hotspot-hint-pulse');
-        }
-      }, 800);
-    }
+
 
     document.addEventListener('click',function(e){
       // 严格动静分离：若不在真机预览交互模式下，完全忽略所有点击交互，彻底保护画布微调不受干扰
@@ -755,7 +715,6 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       var el=t&&t.closest?t.closest('[data-nav],[data-modal],[data-action],.wf-modal-dismiss'):null;
       if(!el){
         if(isInteractive){
-          triggerHotspotHints();
           parent.postMessage({type:'wf-miss-click'},'*');
         }
         return;
@@ -1255,7 +1214,7 @@ onMounted(() => window.addEventListener('message', onIframeMessage))
 onUnmounted(() => window.removeEventListener('message', onIframeMessage))
 
 function triggerHotspots() {
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-trigger-hotspot-hints' }, '*')
+  // 热区提示已完全停用
 }
 
 const canvasW = computed(() => props.page.canvas_width || 375)
