@@ -316,7 +316,7 @@
           :style="contentStyle"
         >
           <!-- ===== Figma Prototype 模式：由 selectedNodeId 驱动的连线画板 ===== -->
-          <template v-if="visibleConnections.length > 0">
+          <template v-if="visibleConnections.length > 0 || activeDragLine">
             <svg
               class="interaction-svg-layer absolute inset-0 pointer-events-none z-30"
               style="width: 100%; height: 100%; overflow: visible;"
@@ -378,6 +378,24 @@
                   :marker-end="conn.isSelfLoop ? 'url(#arrow-self)' : (conn.fromId === selectedNodeId ? 'url(#arrow-out)' : 'url(#arrow-in)')"
                 />
               </g>
+
+              <!-- 实时拖拽拉出的贝塞尔连线 (Figma 拖拽连线预览) -->
+              <g v-if="activeDragLine">
+                <path
+                  :d="activeDragLine.path"
+                  fill="none"
+                  stroke="rgba(59, 130, 246, 0.35)"
+                  stroke-width="7"
+                />
+                <path
+                  :d="activeDragLine.path"
+                  fill="none"
+                  stroke="#2563eb"
+                  stroke-width="2.5"
+                  stroke-dasharray="6,4"
+                  marker-end="url(#arrow-out)"
+                />
+              </g>
             </svg>
 
             <!-- 交互连线中点触发标签 (Figma 交互胶囊) -->
@@ -405,14 +423,25 @@
             <div
               class="page-block absolute transition-all duration-200 rounded-2xl cursor-pointer"
               :class="{
-                'ring-2 ring-blue-500 ring-offset-4 ring-offset-slate-100 shadow-[0_0_0_2px_#3b82f6,0_12px_28px_rgba(59,130,246,0.22)]': selectedNodeId === b.page.id,
-                'ring-1 ring-slate-200/90 hover:ring-2 hover:ring-blue-400/50 hover:shadow-md': selectedNodeId !== b.page.id,
+                'ring-4 ring-emerald-400 ring-offset-2 shadow-[0_0_24px_rgba(52,211,153,0.5)] scale-[1.01]': hoveredTargetBlockId === b.page.id,
+                'ring-2 ring-blue-500 ring-offset-4 ring-offset-slate-100 shadow-[0_0_0_2px_#3b82f6,0_12px_28px_rgba(59,130,246,0.22)]': selectedNodeId === b.page.id && hoveredTargetBlockId !== b.page.id,
+                'ring-1 ring-slate-200/90 hover:ring-2 hover:ring-blue-400/50 hover:shadow-md': selectedNodeId !== b.page.id && hoveredTargetBlockId !== b.page.id,
               }"
               :style="{ left: `${b.x}px`, top: `${b.y}px` }"
               @click.stop="onPageBlockClick(b.page.id)"
               @mouseenter="hoveredNodeId = b.page.id"
               @mouseleave="hoveredNodeId = null"
             >
+              <!-- Figma 交互连线拉线把手 (仅在交互连线模式且选中当前画板时显示) -->
+              <div
+                v-if="workbenchMode === 'interactive' && selectedNodeId === b.page.id"
+                class="node-connector-handle absolute -right-3.5 top-1/2 -translate-y-1/2 z-40 w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-crosshair shadow-[0_0_0_3px_#ffffff,0_4px_12px_rgba(37,99,235,0.6)] hover:scale-125 transition-all select-none group pointer-events-auto"
+                title="按住拖拽连线至目标画板以建立跳转关系"
+                @mousedown.stop="startNodeConnectionDrag($event, b)"
+              >
+                <Plus class="w-4 h-4 stroke-[2.8] group-hover:rotate-90 transition-transform" />
+              </div>
+
               <!-- Block Header Capsule Floating Label -->
               <div
                 class="block-label absolute -top-9 left-0 inline-flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-md border border-slate-200/85 rounded-xl shadow-xs text-xs font-bold text-slate-800 hover:border-emerald-300 hover:text-emerald-600 hover:shadow-md transition-all cursor-grab active:cursor-grabbing"
@@ -469,7 +498,7 @@
                 </button>
               </div>
 
-              <!-- Page Canvas Component -->
+              <!-- Page Canvas Component (画布上禁止跳转，仅供选中与布线) -->
               <PageCanvas
                 :ref="(el: any) => setPageRef(b.page.id, el)"
                 :page="b.page"
@@ -481,7 +510,7 @@
                 :hovered-ann-id="hoveredAnnId"
                 :show-design="true"
                 :edit-mode="fineTune && mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
-                :interactive="!fineTune || !!pageEditingConflicts[b.page.id]?.conflict"
+                :interactive="false"
                 :locked-by-other="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
                 :custom-orders="pageAnnOrders"
                 :custom-titles="customTitles"
@@ -1668,6 +1697,49 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
 
   window.addEventListener('mousemove', onWindowMouseMove)
   window.addEventListener('mouseup', onWindowMouseUp)
+}
+
+/**
+ * 从画板右侧手柄拉出 Figma 交互连线
+ */
+async function startNodeConnectionDrag(event: MouseEvent, b: any) {
+  event.preventDefault()
+  event.stopPropagation()
+
+  let el = b.page.elements?.find((e: any) => e.type === 'button' || e.type === 'icon') || b.page.elements?.[0]
+  if (!el) {
+    try {
+      el = await projectApi.createElement(id, b.page.id, {
+        type: 'button',
+        label: `${b.page.name} 跳转`,
+        positionX: 0,
+        positionY: 0,
+        width: 100,
+        height: 40,
+      })
+      if (!b.page.elements) b.page.elements = []
+      b.page.elements.push(el)
+    } catch (e) {
+      console.error('Failed to create element for node connection', e)
+    }
+  }
+
+  const pageW = b.page.canvas_width || 375
+  const wireX = b.page.background_image ? pageW + 16 : 0
+  const anchorX = b.x + wireX + pageW
+  const anchorY = b.y + b.h / 2
+
+  const anchor: AnchorItem = {
+    id: `node-${b.page.id}`,
+    pageId: b.page.id,
+    pageName: b.page.name,
+    elementId: el?.id || 0,
+    label: el?.label || b.page.name,
+    x: anchorX,
+    y: anchorY,
+  }
+
+  startConnectionDrag(event, anchor)
 }
 
 async function confirmCreateInteraction() {

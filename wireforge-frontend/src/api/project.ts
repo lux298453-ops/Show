@@ -69,6 +69,9 @@ export const projectApi = {
   /** 删除交互连线 */
   deleteInteraction: (id: number, interactionId: number) =>
     http.delete<any, void>(`/projects/${id}/interactions/${interactionId}`),
+  /** 为页面注册新增元素 */
+  createElement: (id: number, pageId: number, body: Record<string, any>) =>
+    http.post<any, any>(`/projects/${id}/pages/${pageId}/elements`, body),
   /** 获取素材库列表 */
   getAssets: () => http.get<any, any[]>('/assets/list'),
 }
