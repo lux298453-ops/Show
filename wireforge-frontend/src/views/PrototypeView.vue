@@ -426,7 +426,7 @@
                 :hovered-element-id="hoveredElementId"
                 :hovered-ann-id="hoveredAnnId"
                 :show-design="true"
-                :edit-mode="fineTune && mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
+                :edit-mode="(fineTune || leftSidebarTab === 'components') && mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
                 :interactive="false"
                 :locked-by-other="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
                 :custom-orders="pageAnnOrders"
@@ -444,6 +444,7 @@
                 @ann-save="handleAnnSave"
                 @ann-order-change="handleAnnOrderChange"
                 @locked-click="showLockedToast(b.page)"
+                @request-edit="fineTune = true"
               />
 
               <!-- ===== Figma 交互模式：具体组件加号方框与拉线手柄 (浮于画板与 iframe 之上，确保双击/单击精准捕获) ===== -->
@@ -1167,8 +1168,14 @@ function setWorkbenchMode(m: 'design' | 'interactive') {
 
 const showWireframe = ref(true)
 const showAnnotations = ref(true)
-/** 整页原型微调模式：拖动移动元素 / 滚轮调字号 / Del 隐藏，自动保存 */
-const fineTune = ref(false)
+/** 整页原型微调与编辑模式：8点控制盒调整大小 / 双击改文案 / 拖动位移 / Del 删除 / 自动落库 */
+const fineTune = ref(true)
+
+watch(leftSidebarTab, (tab) => {
+  if (tab === 'components') {
+    fineTune.value = true
+  }
+})
 
 /** 多用户并发协同编辑防覆盖检测 */
 function getOrCreateClientId(): string {
@@ -1388,6 +1395,7 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
 
   if (!htmlSnippet) return
 
+  fineTune.value = true
   selectedNodeId.value = pageId
   focusPageId.value = pageId
 
