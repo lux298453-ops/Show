@@ -918,6 +918,149 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
     }
 
+    var copiedElement = null;
+    var pasteCount = 0;
+
+    function copyElement(el){
+      if(!el || el === document.body || el === document.documentElement) return;
+      try{
+        var clone = el.cloneNode(true);
+        clone.style.outline = '';
+        clone.style.outlineOffset = '';
+        if(clone.id && clone.id.indexOf('wf-') === 0 && !clone.id.startsWith('wf-modal-')){
+          clone.removeAttribute('id');
+        }
+        var rect = el.getBoundingClientRect();
+        var scrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+        var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+        var curL = parseFloat(el.style.left);
+        var curT = parseFloat(el.style.top);
+        if(isNaN(curL)) curL = rect.left + scrollX;
+        if(isNaN(curT)) curT = rect.top + scrollY;
+
+        var elName = (el.innerText || el.getAttribute('data-name') || el.className || '元素').replace(/\s+/g, ' ').trim().slice(0, 16) || '组件';
+
+        var data = {
+          html: clone.outerHTML,
+          left: Math.round(curL),
+          top: Math.round(curT),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          name: elName
+        };
+
+        copiedElement = data;
+        pasteCount = 0;
+
+        try {
+          if (window.parent) {
+            window.parent.__wfCopiedElement = data;
+            window.parent.__wfLastCopyType = 'element';
+            window.parent.postMessage({ type: 'wf-element-copied', data: data }, '*');
+          }
+        } catch(e){}
+
+        try {
+          localStorage.setItem('wf_clipboard_element', JSON.stringify(data));
+          localStorage.setItem('wf_last_copy_type', 'element');
+        } catch(e){}
+
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(clone.outerHTML).catch(function(){});
+          }
+        } catch(e){}
+
+        showToast('已复制「' + elName + '」(Ctrl+C)，按 Ctrl+V 粘贴');
+      }catch(err){
+        console.error('Copy failed', err);
+      }
+    }
+
+    function getCopiedData(){
+      if(copiedElement) return copiedElement;
+      try{
+        if(window.parent && window.parent.__wfCopiedElement) return window.parent.__wfCopiedElement;
+      }catch(e){}
+      try{
+        var local = localStorage.getItem('wf_clipboard_element');
+        if(local) return JSON.parse(local);
+      }catch(e){}
+      return null;
+    }
+
+    function pasteElement(targetX, targetY){
+      var data = getCopiedData();
+      if(!data || !data.html){
+        showToast('剪贴板为空，请先按 Ctrl+C 复制元素');
+        return;
+      }
+
+      pushSnapshot();
+      pasteCount++;
+      var offset = pasteCount * 16;
+
+      var temp = document.createElement('div');
+      temp.innerHTML = data.html.trim();
+      var newEl = temp.firstElementChild || temp;
+
+      if(newEl.id && !newEl.id.startsWith('wf-modal-')){
+        newEl.id = newEl.id + '-copy-' + Date.now();
+      }
+
+      var posX, posY;
+      if(typeof targetX === 'number' && !isNaN(targetX)){
+        posX = targetX;
+        posY = (typeof targetY === 'number' && !isNaN(targetY)) ? targetY : 120;
+      } else if(selectedEl && selectedEl !== document.body && selectedEl.isConnected){
+        var curL = parseFloat(selectedEl.style.left);
+        var curT = parseFloat(selectedEl.style.top);
+        if(isNaN(curL)) curL = selectedEl.getBoundingClientRect().left;
+        if(isNaN(curT)) curT = selectedEl.getBoundingClientRect().top;
+        posX = Math.round(curL + 16);
+        posY = Math.round(curT + 16);
+      } else {
+        posX = Math.round((data.left != null ? data.left : 20) + offset);
+        posY = Math.round((data.top != null ? data.top : 120) + offset);
+      }
+
+      posX = Math.max(8, Math.min(330, posX));
+      posY = Math.max(20, Math.min(1600, posY));
+
+      var isModal = newEl.classList && (newEl.classList.contains('wf-modal') || newEl.classList.contains('wf-bottom-sheet'));
+      if(!isModal){
+        newEl.classList.add('wf-el', 'wf-inserted-component');
+        newEl.style.position = 'absolute';
+        newEl.style.left = posX + 'px';
+        newEl.style.top = posY + 'px';
+        newEl.style.zIndex = '999';
+        if(!newEl.style.maxWidth && !newEl.style.width){
+          newEl.style.maxWidth = '335px';
+        }
+      } else {
+        newEl.style.zIndex = '9999';
+      }
+
+      document.body.appendChild(newEl);
+
+      try{
+        newEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }catch(e){}
+
+      EDIT = true;
+      document.body.style.cursor = 'default';
+      selectElement(newEl);
+      scheduleSave();
+      showToast('已粘贴「' + (data.name || '元素') + '」(Ctrl+V)');
+    }
+
+    function duplicateElement(el){
+      if(!el || el === document.body || el === document.documentElement) return;
+      copyElement(el);
+      pasteElement();
+      showToast('已创建副本 (Ctrl+D)');
+    }
+
     function outline(el, on){
       if(!el || el === document.body || el === document.documentElement) return;
       if(on){
@@ -1048,6 +1191,17 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         });
         act.appendChild(btnEdit);
       }
+
+      var btnCopy = document.createElement('button');
+      btnCopy.type = 'button';
+      btnCopy.className = 'wf-act-btn';
+      btnCopy.innerHTML = '📋 复制';
+      btnCopy.title = '复制此元素 (Ctrl+C / ⌘C)';
+      btnCopy.addEventListener('click', function(e){
+        e.preventDefault(); e.stopPropagation();
+        if(selectedEl) copyElement(selectedEl);
+      });
+      act.appendChild(btnCopy);
 
       var btnDel = document.createElement('button');
       btnDel.type = 'button';
@@ -1233,6 +1387,13 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         }
       }else if(d.type === 'wf-undo'){ undo(); }
       else if(d.type === 'wf-redo'){ redo(); }
+      else if(d.type === 'wf-copy'){
+        if(selectedEl) copyElement(selectedEl);
+      }else if(d.type === 'wf-paste'){
+        pasteElement(d.x, d.y);
+      }else if(d.type === 'wf-duplicate'){
+        if(selectedEl) duplicateElement(selectedEl);
+      }
       else if(d.type === 'wf-export'){ doExport(); }
       else if(d.type === 'wf-fit'){
         var th = d.h; if(!th) return;
@@ -1571,6 +1732,41 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
 
       if(isEditing) return;
+
+      var isC = e.key === 'c' || e.key === 'C';
+      var isV = e.key === 'v' || e.key === 'V';
+      var isD = e.key === 'd' || e.key === 'D';
+
+      // 复制元素 (Ctrl+C / ⌘C)
+      if((e.ctrlKey || e.metaKey) && isC && !e.shiftKey){
+        if(selectedEl && selectedEl !== document.body){
+          e.preventDefault();
+          e.stopPropagation();
+          copyElement(selectedEl);
+          return;
+        }
+      }
+
+      // 粘贴元素 (Ctrl+V / ⌘V)
+      if((e.ctrlKey || e.metaKey) && isV && !e.shiftKey){
+        var data = getCopiedData();
+        if(data && data.html){
+          e.preventDefault();
+          e.stopPropagation();
+          pasteElement();
+          return;
+        }
+      }
+
+      // 快速克隆副本 (Figma Duplicate: Ctrl+D / ⌘D)
+      if((e.ctrlKey || e.metaKey) && isD && !e.shiftKey){
+        if(selectedEl && selectedEl !== document.body){
+          e.preventDefault();
+          e.stopPropagation();
+          duplicateElement(selectedEl);
+          return;
+        }
+      }
 
       // Delete / Backspace 删除选中元素
       if((e.key === 'Delete' || e.key === 'Backspace') && selectedEl && selectedEl !== document.body){
@@ -2174,8 +2370,28 @@ function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = f
   }, '*')
 }
 
-// 暴露尺寸与热区提示及组件插入方法，供父组件（无限画布）计算布局与调用
-defineExpose({ stageW, stageH, triggerHotspots, insertComponent })
+function copySelectedElement() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-copy' }, '*')
+}
+
+function pasteCopiedElement(x?: number, y?: number) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-paste', x, y }, '*')
+}
+
+function duplicateSelectedElement() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-duplicate' }, '*')
+}
+
+// 暴露尺寸与热区提示及组件插入/复制/粘贴方法，供父组件（无限画布）计算布局与调用
+defineExpose({
+  stageW,
+  stageH,
+  triggerHotspots,
+  insertComponent,
+  copySelectedElement,
+  pasteCopiedElement,
+  duplicateSelectedElement,
+})
 </script>
 
 <style scoped lang="scss">

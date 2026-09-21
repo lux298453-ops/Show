@@ -1568,8 +1568,18 @@ function onArtboardDrawClick(e: MouseEvent, b: { page: Page; x: number; y: numbe
   activeDrawTool.value = 'select'
 }
 
+function createHtmlSnippetForElement(el: any): string {
+  if (el.type === 'button') {
+    return `<button class="wf-btn" style="width:${el.width}px;height:${el.height}px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer;">${el.label || '按钮'}</button>`
+  }
+  if (el.type === 'text') {
+    return `<div class="wf-text" style="font-size:14px;color:#0f172a;line-height:1.5;">${el.label || '输入文本'}</div>`
+  }
+  return `<div class="wf-shape wf-shape-rect" style="width:${el.width}px;height:${el.height}px;background:#f1f5f9;border:1.5px solid #cbd5e1;border-radius:8px;"></div>`
+}
+
 // ===== Figma Frame 画板创建与画布落盘核心体系 =====
-async function doCreatePage(params: { name: string; width: number; height: number; x: number; y: number }) {
+async function doCreatePage(params: { name: string; width: number; height: number; x: number; y: number; htmlContent?: string }) {
   try {
     const defaultHtml = `<!DOCTYPE html>
 <html>
@@ -1598,7 +1608,7 @@ async function doCreatePage(params: { name: string; width: number; height: numbe
       height: params.height,
       x: params.x,
       y: params.y,
-      htmlContent: defaultHtml,
+      htmlContent: params.htmlContent || defaultHtml,
     })
 
     showToast(`✅ 已新建画板「${newPage?.name || params.name}」(${params.width}×${params.height})`)
@@ -3365,6 +3375,10 @@ function onSimMessage(ev: MessageEvent) {
     activeSpotlightRect.value = ev.data.rect
     scrollToSimulatorY(ev.data.rect.y, ev.data.rect.height)
   }
+  if (ev.data.type === 'wf-element-copied' && ev.data.data) {
+    ;(window as any).__wfCopiedElement = ev.data.data
+    ;(window as any).__wfLastCopyType = 'element'
+  }
 }
 
 onMounted(() => {
@@ -3740,6 +3754,159 @@ function onGlobalKeydown(e: KeyboardEvent) {
     e.preventDefault()
     const frames = document.querySelectorAll<HTMLIFrameElement>('iframe.html-frame')
     frames.forEach((f) => f.contentWindow?.postMessage({ type: 'wf-redo' }, '*'))
+  }
+
+  // 5. 复制快捷键 (Ctrl+C / Cmd+C)
+  const isC = e.key === 'c' || e.key === 'C'
+  const isV = e.key === 'v' || e.key === 'V'
+  const isD = e.key === 'd' || e.key === 'D'
+
+  if ((e.ctrlKey || e.metaKey) && isC && !e.shiftKey) {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+      return
+    }
+
+    // A. 选中了画板整体
+    if (selectedNodeId.value && !selectedElementId.value) {
+      const targetPage = pages.value.find((p) => p.id === selectedNodeId.value)
+      if (targetPage) {
+        const pageData = {
+          name: targetPage.name,
+          width: targetPage.canvas_width || 375,
+          height: targetPage.canvas_height || 812,
+          htmlContent: targetPage.html_content || '',
+        }
+        ;(window as any).__wfCopiedPage = pageData
+        ;(window as any).__wfLastCopyType = 'page'
+        try {
+          localStorage.setItem('wf_clipboard_page', JSON.stringify(pageData))
+          localStorage.setItem('wf_last_copy_type', 'page')
+        } catch {}
+        showToast(`📋 已复制画板「${targetPage.name}」(按 Ctrl+V 粘贴新画板)`)
+        e.preventDefault()
+        return
+      }
+    }
+
+    // B. 选中了具体连线组件
+    if (selectedElementId.value) {
+      const allEls = pages.value.flatMap((p) => p.elements || [])
+      const foundEl = allEls.find((el) => el.id === selectedElementId.value)
+      if (foundEl) {
+        const snippet = createHtmlSnippetForElement(foundEl)
+        const data = {
+          html: snippet,
+          name: foundEl.label || foundEl.type,
+          left: foundEl.x,
+          top: foundEl.y,
+          width: foundEl.width,
+          height: foundEl.height,
+        }
+        ;(window as any).__wfCopiedElement = data
+        ;(window as any).__wfLastCopyType = 'element'
+        try {
+          localStorage.setItem('wf_clipboard_element', JSON.stringify(data))
+          localStorage.setItem('wf_last_copy_type', 'element')
+        } catch {}
+        showToast(`📋 已复制组件「${data.name}」(按 Ctrl+V 粘贴)`)
+        e.preventDefault()
+        return
+      }
+    }
+
+    // C. 转发给当前聚焦画板 iframe
+    const targetId = focusPageId.value || selectedNodeId.value
+    if (targetId && pageRefs.value[targetId]) {
+      pageRefs.value[targetId]?.copySelectedElement?.()
+    }
+  }
+
+  // 6. 粘贴快捷键 (Ctrl+V / Cmd+V)
+  if ((e.ctrlKey || e.metaKey) && isV && !e.shiftKey) {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+      return
+    }
+
+    const lastCopyType = (window as any).__wfLastCopyType || localStorage.getItem('wf_last_copy_type')
+
+    // A. 粘贴画板
+    if (lastCopyType === 'page') {
+      const cp = (window as any).__wfCopiedPage || JSON.parse(localStorage.getItem('wf_clipboard_page') || 'null')
+      if (cp) {
+        e.preventDefault()
+        const rightmost = blocks.value.reduce((max, b) => Math.max(max, b.x + b.w), 0)
+        const posX = rightmost > 0 ? rightmost + 120 : 56
+        const posY = blocks.value[0]?.y || 64
+        doCreatePage({
+          name: `${cp.name} 副本`,
+          width: cp.width,
+          height: cp.height,
+          x: posX,
+          y: posY,
+          htmlContent: cp.htmlContent,
+        })
+        return
+      }
+    }
+
+    // B. 粘贴组件/元素
+    const copied = (window as any).__wfCopiedElement || JSON.parse(localStorage.getItem('wf_clipboard_element') || 'null')
+    if (copied && copied.html) {
+      e.preventDefault()
+      const targetId = focusPageId.value || selectedNodeId.value || pages.value[0]?.id
+      if (targetId) {
+        const inst = pageRefs.value[targetId]
+        if (inst && typeof inst.pasteCopiedElement === 'function') {
+          inst.pasteCopiedElement()
+        } else {
+          insertComponentIntoPage(
+            targetId,
+            { name: copied.name || '复制的组件', html: copied.html },
+            (copied.left || 20) + 16,
+            (copied.top || 120) + 16
+          )
+        }
+        return
+      }
+    }
+  }
+
+  // 7. 快速克隆副本快捷键 (Ctrl+D / Cmd+D)
+  if ((e.ctrlKey || e.metaKey) && isD && !e.shiftKey) {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+      return
+    }
+
+    // A. 克隆画板
+    if (selectedNodeId.value && !selectedElementId.value) {
+      const targetPage = pages.value.find((p) => p.id === selectedNodeId.value)
+      if (targetPage) {
+        e.preventDefault()
+        const rightmost = blocks.value.reduce((max, b) => Math.max(max, b.x + b.w), 0)
+        const posX = rightmost > 0 ? rightmost + 120 : 56
+        const posY = blocks.value[0]?.y || 64
+        doCreatePage({
+          name: `${targetPage.name} 副本`,
+          width: targetPage.canvas_width || 375,
+          height: targetPage.canvas_height || 812,
+          x: posX,
+          y: posY,
+          htmlContent: targetPage.html_content || '',
+        })
+        return
+      }
+    }
+
+    // B. 克隆组件
+    const targetId = focusPageId.value || selectedNodeId.value
+    if (targetId && pageRefs.value[targetId]) {
+      e.preventDefault()
+      pageRefs.value[targetId]?.duplicateSelectedElement?.()
+      return
+    }
   }
 }
 
