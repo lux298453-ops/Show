@@ -42,9 +42,10 @@
         v-if="htmlMode"
         ref="htmlFrameRef"
         class="html-frame"
-        :style="{ width: `${canvasW * scale}px`, height: `${(iframeH || canvasH) * scale}px` }"
+        :class="{ 'pointer-events-none': draggingComponent }"
+        :style="[{ width: `${canvasW * scale}px`, height: `${(iframeH || canvasH) * scale}px` }, draggingComponent ? { pointerEvents: 'none' } : {}]"
         :srcdoc="navRuntimeHtml"
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-same-origin"
         title="prototype-html"
         @load="onFrameLoad"
       ></iframe>
@@ -294,6 +295,8 @@ const props = withDefaults(
     customTitles?: Record<number, string>
     /** 被其他人独占锁定时编辑者名称（非空时线框手机屏幕处于独占保护） */
     lockedByOther?: string | null
+    /** 是否正在从组件库拖拽组件（为 true 时屏蔽 iframe 鼠标事件，确保拖拽精准捕获） */
+    draggingComponent?: boolean
   }>(),
   {
     showWireframe: true,
@@ -303,6 +306,7 @@ const props = withDefaults(
     hoveredAnnId: null,
     showDesign: true,
     boxW: 220,
+    draggingComponent: false,
     gap: 16,
     canvasScale: 1,
     editMode: false,

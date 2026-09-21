@@ -340,31 +340,7 @@
               @mouseenter="hoveredNodeId = b.page.id"
               @mouseleave="hoveredNodeId = null"
             >
-              <!-- 原子组件拖拽释放接收层 (当正在从组件库拖拽组件时浮现，置于 iframe 之上，100% 捕获 drop 事件，杜绝跨域拦截) -->
-              <div
-                v-if="isDraggingComponent || leftSidebarTab === 'components'"
-                class="palette-drop-receiver absolute inset-0 z-45 rounded-2xl transition-all flex flex-col items-center justify-center select-none"
-                :class="[
-                  isDraggingComponent ? 'pointer-events-auto cursor-copy' : 'pointer-events-none',
-                  hoveredDropBlockId === b.page.id
-                    ? 'bg-blue-600/25 border-4 border-dashed border-blue-500 shadow-2xl backdrop-blur-[2px]'
-                    : (isDraggingComponent ? 'bg-blue-500/10 border-2 border-dashed border-blue-400/50' : '')
-                ]"
-                @dragover.prevent.stop="onDropZoneDragOver($event, b.page.id)"
-                @dragleave.stop="onDropZoneDragLeave($event, b.page.id)"
-                @drop.prevent.stop="onDropZoneDrop($event, b.page.id)"
-              >
-                <div
-                  v-if="isDraggingComponent"
-                  class="px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2.5 shadow-2xl transition-all"
-                  :class="hoveredDropBlockId === b.page.id
-                    ? 'bg-blue-600 text-white scale-110 shadow-blue-500/50 animate-pulse ring-4 ring-blue-300'
-                    : 'bg-white/95 text-blue-700 border border-blue-200'"
-                >
-                  <Plus class="w-5 h-5 stroke-[3]" />
-                  <span>{{ hoveredDropBlockId === b.page.id ? `松手放入「${b.page.name}」` : `释放添加至「${b.page.name}」` }}</span>
-                </div>
-              </div>
+
 
 
               <!-- Figma 画板级别交互连线拉线手柄 (交互连线模式下：选中或悬停时呈现于原型屏幕右侧边缘) -->
@@ -457,6 +433,7 @@
                 :custom-titles="customTitles"
                 :box-w="220"
                 :gap="16"
+                :dragging-component="isDraggingComponent"
                 @navigate="onProtoNavigate"
                 @back="onProtoBack"
                 @save-html="onSaveHtml"
@@ -516,6 +493,33 @@
                     :title="el.interaction?.target_page_id ? `按住拖动可重连（当前→「${getPageName(el.interaction.target_page_id)}」）` : `按住拖动连接线到其他画板`"
                     @mousedown.stop="startElementConnectionDrag($event, b, el)"
                   />
+                </div>
+              </div>
+
+              <!-- 原子组件拖拽释放接收层 (置于 PageCanvas 与 iframe 顶层 z-100，彻底捕获拖放并杜绝 iframe 吸收) -->
+              <div
+                v-if="isDraggingComponent || leftSidebarTab === 'components'"
+                class="palette-drop-receiver absolute inset-0 rounded-2xl transition-all flex flex-col items-center justify-center select-none"
+                :style="{ zIndex: 100 }"
+                :class="[
+                  isDraggingComponent ? 'pointer-events-auto cursor-copy' : 'pointer-events-none',
+                  hoveredDropBlockId === b.page.id
+                    ? 'bg-blue-600/25 border-4 border-dashed border-blue-500 shadow-2xl backdrop-blur-[2px]'
+                    : (isDraggingComponent ? 'bg-blue-500/10 border-2 border-dashed border-blue-400/50' : '')
+                ]"
+                @dragover.prevent.stop="onDropZoneDragOver($event, b.page.id)"
+                @dragleave.stop="onDropZoneDragLeave($event, b.page.id)"
+                @drop.prevent.stop="onDropZoneDrop($event, b.page.id)"
+              >
+                <div
+                  v-if="isDraggingComponent"
+                  class="px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2.5 shadow-2xl transition-all pointer-events-none"
+                  :class="hoveredDropBlockId === b.page.id
+                    ? 'bg-blue-600 text-white scale-110 shadow-blue-500/50 animate-pulse ring-4 ring-blue-300'
+                    : 'bg-white/95 text-blue-700 border border-blue-200'"
+                >
+                  <Plus class="w-5 h-5 stroke-[3]" />
+                  <span>{{ hoveredDropBlockId === b.page.id ? `松手放入「${b.page.name}」` : `释放添加至「${b.page.name}」` }}</span>
                 </div>
               </div>
             </div>
