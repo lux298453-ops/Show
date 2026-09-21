@@ -456,7 +456,7 @@
                   :key="`figma-el-${el.id}`"
                   class="figma-element-target absolute pointer-events-auto transition-all"
                   :style="{
-                    left: `${(b.page.background_image ? (b.page.canvas_width || 375) + 16 : 0) + el.x}px`,
+                    left: `${(b.page.canvas_width || 375) + 16 + el.x}px`,
                     top: `${el.y}px`,
                     width: `${el.width}px`,
                     height: `${el.height}px`,
@@ -493,7 +493,7 @@
                 class="node-connector-handle absolute z-40 w-7 h-7 rounded-full text-white flex items-center justify-center cursor-crosshair shadow-[0_0_0_3px_#ffffff,0_4px_14px_rgba(37,99,235,0.7)] hover:scale-125 transition-all select-none group pointer-events-auto"
                 :class="selectedNodeId === b.page.id ? 'bg-blue-600 hover:bg-blue-500 ring-2 ring-blue-300 ring-offset-1 animate-pulse' : 'bg-blue-500/85 hover:bg-blue-600'"
                 :style="{
-                  left: `${(b.page.background_image ? (b.page.canvas_width || 375) + 16 : 0) + (b.page.canvas_width || 375)}px`,
+                  left: `${(b.page.canvas_width || 375) + 16 + (b.page.canvas_width || 375)}px`,
                   top: `${(b.page.canvas_height || 812) / 2}px`,
                   transform: 'translate(-50%, -50%)',
                 }"
@@ -1560,7 +1560,8 @@ const nodes = computed<NodeItem[]>(() => {
     const scaleVal = 1
     const pageW = b.page.canvas_width || 375
     const pageH = b.page.canvas_height || 812
-    const wireX = b.page.background_image ? pageW * scaleVal + 16 : 0
+    // showDesign is always true on the workbench canvas, so wireframe always starts at pageW + gap (16)
+    const wireX = pageW + 16
     return {
       id: b.page.id,
       name: b.page.name,
@@ -1739,7 +1740,8 @@ function startElementConnectionDrag(event: MouseEvent, b: any, el: Element) {
   focusPageId.value = b.page.id
 
   const pageW = b.page.canvas_width || 375
-  const wireX = b.page.background_image ? pageW + 16 : 0
+  // showDesign is always true on canvas, wireframe always starts after design column
+  const wireX = pageW + 16
   const elW = el.width || 60
   const elH = el.height || 30
   const anchorX = b.x + wireX + el.x + elW / 2
@@ -1768,7 +1770,8 @@ const activeDragLine = computed(() => {
   if (hoveredTargetBlockId.value) {
     const targetB = blocks.value.find((b) => b.page.id === hoveredTargetBlockId.value)
     if (targetB) {
-      const targetWireX = targetB.page.background_image ? (targetB.page.canvas_width || 375) + 16 : 0
+      // showDesign always true on workbench canvas, wireframe always starts after design column
+      const targetWireX = (targetB.page.canvas_width || 375) + 16
       const targetPageW = targetB.page.canvas_width || 375
       if (x1 > targetB.x + targetWireX + targetPageW) {
         x2 = targetB.x + targetWireX + targetPageW
@@ -1818,7 +1821,8 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
       if (b.page.id === anchor.pageId) continue
       const pageW = b.page.canvas_width || 375
       const pageH = b.page.canvas_height || 812
-      const wireX = b.page.background_image ? pageW + 16 : 0
+      // showDesign always true, wireframe starts after design column
+      const wireX = pageW + 16
       const left = b.x - 40
       const right = b.x + Math.max(b.w, wireX + pageW) + 40
       const top = b.y - 40
@@ -1875,7 +1879,8 @@ function startNodeConnectionDrag(event: MouseEvent, b: any) {
   const el = b.page.elements?.find((e: any) => e.type === 'button' || e.type === 'icon') || b.page.elements?.[0]
   const pageW = b.page.canvas_width || 375
   const pageH = b.page.canvas_height || 812
-  const wireX = b.page.background_image ? pageW + 16 : 0
+  // showDesign always true on workbench canvas
+  const wireX = pageW + 16
   const anchorX = b.x + wireX + pageW
   const anchorY = b.y + pageH / 2
 
