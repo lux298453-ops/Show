@@ -59,7 +59,8 @@ export const projectApi = {
   saveInteraction: (
     id: number,
     body: {
-      elementId: number
+      elementId?: number
+      pageId?: number | null
       targetPageId?: number | null
       triggerType?: string
       actionType?: string

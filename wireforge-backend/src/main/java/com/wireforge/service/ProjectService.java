@@ -829,8 +829,30 @@ public class ProjectService {
         getProject(projectId);
 
         Long elementId = toLong(body.get("elementId") != null ? body.get("elementId") : body.get("element_id"));
-        if (elementId == null) {
-            throw new IllegalArgumentException("elementId 不能为空");
+        if (elementId == null || elementId <= 0) {
+            Long pageId = toLong(body.get("pageId") != null ? body.get("pageId") : body.get("page_id"));
+            if (pageId != null) {
+                List<Element> pageEls = elementMapper.selectList(
+                        Wrappers.<Element>lambdaQuery().eq(Element::getPageId, pageId));
+                if (!pageEls.isEmpty()) {
+                    elementId = pageEls.get(0).getId();
+                } else {
+                    Element newEl = new Element();
+                    newEl.setPageId(pageId);
+                    newEl.setType("button");
+                    newEl.setLabel("画板跳转");
+                    newEl.setPositionX(0.0);
+                    newEl.setPositionY(0.0);
+                    newEl.setWidth(100.0);
+                    newEl.setHeight(40.0);
+                    newEl.setCreatedBy("manual");
+                    newEl.setCreatedAt(LocalDateTime.now());
+                    elementMapper.insert(newEl);
+                    elementId = newEl.getId();
+                }
+            } else {
+                throw new IllegalArgumentException("elementId 不能为空");
+            }
         }
 
         Element element = elementMapper.selectById(elementId);

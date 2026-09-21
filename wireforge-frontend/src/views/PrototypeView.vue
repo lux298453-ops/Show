@@ -33,7 +33,7 @@
             :class="workbenchMode === 'design'
               ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
               : 'text-slate-500 hover:text-slate-800'"
-            @click="workbenchMode = 'design'"
+            @click="setWorkbenchMode('design')"
           >
             <span>🎨 需求走查 (Design)</span>
           </button>
@@ -42,7 +42,7 @@
             :class="workbenchMode === 'interactive'
               ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30'
               : 'text-slate-500 hover:text-slate-800'"
-            @click="workbenchMode = 'interactive'"
+            @click="setWorkbenchMode('interactive')"
           >
             <Zap class="w-3.5 h-3.5 fill-current" />
             <span>⚡ 交互连线 (Prototype)</span>
@@ -305,8 +305,9 @@
       >
         <!-- Full-viewport transparent overlay during drag to shield iframes and eliminate hit-testing cost -->
         <div
-          v-if="isAnyDragging"
-          class="fixed inset-0 z-[9999] cursor-grabbing select-none"
+          v-if="isAnyDragging || isDraggingConnection"
+          class="fixed inset-0 z-[9999] select-none"
+          :class="isDraggingConnection ? 'cursor-crosshair' : 'cursor-grabbing'"
           style="pointer-events: auto;"
         />
 
@@ -432,11 +433,17 @@
               @mouseenter="hoveredNodeId = b.page.id"
               @mouseleave="hoveredNodeId = null"
             >
-              <!-- Figma 交互连线拉线把手 (仅在交互连线模式且选中当前画板时显示) -->
+              <!-- Figma 交互连线拉线手柄 (交互连线模式下：选中或悬停时呈现于原型屏幕右侧边缘) -->
               <div
-                v-if="workbenchMode === 'interactive' && selectedNodeId === b.page.id"
-                class="node-connector-handle absolute -right-3.5 top-1/2 -translate-y-1/2 z-40 w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-crosshair shadow-[0_0_0_3px_#ffffff,0_4px_12px_rgba(37,99,235,0.6)] hover:scale-125 transition-all select-none group pointer-events-auto"
-                title="按住拖拽连线至目标画板以建立跳转关系"
+                v-if="workbenchMode === 'interactive' && (selectedNodeId === b.page.id || hoveredNodeId === b.page.id)"
+                class="node-connector-handle absolute z-40 w-7 h-7 rounded-full text-white flex items-center justify-center cursor-crosshair shadow-[0_0_0_3px_#ffffff,0_4px_14px_rgba(37,99,235,0.7)] hover:scale-125 transition-all select-none group pointer-events-auto"
+                :class="selectedNodeId === b.page.id ? 'bg-blue-600 hover:bg-blue-500 ring-2 ring-blue-300 ring-offset-1 animate-pulse' : 'bg-blue-500/85 hover:bg-blue-600'"
+                :style="{
+                  left: `${(b.page.background_image ? (b.page.canvas_width || 375) + 16 : 0) + (b.page.canvas_width || 375)}px`,
+                  top: `${(b.page.canvas_height || 812) / 2}px`,
+                  transform: 'translate(-50%, -50%)',
+                }"
+                :title="selectedNodeId === b.page.id ? '按住拖拽至目标画板以建立连线，点击亦可打开配置' : '点击或按住拖拽至其他画板建立连线'"
                 @mousedown.stop="startNodeConnectionDrag($event, b)"
               >
                 <Plus class="w-4 h-4 stroke-[2.8] group-hover:rotate-90 transition-transform" />
@@ -1010,6 +1017,24 @@ const pages = computed(() => proto.value?.pages || [])
 
 const leftSidebarTab = ref<'outline' | 'components'>('outline')
 const workbenchMode = ref<'design' | 'interactive'>('design')
+
+function setWorkbenchMode(m: 'design' | 'interactive') {
+  workbenchMode.value = m
+  if (m === 'interactive') {
+    if (!selectedNodeId.value && pages.value.length > 0) {
+      selectedNodeId.value = focusPageId.value || pages.value[0]?.id
+    }
+    ElMessage.info({
+      message: '⚡ 已开启 Figma 交互连线模式：拖拽画板边缘的 [+] 蓝色手柄到目标画板即可连线',
+      duration: 3500,
+    })
+  } else {
+    ElMessage.info({
+      message: '🎨 已返回需求走查模式',
+      duration: 2000,
+    })
+  }
+}
 
 const showWireframe = ref(true)
 const showAnnotations = ref(true)
@@ -1657,7 +1682,16 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
   event.stopPropagation()
   isDraggingConnection.value = true
   currentDraggingAnchor.value = anchor
-  dragCurrentPos.value = { x: anchor.x, y: anchor.y }
+
+  if (viewportRef.value) {
+    const rect = viewportRef.value.getBoundingClientRect()
+    dragCurrentPos.value = {
+      x: (event.clientX - rect.left - view.value.x) / view.value.k,
+      y: (event.clientY - rect.top - view.value.y) / view.value.k,
+    }
+  } else {
+    dragCurrentPos.value = { x: anchor.x, y: anchor.y }
+  }
   hoveredTargetBlockId.value = null
 
   function onWindowMouseMove(e: MouseEvent) {
@@ -1670,7 +1704,15 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
     let foundTargetId: number | null = null
     for (const b of blocks.value) {
       if (b.page.id === anchor.pageId) continue
-      if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+      const pageW = b.page.canvas_width || 375
+      const pageH = b.page.canvas_height || 812
+      const wireX = b.page.background_image ? pageW + 16 : 0
+      const left = b.x - 40
+      const right = b.x + Math.max(b.w, wireX + pageW) + 40
+      const top = b.y - 40
+      const bottom = b.y + Math.max(b.h, pageH) + 40
+
+      if (cx >= left && cx <= right && cy >= top && cy <= bottom) {
         foundTargetId = b.page.id
         break
       }
@@ -1690,7 +1732,16 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
       interactionForm.value.animation = 'push'
       showInteractionModal.value = true
     } else {
-      currentDraggingAnchor.value = null
+      const dist = Math.hypot(dragCurrentPos.value.x - anchor.x, dragCurrentPos.value.y - anchor.y)
+      if (dist < 15) {
+        interactionForm.value.targetPageId = pages.value.find((p) => p.id !== anchor.pageId)?.id || null
+        interactionForm.value.trigger = 'click'
+        interactionForm.value.action = 'navigate'
+        interactionForm.value.animation = 'push'
+        showInteractionModal.value = true
+      } else {
+        currentDraggingAnchor.value = null
+      }
     }
     hoveredTargetBlockId.value = null
   }
@@ -1702,39 +1753,26 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
 /**
  * 从画板右侧手柄拉出 Figma 交互连线
  */
-async function startNodeConnectionDrag(event: MouseEvent, b: any) {
+function startNodeConnectionDrag(event: MouseEvent, b: any) {
   event.preventDefault()
   event.stopPropagation()
 
-  let el = b.page.elements?.find((e: any) => e.type === 'button' || e.type === 'icon') || b.page.elements?.[0]
-  if (!el) {
-    try {
-      el = await projectApi.createElement(id, b.page.id, {
-        type: 'button',
-        label: `${b.page.name} 跳转`,
-        positionX: 0,
-        positionY: 0,
-        width: 100,
-        height: 40,
-      })
-      if (!b.page.elements) b.page.elements = []
-      b.page.elements.push(el)
-    } catch (e) {
-      console.error('Failed to create element for node connection', e)
-    }
-  }
+  selectedNodeId.value = b.page.id
+  focusPageId.value = b.page.id
 
+  const el = b.page.elements?.find((e: any) => e.type === 'button' || e.type === 'icon') || b.page.elements?.[0]
   const pageW = b.page.canvas_width || 375
+  const pageH = b.page.canvas_height || 812
   const wireX = b.page.background_image ? pageW + 16 : 0
   const anchorX = b.x + wireX + pageW
-  const anchorY = b.y + b.h / 2
+  const anchorY = b.y + pageH / 2
 
   const anchor: AnchorItem = {
     id: `node-${b.page.id}`,
     pageId: b.page.id,
     pageName: b.page.name,
     elementId: el?.id || 0,
-    label: el?.label || b.page.name,
+    label: el?.label || `${b.page.name} 画板`,
     x: anchorX,
     y: anchorY,
   }
@@ -1757,44 +1795,15 @@ async function confirmCreateInteraction() {
 
     await projectApi.saveInteraction(id, {
       elementId,
+      pageId,
       targetPageId,
       triggerType,
       actionType,
       params,
     })
 
-    const sourcePage = pages.value.find((p) => p.id === pageId)
-    const targetPage = pages.value.find((p) => p.id === targetPageId)
-    if (sourcePage) {
-      const el = sourcePage.elements.find((e) => e.id === elementId)
-      if (el) {
-        el.interaction = {
-          trigger: triggerType,
-          action: actionType,
-          target_page_id: targetPageId,
-          params,
-        }
-      }
-      if (sourcePage.html_content && targetPage) {
-        let updatedHtml = sourcePage.html_content
-        const label = (currentDraggingAnchor.value.label || '').trim()
-        if (label && updatedHtml.includes(label)) {
-          const dataNavRegex = new RegExp(`(<[^>]+?\\bdata-nav=")[^"]*("?[^>]*?>[\\s\\S]*?${label}[\\s\\S]*?<\\/)`, 'i')
-          if (dataNavRegex.test(updatedHtml)) {
-            updatedHtml = updatedHtml.replace(dataNavRegex, `$1${targetPage.name}$2`)
-          } else {
-            const tagRegex = new RegExp(`(<(?:button|a|div|span|p|li)\\b)([^>]*?>[\\s\\S]*?${label}[\\s\\S]*?<\\/)`, 'i')
-            if (tagRegex.test(updatedHtml)) {
-              updatedHtml = updatedHtml.replace(tagRegex, `$1 data-nav="${targetPage.name}"$2`)
-            }
-          }
-          if (updatedHtml !== sourcePage.html_content) {
-            projectApi.saveHtml(id, sourcePage.id, updatedHtml).catch(() => {})
-            sourcePage.html_content = updatedHtml
-          }
-        }
-      }
-    }
+    await loadData()
+    selectedNodeId.value = pageId
 
     ElMessage.success('交互连线创建成功并已持久化落库')
     showInteractionModal.value = false
