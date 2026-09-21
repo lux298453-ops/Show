@@ -1,7 +1,11 @@
 <template>
   <div
     ref="toolbarRef"
-    class="figma-bottom-toolbar absolute bottom-6 left-1/2 -translate-x-1/2 z-50 select-none flex flex-col items-center"
+    class="figma-bottom-toolbar absolute bottom-6 left-1/2 -translate-x-1/2 z-[120] select-none flex flex-col items-center pointer-events-auto"
+    @mousedown.stop
+    @pointerdown.stop
+    @mouseup.stop
+    @click.stop
   >
     <!-- ================================================================= -->
     <!-- 1. 浮动原子组件抽屉面板 (Quick Component Popover)                 -->

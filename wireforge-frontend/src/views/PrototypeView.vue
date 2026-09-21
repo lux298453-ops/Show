@@ -2677,7 +2677,7 @@ function onWindowMouseUp() {
 
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
-  if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel')) return
+  if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel, .figma-bottom-toolbar')) return
   selectedElementId.value = null
   selectedConnId.value = null
   // 点击空白区域 → 取消选中，所有连线恢复显示
