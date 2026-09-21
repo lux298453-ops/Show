@@ -466,25 +466,32 @@
                   @mouseenter="hoveredElementId = el.id"
                   @mouseleave="hoveredElementId = null"
                 >
-                  <!-- 选中态或悬停态下的 Figma 加号方框 / 蓝色外框 -->
+                  <!-- 悬停/选中：Figma 蓝色外框 -->
                   <div
                     v-if="selectedElementId === el.id || hoveredElementId === el.id"
-                    class="absolute inset-0 rounded pointer-events-none transition-all"
+                    class="absolute inset-0 rounded-sm pointer-events-none transition-all"
                     :class="selectedElementId === el.id
-                      ? 'border-2 border-blue-500 bg-blue-500/15 ring-2 ring-blue-400/30'
-                      : 'border border-blue-400/80 bg-blue-400/10'"
+                      ? 'border-2 border-blue-500 bg-blue-500/10 ring-1 ring-blue-300/40'
+                      : 'border-[1.5px] border-blue-400 bg-blue-400/8'"
                   />
 
-                  <!-- Figma 交互连线加号手柄 (选中或悬停时显示，按住可随便拖动连接线到其他页面) -->
+                  <!-- 元素尺寸标注（Figma 风格，悬停/选中时显示在下方） -->
                   <div
                     v-if="selectedElementId === el.id || hoveredElementId === el.id"
-                    class="figma-plus-handle absolute -right-2 top-1/2 -translate-y-1/2 z-40 w-5 h-5 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-crosshair shadow-[0_0_0_2px_#ffffff,0_2px_8px_rgba(37,99,235,0.6)] hover:scale-130 transition-all select-none pointer-events-auto animate-pulse"
-                    :title="el.interaction?.target_page_id ? `已连线到「${getPageName(el.interaction.target_page_id)}」，按住拖动可重连到其他页面` : `按住拖动连接线到其他页面`"
-                    @mousedown.stop="startElementConnectionDrag($event, b, el)"
+                    class="absolute -bottom-5 left-0 right-0 flex justify-center pointer-events-none"
                   >
-                    <Plus class="w-3.5 h-3.5 stroke-[3]" />
+                    <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-blue-600 text-white leading-none shadow-sm select-none whitespace-nowrap">
+                      {{ Math.round(el.width) }}×{{ Math.round(el.height) }}
+                    </span>
                   </div>
-                </div>
+
+                  <!-- Figma 连线手柄：悬停/选中时显示在元素右侧边缘中点，按住即可拖动连接线 -->
+                  <div
+                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
+                    class="absolute top-1/2 -right-[5px] -translate-y-1/2 z-50 w-[10px] h-[10px] rounded-full bg-white border-[2px] border-blue-500 cursor-crosshair shadow-[0_0_0_1px_rgba(59,130,246,0.5),0_2px_6px_rgba(37,99,235,0.4)] hover:scale-150 hover:bg-blue-50 transition-transform select-none pointer-events-auto"
+                    :title="el.interaction?.target_page_id ? `按住拖动可重连（当前→「${getPageName(el.interaction.target_page_id)}」）` : `按住拖动连接线到其他画板`"
+                    @mousedown.stop="startElementConnectionDrag($event, b, el)"
+                  /></div>
               </div>
 
               <!-- Figma 画板级别交互连线拉线手柄 (交互连线模式下：选中或悬停时呈现于原型屏幕右侧边缘) -->
@@ -1836,30 +1843,40 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
     hoveredTargetBlockId.value = foundTargetId
   }
 
-  function onWindowMouseUp() {
+  async function onWindowMouseUp() {
     window.removeEventListener('mousemove', onWindowMouseMove)
     window.removeEventListener('mouseup', onWindowMouseUp)
     isDraggingConnection.value = false
 
-    if (hoveredTargetBlockId.value) {
-      interactionForm.value.targetPageId = hoveredTargetBlockId.value
-      interactionForm.value.trigger = 'click'
-      interactionForm.value.action = 'navigate'
-      interactionForm.value.animation = 'push'
-      showInteractionModal.value = true
-    } else {
-      const dist = Math.hypot(dragCurrentPos.value.x - anchor.x, dragCurrentPos.value.y - anchor.y)
-      if (dist < 15) {
-        interactionForm.value.targetPageId = pages.value.find((p) => p.id !== anchor.pageId)?.id || null
-        interactionForm.value.trigger = 'click'
-        interactionForm.value.action = 'navigate'
-        interactionForm.value.animation = 'push'
-        showInteractionModal.value = true
-      } else {
-        currentDraggingAnchor.value = null
-      }
-    }
+    const targetId = hoveredTargetBlockId.value
     hoveredTargetBlockId.value = null
+
+    if (!targetId) {
+      // 没有拖到目标页面 → 静默取消，不弹窗
+      currentDraggingAnchor.value = null
+      return
+    }
+
+    // ✅ Figma 式：拖到目标页面直接静默保存，无需弹窗
+    const savedAnchor = currentDraggingAnchor.value
+    currentDraggingAnchor.value = null
+    if (!savedAnchor) return
+
+    try {
+      await projectApi.saveInteraction(id, {
+        elementId: savedAnchor.elementId,
+        pageId: savedAnchor.pageId,
+        targetPageId: targetId,
+        triggerType: 'click',
+        actionType: 'navigate',
+        params: JSON.stringify({ animation: 'push' }),
+      })
+      await loadData()
+      selectedNodeId.value = savedAnchor.pageId
+      ElMessage.success(`已连线：${savedAnchor.label} → ${getPageName(targetId)}`)
+    } catch (err: any) {
+      ElMessage.error(err?.message || '保存连线失败')
+    }
   }
 
   window.addEventListener('mousemove', onWindowMouseMove)
