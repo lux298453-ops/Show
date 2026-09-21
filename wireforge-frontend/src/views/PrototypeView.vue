@@ -316,67 +316,71 @@
           :class="{ 'is-animating': !isAnyDragging && animating, 'is-dragging': isAnyDragging }"
           :style="contentStyle"
         >
-          <!-- ===== Figma Prototype 模式：由 selectedNodeId 驱动的连线画板 ===== -->
+          <!-- ===== Figma Prototype 模式：细致贝塞尔连线与节点圆圈 ===== -->
           <template v-if="visibleConnections.length > 0 || activeDragLine">
             <svg
               class="interaction-svg-layer absolute inset-0 pointer-events-none z-30"
               style="width: 100%; height: 100%; overflow: visible;"
             >
               <defs>
-                <!-- 出度连线主箭头 (从当前选中节点出发) -->
+                <!-- Figma 纤细优雅箭头 (参考 Figma 原型连线样式) -->
                 <marker
-                  id="arrow-out"
+                  id="figma-arrow"
                   viewBox="0 0 10 10"
-                  refX="6"
-                  refY="5"
-                  markerWidth="6"
-                  markerHeight="6"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563eb" />
-                </marker>
-                <!-- 入度连线主箭头 (从其他节点指向当前选中节点) -->
-                <marker
-                  id="arrow-in"
-                  viewBox="0 0 10 10"
-                  refX="6"
-                  refY="5"
-                  markerWidth="6"
-                  markerHeight="6"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#0284c7" />
-                </marker>
-                <!-- 自环连线箭头 -->
-                <marker
-                  id="arrow-self"
-                  viewBox="0 0 10 10"
-                  refX="5"
+                  refX="7"
                   refY="5"
                   markerWidth="6"
                   markerHeight="6"
                   orient="auto"
                 >
-                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563eb" />
+                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#60a5fa" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                </marker>
+                <!-- 实时拉线箭头 -->
+                <marker
+                  id="figma-drag-arrow"
+                  viewBox="0 0 10 10"
+                  refX="7"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto"
+                >
+                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
                 </marker>
               </defs>
 
-              <g v-for="conn in visibleConnections" :key="conn.id">
-                <!-- 贝塞尔外发光晕影 -->
+              <g v-for="conn in visibleConnections" :key="conn.id" class="figma-conn-item">
+                <!-- 纤细外发光辅线 (0.8px 极细微光，优雅不喧宾夺主) -->
                 <path
                   :d="conn.path"
                   fill="none"
-                  :stroke="conn.fromId === selectedNodeId ? 'rgba(59, 130, 246, 0.28)' : 'rgba(2, 132, 199, 0.22)'"
-                  stroke-width="6"
+                  :stroke="conn.fromId === selectedNodeId ? 'rgba(96, 165, 250, 0.35)' : 'rgba(96, 165, 250, 0.18)'"
+                  stroke-width="3"
+                  stroke-linecap="round"
                 />
-                <!-- 贝塞尔核心矢量曲线 -->
+                <!-- Figma 经典 1.6px 纤细贝塞尔曲线 (参考原图) -->
                 <path
                   :d="conn.path"
                   fill="none"
-                  :stroke="conn.fromId === selectedNodeId ? '#2563eb' : '#0284c7'"
-                  stroke-width="2.5"
-                  :stroke-dasharray="conn.fromId === selectedNodeId ? 'none' : '5,4'"
-                  :marker-end="conn.isSelfLoop ? 'url(#arrow-self)' : (conn.fromId === selectedNodeId ? 'url(#arrow-out)' : 'url(#arrow-in)')"
+                  :stroke="conn.fromId === selectedNodeId ? '#3b82f6' : '#60a5fa'"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  marker-end="url(#figma-arrow)"
+                />
+                <!-- 起点 Figma 节点圆圈 (正如用户所附截图按钮内部的白底蓝环节点) -->
+                <circle
+                  :cx="conn.x1"
+                  :cy="conn.y1"
+                  r="4.5"
+                  fill="#ffffff"
+                  :stroke="conn.fromId === selectedNodeId ? '#2563eb' : '#60a5fa'"
+                  stroke-width="1.5"
+                />
+                <circle
+                  :cx="conn.x1"
+                  :cy="conn.y1"
+                  r="2"
+                  :fill="conn.fromId === selectedNodeId ? '#2563eb' : '#60a5fa'"
                 />
               </g>
 
@@ -385,33 +389,42 @@
                 <path
                   :d="activeDragLine.path"
                   fill="none"
-                  stroke="rgba(59, 130, 246, 0.35)"
-                  stroke-width="7"
+                  stroke="#3b82f6"
+                  stroke-width="1.8"
+                  stroke-dasharray="5,4"
+                  stroke-linecap="round"
+                  marker-end="url(#figma-drag-arrow)"
                 />
-                <path
-                  :d="activeDragLine.path"
-                  fill="none"
+                <circle
+                  :cx="activeDragLine.x1"
+                  :cy="activeDragLine.y1"
+                  r="5"
+                  fill="#ffffff"
                   stroke="#2563eb"
-                  stroke-width="2.5"
-                  stroke-dasharray="6,4"
-                  marker-end="url(#arrow-out)"
+                  stroke-width="2"
+                />
+                <circle
+                  :cx="activeDragLine.x1"
+                  :cy="activeDragLine.y1"
+                  r="2.2"
+                  fill="#2563eb"
                 />
               </g>
             </svg>
 
-            <!-- 交互连线中点触发标签 (Figma 交互胶囊) -->
+            <!-- 交互连线轻量胶囊标签 (Figma 交互胶囊，悬停可编辑或删除) -->
             <div
               v-for="conn in visibleConnections"
               :key="`tag-${conn.id}`"
-              class="absolute z-35 pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full text-white text-[11px] font-bold shadow-md flex items-center gap-1.5 cursor-pointer select-none transition-all group"
-              :class="conn.fromId === selectedNodeId ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-sky-600 hover:bg-sky-700 shadow-sky-500/30'"
+              class="absolute z-35 pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-full text-white text-[10px] font-medium shadow-xs flex items-center gap-1 cursor-pointer select-none transition-all opacity-85 hover:opacity-100 hover:scale-105"
+              :class="conn.fromId === selectedNodeId ? 'bg-blue-600' : 'bg-slate-700/85 hover:bg-blue-600'"
               :style="{ left: `${conn.midX}px`, top: `${conn.midY}px` }"
-              :title="`交互配置：${conn.triggerLabel} ➔ ${conn.actionLabel} (${conn.fromPageName} → ${conn.toPageName})`"
+              :title="`交互：${conn.label} ➔ ${conn.actionLabel} (${conn.fromPageName} → ${conn.toPageName})，点击修改或删除`"
             >
-              <Zap class="w-3 h-3 fill-white" />
-              <span>{{ conn.fromId === selectedNodeId ? `${conn.label}: ${conn.triggerLabel} ➔ ${conn.actionLabel}` : `来源 [${conn.fromPageName}]: ${conn.label}` }}</span>
+              <Zap class="w-2.5 h-2.5 fill-current" />
+              <span>{{ conn.label }}: {{ conn.actionLabel }}</span>
               <button
-                class="w-3.5 h-3.5 rounded-full hover:bg-black/20 text-white/80 hover:text-white flex items-center justify-center text-[10px] ml-0.5 cursor-pointer"
+                class="w-3 h-3 rounded-full hover:bg-black/30 text-white flex items-center justify-center text-[9px] ml-0.5 cursor-pointer"
                 title="删除交互连线"
                 @click.stop="removeConnection(conn)"
               >
@@ -433,7 +446,48 @@
               @mouseenter="hoveredNodeId = b.page.id"
               @mouseleave="hoveredNodeId = null"
             >
-              <!-- Figma 交互连线拉线手柄 (交互连线模式下：选中或悬停时呈现于原型屏幕右侧边缘) -->
+              <!-- ===== Figma 交互模式：具体组件加号方框与拉线手柄 ===== -->
+              <div
+                v-if="workbenchMode === 'interactive'"
+                class="figma-interactive-layer absolute inset-0 pointer-events-none z-35"
+              >
+                <div
+                  v-for="el in (b.page.elements || []).filter((e: any) => e.width >= 16 && e.height >= 14 && e.type !== 'background')"
+                  :key="`figma-el-${el.id}`"
+                  class="figma-element-target absolute pointer-events-auto transition-all"
+                  :style="{
+                    left: `${(b.page.background_image ? (b.page.canvas_width || 375) + 16 : 0) + el.x}px`,
+                    top: `${el.y}px`,
+                    width: `${el.width}px`,
+                    height: `${el.height}px`,
+                  }"
+                  :title="`组件：${el.label || el.type}${el.interaction?.target_page_id ? ` (已连线到「${getPageName(el.interaction.target_page_id)}」)` : ''}`"
+                  @click.stop="onInteractiveElementClick(b, el)"
+                  @mouseenter="hoveredElementId = el.id"
+                  @mouseleave="hoveredElementId = null"
+                >
+                  <!-- 选中态或悬停态下的 Figma 加号方框 / 蓝色外框 -->
+                  <div
+                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
+                    class="absolute inset-0 rounded pointer-events-none transition-all"
+                    :class="selectedElementId === el.id
+                      ? 'border-2 border-blue-500 bg-blue-500/15 ring-2 ring-blue-400/30'
+                      : 'border border-blue-400/80 bg-blue-400/10'"
+                  />
+
+                  <!-- Figma 交互连线加号手柄 (选中或悬停时显示，按住可随便拖动连接线到其他页面) -->
+                  <div
+                    v-if="selectedElementId === el.id || hoveredElementId === el.id"
+                    class="figma-plus-handle absolute -right-2 top-1/2 -translate-y-1/2 z-40 w-5 h-5 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-crosshair shadow-[0_0_0_2px_#ffffff,0_2px_8px_rgba(37,99,235,0.6)] hover:scale-130 transition-all select-none pointer-events-auto animate-pulse"
+                    :title="el.interaction?.target_page_id ? `已连线到「${getPageName(el.interaction.target_page_id)}」，按住拖动可重连到其他页面` : `按住拖动连接线到其他页面`"
+                    @mousedown.stop="startElementConnectionDrag($event, b, el)"
+                  >
+                    <Plus class="w-3.5 h-3.5 stroke-[3]" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Figma 画板级别交互连线拉线手柄 (交互连线模式下：选中或悬停时呈现于原型屏幕右侧边缘) -->
               <div
                 v-if="workbenchMode === 'interactive' && (selectedNodeId === b.page.id || hoveredNodeId === b.page.id)"
                 class="node-connector-handle absolute z-40 w-7 h-7 rounded-full text-white flex items-center justify-center cursor-crosshair shadow-[0_0_0_3px_#ffffff,0_4px_14px_rgba(37,99,235,0.7)] hover:scale-125 transition-all select-none group pointer-events-auto"
@@ -443,7 +497,7 @@
                   top: `${(b.page.canvas_height || 812) / 2}px`,
                   transform: 'translate(-50%, -50%)',
                 }"
-                :title="selectedNodeId === b.page.id ? '按住拖拽至目标画板以建立连线，点击亦可打开配置' : '点击或按住拖拽至其他画板建立连线'"
+                :title="selectedNodeId === b.page.id ? '画板整体连线：按住拖拽至目标画板以建立连线' : '画板整体连线：点击或按住拖拽至其他画板'"
                 @mousedown.stop="startNodeConnectionDrag($event, b)"
               >
                 <Plus class="w-4 h-4 stroke-[2.8] group-hover:rotate-90 transition-transform" />
@@ -1565,12 +1619,17 @@ const connections = computed<ConnectionItem[]>(() => {
       const actionMap: Record<string, string> = { navigate: '跳转', overlay: '弹窗', back: '返回' }
       const triggerLabel = triggerMap[el.interaction!.trigger] || '点击'
       const actionLabel = actionMap[el.interaction!.action] || toNode.name
+      const elW = el.width || 60
+      const elH = el.height || 30
+      const elCenterX = fromNode.x + fromNode.wireX + el.x + elW / 2
+      const elCenterY = fromNode.y + Math.max(15, Math.min(fromNode.pageH - 15, el.y + elH / 2))
 
-      // 起点：吸附在源节点（原型线框）右边缘，高度对齐按钮/图标
-      const startX = fromNode.x + fromNode.wireX + fromNode.pageW
-      const clampedElY = Math.max(20, Math.min(fromNode.pageH - 20, el.y + el.height / 2))
-      const startY = fromNode.y + clampedElY
+      const toWireX = toNode.x + toNode.wireX
+      const toRightX = toWireX + toNode.pageW
+      const fromWireX = fromNode.x + fromNode.wireX
 
+      let startX = elCenterX
+      let startY = elCenterY
       let endX = 0
       let endY = 0
       let path = ''
@@ -1578,41 +1637,48 @@ const connections = computed<ConnectionItem[]>(() => {
       let midY = 0
 
       if (isSelfLoop) {
-        // 自环边界情况处理：从右边缘向外绕出，平滑回折并进入画板顶部
+        // 自环情况：从组件右侧绕出，优雅回折入顶部
+        startX = fromNode.x + fromNode.wireX + el.x + elW
+        startY = elCenterY
         endX = fromNode.x + fromNode.wireX + fromNode.pageW / 2
         endY = fromNode.y
-        const loopOutX = startX + 50
-        const loopTopY = fromNode.y - 40
-        path = `M ${startX} ${startY} C ${loopOutX} ${startY}, ${loopOutX} ${loopTopY}, ${endX + 30} ${loopTopY} S ${endX} ${fromNode.y - 16}, ${endX} ${endY}`
-        midX = startX + 30
-        midY = fromNode.y - 32
+        const loopOutX = startX + 40
+        const loopTopY = fromNode.y - 35
+        path = `M ${startX} ${startY} C ${loopOutX} ${startY}, ${loopOutX} ${loopTopY}, ${endX + 25} ${loopTopY} S ${endX} ${fromNode.y - 12}, ${endX} ${endY}`
+        midX = startX + 25
+        midY = fromNode.y - 25
+      } else if (toRightX <= fromWireX + 30) {
+        // 目标页面在源页面左侧 (正如用户所附 Figma 截图：右屏 APP 连向左屏 Today！)
+        startX = fromNode.x + fromNode.wireX + el.x + Math.min(12, elW / 2)
+        startY = elCenterY
+        endX = toRightX
+        endY = Math.max(toNode.y + 40, Math.min(toNode.y + toNode.pageH - 40, elCenterY))
+
+        const dx = Math.abs(startX - endX)
+        const cx1 = startX - Math.max(dx * 0.45, 50)
+        const cy1 = startY
+        const cx2 = endX + Math.max(dx * 0.45, 50)
+        const cy2 = endY
+        path = `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`
+
+        midX = (startX + endX) / 2
+        midY = (startY + endY) / 2
       } else {
-        // 终点：吸附在目标节点（原型线框）左边缘
-        endX = toNode.x + toNode.wireX
-        endY = toNode.y + Math.max(30, Math.min(toNode.pageH - 30, toNode.pageH / 2))
+        // 目标页面在源页面右侧或下方
+        startX = fromNode.x + fromNode.wireX + el.x + elW - Math.min(12, elW / 2)
+        startY = elCenterY
+        endX = toWireX
+        endY = Math.max(toNode.y + 40, Math.min(toNode.y + toNode.pageH - 40, elCenterY))
 
-        if (endX >= startX + 40) {
-          // 目标节点在右方：三次贝塞尔平滑延伸
-          const dx = endX - startX
-          const cx1 = startX + Math.max(dx * 0.45, 50)
-          const cy1 = startY
-          const cx2 = endX - Math.max(dx * 0.45, 50)
-          const cy2 = endY
-          path = `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`
+        const dx = Math.abs(endX - startX)
+        const cx1 = startX + Math.max(dx * 0.45, 50)
+        const cy1 = startY
+        const cx2 = endX - Math.max(dx * 0.45, 50)
+        const cy2 = endY
+        path = `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`
 
-          midX = 0.125 * startX + 0.375 * cx1 + 0.375 * cx2 + 0.125 * endX
-          midY = 0.125 * startY + 0.375 * cy1 + 0.375 * cy2 + 0.125 * endY
-        } else {
-          // 目标节点在左方或垂直排列：自然环绕过渡
-          const cx1 = startX + 70
-          const cy1 = startY + (endY >= startY ? 40 : -40)
-          const cx2 = endX - 70
-          const cy2 = endY + (endY >= startY ? -40 : 40)
-          path = `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`
-
-          midX = (startX + endX) / 2
-          midY = (startY + endY) / 2
-        }
+        midX = (startX + endX) / 2
+        midY = (startY + endY) / 2
       }
 
       list.push({
@@ -1640,17 +1706,57 @@ const connections = computed<ConnectionItem[]>(() => {
   return list
 })
 
-// 连线激活状态：由 selectedNodeId 严格驱动
-// 默认状态（selectedNodeId === null）：返回 []，所有连线 100% 隐藏
-// 激活状态：仅显示作为起点 (fromId) 或终点 (toId) 的关联连线
+// 连线激活状态：
+// 在交互连线模式下，把所有已有连接关系全部展示出来（还原 Figma Prototype 模式全貌）
+// 在走查模式下，若点击了某节点则展示关联线，否则隐藏
 const visibleConnections = computed<ConnectionItem[]>(() => {
+  if (workbenchMode.value === 'interactive') {
+    return connections.value
+  }
   if (!selectedNodeId.value) return []
   return connections.value.filter(
     (c) => c.fromId === selectedNodeId.value || c.toId === selectedNodeId.value
   )
 })
 
+function getPageName(pageId?: number | null): string {
+  if (!pageId) return ''
+  return pages.value.find((p) => p.id === pageId)?.name || '目标画板'
+}
 
+function onInteractiveElementClick(b: any, el: Element) {
+  selectedNodeId.value = b.page.id
+  selectedElementId.value = el.id
+  focusPageId.value = b.page.id
+}
+
+function startElementConnectionDrag(event: MouseEvent, b: any, el: Element) {
+  event.preventDefault()
+  event.stopPropagation()
+
+  selectedNodeId.value = b.page.id
+  selectedElementId.value = el.id
+  focusPageId.value = b.page.id
+
+  const pageW = b.page.canvas_width || 375
+  const wireX = b.page.background_image ? pageW + 16 : 0
+  const elW = el.width || 60
+  const elH = el.height || 30
+  const anchorX = b.x + wireX + el.x + elW / 2
+  const anchorY = b.y + el.y + elH / 2
+
+  const anchor: AnchorItem = {
+    id: `el-${el.id}`,
+    pageId: b.page.id,
+    pageName: b.page.name,
+    elementId: el.id,
+    label: el.label || el.type,
+    x: anchorX,
+    y: anchorY,
+  }
+
+  startConnectionDrag(event, anchor)
+}
 
 const activeDragLine = computed(() => {
   if (!isDraggingConnection.value || !currentDraggingAnchor.value) return null
@@ -1663,15 +1769,21 @@ const activeDragLine = computed(() => {
     const targetB = blocks.value.find((b) => b.page.id === hoveredTargetBlockId.value)
     if (targetB) {
       const targetWireX = targetB.page.background_image ? (targetB.page.canvas_width || 375) + 16 : 0
-      x2 = targetB.x + targetWireX
-      y2 = targetB.y + targetB.h / 2
+      const targetPageW = targetB.page.canvas_width || 375
+      if (x1 > targetB.x + targetWireX + targetPageW) {
+        x2 = targetB.x + targetWireX + targetPageW
+      } else {
+        x2 = targetB.x + targetWireX
+      }
+      y2 = Math.max(targetB.y + 40, Math.min(targetB.y + targetB.h - 40, y1))
     }
   }
 
   const dx = Math.abs(x2 - x1)
-  const cx1 = x1 + Math.max(dx * 0.45, 60)
+  const isTargetLeft = x2 < x1
+  const cx1 = isTargetLeft ? x1 - Math.max(dx * 0.45, 60) : x1 + Math.max(dx * 0.45, 60)
   const cy1 = y1
-  const cx2 = x2 - Math.max(dx * 0.45, 60)
+  const cx2 = isTargetLeft ? x2 + Math.max(dx * 0.45, 60) : x2 - Math.max(dx * 0.45, 60)
   const cy2 = y2
   const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
   return { path, x1, y1, x2, y2 }
