@@ -1460,12 +1460,15 @@ function setPageRef(pageId: number, el: InstanceType<typeof PageCanvas> | null) 
   pageRefs.value[pageId] = el
 }
 
-const fallbackW = 980
+const fallbackW = computed(() => (showAnnotations.value ? 980 : 766))
 const fallbackH = 1000
 
 const pageOverrides = ref<Record<number, { x: number; y: number }>>({})
 
 const blocks = computed(() => {
+  // 依赖跟踪：当标注面板显隐或线框图显隐切换时，重新排版各画板位置
+  const _ann = showAnnotations.value
+  const _wire = showWireframe.value
   const list: { page: Page; x: number; y: number; w: number; h: number }[] = []
   const perRow = 10
   const gapX = 120
@@ -1476,7 +1479,7 @@ const blocks = computed(() => {
   let rowMaxH = 0
   pages.value.forEach((p) => {
     const inst = pageRefs.value[p.id]
-    const w = inst?.stageW ?? fallbackW
+    const w = inst?.stageW ?? fallbackW.value
     const h = inst?.stageH ?? fallbackH
     if (col >= perRow) {
       y += rowMaxH + gapY

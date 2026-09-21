@@ -1571,17 +1571,21 @@ watch(
     })
   },
 )
+const hasAnnotations = computed(() => !!(props.showAnnotations && annItems.value.length))
 
 const stageW = computed(() => {
-  if (!showDesign.value && !props.showAnnotations) {
-    return canvasW.value * scale.value
+  if (hasAnnotations.value) {
+    return panelX.value + boxW.value + 28
   }
-  return panelX.value + boxW.value + 28
+  if (showDesign.value && props.showWireframe) {
+    return wireX.value + canvasW.value * scale.value
+  }
+  return canvasW.value * scale.value
 })
 // 整页模式：高度随 iframe 内容自适应（避免固定高度把页面裁掉产生滚动）；预览模式去除额外的 8px 安全边距
 const stageH = computed(() => {
   const baseH = (iframeH.value || canvasH.value) * scale.value
-  if (!showDesign.value && !props.showAnnotations) {
+  if (!showDesign.value && !hasAnnotations.value) {
     return baseH
   }
   return baseH + 8
