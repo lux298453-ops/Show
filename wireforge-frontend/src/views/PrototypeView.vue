@@ -1623,6 +1623,9 @@ interface ConnectionItem {
   toPageName: string
   elementId?: number
   interactionId?: number
+  trigger?: string
+  action?: string
+  params?: string | null
   label: string
   isSelfLoop: boolean
   x1: number
@@ -1730,6 +1733,9 @@ const connections = computed<ConnectionItem[]>(() => {
         toPageName: toNode.name,
         elementId: el.id,
         interactionId: el.interaction?.id,
+        trigger: el.interaction?.trigger,
+        action: el.interaction?.action,
+        params: el.interaction?.params,
         label: el.label || el.type,
         isSelfLoop,
         x1: startX,
@@ -1771,6 +1777,110 @@ const visibleConnections = computed<ConnectionItem[]>(() => {
 function getPageName(pageId?: number | null): string {
   if (!pageId) return ''
   return pages.value.find((p) => p.id === pageId)?.name || '目标画板'
+}
+
+// ===== 连线撤销与重做历史记录栈 (支持 Ctrl+Z / Ctrl+Y) =====
+interface InteractionHistoryItem {
+  type: 'delete' | 'connect'
+  elementId?: number
+  pageId: number
+  targetPageId?: number | null
+  prevTargetPageId?: number | null
+  triggerType: string
+  actionType: string
+  params?: string
+  label: string
+  fromPageName: string
+  toPageName?: string
+  prevToPageName?: string
+}
+
+const interactionUndoStack = ref<InteractionHistoryItem[]>([])
+const interactionRedoStack = ref<InteractionHistoryItem[]>([])
+
+async function undoInteraction(): Promise<boolean> {
+  if (interactionUndoStack.value.length === 0) return false
+  const item = interactionUndoStack.value.pop()!
+  interactionRedoStack.value.push(item)
+
+  try {
+    if (item.type === 'delete') {
+      await projectApi.saveInteraction(id, {
+        elementId: item.elementId,
+        pageId: item.pageId,
+        targetPageId: item.targetPageId,
+        triggerType: item.triggerType,
+        actionType: item.actionType,
+        params: item.params,
+      })
+      await loadData()
+      selectedConnId.value = `conn-${item.elementId}-${item.targetPageId}`
+      ElMessage.success(`↺ 已撤销删除：已恢复「${item.label} ➔ ${item.toPageName || '目标画板'}」连线`)
+      return true
+    } else if (item.type === 'connect') {
+      if (item.prevTargetPageId) {
+        await projectApi.saveInteraction(id, {
+          elementId: item.elementId,
+          pageId: item.pageId,
+          targetPageId: item.prevTargetPageId,
+          triggerType: item.triggerType,
+          actionType: item.actionType,
+          params: item.params,
+        })
+        selectedConnId.value = `conn-${item.elementId}-${item.prevTargetPageId}`
+        ElMessage.success(`↺ 已撤销连线：已恢复为「${item.label} ➔ ${item.prevToPageName || '原目标画板'}」`)
+      } else {
+        await projectApi.saveInteraction(id, {
+          elementId: item.elementId,
+          pageId: item.pageId,
+          targetPageId: null,
+        })
+        selectedConnId.value = null
+        ElMessage.success(`↺ 已撤销新建连线`)
+      }
+      await loadData()
+      return true
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '撤销连线失败')
+  }
+  return false
+}
+
+async function redoInteraction(): Promise<boolean> {
+  if (interactionRedoStack.value.length === 0) return false
+  const item = interactionRedoStack.value.pop()!
+  interactionUndoStack.value.push(item)
+
+  try {
+    if (item.type === 'delete') {
+      await projectApi.saveInteraction(id, {
+        elementId: item.elementId,
+        pageId: item.pageId,
+        targetPageId: null,
+      })
+      selectedConnId.value = null
+      await loadData()
+      ElMessage.info(`↻ 已重做删除：连线已再次删除`)
+      return true
+    } else if (item.type === 'connect') {
+      await projectApi.saveInteraction(id, {
+        elementId: item.elementId,
+        pageId: item.pageId,
+        targetPageId: item.targetPageId,
+        triggerType: item.triggerType,
+        actionType: item.actionType,
+        params: item.params,
+      })
+      await loadData()
+      selectedConnId.value = `conn-${item.elementId}-${item.targetPageId}`
+      ElMessage.success(`↻ 已重做连线：「${item.label} ➔ ${item.toPageName || '目标画板'}」`)
+      return true
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '重做连线失败')
+  }
+  return false
 }
 
 function selectConnection(conn: ConnectionItem) {
@@ -1936,6 +2046,23 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
     if (!savedAnchor) return
 
     try {
+      const prevConn = connections.value.find((c) => c.elementId === savedAnchor.elementId)
+      interactionUndoStack.value.push({
+        type: 'connect',
+        elementId: savedAnchor.elementId,
+        pageId: savedAnchor.pageId,
+        targetPageId: targetId,
+        prevTargetPageId: prevConn?.toId || null,
+        triggerType: 'click',
+        actionType: 'navigate',
+        params: JSON.stringify({ animation: 'push' }),
+        label: savedAnchor.label,
+        fromPageName: savedAnchor.pageName,
+        toPageName: getPageName(targetId),
+        prevToPageName: prevConn ? getPageName(prevConn.toId) : undefined,
+      })
+      interactionRedoStack.value = []
+
       await projectApi.saveInteraction(id, {
         elementId: savedAnchor.elementId,
         pageId: savedAnchor.pageId,
@@ -1946,7 +2073,8 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
       })
       await loadData()
       selectedNodeId.value = savedAnchor.pageId
-      ElMessage.success(`已连线：${savedAnchor.label} → ${getPageName(targetId)}`)
+      selectedConnId.value = `conn-${savedAnchor.elementId}-${targetId}`
+      ElMessage.success(`已连线：${savedAnchor.label} ➔ ${getPageName(targetId)} (按 Ctrl+Z 可撤销)`)
     } catch (err: any) {
       ElMessage.error(err?.message || '保存连线失败')
     }
@@ -2024,6 +2152,21 @@ async function confirmCreateInteraction() {
 
 async function removeConnection(conn: any) {
   try {
+    // 记录历史供 Ctrl+Z 撤销恢复
+    interactionUndoStack.value.push({
+      type: 'delete',
+      elementId: conn.elementId,
+      pageId: conn.fromId,
+      targetPageId: conn.toId,
+      triggerType: conn.trigger || 'click',
+      actionType: conn.action || 'navigate',
+      params: conn.params || JSON.stringify({ animation: 'push' }),
+      label: conn.label || '组件',
+      fromPageName: conn.fromPageName || '源页面',
+      toPageName: conn.toPageName || '目标页面',
+    })
+    interactionRedoStack.value = []
+
     if (conn.interactionId) {
       await projectApi.deleteInteraction(id, conn.interactionId)
     } else {
@@ -2042,7 +2185,7 @@ async function removeConnection(conn: any) {
     }
     selectedConnId.value = null
     await loadData()
-    ElMessage.success('交互连线已删除，可重新拖动圆点连接新页面')
+    ElMessage.success('交互连线已删除 (按 Ctrl+Z 可随时撤销恢复)')
   } catch (err: any) {
     ElMessage.error(err?.message || '删除交互失败')
   }
@@ -2955,10 +3098,32 @@ function onGlobalKeydown(e: KeyboardEvent) {
     return
   }
 
-  // 3. Fine tune undo/redo in canvas edit mode
-  if (!fineTune.value || mode.value === 'preview') return
+  // 3. 全局连线撤销与重做快捷键 (Ctrl+Z / Ctrl+Y / Cmd+Z / Cmd+Shift+Z)
   const isZ = e.key === 'z' || e.key === 'Z'
   const isY = e.key === 'y' || e.key === 'Y'
+  if ((e.ctrlKey || e.metaKey) && (isZ || isY)) {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+      return
+    }
+
+    if (isZ && !e.shiftKey) {
+      if (interactionUndoStack.value.length > 0) {
+        e.preventDefault()
+        undoInteraction()
+        return
+      }
+    } else if (isY || (isZ && e.shiftKey)) {
+      if (interactionRedoStack.value.length > 0) {
+        e.preventDefault()
+        redoInteraction()
+        return
+      }
+    }
+  }
+
+  // 4. Fine tune undo/redo in canvas edit mode
+  if (!fineTune.value || mode.value === 'preview') return
   if ((e.ctrlKey || e.metaKey) && isZ && !e.shiftKey) {
     e.preventDefault()
     const frames = document.querySelectorAll<HTMLIFrameElement>('iframe.html-frame')
