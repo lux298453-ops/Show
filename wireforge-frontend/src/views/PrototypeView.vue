@@ -306,7 +306,7 @@
         <!-- Full-viewport transparent overlay during drag to shield iframes and eliminate hit-testing cost -->
         <div
           v-if="isAnyDragging"
-          class="absolute inset-0 z-30 cursor-grabbing select-none"
+          class="fixed inset-0 z-[9999] cursor-grabbing select-none"
           style="pointer-events: auto;"
         />
 
@@ -477,7 +477,7 @@
                 :page="b.page"
                 :all-pages="pages"
                 :show-wireframe="showWireframe"
-                :show-annotations="showAnnotations && workbenchMode !== 'interactive'"
+                :show-annotations="showAnnotations"
                 :selected-element-id="selectedElementId"
                 :hovered-element-id="hoveredElementId"
                 :hovered-ann-id="hoveredAnnId"
@@ -1209,16 +1209,79 @@ function onProtoBack() {
   }
 }
 
+function findTargetPage(pageKey: string, fromPageId?: number | null): Page | null {
+  if (!pageKey) return null
+  const rawKey = pageKey.trim()
+
+  // 1. 直接通过页面 ID 匹配
+  const asNum = Number(rawKey)
+  if (!isNaN(asNum) && asNum > 0) {
+    const byId = pages.value.find((p) => p.id === asNum)
+    if (byId) return byId
+  }
+
+  // 2. 若有来源页面上下文，优先寻找当前页具有对应交互行为的目标页面
+  if (fromPageId) {
+    const fromPage = pages.value.find((p) => p.id === fromPageId)
+    if (fromPage) {
+      const matchedEl = fromPage.elements.find(
+        (e) =>
+          e.interaction?.target_page_id &&
+          (e.label === rawKey || (e.interaction.params && e.interaction.params.includes(rawKey)))
+      )
+      if (matchedEl?.interaction?.target_page_id) {
+        const targetById = pages.value.find((p) => p.id === matchedEl.interaction!.target_page_id)
+        if (targetById) return targetById
+      }
+    }
+  }
+
+  // 3. 页面全名精准匹配
+  const exact = pages.value.find((p) => p.name.trim() === rawKey)
+  if (exact) return exact
+
+  // 4. 常见语义模糊归一化处理（彻底修复“我的”跳错、“家园”跳错问题）
+  const norm = (s: string) => s.replace(/[（\(].*?[）\)]/g, '').replace(/[_\-\s]/g, '').trim()
+  const normKey = norm(rawKey)
+
+  if (normKey === '我的') {
+    const myLogged = pages.value.find((p) => p.name.includes('我的') && p.name.includes('已登录'))
+    if (myLogged) return myLogged
+    const myPage = pages.value.find((p) => p.name.startsWith('我的') && !p.name.includes('设置'))
+    if (myPage) return myPage
+  }
+  if (normKey === '家园' || normKey === '宠物家园') {
+    const home = pages.value.find((p) => p.name.includes('宠物家园') || p.name.includes('家园'))
+    if (home) return home
+  }
+  if (normKey === '收集') {
+    const coll = pages.value.find((p) => p.name.includes('收集'))
+    if (coll) return coll
+  }
+
+  const normMatch = pages.value.find((p) => norm(p.name) === normKey)
+  if (normMatch) return normMatch
+
+  // 5. 前缀与包含匹配
+  const startsWith = pages.value.find((p) => p.name.trim().startsWith(rawKey))
+  if (startsWith) return startsWith
+
+  const includes = pages.value.find((p) => p.name.trim().includes(rawKey))
+  if (includes) return includes
+
+  const reverseIncludes = pages.value.find((p) => rawKey.includes(p.name.trim()))
+  if (reverseIncludes) return reverseIncludes
+
+  return null
+}
+
 // ===== 整页 HTML 内的跨页跳转：点击 data-nav 元素 → 切换到目标页原型 =====
 function onProtoNavigate(pageName: string) {
   clearSpotlightInIframe()
   const current = mode.value === 'preview' ? previewPageId.value : focusPageId.value ?? null
   if (current != null) backStack.value.push(current)
-  const nameKey = pageName.trim()
-  const target =
-    pages.value.find((p) => p.name.trim() === nameKey) ||
-    pages.value.find((p) => p.name.trim().includes(nameKey)) ||
-    pages.value.find((p) => nameKey.includes(p.name.trim()))
+
+  const target = findTargetPage(pageName, current)
   if (!target) {
     showToast(`未找到页面「${pageName}」`)
     return
@@ -1330,6 +1393,46 @@ const animationOptions = [
   { label: 'Dissolve (淡入)', value: 'dissolve' },
 ]
 
+/**
+ * 过滤提取页面的真实交互热区元素：
+ * 1. 严格使用已有跳转关系的组件 (el.interaction && el.interaction.target_page_id)
+ * 2. 针对底部导航栏 (如家园、空间、我的) 同时存在 icon 与 text 两条数据的情况，
+ *    按产品要求保留图标 (icon) 的交互连线，去掉冗余的文本 (text) 连线，杜绝两条重复连线！
+ * 3. 针对按钮附带角标/小文本也指向同目标页的情况，仅保留主按钮，避免多余杂线。
+ */
+function getPrimaryInteractiveElements(page: Page): Element[] {
+  const raw = (page.elements || []).filter((e) => e.interaction && e.interaction.target_page_id)
+  const result: Element[] = []
+
+  for (const el of raw) {
+    const targetId = el.interaction!.target_page_id
+    // 检查同页面中是否有指向同一目标页面的更优先组件
+    const hasBetterAlternative = raw.some((other) => {
+      if (other.id === el.id) return false
+      if (other.interaction?.target_page_id !== targetId) return false
+
+      // 导航栏去重：文本 vs 图标 -> 丢弃文本，保留图标
+      if (el.type === 'text' && other.type === 'icon') {
+        return true
+      }
+      // 按钮 vs 角标/文本 -> 丢弃角标/文本，保留按钮
+      if ((el.type === 'badge' || el.type === 'text') && other.type === 'button') {
+        return true
+      }
+      // 若类型相同且位置高度接近（同个导航槽），保留 ID 较小的一个
+      if (el.type === other.type && Math.abs(el.x - other.x) < 50 && Math.abs(el.y - other.y) < 60) {
+        return el.id > other.id
+      }
+      return false
+    })
+
+    if (!hasBetterAlternative) {
+      result.push(el)
+    }
+  }
+  return result
+}
+
 const interactiveAnchors = computed<AnchorItem[]>(() => {
   if (workbenchMode.value !== 'interactive') return []
   const list: AnchorItem[] = []
@@ -1345,17 +1448,19 @@ const interactiveAnchors = computed<AnchorItem[]>(() => {
     const pageW = b.page.canvas_width || 375
     const pageH = b.page.canvas_height || 812
     const wireX = b.page.background_image ? pageW * scaleVal + 16 : 0
-    const els = b.page.elements || []
 
-    // 严谨筛选真正具备点击交互行为的组件（按钮、图标、选项卡），剔除背景、通栏导航条和占位大框
-    const candidates = els.filter((e) => {
-      if (e.interaction && e.interaction.target_page_id) return true
-      if (e.type === 'background' || e.type === 'navbar' || e.type === 'container') return false
+    // 1. 真实已有跳转关系的交互热区（严格去重，去除重复文本和角标连线）
+    const primaryEls = getPrimaryInteractiveElements(b.page)
+
+    // 2. 对于当前聚焦的页面，补充尚未连线的高置信度交互控件供用户手动连线
+    const unusedCandidates = (b.page.elements || []).filter((e) => {
+      if (e.interaction && e.interaction.target_page_id) return false
+      if (e.type === 'background' || e.type === 'navbar' || e.type === 'container' || e.type === 'text') return false
       if (e.width > 350 || e.height > 140 || e.height < 16) return false
-      return ['button', 'tab', 'tabs', 'icon', 'item'].includes(e.type)
-    })
+      return ['button', 'tab', 'tabs', 'icon'].includes(e.type)
+    }).slice(0, 6)
 
-    const targetEls = candidates.length > 0 ? candidates : els.filter((e) => e.interaction).slice(0, 5)
+    const targetEls = [...primaryEls, ...(b.page.id === activePageId ? unusedCandidates : [])]
 
     for (const el of targetEls) {
       // 锚点精准吸附在按钮/控件的右侧边缘垂直居中处，严格限制在手机屏幕内
@@ -1386,49 +1491,48 @@ const allConnections = computed(() => {
     const pageW = b.page.canvas_width || 375
     const pageH = b.page.canvas_height || 812
     const wireX = b.page.background_image ? pageW * scaleVal + 16 : 0
-    for (const el of b.page.elements || []) {
-      if (el.interaction && el.interaction.target_page_id) {
-        const targetB = blocks.value.find((tb) => tb.page.id === el.interaction!.target_page_id)
-        if (targetB) {
-          const targetPageW = targetB.page.canvas_width || 375
-          const targetWireX = targetB.page.background_image ? targetPageW * scaleVal + 16 : 0
-          const rawX1 = b.x + wireX + (el.x + el.width) * scaleVal
-          const rawY1 = b.y + (el.y + el.height / 2) * scaleVal
-          const x1 = Math.min(b.x + wireX + pageW - 4, Math.max(b.x + wireX + 10, rawX1))
-          const y1 = Math.min(b.y + pageH - 10, Math.max(b.y + 10, rawY1))
+    const primaryEls = getPrimaryInteractiveElements(b.page)
+    for (const el of primaryEls) {
+      const targetB = blocks.value.find((tb) => tb.page.id === el.interaction!.target_page_id)
+      if (targetB) {
+        const targetPageW = targetB.page.canvas_width || 375
+        const targetWireX = targetB.page.background_image ? targetPageW * scaleVal + 16 : 0
+        const rawX1 = b.x + wireX + (el.x + el.width) * scaleVal
+        const rawY1 = b.y + (el.y + el.height / 2) * scaleVal
+        const x1 = Math.min(b.x + wireX + pageW - 4, Math.max(b.x + wireX + 10, rawX1))
+        const y1 = Math.min(b.y + pageH - 10, Math.max(b.y + 10, rawY1))
 
-          const x2 = targetB.x + targetWireX
-          const y2 = targetB.y + targetB.h / 2
+        const x2 = targetB.x + targetWireX
+        const y2 = targetB.y + targetB.h / 2
 
-          const dx = Math.abs(x2 - x1)
-          const cx1 = x1 + Math.max(dx * 0.45, 60)
-          const cy1 = y1
-          const cx2 = x2 - Math.max(dx * 0.45, 60)
-          const cy2 = y2
-          const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
+        const dx = Math.abs(x2 - x1)
+        const cx1 = x1 + Math.max(dx * 0.45, 60)
+        const cy1 = y1
+        const cx2 = x2 - Math.max(dx * 0.45, 60)
+        const cy2 = y2
+        const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
 
-          const midX = 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2
-          const midY = 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
+        const midX = 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2
+        const midY = 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
 
-          const triggerMap: Record<string, string> = { click: '点击', hover: '悬停', drag: '拖拽' }
-          const actionMap: Record<string, string> = { navigate: '跳转', overlay: '弹窗', back: '返回' }
+        const triggerMap: Record<string, string> = { click: '点击', hover: '悬停', drag: '拖拽' }
+        const actionMap: Record<string, string> = { navigate: '跳转', overlay: '弹窗', back: '返回' }
 
-          conns.push({
-            id: `conn-${el.id}-${targetB.page.id}`,
-            elementId: el.id,
-            fromPageId: b.page.id,
-            toPageId: targetB.page.id,
-            x1,
-            y1,
-            x2,
-            y2,
-            path,
-            midX,
-            midY,
-            triggerLabel: triggerMap[el.interaction.trigger] || '点击',
-            actionLabel: actionMap[el.interaction.action] || targetB.page.name,
-          })
-        }
+        conns.push({
+          id: `conn-${el.id}-${targetB.page.id}`,
+          elementId: el.id,
+          fromPageId: b.page.id,
+          toPageId: targetB.page.id,
+          x1,
+          y1,
+          x2,
+          y2,
+          path,
+          midX,
+          midY,
+          triggerLabel: triggerMap[el.interaction!.trigger] || '点击',
+          actionLabel: actionMap[el.interaction!.action] || targetB.page.name,
+        })
       }
     }
   }
@@ -1553,10 +1657,19 @@ async function confirmCreateInteraction() {
         let updatedHtml = sourcePage.html_content
         const label = (currentDraggingAnchor.value.label || '').trim()
         if (label && updatedHtml.includes(label)) {
-          const regex = new RegExp(`(<[^>]*?)(${label})([^>]*?>)`, 'i')
-          updatedHtml = updatedHtml.replace(regex, `$1 data-nav="${targetPage.name}" $2$3`)
-          projectApi.saveHtml(id, sourcePage.id, updatedHtml).catch(() => {})
-          sourcePage.html_content = updatedHtml
+          const dataNavRegex = new RegExp(`(<[^>]+?\\bdata-nav=")[^"]*("?[^>]*?>[\\s\\S]*?${label}[\\s\\S]*?<\\/)`, 'i')
+          if (dataNavRegex.test(updatedHtml)) {
+            updatedHtml = updatedHtml.replace(dataNavRegex, `$1${targetPage.name}$2`)
+          } else {
+            const tagRegex = new RegExp(`(<(?:button|a|div|span|p|li)\\b)([^>]*?>[\\s\\S]*?${label}[\\s\\S]*?<\\/)`, 'i')
+            if (tagRegex.test(updatedHtml)) {
+              updatedHtml = updatedHtml.replace(tagRegex, `$1 data-nav="${targetPage.name}"$2`)
+            }
+          }
+          if (updatedHtml !== sourcePage.html_content) {
+            projectApi.saveHtml(id, sourcePage.id, updatedHtml).catch(() => {})
+            sourcePage.html_content = updatedHtml
+          }
         }
       }
     }

@@ -1333,7 +1333,9 @@ const hiddenDupIds = computed<Set<number>>(() => {
   }
   return hidden
 })
-const { showDesign, boxW, gap } = props
+const showDesign = computed(() => props.showDesign ?? true)
+const boxW = computed(() => props.boxW ?? 220)
+const gap = computed(() => props.gap ?? 16)
 const scale = computed(() => props.canvasScale || 1)
 
 // 背景类元素（type: 'background'）单独作为画布底层背景渲染，其余元素正常叠加
@@ -1440,17 +1442,17 @@ function onCanvasDragEnd() {
 }
 
 // 线框画布 X 偏移：左侧为设计稿原图
-const wireX = computed(() => (showDesign ? canvasW.value * scale.value + gap : 0))
+const wireX = computed(() => (showDesign.value ? canvasW.value * scale.value + gap.value : 0))
 
 // ===== 说明面板状态 =====
-const panelOpen = ref(false)
+const panelOpen = ref(true)
 // 选中的线框元素属于本页时自动展开面板
 const selectedOnThisPage = computed(
   () => props.selectedElementId != null && props.page.elements.some((e) => e.id === props.selectedElementId),
 )
 const isPanelOpen = computed(() => panelOpen.value || selectedOnThisPage.value)
 
-const panelX = computed(() => wireX.value + canvasW.value * scale.value + gap + 12)
+const panelX = computed(() => wireX.value + canvasW.value * scale.value + gap.value + 12)
 const panelMaxH = computed(() => Math.max(canvasH.value * scale.value, 320))
 
 interface AnnItem {
@@ -1611,15 +1613,15 @@ watch(
 )
 
 const stageW = computed(() => {
-  if (!showDesign && !props.showAnnotations) {
+  if (!showDesign.value && !props.showAnnotations) {
     return canvasW.value * scale.value
   }
-  return panelX.value + boxW + 28
+  return panelX.value + boxW.value + 28
 })
 // 整页模式：高度随 iframe 内容自适应（避免固定高度把页面裁掉产生滚动）；预览模式去除额外的 8px 安全边距
 const stageH = computed(() => {
   const baseH = (iframeH.value || canvasH.value) * scale.value
-  if (!showDesign && !props.showAnnotations) {
+  if (!showDesign.value && !props.showAnnotations) {
     return baseH
   }
   return baseH + 8
