@@ -315,16 +315,16 @@
           :class="{ 'is-animating': !isAnyDragging && animating, 'is-dragging': isAnyDragging }"
           :style="contentStyle"
         >
-          <!-- ===== 交互连线与弹性贝塞尔曲线 SVG 顶层画板 (仅在交互连线模式下渲染，避免正常走查卡顿) ===== -->
-          <template v-if="workbenchMode === 'interactive'">
+          <!-- ===== Figma Prototype 模式：由 selectedNodeId 驱动的连线画板 ===== -->
+          <template v-if="visibleConnections.length > 0">
             <svg
               class="interaction-svg-layer absolute inset-0 pointer-events-none z-30"
               style="width: 100%; height: 100%; overflow: visible;"
             >
               <defs>
-                <!-- 交互蓝色箭头 -->
+                <!-- 出度连线主箭头 (从当前选中节点出发) -->
                 <marker
-                  id="arrow-blue"
+                  id="arrow-out"
                   viewBox="0 0 10 10"
                   refX="6"
                   refY="5"
@@ -334,56 +334,65 @@
                 >
                   <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563eb" />
                 </marker>
+                <!-- 入度连线主箭头 (从其他节点指向当前选中节点) -->
+                <marker
+                  id="arrow-in"
+                  viewBox="0 0 10 10"
+                  refX="6"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#0284c7" />
+                </marker>
+                <!-- 自环连线箭头 -->
+                <marker
+                  id="arrow-self"
+                  viewBox="0 0 10 10"
+                  refX="5"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto"
+                >
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563eb" />
+                </marker>
               </defs>
 
-              <!-- 持久化发光交互连线 (硬件加速纯矢量路径，无模糊滤镜卡顿) -->
-              <g v-for="conn in allConnections" :key="conn.id">
+              <g v-for="conn in visibleConnections" :key="conn.id">
+                <!-- 贝塞尔外发光晕影 -->
                 <path
                   :d="conn.path"
                   fill="none"
-                  stroke="rgba(59, 130, 246, 0.25)"
+                  :stroke="conn.fromId === selectedNodeId ? 'rgba(59, 130, 246, 0.28)' : 'rgba(2, 132, 199, 0.22)'"
                   stroke-width="6"
                 />
+                <!-- 贝塞尔核心矢量曲线 -->
                 <path
                   :d="conn.path"
                   fill="none"
-                  stroke="#2563eb"
+                  :stroke="conn.fromId === selectedNodeId ? '#2563eb' : '#0284c7'"
                   stroke-width="2.5"
-                  marker-end="url(#arrow-blue)"
-                />
-              </g>
-
-              <!-- 实时鼠标拖拽弹性贝塞尔曲线 -->
-              <g v-if="activeDragLine">
-                <path
-                  :d="activeDragLine.path"
-                  fill="none"
-                  stroke="rgba(147, 197, 253, 0.4)"
-                  stroke-width="8"
-                />
-                <path
-                  :d="activeDragLine.path"
-                  fill="none"
-                  stroke="#2563eb"
-                  stroke-width="3"
-                  stroke-dasharray="6,4"
-                  marker-end="url(#arrow-blue)"
+                  :stroke-dasharray="conn.fromId === selectedNodeId ? 'none' : '5,4'"
+                  :marker-end="conn.isSelfLoop ? 'url(#arrow-self)' : (conn.fromId === selectedNodeId ? 'url(#arrow-out)' : 'url(#arrow-in)')"
                 />
               </g>
             </svg>
 
-            <!-- 交互连线中点触发标签 (Figma 风格交互胶囊，仅展示当前聚焦或悬浮的交互) -->
+            <!-- 交互连线中点触发标签 (Figma 交互胶囊) -->
             <div
-              v-for="conn in displayedBadgeConnections"
+              v-for="conn in visibleConnections"
               :key="`tag-${conn.id}`"
-              class="absolute z-35 pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-md shadow-blue-500/30 flex items-center gap-1.5 cursor-pointer select-none transition-all group"
+              class="absolute z-35 pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full text-white text-[11px] font-bold shadow-md flex items-center gap-1.5 cursor-pointer select-none transition-all group"
+              :class="conn.fromId === selectedNodeId ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-sky-600 hover:bg-sky-700 shadow-sky-500/30'"
               :style="{ left: `${conn.midX}px`, top: `${conn.midY}px` }"
-              :title="`交互配置：${conn.triggerLabel} ➔ ${conn.actionLabel}`"
+              :title="`交互配置：${conn.triggerLabel} ➔ ${conn.actionLabel} (${conn.fromPageName} → ${conn.toPageName})`"
             >
               <Zap class="w-3 h-3 fill-white" />
-              <span>{{ conn.triggerLabel }} ➔ {{ conn.actionLabel }}</span>
+              <span>{{ conn.fromId === selectedNodeId ? `${conn.label}: ${conn.triggerLabel} ➔ ${conn.actionLabel}` : `来源 [${conn.fromPageName}]: ${conn.label}` }}</span>
               <button
-                class="w-3.5 h-3.5 rounded-full hover:bg-blue-800 text-blue-200 hover:text-white flex items-center justify-center text-[10px] ml-0.5 cursor-pointer"
+                class="w-3.5 h-3.5 rounded-full hover:bg-black/20 text-white/80 hover:text-white flex items-center justify-center text-[10px] ml-0.5 cursor-pointer"
                 title="删除交互连线"
                 @click.stop="removeConnection(conn)"
               >
@@ -392,28 +401,17 @@
             </div>
           </template>
 
-          <!-- 交互连线模式下：各交互元素外侧渲染蓝色发光连接锚点（+） -->
-          <template v-if="workbenchMode === 'interactive'">
-            <div
-              v-for="anchor in interactiveAnchors"
-              :key="anchor.id"
-              class="interaction-anchor absolute z-40 w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-crosshair shadow-[0_0_12px_rgba(37,99,235,0.9),0_0_0_2px_#ffffff] hover:scale-125 transition-all select-none animate-pulse-slow"
-              :style="{ left: `${anchor.x}px`, top: `${anchor.y}px` }"
-              :title="`【${anchor.label}】按住拖拽连线至目标页面建立交互`"
-              @mousedown.stop="startConnectionDrag($event, anchor)"
-            >
-              <Plus class="w-3 h-3 stroke-[3]" />
-            </div>
-          </template>
-
           <template v-for="b in blocks" :key="b.page.id">
             <div
-              class="page-block absolute"
+              class="page-block absolute transition-all duration-200 rounded-2xl cursor-pointer"
               :class="{
-                'ring-4 ring-blue-500 ring-offset-4 ring-offset-slate-100 shadow-[0_0_35px_rgba(59,130,246,0.7)] rounded-2xl transition-all': hoveredTargetBlockId === b.page.id
+                'ring-2 ring-blue-500 ring-offset-4 ring-offset-slate-100 shadow-[0_0_0_2px_#3b82f6,0_12px_28px_rgba(59,130,246,0.22)]': selectedNodeId === b.page.id,
+                'ring-1 ring-slate-200/90 hover:ring-2 hover:ring-blue-400/50 hover:shadow-md': selectedNodeId !== b.page.id,
               }"
               :style="{ left: `${b.x}px`, top: `${b.y}px` }"
-              @click="onPageBlockClick(b.page.id)"
+              @click.stop="onPageBlockClick(b.page.id)"
+              @mouseenter="hoveredNodeId = b.page.id"
+              @mouseleave="hoveredNodeId = null"
             >
               <!-- Block Header Capsule Floating Label -->
               <div
@@ -1026,14 +1024,14 @@ function showLockedToast(page: Page) {
 }
 
 function onPageBlockClick(pageId: number) {
+  if (suppressBlockClick) return
   if (pageEditingConflicts.value[pageId]?.conflict) {
     const p = pages.value.find((pg) => pg.id === pageId)
     if (p) showLockedToast(p)
     return
   }
-  if (fineTune.value && mode.value === 'edit') {
-    focusPageId.value = pageId
-  }
+  selectedNodeId.value = pageId
+  focusPageId.value = pageId
 }
 
 function onSaveHtml(p: { pageId: number; html: string }) {
@@ -1433,120 +1431,172 @@ function getPrimaryInteractiveElements(page: Page): Element[] {
   return result
 }
 
-const interactiveAnchors = computed<AnchorItem[]>(() => {
-  if (workbenchMode.value !== 'interactive') return []
-  const list: AnchorItem[] = []
-  
-  // 仅在聚焦某页面或悬停画板时渲染高保真锚点，避免 32 个画板同时漫天堆积锚点
-  const activePageId = focusPageId.value ?? (blocks.value[0]?.page?.id ?? null)
-  const targetBlocks = activePageId
-    ? blocks.value.filter((b) => b.page.id === activePageId || (hoveredTargetBlockId.value && b.page.id === hoveredTargetBlockId.value))
-    : blocks.value
+// ===== Figma Prototype 模式：节点驱动连线架构 =====
+const selectedNodeId = ref<number | null>(null)
+const hoveredNodeId = ref<number | null>(null)
 
-  for (const b of targetBlocks) {
+interface NodeItem {
+  id: number
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  wireX: number
+  pageW: number
+  pageH: number
+}
+
+const nodes = computed<NodeItem[]>(() => {
+  return blocks.value.map((b) => {
     const scaleVal = 1
     const pageW = b.page.canvas_width || 375
     const pageH = b.page.canvas_height || 812
     const wireX = b.page.background_image ? pageW * scaleVal + 16 : 0
+    return {
+      id: b.page.id,
+      name: b.page.name,
+      x: b.x,
+      y: b.y,
+      width: b.w,
+      height: b.h,
+      wireX,
+      pageW,
+      pageH,
+    }
+  })
+})
 
-    // 1. 真实已有跳转关系的交互热区（严格去重，去除重复文本和角标连线）
+interface ConnectionItem {
+  id: string
+  fromId: number
+  toId: number
+  fromPageName: string
+  toPageName: string
+  elementId?: number
+  label: string
+  isSelfLoop: boolean
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  path: string
+  midX: number
+  midY: number
+  triggerLabel: string
+  actionLabel: string
+}
+
+const connections = computed<ConnectionItem[]>(() => {
+  const nodeMap = new Map<number, NodeItem>()
+  nodes.value.forEach((n) => nodeMap.set(n.id, n))
+
+  const list: ConnectionItem[] = []
+
+  for (const b of blocks.value) {
+    const fromNode = nodeMap.get(b.page.id)
+    if (!fromNode) continue
+
     const primaryEls = getPrimaryInteractiveElements(b.page)
 
-    // 2. 对于当前聚焦的页面，补充尚未连线的高置信度交互控件供用户手动连线
-    const unusedCandidates = (b.page.elements || []).filter((e) => {
-      if (e.interaction && e.interaction.target_page_id) return false
-      if (e.type === 'background' || e.type === 'navbar' || e.type === 'container' || e.type === 'text') return false
-      if (e.width > 350 || e.height > 140 || e.height < 16) return false
-      return ['button', 'tab', 'tabs', 'icon'].includes(e.type)
-    }).slice(0, 6)
+    for (const el of primaryEls) {
+      const targetId = el.interaction!.target_page_id
+      if (!targetId) continue
 
-    const targetEls = [...primaryEls, ...(b.page.id === activePageId ? unusedCandidates : [])]
+      const toNode = nodeMap.get(targetId)
+      if (!toNode) continue
 
-    for (const el of targetEls) {
-      // 锚点精准吸附在按钮/控件的右侧边缘垂直居中处，严格限制在手机屏幕内
-      const rawAx = b.x + wireX + (el.x + el.width) * scaleVal
-      const rawAy = b.y + (el.y + el.height / 2) * scaleVal
-      const ax = Math.min(b.x + wireX + pageW - 6, Math.max(b.x + wireX + 10, rawAx))
-      const ay = Math.min(b.y + pageH - 12, Math.max(b.y + 12, rawAy))
+      const isSelfLoop = fromNode.id === toNode.id
+      const triggerMap: Record<string, string> = { click: '点击', hover: '悬停', drag: '拖拽' }
+      const actionMap: Record<string, string> = { navigate: '跳转', overlay: '弹窗', back: '返回' }
+      const triggerLabel = triggerMap[el.interaction!.trigger] || '点击'
+      const actionLabel = actionMap[el.interaction!.action] || toNode.name
+
+      // 起点：吸附在源节点（原型线框）右边缘，高度对齐按钮/图标
+      const startX = fromNode.x + fromNode.wireX + fromNode.pageW
+      const clampedElY = Math.max(20, Math.min(fromNode.pageH - 20, el.y + el.height / 2))
+      const startY = fromNode.y + clampedElY
+
+      let endX = 0
+      let endY = 0
+      let path = ''
+      let midX = 0
+      let midY = 0
+
+      if (isSelfLoop) {
+        // 自环边界情况处理：从右边缘向外绕出，平滑回折并进入画板顶部
+        endX = fromNode.x + fromNode.wireX + fromNode.pageW / 2
+        endY = fromNode.y
+        const loopOutX = startX + 50
+        const loopTopY = fromNode.y - 40
+        path = `M ${startX} ${startY} C ${loopOutX} ${startY}, ${loopOutX} ${loopTopY}, ${endX + 30} ${loopTopY} S ${endX} ${fromNode.y - 16}, ${endX} ${endY}`
+        midX = startX + 30
+        midY = fromNode.y - 32
+      } else {
+        // 终点：吸附在目标节点（原型线框）左边缘
+        endX = toNode.x + toNode.wireX
+        endY = toNode.y + Math.max(30, Math.min(toNode.pageH - 30, toNode.pageH / 2))
+
+        if (endX >= startX + 40) {
+          // 目标节点在右方：三次贝塞尔平滑延伸
+          const dx = endX - startX
+          const cx1 = startX + Math.max(dx * 0.45, 50)
+          const cy1 = startY
+          const cx2 = endX - Math.max(dx * 0.45, 50)
+          const cy2 = endY
+          path = `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`
+
+          midX = 0.125 * startX + 0.375 * cx1 + 0.375 * cx2 + 0.125 * endX
+          midY = 0.125 * startY + 0.375 * cy1 + 0.375 * cy2 + 0.125 * endY
+        } else {
+          // 目标节点在左方或垂直排列：自然环绕过渡
+          const cx1 = startX + 70
+          const cy1 = startY + (endY >= startY ? 40 : -40)
+          const cx2 = endX - 70
+          const cy2 = endY + (endY >= startY ? -40 : 40)
+          path = `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`
+
+          midX = (startX + endX) / 2
+          midY = (startY + endY) / 2
+        }
+      }
 
       list.push({
-        id: `anchor-${b.page.id}-${el.id}`,
-        pageId: b.page.id,
-        pageName: b.page.name,
+        id: `conn-${el.id}-${toNode.id}`,
+        fromId: fromNode.id,
+        toId: toNode.id,
+        fromPageName: fromNode.name,
+        toPageName: toNode.name,
         elementId: el.id,
         label: el.label || el.type,
-        x: ax,
-        y: ay,
+        isSelfLoop,
+        x1: startX,
+        y1: startY,
+        x2: endX,
+        y2: endY,
+        path,
+        midX,
+        midY,
+        triggerLabel,
+        actionLabel,
       })
     }
   }
+
   return list
 })
 
-const allConnections = computed(() => {
-  if (workbenchMode.value !== 'interactive') return []
-  const conns: any[] = []
-  for (const b of blocks.value) {
-    const scaleVal = 1
-    const pageW = b.page.canvas_width || 375
-    const pageH = b.page.canvas_height || 812
-    const wireX = b.page.background_image ? pageW * scaleVal + 16 : 0
-    const primaryEls = getPrimaryInteractiveElements(b.page)
-    for (const el of primaryEls) {
-      const targetB = blocks.value.find((tb) => tb.page.id === el.interaction!.target_page_id)
-      if (targetB) {
-        const targetPageW = targetB.page.canvas_width || 375
-        const targetWireX = targetB.page.background_image ? targetPageW * scaleVal + 16 : 0
-        const rawX1 = b.x + wireX + (el.x + el.width) * scaleVal
-        const rawY1 = b.y + (el.y + el.height / 2) * scaleVal
-        const x1 = Math.min(b.x + wireX + pageW - 4, Math.max(b.x + wireX + 10, rawX1))
-        const y1 = Math.min(b.y + pageH - 10, Math.max(b.y + 10, rawY1))
-
-        const x2 = targetB.x + targetWireX
-        const y2 = targetB.y + targetB.h / 2
-
-        const dx = Math.abs(x2 - x1)
-        const cx1 = x1 + Math.max(dx * 0.45, 60)
-        const cy1 = y1
-        const cx2 = x2 - Math.max(dx * 0.45, 60)
-        const cy2 = y2
-        const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
-
-        const midX = 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2
-        const midY = 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
-
-        const triggerMap: Record<string, string> = { click: '点击', hover: '悬停', drag: '拖拽' }
-        const actionMap: Record<string, string> = { navigate: '跳转', overlay: '弹窗', back: '返回' }
-
-        conns.push({
-          id: `conn-${el.id}-${targetB.page.id}`,
-          elementId: el.id,
-          fromPageId: b.page.id,
-          toPageId: targetB.page.id,
-          x1,
-          y1,
-          x2,
-          y2,
-          path,
-          midX,
-          midY,
-          triggerLabel: triggerMap[el.interaction!.trigger] || '点击',
-          actionLabel: actionMap[el.interaction!.action] || targetB.page.name,
-        })
-      }
-    }
-  }
-  return conns
+// 连线激活状态：由 selectedNodeId 严格驱动
+// 默认状态（selectedNodeId === null）：返回 []，所有连线 100% 隐藏
+// 激活状态：仅显示作为起点 (fromId) 或终点 (toId) 的关联连线
+const visibleConnections = computed<ConnectionItem[]>(() => {
+  if (!selectedNodeId.value) return []
+  return connections.value.filter(
+    (c) => c.fromId === selectedNodeId.value || c.toId === selectedNodeId.value
+  )
 })
 
-// Figma 风格：仅在有聚焦页面时高亮其相关交互胶囊，或者只展示少量核心流程，绝不铺满 200+ 标签造成 DOM 卡顿
-const displayedBadgeConnections = computed(() => {
-  if (workbenchMode.value !== 'interactive') return []
-  if (focusPageId.value) {
-    return allConnections.value.filter((c) => c.fromPageId === focusPageId.value || c.toPageId === focusPageId.value)
-  }
-  return allConnections.value.slice(0, 8)
-})
+
 
 const activeDragLine = computed(() => {
   if (!isDraggingConnection.value || !currentDraggingAnchor.value) return null
@@ -1778,6 +1828,7 @@ function focusPage(pageId: number) {
   const b = blocks.value.find((bb) => bb.page.id === pageId)
   if (!b) return
   focusPageId.value = pageId
+  selectedNodeId.value = pageId
   hoveredElementId.value = null
   hoveredAnnId.value = null
   selectedElementId.value = null
@@ -1828,8 +1879,10 @@ function onWindowMouseUp() {
 
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
-  if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label')) return
+  if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel')) return
   selectedElementId.value = null
+  // 点击空白区域 → 取消选中，所有连线恢复隐藏
+  selectedNodeId.value = null
   isDragging.value = true
   dragStart = { x: e.clientX, y: e.clientY }
   dragOrigin = { x: view.value.x, y: view.value.y }
@@ -1927,6 +1980,11 @@ function hasNavigate(el: Element): boolean {
 }
 
 function handleElementClick(el: Element) {
+  const p = pages.value.find((pg) => pg.elements.some((e) => e.id === el.id))
+  if (p) {
+    selectedNodeId.value = p.id
+    focusPageId.value = p.id
+  }
   if (selectedElementId.value === el.id) {
     selectedElementId.value = null
     return
