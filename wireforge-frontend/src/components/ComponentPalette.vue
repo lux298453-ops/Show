@@ -8,18 +8,9 @@
         </div>
         <span class="text-xs font-bold text-slate-800">原子组件库</span>
       </div>
-      <span class="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-semibold border border-blue-200/60">可拖拽 / 可点加</span>
-    </div>
-
-    <!-- Target Page Indicator Banner -->
-    <div class="px-3 py-1.5 bg-blue-50/70 border-b border-blue-100/80 flex items-center justify-between text-[11px]">
-      <div class="flex items-center gap-1.5 min-w-0">
-        <span class="text-blue-700 font-bold shrink-0">📍 目标画板:</span>
-        <span class="font-bold text-slate-800 truncate max-w-[120px]" :title="targetPage?.name || '点击画板选定'">
-          {{ targetPage?.name || '点击画板选定' }}
-        </span>
+      <div v-if="targetPage?.name" class="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full font-semibold border border-blue-200/60 truncate max-w-[130px]" :title="`目标画板: ${targetPage.name}`">
+        🎯 {{ targetPage.name }}
       </div>
-      <span class="text-[10px] text-blue-600 font-medium shrink-0">拖入或直接添加</span>
     </div>
 
     <!-- Category Filter Tabs -->
@@ -37,75 +28,52 @@
       </button>
     </div>
 
-    <!-- Components List Area -->
-    <div class="flex-1 overflow-y-auto p-2.5 space-y-4 custom-scrollbar">
+    <!-- Components List 2-Column Grid Area (Pure visual elements without wordy descriptions) -->
+    <div class="flex-1 overflow-y-auto p-2.5 space-y-3 custom-scrollbar">
       <div
         v-for="cat in displayedCategories"
         :key="cat.id"
-        class="space-y-2"
+        class="space-y-1.5"
       >
-        <div class="flex items-center justify-between text-[11px] font-bold text-slate-400 px-1 uppercase tracking-wider">
-          <span>{{ cat.name }}</span>
-          <span class="text-[10px] font-normal text-slate-300">{{ cat.items.length }} 项</span>
+        <div class="text-[10px] font-bold text-slate-400 px-1 uppercase tracking-wider">
+          {{ cat.name }}
         </div>
 
-        <div class="grid grid-cols-1 gap-2">
+        <div class="grid grid-cols-2 gap-2">
           <div
             v-for="item in cat.items"
             :key="item.id"
-            class="palette-item group relative bg-white border border-slate-200/80 hover:border-blue-400 rounded-xl p-2.5 shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing flex flex-col gap-1.5"
+            class="palette-item group relative bg-white border border-slate-200/90 hover:border-blue-500 rounded-xl p-2 shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing flex flex-col items-center justify-between gap-1.5 overflow-hidden"
             draggable="true"
+            :title="`拖拽或点击添加「${item.name}」`"
             @dragstart="onDragStart($event, item)"
             @dragend="onDragEnd"
+            @click="emit('addComponent', item)"
           >
-            <!-- Header: Icon, Name & Tag -->
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="text-base leading-none">{{ item.emoji }}</span>
-                <span class="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition-colors">{{ item.name }}</span>
-              </div>
-              <span class="text-[10px] text-slate-400 font-mono scale-90">{{ item.tag }}</span>
+            <!-- Quick Add Hover Button in top-right -->
+            <button
+              type="button"
+              class="absolute top-1 right-1 w-5 h-5 rounded-md bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-2xs z-10"
+              :title="`直接添加「${item.name}」`"
+              @click.stop="emit('addComponent', item)"
+            >
+              <Plus class="w-3 h-3" />
+            </button>
+
+            <!-- Visual Preview Box -->
+            <div class="w-full h-14 bg-slate-50/90 group-hover:bg-blue-50/30 rounded-lg border border-slate-100 flex items-center justify-center pointer-events-none transition-colors overflow-hidden">
+              <div v-html="item.previewHtml" class="scale-95 transform-origin-center"></div>
             </div>
 
-            <!-- Description -->
-            <p class="text-[11px] text-slate-500 line-clamp-1 leading-snug">
-              {{ item.description }}
-            </p>
-
-            <!-- Visual Preview Pill / Mini Box -->
-            <div class="w-full py-2 px-3 bg-slate-50/90 rounded-lg border border-slate-100 flex items-center justify-center overflow-hidden pointer-events-none group-hover:bg-blue-50/30 transition-colors">
-              <div v-html="item.previewHtml" class="scale-90 transform-origin-center"></div>
-            </div>
-
-            <!-- Drag Overlay Hint & Quick Add CTA -->
-            <div class="flex items-center justify-between pt-1.5 border-t border-slate-100/80 text-[10px] text-slate-400 font-medium">
-              <span class="flex items-center gap-1 group-hover:text-blue-500 transition-colors">
-                <GripVertical class="w-3 h-3 text-slate-300 group-hover:text-blue-400" />
-                拖拽放入画板
+            <!-- Component Name -->
+            <div class="w-full flex items-center justify-center gap-1 text-center">
+              <span class="text-xs leading-none shrink-0">{{ item.emoji }}</span>
+              <span class="text-[11px] font-bold text-slate-700 group-hover:text-blue-600 transition-colors truncate">
+                {{ item.name }}
               </span>
-              <button
-                type="button"
-                class="px-2.5 py-0.5 bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer shadow-2xs hover:shadow-xs active:scale-95"
-                :title="`直接添加「${item.name}」到「${targetPage?.name || '当前画板'}」`"
-                @click.stop="emit('addComponent', item)"
-              >
-                <span>➕ 添加</span>
-              </button>
             </div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Footer Tips -->
-    <div class="p-2.5 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-500 space-y-1">
-      <div class="flex items-start gap-1">
-        <span class="text-blue-600 font-bold shrink-0">➕ 添加:</span>
-        <span>拖拽至任意画板，或点击「➕ 添加」插入当前选中的画板。</span>
-      </div>
-      <div class="flex items-start gap-1">
-        <span class="text-rose-500 font-bold shrink-0">🗑️ 删除:</span>
-        <span>画板内按住 Alt/Shift 点击元素，或选中后敲 Backspace 键删除 (支持 Ctrl+Z 撤回)。</span>
       </div>
     </div>
   </div>
@@ -113,7 +81,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { GripVertical } from 'lucide-vue-next'
+import { Plus } from 'lucide-vue-next'
 
 const props = defineProps<{
   targetPage?: { id: number; name: string } | null

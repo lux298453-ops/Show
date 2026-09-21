@@ -101,30 +101,20 @@
                 <div v-html="item.previewHtml" class="scale-90 transform-origin-center"></div>
               </div>
 
-              <!-- Action Footer: Drag Hint & Quick Insert Button -->
-              <div class="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px] text-slate-400">
-                <span class="flex items-center gap-1 text-[10px] group-hover:text-[#0D99FF] transition-colors">
-                  <GripVertical class="w-3 h-3 text-slate-300 group-hover:text-[#0D99FF]" />
-                  按住拖出
-                </span>
+              <!-- Quick Insert CTA -->
+              <div class="flex items-center justify-end pt-1 border-t border-slate-100 text-[10px]">
                 <button
                   type="button"
-                  class="px-2 py-0.5 bg-[#0D99FF]/10 hover:bg-[#0D99FF] text-[#0D99FF] hover:text-white rounded-md font-bold transition-all flex items-center gap-0.5 cursor-pointer active:scale-95 text-[10px]"
+                  class="w-full py-1 bg-[#0D99FF]/10 hover:bg-[#0D99FF] text-[#0D99FF] hover:text-white rounded-md font-bold transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-95 text-[10px]"
                   title="直接插入到当前画板"
                   @click.stop="insertComponent(item)"
                 >
                   <Plus class="w-2.5 h-2.5" />
-                  <span>添加</span>
+                  <span>添加组件</span>
                 </button>
               </div>
             </div>
           </div>
-        </div>
-
-        <!-- Popover Footer -->
-        <div class="px-3 py-1.5 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-500 flex items-center justify-between">
-          <span>按住卡片直接拖入画板，或点击 ➕ 插入</span>
-          <span class="text-[#0D99FF] font-medium">支持快捷定位</span>
         </div>
       </div>
     </Transition>
