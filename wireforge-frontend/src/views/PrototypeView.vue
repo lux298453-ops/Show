@@ -306,12 +306,35 @@
       <main
         class="canvas-viewport flex-1 overflow-hidden relative cursor-grab bg-slate-100"
         ref="viewportRef"
-        :class="{ '!cursor-grabbing': isAnyDragging }"
+        :class="{
+          '!cursor-grabbing': isAnyDragging,
+          '!cursor-text': activeDrawTool === 'text' && !isAnyDragging,
+          '!cursor-crosshair': activeDrawTool !== 'select' && activeDrawTool !== 'text' && !isAnyDragging,
+        }"
         @wheel.prevent="onWheel"
         @mousedown="onMouseDown"
         @dragover.prevent="onViewportDragOver"
         @drop.prevent="onViewportDrop"
       >
+        <!-- ===== 画布顶部悬浮轻量绘制指引胶囊提示 ===== -->
+        <Transition name="fade-fast">
+          <div
+            v-if="activeDrawTool !== 'select'"
+            class="absolute top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-slate-900/90 backdrop-blur-md text-white border border-white/15 rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-semibold select-none pointer-events-auto"
+          >
+            <span class="w-2 h-2 rounded-full bg-[#0D99FF] animate-ping shrink-0"></span>
+            <span>正在绘制{{ currentToolName }}：点击画板任意位置放置，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 键取消</span>
+            <button
+              type="button"
+              class="ml-1 p-0.5 text-white/70 hover:text-white rounded-full hover:bg-white/20 transition-colors cursor-pointer"
+              title="取消绘制 (Esc)"
+              @click="activeDrawTool = 'select'"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </Transition>
+
         <!-- Full-viewport transparent overlay during drag to shield iframes and eliminate hit-testing cost -->
         <div
           v-if="isAnyDragging || isDraggingConnection"
@@ -334,9 +357,11 @@
                 'ring-4 ring-emerald-400 ring-offset-2 shadow-[0_0_24px_rgba(52,211,153,0.5)] scale-[1.01]': hoveredTargetBlockId === b.page.id,
                 'ring-2 ring-blue-500 ring-offset-4 ring-offset-slate-100 shadow-[0_0_0_2px_#3b82f6,0_12px_28px_rgba(59,130,246,0.22)]': selectedNodeId === b.page.id && hoveredTargetBlockId !== b.page.id,
                 'ring-1 ring-slate-200/90 hover:ring-2 hover:ring-blue-400/50 hover:shadow-md': selectedNodeId !== b.page.id && hoveredTargetBlockId !== b.page.id,
+                '!cursor-text': activeDrawTool === 'text',
+                '!cursor-crosshair': activeDrawTool !== 'select' && activeDrawTool !== 'text',
               }"
               :style="{ left: `${b.x}px`, top: `${b.y}px` }"
-              @click.stop="onPageBlockClick(b.page.id)"
+              @click.stop="onPageBlockClick($event, b)"
               @mouseenter="hoveredNodeId = b.page.id"
               @mouseleave="hoveredNodeId = null"
             >
@@ -426,7 +451,7 @@
                 :hovered-element-id="hoveredElementId"
                 :hovered-ann-id="hoveredAnnId"
                 :show-design="true"
-                :edit-mode="(fineTune || leftSidebarTab === 'components') && mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
+                :edit-mode="mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
                 :interactive="false"
                 :locked-by-other="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
                 :custom-orders="pageAnnOrders"
@@ -523,6 +548,15 @@
                   <span>{{ hoveredDropBlockId === b.page.id ? `松手放入「${b.page.name}」` : `释放添加至「${b.page.name}」` }}</span>
                 </div>
               </div>
+
+              <!-- 直接选择绘制点击放置层 (浮于 iframe 之上，确保 click 100% 捕获并杜绝 iframe 吸收事件) -->
+              <div
+                v-if="activeDrawTool !== 'select'"
+                class="draw-placement-overlay absolute inset-0 rounded-2xl z-[110] transition-all select-none border-2 border-dashed border-[#0D99FF]/60 bg-[#0D99FF]/5"
+                :class="activeDrawTool === 'text' ? '!cursor-text' : '!cursor-crosshair'"
+                :title="`点击画板任意位置放置「${currentToolName}」`"
+                @click.stop="onArtboardDrawClick($event, b)"
+              />
             </div>
           </template>
 
@@ -672,6 +706,20 @@
             <p class="text-sm font-medium">项目暂无页面，请先返回项目页扫描设计稿</p>
           </div>
         </div>
+
+        <!-- ===== Figma UI3 底部居中悬浮工具栏 ===== -->
+        <FigmaBottomToolbar
+          v-if="mode === 'edit'"
+          v-model:active-tool="activeDrawTool"
+          :workbench-mode="workbenchMode"
+          :show-annotations="showAnnotations"
+          :target-page="currentFocusPage"
+          @tool-change="handleBottomToolChange"
+          @add-component="handleBottomAddComponent"
+          @set-workbench-mode="setWorkbenchMode"
+          @open-pure-preview="openPurePreview"
+          @toggle-annotations="showAnnotations = !showAnnotations"
+        />
       </main>
     </div>
 
@@ -1137,6 +1185,17 @@ import { getFileUrl } from '../api/http'
 import type { Element, Page, Prototype } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
+import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
+
+const activeDrawTool = ref<ActiveToolType>('select')
+const toolNames: Record<string, string> = {
+  rect: '矩形方框',
+  circle: '圆形头像',
+  container: '卡片容器',
+  text: '文本块',
+  frame: '画板框架',
+}
+const currentToolName = computed(() => toolNames[activeDrawTool.value] || '组件')
 
 const route = useRoute()
 const router = useRouter()
@@ -1213,17 +1272,21 @@ function showLockedToast(page: Page) {
   showToast(`🔒「${page.name}」正由 ${editor} 独占微调中，已开启防覆盖保护。您可以微调其他页面！`)
 }
 
-function onPageBlockClick(pageId: number) {
+function onPageBlockClick(e: MouseEvent, b: { page: Page; x: number; y: number }) {
   if (suppressBlockClick) return
-  if (pageEditingConflicts.value[pageId]?.conflict) {
-    const p = pages.value.find((pg) => pg.id === pageId)
+  if (activeDrawTool.value !== 'select') {
+    onArtboardDrawClick(e, b)
+    return
+  }
+  if (pageEditingConflicts.value[b.page.id]?.conflict) {
+    const p = pages.value.find((pg) => pg.id === b.page.id)
     if (p) showLockedToast(p)
     return
   }
-  selectedNodeId.value = pageId
+  selectedNodeId.value = b.page.id
   selectedConnId.value = null
   selectedElementId.value = null
-  focusPageId.value = pageId
+  focusPageId.value = b.page.id
 }
 
 function onSaveHtml(p: { pageId: number; html: string }) {
@@ -1387,7 +1450,7 @@ function onPaletteAddComponent(item: PaletteItem) {
   insertComponentIntoPage(targetId, item, 20, 220)
 }
 
-function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dropY = 220) {
+function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dropY = 220, autoEditText = false) {
   const page = pages.value.find((p) => p.id === pageId)
   if (!page) return
   const htmlSnippet = typeof itemOrHtml === 'string' ? itemOrHtml : (itemOrHtml?.html || '')
@@ -1402,7 +1465,7 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   // 1. 优先通过 PageCanvas 实例向运行中的 iframe 注入并自动触发持久化
   const inst = pageRefs.value[pageId]
   if (inst && typeof (inst as any).insertComponent === 'function') {
-    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY)
+    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY, autoEditText)
     showToast(`✅ 已将「${itemName}」添加至「${page.name}」(${dropX}, ${dropY})`)
     return
   }
@@ -1421,6 +1484,71 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   }
   onSaveHtml({ pageId, html: currentHtml })
   showToast(`✅ 已将「${itemName}」添加至「${page.name}」`)
+}
+
+// 直接选择绘制 (Click-to-Draw / Click-to-Place) 交互逻辑
+function onArtboardDrawClick(e: MouseEvent, b: { page: Page; x: number; y: number }) {
+  if (activeDrawTool.value === 'select') return
+  const tool = activeDrawTool.value
+
+  // 计算相对画板局部的精确放置坐标 (clickX, clickY)
+  let clickX = 20
+  let clickY = 120
+  if (viewportRef.value) {
+    const rect = viewportRef.value.getBoundingClientRect()
+    const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
+    const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
+    const blockRelX = logicX - b.x
+    const blockRelY = logicY - b.y
+    const canvasW = b.page.canvas_width || 375
+    const wireX = canvasW + 16
+    const rawX = blockRelX >= wireX ? (blockRelX - wireX) : blockRelX
+    const rawY = blockRelY
+    clickX = Math.round(Math.max(16, Math.min(canvasW - 40, rawX)))
+    clickY = Math.round(Math.max(20, Math.min((b.page.canvas_height || 812) - 40, rawY)))
+  }
+
+  let targetSnippet = ''
+  let targetName = ''
+  let isText = false
+
+  if (tool === 'rect') {
+    targetName = '矩形占位方框'
+    targetSnippet = `<div class="wf-box" style="width: 335px; height: 90px; border: 2px dashed #94a3b8; border-radius: 12px; background: rgba(241, 245, 249, 0.85); display: flex; align-items: center; justify-content: center; color: #475569; font-size: 13px; font-weight: 600; box-sizing: border-box;">🔲 矩形占位方框</div>`
+  } else if (tool === 'circle') {
+    targetName = '圆形头像'
+    targetSnippet = `<div class="wf-avatar" style="width: 52px; height: 52px; border-radius: 50%; background: #e2e8f0; border: 2px solid #cbd5e1; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.1); box-sizing: border-box;"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" style="width: 100%; height: 100%; object-fit: cover;" alt="用户头像" /></div>`
+  } else if (tool === 'container' || tool === 'frame') {
+    targetName = '卡片容器'
+    targetSnippet = `<div class="wf-container" style="width: 335px; padding: 16px; background: #ffffff; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; box-sizing: border-box;"><h4 style="margin: 0 0 6px 0; font-size: 14px; font-weight: 700; color: #1e293b;">📦 卡片容器标题</h4><p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.5;">在此卡片内放置自定义组件、图文信息或操作入口。</p></div>`
+  } else if (tool === 'text') {
+    targetName = '文本块'
+    isText = true
+    targetSnippet = `<div class="wf-text-block" style="width: 280px; box-sizing: border-box;"><h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">输入标题文字</h3><p style="font-size: 13px; color: #475569; line-height: 1.6; margin: 0;">点击此处直接输入正文内容</p></div>`
+  }
+
+  insertComponentIntoPage(b.page.id, { name: targetName, html: targetSnippet }, clickX, clickY, isText)
+
+  // 注入后自动重置 activeDrawTool = 'select' 退出绘制模式，让用户立即可以缩放/移动
+  activeDrawTool.value = 'select'
+}
+
+function handleBottomToolChange(tool: string) {
+  if (['select', 'frame', 'rect', 'circle', 'container', 'text'].includes(tool)) {
+    activeDrawTool.value = tool as ActiveToolType
+    if (tool !== 'select') {
+      showToast(`已激活「${toolNames[tool] || tool}」绘制工具：点击画板任意位置放置，按 Esc 键取消`)
+    }
+  }
+}
+
+function handleBottomAddComponent(item: any) {
+  const targetId = focusPageId.value || selectedNodeId.value || pages.value[0]?.id
+  if (!targetId) {
+    showToast('⚠️ 请先在画布上点击选择一个目标画板')
+    return
+  }
+  insertComponentIntoPage(targetId, item, 20, 220)
 }
 
 const mode = ref<'edit' | 'preview'>('edit')
@@ -3307,8 +3435,14 @@ watch(
 )
 
 function onGlobalKeydown(e: KeyboardEvent) {
-  // 1. ESC key: exits preview or cancels line selection
+  // 1. ESC key: exits draw mode, or cancels line selection, or exits preview
   if (e.key === 'Escape') {
+    if (activeDrawTool.value !== 'select') {
+      e.preventDefault()
+      activeDrawTool.value = 'select'
+      showToast('已取消绘制模式')
+      return
+    }
     if (selectedConnId.value) {
       selectedConnId.value = null
       return
@@ -3319,7 +3453,35 @@ function onGlobalKeydown(e: KeyboardEvent) {
     }
   }
 
-  // 2. Figma Prototype 连线删除快捷键 (Backspace / Delete)
+  // 2. 绘制工具快捷键监听 (V: 指针选择, R: 矩形方框, T: 文本落字, O: 圆形头像)
+  const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+  const isInput = activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable
+  if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && mode.value !== 'preview') {
+    const key = e.key.toUpperCase()
+    if (key === 'V') {
+      e.preventDefault()
+      activeDrawTool.value = 'select'
+      showToast('已切换至指针选择工具 (V)')
+      return
+    } else if (key === 'R') {
+      e.preventDefault()
+      activeDrawTool.value = 'rect'
+      showToast('已切换至矩形绘制工具 (R)：点击画板任意位置放置')
+      return
+    } else if (key === 'T') {
+      e.preventDefault()
+      activeDrawTool.value = 'text'
+      showToast('已切换至文本落字工具 (T)：点击画板任意位置放置')
+      return
+    } else if (key === 'O') {
+      e.preventDefault()
+      activeDrawTool.value = 'circle'
+      showToast('已切换至圆形头像工具 (O)：点击画板任意位置放置')
+      return
+    }
+  }
+
+  // 3. Figma Prototype 连线删除快捷键 (Backspace / Delete)
   if ((e.key === 'Backspace' || e.key === 'Delete') && selectedConnId.value) {
     const activeTag = (document.activeElement?.tagName || '').toLowerCase()
     if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {

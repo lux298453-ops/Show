@@ -1122,6 +1122,9 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       getTransformBox();
       updateActionBar(selectedEl);
       updateTransformBox(selectedEl);
+      setTimeout(function(){
+        if(selectedEl) updateTransformBox(selectedEl);
+      }, 40);
     }
 
     function deselect(){
@@ -1282,8 +1285,15 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
             newChild.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }catch(e){}
 
-          // 自动选中新插入的组件，立即呈现8点缩放盒与【编辑文字】按钮
+          // 自动激活编辑态并选中新插入的组件，立即呈现8点缩放盒与【编辑文字】按钮
+          EDIT = true;
+          document.body.style.cursor = 'default';
           selectElement(newChild);
+          if(d.autoEditText){
+            setTimeout(function(){
+              startTextEdit(newChild);
+            }, 60);
+          }
           scheduleSave();
           showToast('组件已添加：可拖动8个蓝色控制点调整大小，双击或点击【编辑文字】修改文案');
         }
@@ -2149,13 +2159,14 @@ function cancelEdit() {
   editingAnnId.value = null
 }
 
-function insertComponent(html: string, dropX = 20, dropY = 220) {
+function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = false) {
   if (!html) return
   htmlFrameRef.value?.contentWindow?.postMessage({
     type: 'wf-insert-html',
     html,
     dropX,
     dropY,
+    autoEditText,
   }, '*')
 }
 
