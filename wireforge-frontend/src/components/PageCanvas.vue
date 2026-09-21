@@ -885,16 +885,22 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           var tDiv=document.createElement('div');
           tDiv.innerHTML=d.html.trim();
           var newChild=tDiv.firstElementChild||tDiv;
-          var container=document.querySelector('main,[class*="content"],[class*="container"],[class*="card-list"],body');
+          var mainEl=document.querySelector('main');
           var bottomNav=document.querySelector('nav,footer,[class*="tabbar"],[class*="tab-bar"],[class*="nav-bottom"],[class*="bottom"]');
-          if(container&&container!==document.body){
-            container.appendChild(newChild);
-          }else if(bottomNav&&bottomNav.parentNode===document.body){
-            document.body.insertBefore(newChild,bottomNav);
+          if(mainEl){
+            mainEl.appendChild(newChild);
+          }else if(bottomNav&&bottomNav.parentNode){
+            bottomNav.parentNode.insertBefore(newChild,bottomNav);
           }else{
             document.body.appendChild(newChild);
           }
-          try{newChild.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
+          try{
+            newChild.scrollIntoView({behavior:'smooth',block:'center'});
+            newChild.style.transition='outline 0.3s ease';
+            newChild.style.outline='3px solid #3b82f6';
+            newChild.style.outlineOffset='2px';
+            setTimeout(function(){try{newChild.style.outline='';}catch(e){}},1800);
+          }catch(e){}
           scheduleSave();
           showToast('原子组件已插入页面并持久化落库');
         }

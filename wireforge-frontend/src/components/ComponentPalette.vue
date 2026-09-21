@@ -261,6 +261,7 @@ const displayedCategories = computed(() => {
 function onDragStart(event: DragEvent, item: PaletteItem) {
   ;(window as any).__wfDraggingComponent = item
   emit('dragStart', item)
+  window.dispatchEvent(new CustomEvent('wf-component-dragstart', { detail: item }))
   if (!event.dataTransfer) return
   event.dataTransfer.effectAllowed = 'copy'
   // 携带标准 HTML 模板
@@ -276,6 +277,7 @@ function onDragStart(event: DragEvent, item: PaletteItem) {
 
 function onDragEnd(event: DragEvent) {
   emit('dragEnd')
+  window.dispatchEvent(new CustomEvent('wf-component-dragend'))
   if (event.target instanceof HTMLElement) {
     event.target.style.opacity = '1'
   }

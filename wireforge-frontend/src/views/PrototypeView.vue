@@ -309,6 +309,8 @@
         :class="{ '!cursor-grabbing': isAnyDragging }"
         @wheel.prevent="onWheel"
         @mousedown="onMouseDown"
+        @dragover.prevent="onViewportDragOver"
+        @drop.prevent="onViewportDrop"
       >
         <!-- Full-viewport transparent overlay during drag to shield iframes and eliminate hit-testing cost -->
         <div
@@ -340,16 +342,20 @@
             >
               <!-- 原子组件拖拽释放接收层 (当正在从组件库拖拽组件时浮现，置于 iframe 之上，100% 捕获 drop 事件，杜绝跨域拦截) -->
               <div
-                v-if="isDraggingComponent"
-                class="palette-drop-receiver absolute inset-0 z-45 rounded-2xl transition-all flex flex-col items-center justify-center pointer-events-auto select-none"
-                :class="hoveredDropBlockId === b.page.id
-                  ? 'bg-blue-600/25 border-4 border-dashed border-blue-500 shadow-2xl backdrop-blur-[2px]'
-                  : 'bg-blue-500/10 border-2 border-dashed border-blue-400/50 hover:bg-blue-500/20'"
+                v-if="isDraggingComponent || leftSidebarTab === 'components'"
+                class="palette-drop-receiver absolute inset-0 z-45 rounded-2xl transition-all flex flex-col items-center justify-center select-none"
+                :class="[
+                  isDraggingComponent ? 'pointer-events-auto cursor-copy' : 'pointer-events-none',
+                  hoveredDropBlockId === b.page.id
+                    ? 'bg-blue-600/25 border-4 border-dashed border-blue-500 shadow-2xl backdrop-blur-[2px]'
+                    : (isDraggingComponent ? 'bg-blue-500/10 border-2 border-dashed border-blue-400/50' : '')
+                ]"
                 @dragover.prevent.stop="onDropZoneDragOver($event, b.page.id)"
                 @dragleave.stop="onDropZoneDragLeave($event, b.page.id)"
                 @drop.prevent.stop="onDropZoneDrop($event, b.page.id)"
               >
                 <div
+                  v-if="isDraggingComponent"
                   class="px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2.5 shadow-2xl transition-all"
                   :class="hoveredDropBlockId === b.page.id
                     ? 'bg-blue-600 text-white scale-110 shadow-blue-500/50 animate-pulse ring-4 ring-blue-300'
@@ -1245,11 +1251,60 @@ function onPaletteDragEnd() {
   hoveredDropBlockId.value = null
 }
 
-function onDropZoneDragOver(e: DragEvent, pageId: number) {
+function onViewportDragOver(e: DragEvent) {
+  if (!(window as any).__wfDraggingComponent && !isDraggingComponent.value) return
   e.preventDefault()
   if (e.dataTransfer) {
     e.dataTransfer.dropEffect = 'copy'
   }
+  isDraggingComponent.value = true
+
+  const rect = viewportRef.value?.getBoundingClientRect()
+  if (!rect) return
+  const cx = (e.clientX - rect.left - view.value.x) / view.value.k
+  const cy = (e.clientY - rect.top - view.value.y) / view.value.k
+
+  let targetId: number | null = null
+  for (const b of blocks.value) {
+    const left = b.x
+    const right = b.x + b.w
+    const top = b.y
+    const bottom = b.y + b.h
+    if (cx >= left && cx <= right && cy >= top && cy <= bottom) {
+      targetId = b.page.id
+      break
+    }
+  }
+  hoveredDropBlockId.value = targetId
+}
+
+function onViewportDrop(e: DragEvent) {
+  if (!isDraggingComponent.value && !(window as any).__wfDraggingComponent) return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const targetId = hoveredDropBlockId.value || focusPageId.value || selectedNodeId.value || pages.value[0]?.id
+  const item = (window as any).__wfDraggingComponent
+  let html = item?.html || ''
+  if (!html && e.dataTransfer) {
+    html = e.dataTransfer.getData('text/html') || e.dataTransfer.getData('text/plain') || ''
+  }
+
+  isDraggingComponent.value = false
+  hoveredDropBlockId.value = null
+
+  if (targetId && html) {
+    insertComponentIntoPage(targetId, item || html)
+  }
+}
+
+function onDropZoneDragOver(e: DragEvent, pageId: number) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  isDraggingComponent.value = true
   hoveredDropBlockId.value = pageId
 }
 
@@ -3107,6 +3162,22 @@ watch(activeEditingPageId, (newId, oldId) => {
 
 onMounted(async () => {
   window.addEventListener('resize', updatePhoneScale)
+  window.addEventListener('wf-component-dragstart', () => {
+    isDraggingComponent.value = true
+  })
+  window.addEventListener('wf-component-dragend', () => {
+    isDraggingComponent.value = false
+    hoveredDropBlockId.value = null
+  })
+  window.addEventListener('dragover', (e) => {
+    if ((window as any).__wfDraggingComponent || isDraggingComponent.value) {
+      e.preventDefault()
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy'
+      }
+      isDraggingComponent.value = true
+    }
+  })
   window.addEventListener('dragend', () => {
     isDraggingComponent.value = false
     hoveredDropBlockId.value = null
