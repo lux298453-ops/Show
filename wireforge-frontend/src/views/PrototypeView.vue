@@ -292,7 +292,14 @@
         </div>
 
         <!-- Tab 2: Atomic Component Library Palette -->
-        <ComponentPalette v-else class="flex-1" />
+        <ComponentPalette
+          v-else
+          class="flex-1"
+          :target-page="currentFocusPage"
+          @add-component="onPaletteAddComponent"
+          @drag-start="onPaletteDragStart"
+          @drag-end="onPaletteDragEnd"
+        />
       </aside>
 
       <!-- ===== Right: Infinite Workbench Canvas ===== -->
@@ -331,6 +338,27 @@
               @mouseenter="hoveredNodeId = b.page.id"
               @mouseleave="hoveredNodeId = null"
             >
+              <!-- 原子组件拖拽释放接收层 (当正在从组件库拖拽组件时浮现，置于 iframe 之上，100% 捕获 drop 事件，杜绝跨域拦截) -->
+              <div
+                v-if="isDraggingComponent"
+                class="palette-drop-receiver absolute inset-0 z-45 rounded-2xl transition-all flex flex-col items-center justify-center pointer-events-auto select-none"
+                :class="hoveredDropBlockId === b.page.id
+                  ? 'bg-blue-600/25 border-4 border-dashed border-blue-500 shadow-2xl backdrop-blur-[2px]'
+                  : 'bg-blue-500/10 border-2 border-dashed border-blue-400/50 hover:bg-blue-500/20'"
+                @dragover.prevent.stop="onDropZoneDragOver($event, b.page.id)"
+                @dragleave.stop="onDropZoneDragLeave($event, b.page.id)"
+                @drop.prevent.stop="onDropZoneDrop($event, b.page.id)"
+              >
+                <div
+                  class="px-5 py-3 rounded-2xl text-sm font-bold flex items-center gap-2.5 shadow-2xl transition-all"
+                  :class="hoveredDropBlockId === b.page.id
+                    ? 'bg-blue-600 text-white scale-110 shadow-blue-500/50 animate-pulse ring-4 ring-blue-300'
+                    : 'bg-white/95 text-blue-700 border border-blue-200'"
+                >
+                  <Plus class="w-5 h-5 stroke-[3]" />
+                  <span>{{ hoveredDropBlockId === b.page.id ? `松手放入「${b.page.name}」` : `释放添加至「${b.page.name}」` }}</span>
+                </div>
+              </div>
 
 
               <!-- Figma 画板级别交互连线拉线手柄 (交互连线模式下：选中或悬停时呈现于原型屏幕右侧边缘) -->
@@ -1097,7 +1125,7 @@ import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
 import type { Element, Page, Prototype } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
-import ComponentPalette from '../components/ComponentPalette.vue'
+import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -1198,6 +1226,94 @@ function onSaveHtml(p: { pageId: number; html: string }) {
     })
     .catch((e: any) => showToast(`❌ 保存失败: ${e?.response?.data?.message || e?.message || '未知错误'}`))
 }
+
+// ===== 原子组件库拖拽放置与快捷添加系统 =====
+const isDraggingComponent = ref(false)
+const hoveredDropBlockId = ref<number | null>(null)
+
+const currentFocusPage = computed(() => {
+  const targetId = focusPageId.value || selectedNodeId.value
+  return pages.value.find((p) => p.id === targetId) || pages.value[0] || null
+})
+
+function onPaletteDragStart(item: any) {
+  isDraggingComponent.value = true
+}
+
+function onPaletteDragEnd() {
+  isDraggingComponent.value = false
+  hoveredDropBlockId.value = null
+}
+
+function onDropZoneDragOver(e: DragEvent, pageId: number) {
+  e.preventDefault()
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  hoveredDropBlockId.value = pageId
+}
+
+function onDropZoneDragLeave(e: DragEvent, pageId: number) {
+  if (hoveredDropBlockId.value === pageId) {
+    hoveredDropBlockId.value = null
+  }
+}
+
+function onDropZoneDrop(e: DragEvent, pageId: number) {
+  e.preventDefault()
+  e.stopPropagation()
+  hoveredDropBlockId.value = null
+  isDraggingComponent.value = false
+
+  let html = ''
+  if ((window as any).__wfDraggingComponent?.html) {
+    html = (window as any).__wfDraggingComponent.html
+  } else if (e.dataTransfer) {
+    html = e.dataTransfer.getData('text/html') || e.dataTransfer.getData('text/plain') || ''
+  }
+
+  const item = (window as any).__wfDraggingComponent
+  if (html) {
+    insertComponentIntoPage(pageId, item || html)
+  }
+}
+
+function onPaletteAddComponent(item: PaletteItem) {
+  const targetId = focusPageId.value || selectedNodeId.value || pages.value[0]?.id
+  if (!targetId) {
+    showToast('⚠️ 请先在画布上点击选择一个目标画板')
+    return
+  }
+  insertComponentIntoPage(targetId, item)
+}
+
+function insertComponentIntoPage(pageId: number, itemOrHtml: any) {
+  const page = pages.value.find((p) => p.id === pageId)
+  if (!page) return
+  const htmlSnippet = typeof itemOrHtml === 'string' ? itemOrHtml : (itemOrHtml?.html || '')
+  const itemName = typeof itemOrHtml === 'string' ? '原子组件' : (itemOrHtml?.name || '原子组件')
+
+  if (!htmlSnippet) return
+
+  // 1. 优先通过 PageCanvas 实例向运行中的 iframe 注入并自动触发持久化
+  const inst = pageRefs.value[pageId]
+  if (inst && typeof (inst as any).insertComponent === 'function') {
+    ;(inst as any).insertComponent(htmlSnippet)
+    showToast(`✅ 已将「${itemName}」添加至「${page.name}」`)
+    return
+  }
+
+  // 2. 如果尚未挂载 iframe，直接拼接 HTML 内容并持久化落库
+  let currentHtml = page.html_content || ''
+  if (currentHtml.includes('</body>')) {
+    currentHtml = currentHtml.replace('</body>', `${htmlSnippet}\n</body>`)
+  } else {
+    currentHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=375"><style>body{margin:0;padding:16px;background:#f8fafc;font-family:sans-serif;}</style></head><body>${currentHtml}\n${htmlSnippet}</body></html>`
+  }
+  onSaveHtml({ pageId, html: currentHtml })
+  showToast(`✅ 已将「${itemName}」添加至「${page.name}」`)
+}
+
 const mode = ref<'edit' | 'preview'>('edit')
 
 // 预览手机壳按视口可用宽度和高度双向等比自适应，确保在任意屏幕分辨率下整机 100% 完整可见
@@ -2991,6 +3107,14 @@ watch(activeEditingPageId, (newId, oldId) => {
 
 onMounted(async () => {
   window.addEventListener('resize', updatePhoneScale)
+  window.addEventListener('dragend', () => {
+    isDraggingComponent.value = false
+    hoveredDropBlockId.value = null
+  })
+  window.addEventListener('drop', () => {
+    isDraggingComponent.value = false
+    hoveredDropBlockId.value = null
+  })
   editStatusTimer = setInterval(syncEditingSession, 3500)
   syncEditingSession()
   await loadData()

@@ -8,7 +8,18 @@
         </div>
         <span class="text-xs font-bold text-slate-800">原子组件库</span>
       </div>
-      <span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full font-medium">可直接拖拽</span>
+      <span class="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-semibold border border-blue-200/60">可拖拽 / 可点加</span>
+    </div>
+
+    <!-- Target Page Indicator Banner -->
+    <div class="px-3 py-1.5 bg-blue-50/70 border-b border-blue-100/80 flex items-center justify-between text-[11px]">
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span class="text-blue-700 font-bold shrink-0">📍 目标画板:</span>
+        <span class="font-bold text-slate-800 truncate max-w-[120px]" :title="targetPage?.name || '点击画板选定'">
+          {{ targetPage?.name || '点击画板选定' }}
+        </span>
+      </div>
+      <span class="text-[10px] text-blue-600 font-medium shrink-0">拖入或直接添加</span>
     </div>
 
     <!-- Category Filter Tabs -->
@@ -66,13 +77,20 @@
               <div v-html="item.previewHtml" class="scale-90 transform-origin-center"></div>
             </div>
 
-            <!-- Drag Overlay Hint -->
-            <div class="flex items-center justify-between pt-1 border-t border-slate-100/60 text-[10px] text-slate-400 font-medium">
+            <!-- Drag Overlay Hint & Quick Add CTA -->
+            <div class="flex items-center justify-between pt-1.5 border-t border-slate-100/80 text-[10px] text-slate-400 font-medium">
               <span class="flex items-center gap-1 group-hover:text-blue-500 transition-colors">
                 <GripVertical class="w-3 h-3 text-slate-300 group-hover:text-blue-400" />
-                拖拽放入画框页面
+                拖拽放入画板
               </span>
-              <span class="opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 font-bold">按住拖拽</span>
+              <button
+                type="button"
+                class="px-2.5 py-0.5 bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer shadow-2xs hover:shadow-xs active:scale-95"
+                :title="`直接添加「${item.name}」到「${targetPage?.name || '当前画板'}」`"
+                @click.stop="emit('addComponent', item)"
+              >
+                <span>➕ 添加</span>
+              </button>
             </div>
           </div>
         </div>
@@ -80,9 +98,15 @@
     </div>
 
     <!-- Footer Tips -->
-    <div class="p-2.5 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-500 flex items-center gap-1.5">
-      <span class="text-blue-600 text-xs">💡</span>
-      <span>将组件拖至右侧正在微调的画板中松手，即可直接插入并自动落库。</span>
+    <div class="p-2.5 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-500 space-y-1">
+      <div class="flex items-start gap-1">
+        <span class="text-blue-600 font-bold shrink-0">➕ 添加:</span>
+        <span>拖拽至任意画板，或点击「➕ 添加」插入当前选中的画板。</span>
+      </div>
+      <div class="flex items-start gap-1">
+        <span class="text-rose-500 font-bold shrink-0">🗑️ 删除:</span>
+        <span>画板内按住 Alt/Shift 点击元素，或选中后敲 Backspace 键删除 (支持 Ctrl+Z 撤回)。</span>
+      </div>
     </div>
   </div>
 </template>
@@ -90,6 +114,16 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { GripVertical } from 'lucide-vue-next'
+
+const props = defineProps<{
+  targetPage?: { id: number; name: string } | null
+}>()
+
+const emit = defineEmits<{
+  (e: 'addComponent', item: PaletteItem): void
+  (e: 'dragStart', item: PaletteItem): void
+  (e: 'dragEnd'): void
+}>()
 
 export interface PaletteItem {
   id: string
@@ -225,6 +259,8 @@ const displayedCategories = computed(() => {
 })
 
 function onDragStart(event: DragEvent, item: PaletteItem) {
+  ;(window as any).__wfDraggingComponent = item
+  emit('dragStart', item)
   if (!event.dataTransfer) return
   event.dataTransfer.effectAllowed = 'copy'
   // 携带标准 HTML 模板
@@ -239,9 +275,13 @@ function onDragStart(event: DragEvent, item: PaletteItem) {
 }
 
 function onDragEnd(event: DragEvent) {
+  emit('dragEnd')
   if (event.target instanceof HTMLElement) {
     event.target.style.opacity = '1'
   }
+  setTimeout(() => {
+    ;(window as any).__wfDraggingComponent = null
+  }, 100)
 }
 </script>
 

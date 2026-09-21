@@ -885,7 +885,16 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           var tDiv=document.createElement('div');
           tDiv.innerHTML=d.html.trim();
           var newChild=tDiv.firstElementChild||tDiv;
-          document.body.appendChild(newChild);
+          var container=document.querySelector('main,[class*="content"],[class*="container"],[class*="card-list"],body');
+          var bottomNav=document.querySelector('nav,footer,[class*="tabbar"],[class*="tab-bar"],[class*="nav-bottom"],[class*="bottom"]');
+          if(container&&container!==document.body){
+            container.appendChild(newChild);
+          }else if(bottomNav&&bottomNav.parentNode===document.body){
+            document.body.insertBefore(newChild,bottomNav);
+          }else{
+            document.body.appendChild(newChild);
+          }
+          try{newChild.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
           scheduleSave();
           showToast('原子组件已插入页面并持久化落库');
         }
@@ -1158,7 +1167,6 @@ function selectAsset(asset: AssetItem) {
 }
 
 function onSlotDragOver(e: DragEvent) {
-  if (!props.editMode) return
   e.preventDefault()
   if (e.dataTransfer) {
     e.dataTransfer.dropEffect = 'copy'
@@ -1166,15 +1174,11 @@ function onSlotDragOver(e: DragEvent) {
 }
 
 function onSlotDrop(e: DragEvent) {
-  if (!props.editMode) return
   const html = e.dataTransfer?.getData('text/html') || e.dataTransfer?.getData('text/plain')
   if (html) {
     e.preventDefault()
     e.stopPropagation()
-    htmlFrameRef.value?.contentWindow?.postMessage({
-      type: 'wf-insert-html',
-      html,
-    }, '*')
+    insertComponent(html)
   }
 }
 
@@ -1635,8 +1639,16 @@ function cancelEdit() {
   editingAnnId.value = null
 }
 
-// 暴露尺寸与热区提示，供父组件（无限画布）计算布局与调用
-defineExpose({ stageW, stageH, triggerHotspots })
+function insertComponent(html: string) {
+  if (!html) return
+  htmlFrameRef.value?.contentWindow?.postMessage({
+    type: 'wf-insert-html',
+    html,
+  }, '*')
+}
+
+// 暴露尺寸与热区提示及组件插入方法，供父组件（无限画布）计算布局与调用
+defineExpose({ stageW, stageH, triggerHotspots, insertComponent })
 </script>
 
 <style scoped lang="scss">
