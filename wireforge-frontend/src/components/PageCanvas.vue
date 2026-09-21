@@ -43,7 +43,7 @@
         ref="htmlFrameRef"
         class="html-frame"
         :class="{ 'pointer-events-none': draggingComponent }"
-        :style="[{ width: `${canvasW * scale}px`, height: `${(iframeH || canvasH) * scale}px` }, draggingComponent ? { pointerEvents: 'none' } : {}]"
+        :style="[{ width: `${Math.round(canvasW * scale)}px`, height: `${Math.round((iframeH || canvasH) * scale)}px` }, draggingComponent ? { pointerEvents: 'none' } : {}]"
         :srcdoc="navRuntimeHtml"
         sandbox="allow-scripts allow-same-origin"
         title="prototype-html"
@@ -427,6 +427,9 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
        彻底消除"右侧显示不全"；轻微出界的装饰元素由 body overflow-x:hidden 自然裁掉。 */
     html,body{width:100%;overflow-x:hidden}
     *{max-width:100%}
+    /* 文字渲染最优化：无论 AI 生成字号多少，统一保持清晰锐利的文字渲染，
+       解决 iframe 内 scale 缩放后文字发虚/模糊的问题 */
+    html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
     img,svg{max-width:100%}
     button,[data-nav],a,nav,.tab,.tabs,[class*="btn"],[class*="button"],[class*="tab"]{white-space:nowrap}
     /* 弹窗/对话框说明文字：仅允许段落内自然换行、行高舒适，不做任何宽度覆盖
@@ -1402,6 +1405,9 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           var r = th / hh;
           document.body.style.transformOrigin = 'top center';
           document.body.style.transform = 'scale(' + r + ')';
+          /* 缩放后强制开启字体子像素渲染，防止 transform 导致文字发虚 */
+          document.body.style.webkitFontSmoothing = 'antialiased';
+          document.body.style.backfaceVisibility = 'hidden';
           parent.postMessage({ type: 'wf-size', h: th }, '*');
         }
       }else if(d.type === 'wf-replace-asset'){
@@ -2437,6 +2443,10 @@ defineExpose({
     background: #fff;
     border-radius: 14px;
     box-shadow: 0 10px 34px rgba(0, 0, 0, 0.35);
+    /* 防止 GPU 合成层导致文字渲染模糊：将 iframe 固定在整像素边界 */
+    transform: translateZ(0);
+    -webkit-font-smoothing: subpixel-antialiased;
+    image-rendering: -webkit-optimize-contrast;
   }
 
   /* ===== 整页/组件视图切换 ===== */
