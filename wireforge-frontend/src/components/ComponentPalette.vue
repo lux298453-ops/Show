@@ -156,7 +156,7 @@ const shapeItems: PaletteItem[] = [
     emoji: '🔲',
     tag: 'Box',
     description: '基础占位线框或几何边框',
-    html: `<div class="wf-box" style="width: 100%; height: 90px; border: 2px dashed #94a3b8; border-radius: 10px; background: rgba(241, 245, 249, 0.7); display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 12px; font-weight: 600; margin: 10px 0;">🔲 矩形占位方框</div>`,
+    html: `<div class="wf-box" style="width: 335px; height: 90px; border: 2px dashed #94a3b8; border-radius: 12px; background: rgba(241, 245, 249, 0.85); display: flex; align-items: center; justify-content: center; color: #475569; font-size: 13px; font-weight: 600; box-sizing: border-box;">🔲 矩形占位方框</div>`,
     previewHtml: `<div style="width: 80px; height: 36px; border: 1.5px dashed #94a3b8; border-radius: 6px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">方框占位</div>`,
   },
   {
@@ -165,7 +165,7 @@ const shapeItems: PaletteItem[] = [
     emoji: '📦',
     tag: 'Container',
     description: '带阴影与圆角的容器背景卡片',
-    html: `<div class="wf-container" style="width: 100%; padding: 14px; background: #ffffff; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; margin: 10px 0;"><h4 style="margin: 0 0 6px 0; font-size: 14px; font-weight: 700; color: #1e293b;">📦 卡片容器标题</h4><p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.5;">在此卡片内放置自定义组件、图文信息或操作入口。</p></div>`,
+    html: `<div class="wf-container" style="width: 335px; padding: 16px; background: #ffffff; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; box-sizing: border-box;"><h4 style="margin: 0 0 6px 0; font-size: 14px; font-weight: 700; color: #1e293b;">📦 卡片容器标题</h4><p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.5;">在此卡片内放置自定义组件、图文信息或操作入口。</p></div>`,
     previewHtml: `<div style="width: 100%; padding: 6px 10px; background: #fff; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: 0 1px 4px rgba(0,0,0,0.05);"><div style="font-size: 11px; font-weight: bold; color: #1e293b;">卡片容器</div><div style="font-size: 9px; color: #94a3b8;">纯色背景卡片</div></div>`,
   },
   {
@@ -174,7 +174,7 @@ const shapeItems: PaletteItem[] = [
     emoji: '⭕',
     tag: 'Circle',
     description: '用于用户头像或圆形微缩图标',
-    html: `<div class="wf-avatar" style="width: 48px; height: 48px; border-radius: 50%; background: #e2e8f0; border: 2px solid #cbd5e1; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; margin: 8px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.08);"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" style="width: 100%; height: 100%; object-fit: cover;" alt="用户头像" /></div>`,
+    html: `<div class="wf-avatar" style="width: 52px; height: 52px; border-radius: 50%; background: #e2e8f0; border: 2px solid #cbd5e1; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.1); box-sizing: border-box;"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" style="width: 100%; height: 100%; object-fit: cover;" alt="用户头像" /></div>`,
     previewHtml: `<div style="width: 32px; height: 32px; border-radius: 50%; background: #e2e8f0; border: 1.5px solid #cbd5e1; display: flex; align-items: center; justify-content: center; font-size: 12px;">👤</div>`,
   },
   {
@@ -183,7 +183,7 @@ const shapeItems: PaletteItem[] = [
     emoji: '📝',
     tag: 'Text Block',
     description: '标题加多行描述，双击直接修改文案',
-    html: `<div class="wf-text-block" style="margin: 10px 0;"><h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">这是标题文字</h3><p style="font-size: 13px; color: #475569; line-height: 1.6; margin: 0;">双击任意文本可直接敲键盘改字，失焦后自动持久化落库。</p></div>`,
+    html: `<div class="wf-text-block" style="width: 300px; box-sizing: border-box;"><h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">这是标题文字</h3><p style="font-size: 13px; color: #475569; line-height: 1.6; margin: 0;">双击任意文本可直接敲键盘改字，失焦后自动持久化落库。</p></div>`,
     previewHtml: `<div style="width: 100%;"><div style="font-size: 11px; font-weight: bold; color: #0f172a;">标题文案</div><div style="font-size: 9px; color: #64748b;">双击即可直接敲字编辑</div></div>`,
   },
 ]
@@ -195,7 +195,7 @@ const controlItems: PaletteItem[] = [
     emoji: '🟢',
     tag: 'Primary Button',
     description: '高对比度核心操作按钮',
-    html: `<button class="wf-btn wf-btn-primary" style="padding: 10px 20px; background: linear-gradient(135deg, #10b981, #059669); color: #ffffff; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(16,185,129,0.3); display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin: 8px 0; transition: transform 0.1s;">立即提交</button>`,
+    html: `<button class="wf-btn wf-btn-primary" style="padding: 10px 24px; background: linear-gradient(135deg, #10b981, #059669); color: #ffffff; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(16,185,129,0.35); display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; transition: transform 0.1s;">立即提交</button>`,
     previewHtml: `<div style="padding: 4px 14px; background: #10b981; color: #fff; font-size: 10px; font-weight: bold; border-radius: 6px;">主行动按钮</div>`,
   },
   {
@@ -204,7 +204,7 @@ const controlItems: PaletteItem[] = [
     emoji: '⚪',
     tag: 'Secondary Button',
     description: '浅色背景与深色细边框次要操作',
-    html: `<button class="wf-btn wf-btn-secondary" style="padding: 9px 18px; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin: 8px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: transform 0.1s;">取消/返回</button>`,
+    html: `<button class="wf-btn wf-btn-secondary" style="padding: 9px 20px; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); box-sizing: border-box; transition: transform 0.1s;">取消/返回</button>`,
     previewHtml: `<div style="padding: 4px 14px; background: #fff; border: 1.5px solid #cbd5e1; color: #334155; font-size: 10px; font-weight: bold; border-radius: 6px;">描边次按钮</div>`,
   },
   {
@@ -213,7 +213,7 @@ const controlItems: PaletteItem[] = [
     emoji: '🔀',
     tag: 'Switch',
     description: '高保真平滑切换的物理滑块开关',
-    html: `<div class="wf-sw" data-state="on" style="display: inline-flex; align-items: center; width: 46px; height: 26px; background: linear-gradient(180deg, #FF8336 0%, #FA6B19 100%); border-radius: 13px; position: relative; cursor: pointer; margin: 8px 0; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15), 0 2px 6px rgba(250,107,25,0.28);"><span class="wf-sw-k" style="width: 22px; height: 22px; background: #ffffff; border-radius: 50%; position: absolute; right: 2px; box-shadow: 0 1px 3px rgba(0,0,0,0.25);"></span></div>`,
+    html: `<div class="wf-sw" data-state="on" style="display: inline-flex; align-items: center; width: 48px; height: 28px; background: linear-gradient(180deg, #FF8336 0%, #FA6B19 100%); border-radius: 14px; position: relative; cursor: pointer; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15), 0 2px 6px rgba(250,107,25,0.28); box-sizing: border-box;"><span class="wf-sw-k" style="width: 24px; height: 24px; background: #ffffff; border-radius: 50%; position: absolute; right: 2px; top: 2px; box-shadow: 0 1px 3px rgba(0,0,0,0.25);"></span></div>`,
     previewHtml: `<div style="width: 36px; height: 20px; background: #fa6b19; border-radius: 10px; position: relative;"><div style="width: 16px; height: 16px; background: #fff; border-radius: 50%; position: absolute; right: 2px; top: 2px;"></div></div>`,
   },
   {
@@ -222,7 +222,7 @@ const controlItems: PaletteItem[] = [
     emoji: '🔍',
     tag: 'Search Box',
     description: '带搜索图标与圆角输入底框',
-    html: `<div class="wf-search-box" style="display: flex; align-items: center; width: 100%; height: 38px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0 12px; margin: 8px 0;"><span style="color: #94a3b8; margin-right: 8px; font-size: 14px;">🔍</span><input type="text" placeholder="搜索内容或关键词..." style="border: none; background: transparent; outline: none; font-size: 13px; color: #1e293b; width: 100%;" /></div>`,
+    html: `<div class="wf-search-box" style="display: flex; align-items: center; width: 335px; height: 40px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 0 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); box-sizing: border-box;"><span style="color: #94a3b8; margin-right: 8px; font-size: 14px;">🔍</span><input type="text" placeholder="搜索内容或关键词..." style="border: none; background: transparent; outline: none; font-size: 13px; color: #1e293b; width: 100%;" /></div>`,
     previewHtml: `<div style="width: 100%; height: 26px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; align-items: center; padding: 0 8px; font-size: 10px; color: #94a3b8;">🔍 搜索...</div>`,
   },
   {
@@ -231,7 +231,7 @@ const controlItems: PaletteItem[] = [
     emoji: '🪟',
     tag: 'Modal Dialog',
     description: '居中遮罩弹窗，包含标题、内容与操作',
-    html: `<div class="wf-modal wf-show" style="position: fixed; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 9999;"><div style="width: 290px; background: #ffffff; border-radius: 18px; padding: 22px; box-shadow: 0 20px 30px -5px rgba(0,0,0,0.3); text-align: center;"><h4 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;">操作确认</h4><p style="font-size: 13px; color: #64748b; margin: 0 0 20px 0; line-height: 1.5;">确认执行当前业务操作吗？修改将立即同步并持久化。</p><div style="display: flex; gap: 10px;"><button class="wf-modal-dismiss" style="flex: 1; padding: 9px; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 10px; font-size: 13px; font-weight: 600; color: #475569; cursor: pointer;">取消</button><button class="wf-modal-dismiss" style="flex: 1; padding: 9px; border: none; background: #10b981; border-radius: 10px; font-size: 13px; font-weight: 600; color: #ffffff; cursor: pointer;">确定</button></div></div></div>`,
+    html: `<div class="wf-modal wf-show" style="position: absolute; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 9999; box-sizing: border-box;"><div style="width: 290px; background: #ffffff; border-radius: 18px; padding: 22px; box-shadow: 0 20px 30px -5px rgba(0,0,0,0.3); text-align: center;"><h4 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;">操作确认</h4><p style="font-size: 13px; color: #64748b; margin: 0 0 20px 0; line-height: 1.5;">确认执行当前业务操作吗？修改将立即同步并持久化。</p><div style="display: flex; gap: 10px;"><button class="wf-modal-dismiss" style="flex: 1; padding: 9px; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 10px; font-size: 13px; font-weight: 600; color: #475569; cursor: pointer;">取消</button><button class="wf-modal-dismiss" style="flex: 1; padding: 9px; border: none; background: #10b981; border-radius: 10px; font-size: 13px; font-weight: 600; color: #ffffff; cursor: pointer;">确定</button></div></div></div>`,
     previewHtml: `<div style="padding: 4px 8px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; text-align: center; width: 100%;"><span style="font-size: 10px; font-weight: bold; color: #1e293b;">居中弹窗卡片</span></div>`,
   },
   {
@@ -240,7 +240,7 @@ const controlItems: PaletteItem[] = [
     emoji: '📥',
     tag: 'Bottom Sheet',
     description: '移动端原生感底部滑出操作面板',
-    html: `<div class="wf-modal wf-bottom-sheet wf-show" style="position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; flex-direction: column; justify-content: flex-end; z-index: 9999;"><div style="width: 100%; background: #ffffff; border-radius: 20px 20px 0 0; padding: 18px 20px 28px 20px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15);"><div style="width: 36px; height: 4px; background: #cbd5e1; border-radius: 2px; margin: 0 auto 14px auto;"></div><h4 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 12px 0;">快捷面板操作</h4><div style="display: flex; flex-direction: column; gap: 8px;"><div style="padding: 10px 14px; background: #f8fafc; border-radius: 10px; font-size: 13px; color: #334155; font-weight: 500; cursor: pointer;">选项 A：分享给好友</div><div style="padding: 10px 14px; background: #f8fafc; border-radius: 10px; font-size: 13px; color: #334155; font-weight: 500; cursor: pointer;">选项 B：保存至草稿</div></div><button class="wf-modal-dismiss" style="width: 100%; margin-top: 14px; padding: 10px; background: #f1f5f9; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; color: #64748b; cursor: pointer;">取消关闭</button></div></div>`,
+    html: `<div class="wf-modal wf-bottom-sheet wf-show" style="position: absolute; inset: 0; background: rgba(0,0,0,0.45); display: flex; flex-direction: column; justify-content: flex-end; z-index: 9999; box-sizing: border-box;"><div style="width: 100%; background: #ffffff; border-radius: 20px 20px 0 0; padding: 18px 20px 28px 20px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15);"><div style="width: 36px; height: 4px; background: #cbd5e1; border-radius: 2px; margin: 0 auto 14px auto;"></div><h4 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 12px 0;">快捷面板操作</h4><div style="display: flex; flex-direction: column; gap: 8px;"><div style="padding: 10px 14px; background: #f8fafc; border-radius: 10px; font-size: 13px; color: #334155; font-weight: 500; cursor: pointer;">选项 A：分享给好友</div><div style="padding: 10px 14px; background: #f8fafc; border-radius: 10px; font-size: 13px; color: #334155; font-weight: 500; cursor: pointer;">选项 B：保存至草稿</div></div><button class="wf-modal-dismiss" style="width: 100%; margin-top: 14px; padding: 10px; background: #f1f5f9; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; color: #64748b; cursor: pointer;">取消关闭</button></div></div>`,
     previewHtml: `<div style="width: 100%; padding: 4px 6px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px 6px 0 0; text-align: center;"><div style="width: 16px; height: 2px; background: #94a3b8; margin: 0 auto 2px auto;"></div><span style="font-size: 9px; font-weight: bold; color: #334155;">底部滑出抽屉</span></div>`,
   },
 ]

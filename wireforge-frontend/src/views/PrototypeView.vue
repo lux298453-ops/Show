@@ -1294,7 +1294,23 @@ function onViewportDrop(e: DragEvent) {
   hoveredDropBlockId.value = null
 
   if (targetId && html) {
-    insertComponentIntoPage(targetId, item || html)
+    const block = blocks.value.find((b) => b.page.id === targetId)
+    let dropX = 20
+    let dropY = 220
+    if (block && viewportRef.value) {
+      const rect = viewportRef.value.getBoundingClientRect()
+      const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
+      const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
+      const blockRelX = logicX - block.x
+      const blockRelY = logicY - block.y
+      const canvasW = block.page.canvas_width || 375
+      const wireX = canvasW + 16
+      const rawX = blockRelX >= wireX ? (blockRelX - wireX) : blockRelX
+      const rawY = blockRelY
+      dropX = Math.round(Math.max(16, Math.min(canvasW - 60, rawX)))
+      dropY = Math.round(Math.max(60, Math.min((block.page.canvas_height || 812) - 80, rawY)))
+    }
+    insertComponentIntoPage(targetId, item || html, dropX, dropY)
   }
 }
 
@@ -1328,9 +1344,27 @@ function onDropZoneDrop(e: DragEvent, pageId: number) {
   }
 
   const item = (window as any).__wfDraggingComponent
-  if (html) {
-    insertComponentIntoPage(pageId, item || html)
+  if (!html) return
+
+  const block = blocks.value.find((b) => b.page.id === pageId)
+  let dropX = 20
+  let dropY = 220
+
+  if (block && viewportRef.value) {
+    const rect = viewportRef.value.getBoundingClientRect()
+    const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
+    const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
+    const blockRelX = logicX - block.x
+    const blockRelY = logicY - block.y
+    const canvasW = block.page.canvas_width || 375
+    const wireX = canvasW + 16
+    const rawX = blockRelX >= wireX ? (blockRelX - wireX) : blockRelX
+    const rawY = blockRelY
+    dropX = Math.round(Math.max(16, Math.min(canvasW - 60, rawX)))
+    dropY = Math.round(Math.max(60, Math.min((block.page.canvas_height || 812) - 80, rawY)))
   }
+
+  insertComponentIntoPage(pageId, item || html, dropX, dropY)
 }
 
 function onPaletteAddComponent(item: PaletteItem) {
@@ -1339,10 +1373,10 @@ function onPaletteAddComponent(item: PaletteItem) {
     showToast('⚠️ 请先在画布上点击选择一个目标画板')
     return
   }
-  insertComponentIntoPage(targetId, item)
+  insertComponentIntoPage(targetId, item, 20, 220)
 }
 
-function insertComponentIntoPage(pageId: number, itemOrHtml: any) {
+function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dropY = 220) {
   const page = pages.value.find((p) => p.id === pageId)
   if (!page) return
   const htmlSnippet = typeof itemOrHtml === 'string' ? itemOrHtml : (itemOrHtml?.html || '')
@@ -1350,20 +1384,28 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any) {
 
   if (!htmlSnippet) return
 
+  selectedNodeId.value = pageId
+  focusPageId.value = pageId
+
   // 1. 优先通过 PageCanvas 实例向运行中的 iframe 注入并自动触发持久化
   const inst = pageRefs.value[pageId]
   if (inst && typeof (inst as any).insertComponent === 'function') {
-    ;(inst as any).insertComponent(htmlSnippet)
-    showToast(`✅ 已将「${itemName}」添加至「${page.name}」`)
+    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY)
+    showToast(`✅ 已将「${itemName}」添加至「${page.name}」(${dropX}, ${dropY})`)
     return
   }
 
   // 2. 如果尚未挂载 iframe，直接拼接 HTML 内容并持久化落库
   let currentHtml = page.html_content || ''
+  const isModal = /wf-modal|wf-bottom-sheet/i.test(htmlSnippet)
+  const wrappedSnippet = isModal
+    ? htmlSnippet
+    : `<div class="wf-el wf-inserted-component" style="position: absolute; left: ${dropX}px; top: ${dropY}px; z-index: 999; max-width: 335px;">${htmlSnippet}</div>`
+
   if (currentHtml.includes('</body>')) {
-    currentHtml = currentHtml.replace('</body>', `${htmlSnippet}\n</body>`)
+    currentHtml = currentHtml.replace('</body>', `${wrappedSnippet}\n</body>`)
   } else {
-    currentHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=375"><style>body{margin:0;padding:16px;background:#f8fafc;font-family:sans-serif;}</style></head><body>${currentHtml}\n${htmlSnippet}</body></html>`
+    currentHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=375"><style>body{margin:0;padding:16px;background:#f8fafc;font-family:sans-serif;}</style></head><body>${currentHtml}\n${wrappedSnippet}</body></html>`
   }
   onSaveHtml({ pageId, html: currentHtml })
   showToast(`✅ 已将「${itemName}」添加至「${page.name}」`)

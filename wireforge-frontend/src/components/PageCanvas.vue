@@ -885,24 +885,43 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           var tDiv=document.createElement('div');
           tDiv.innerHTML=d.html.trim();
           var newChild=tDiv.firstElementChild||tDiv;
-          var mainEl=document.querySelector('main');
-          var bottomNav=document.querySelector('nav,footer,[class*="tabbar"],[class*="tab-bar"],[class*="nav-bottom"],[class*="bottom"]');
-          if(mainEl){
-            mainEl.appendChild(newChild);
-          }else if(bottomNav&&bottomNav.parentNode){
-            bottomNav.parentNode.insertBefore(newChild,bottomNav);
+
+          var targetX=(typeof d.dropX==='number'&&!isNaN(d.dropX))?d.dropX:20;
+          var targetY=(typeof d.dropY==='number'&&!isNaN(d.dropY))?d.dropY:220;
+
+          var isModal=newChild.classList&&(newChild.classList.contains('wf-modal')||newChild.classList.contains('wf-bottom-sheet'));
+          if(!isModal){
+            newChild.classList.add('wf-el','wf-inserted-component');
+            newChild.style.position='absolute';
+            newChild.style.left=targetX+'px';
+            newChild.style.top=targetY+'px';
+            newChild.style.zIndex='999';
+            if(!newChild.style.maxWidth&&!newChild.style.width){
+              newChild.style.maxWidth='335px';
+            }
           }else{
-            document.body.appendChild(newChild);
+            newChild.style.zIndex='9999';
           }
+
+          // 直接作为 body 顶层元素追加，确保绝不被底部抽屉、卡片或渐变遮盖
+          document.body.appendChild(newChild);
+
           try{
             newChild.scrollIntoView({behavior:'smooth',block:'center'});
-            newChild.style.transition='outline 0.3s ease';
+            newChild.style.transition='box-shadow 0.3s ease, outline 0.3s ease';
             newChild.style.outline='3px solid #3b82f6';
-            newChild.style.outlineOffset='2px';
-            setTimeout(function(){try{newChild.style.outline='';}catch(e){}},1800);
+            newChild.style.outlineOffset='3px';
+            newChild.style.boxShadow='0 0 24px rgba(59, 130, 246, 0.85)';
+            setTimeout(function(){
+              try{
+                newChild.style.outline='';
+                newChild.style.outlineOffset='';
+                newChild.style.boxShadow='';
+              }catch(e){}
+            },2200);
           }catch(e){}
           scheduleSave();
-          showToast('原子组件已插入页面并持久化落库');
+          showToast('原子组件已添加至 ('+targetX+', '+targetY+') 并持久化落库');
         }
       }
     });
@@ -1011,18 +1030,44 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
       if(!html)return;
       pushSnapshot();
-      var dropTarget=document.elementFromPoint(e.clientX,e.clientY);
-      var container=dropTarget?dropTarget.closest('.wf-container,.wf-card,main,[class*="content"],body')||document.body:document.body;
       var temp=document.createElement('div');
       temp.innerHTML=html.trim();
       var newEl=temp.firstElementChild||temp;
-      if(dropTarget&&dropTarget!==document.body&&dropTarget!==document.documentElement&&dropTarget.parentNode){
-        dropTarget.parentNode.insertBefore(newEl,dropTarget.nextSibling);
+
+      var targetX=Math.round(Math.max(16,Math.min(320,e.clientX-20)));
+      var targetY=Math.round(Math.max(60,Math.min(720,e.clientY-20)));
+
+      var isModal=newEl.classList&&(newEl.classList.contains('wf-modal')||newEl.classList.contains('wf-bottom-sheet'));
+      if(!isModal){
+        newEl.classList.add('wf-el','wf-inserted-component');
+        newEl.style.position='absolute';
+        newEl.style.left=targetX+'px';
+        newEl.style.top=targetY+'px';
+        newEl.style.zIndex='999';
+        if(!newEl.style.maxWidth&&!newEl.style.width) newEl.style.maxWidth='335px';
       }else{
-        container.appendChild(newEl);
+        newEl.style.zIndex='9999';
       }
+
+      document.body.appendChild(newEl);
+
+      try{
+        newEl.scrollIntoView({behavior:'smooth',block:'center'});
+        newEl.style.transition='box-shadow 0.3s ease, outline 0.3s ease';
+        newEl.style.outline='3px solid #3b82f6';
+        newEl.style.outlineOffset='3px';
+        newEl.style.boxShadow='0 0 24px rgba(59, 130, 246, 0.85)';
+        setTimeout(function(){
+          try{
+            newEl.style.outline='';
+            newEl.style.outlineOffset='';
+            newEl.style.boxShadow='';
+          }catch(e){}
+        },2200);
+      }catch(e){}
+
       scheduleSave();
-      showToast('原子组件已插入页面并落库');
+      showToast('原子组件已放置于 ('+targetX+', '+targetY+') 并持久化落库');
     },true);
 
     var drag=null;
@@ -1034,7 +1079,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       if(e.altKey||e.shiftKey){
         e.preventDefault();e.stopPropagation();
         var t=e.target;
-        if(t&&t!==document.body){
+        if(t&&t!==document.body&&t!==document.documentElement){
           pushSnapshot();
           t.style.display='none';
           scheduleSave();
@@ -1043,29 +1088,46 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         }
         return;
       }
+      if(e.button!==0)return;
+
+      var targetEl=e.target;
+      if(targetEl===document.body||targetEl===document.documentElement)return;
+      var moveEl=targetEl.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box')||targetEl;
+
       e.preventDefault();e.stopPropagation();
       pushSnapshot();
-      drag={el:e.target,sx:e.clientX,sy:e.clientY};
-      if(hovered&&hovered!==e.target)outline(hovered,false);
-      hovered=e.target;outline(hovered,true);
+
+      var rect=moveEl.getBoundingClientRect();
+      var curLeft=parseFloat(moveEl.style.left);
+      var curTop=parseFloat(moveEl.style.top);
+      if(isNaN(curLeft))curLeft=rect.left;
+      if(isNaN(curTop))curTop=rect.top;
+
+      drag={
+        el:moveEl,
+        startX:e.clientX,
+        startY:e.clientY,
+        initLeft:curLeft,
+        initTop:curTop
+      };
+      if(hovered&&hovered!==moveEl)outline(hovered,false);
+      hovered=moveEl;outline(hovered,true);
     },true);
 
     document.addEventListener('contextmenu',function(e){
       if(!EDIT)return;
       e.preventDefault();e.stopPropagation();
-      var t=e.target;
-      if(t&&t!==document.body){
-        pushSnapshot();
-        t.style.display='none';
-        scheduleSave();
-        clearHover();
-        showToast('已删除元素 (按 Ctrl+Z 撤回)');
-      }
+      showToast('提示：按住 Alt/Shift 点击或按 Backspace 键可删除元素');
     },true);
 
     document.addEventListener('mousemove',function(e){
       if(!drag)return;
-      drag.el.style.transform='translate('+(e.clientX-drag.sx)+'px,'+(e.clientY-drag.sy)+'px)';
+      var dx=e.clientX-drag.startX;
+      var dy=e.clientY-drag.startY;
+      drag.el.style.position='absolute';
+      drag.el.style.left=Math.round(drag.initLeft+dx)+'px';
+      drag.el.style.top=Math.round(drag.initTop+dy)+'px';
+      drag.el.style.zIndex='999';
     },true);
 
     document.addEventListener('mouseup',function(){
@@ -1180,11 +1242,14 @@ function onSlotDragOver(e: DragEvent) {
 }
 
 function onSlotDrop(e: DragEvent) {
-  const html = e.dataTransfer?.getData('text/html') || e.dataTransfer?.getData('text/plain')
+  const html = (window as any).__wfDraggingComponent?.html || e.dataTransfer?.getData('text/html') || e.dataTransfer?.getData('text/plain')
   if (html) {
     e.preventDefault()
     e.stopPropagation()
-    insertComponent(html)
+    const rect = (e.currentTarget as HTMLElement)?.getBoundingClientRect()
+    const dropX = rect ? Math.round(Math.max(16, Math.min(320, e.clientX - rect.left))) : 20
+    const dropY = rect ? Math.round(Math.max(60, Math.min(720, e.clientY - rect.top))) : 220
+    insertComponent(html, dropX, dropY)
   }
 }
 
@@ -1645,11 +1710,13 @@ function cancelEdit() {
   editingAnnId.value = null
 }
 
-function insertComponent(html: string) {
+function insertComponent(html: string, dropX = 20, dropY = 220) {
   if (!html) return
   htmlFrameRef.value?.contentWindow?.postMessage({
     type: 'wf-insert-html',
     html,
+    dropX,
+    dropY,
   }, '*')
 }
 
