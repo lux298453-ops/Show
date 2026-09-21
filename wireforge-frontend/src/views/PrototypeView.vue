@@ -276,6 +276,16 @@
                   <span>{{ b.page.elements.length }} 元素</span>
                 </div>
               </div>
+
+              <!-- Delete Page Button (hover to show) -->
+              <button
+                class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer shrink-0"
+                title="删除画板"
+                @click.stop="confirmDeletePage(b.page)"
+                @mousedown.stop
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
@@ -437,6 +447,14 @@
                   @mousedown.stop
                 >
                   <RotateCw class="w-3 h-3" />
+                </button>
+                <button
+                  class="wf-tap p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                  title="删除此画板 (Delete / Backspace)"
+                  @click.stop="confirmDeletePage(b.page)"
+                  @mousedown.stop
+                >
+                  <Trash2 class="w-3 h-3" />
                 </button>
               </div>
 
@@ -1153,7 +1171,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft,
   Layers,
@@ -1180,6 +1198,7 @@ import {
   Lock,
   Component,
   Zap,
+  Trash2,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
@@ -1632,6 +1651,41 @@ async function handleCreateFrameOnCanvas(logicX: number, logicY: number, preset?
     y: logicY,
   })
   activeDrawTool.value = 'select'
+}
+
+async function confirmDeletePage(page: Page) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除画板「${page.name}」吗？删除后画板及其包含的所有组件和交互将被移除。`,
+      '删除画板确认',
+      {
+        confirmButtonText: '删除画板',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+        type: 'warning',
+      }
+    )
+
+    await projectApi.deletePage(id, page.id)
+    showToast(`🗑️ 已删除画板「${page.name}」`)
+    if (pageOverrides.value[page.id]) {
+      delete pageOverrides.value[page.id]
+    }
+    if (focusPageId.value === page.id) {
+      focusPageId.value = null
+    }
+    if (selectedNodeId.value === page.id) {
+      selectedNodeId.value = null
+    }
+    if (previewPageId.value === page.id) {
+      previewPageId.value = null
+    }
+    await loadData()
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      ElMessage.error(`删除画板失败: ${err?.response?.data?.message || err?.message || '网络错误'}`)
+    }
+  }
 }
 
 function handleBottomToolChange(tool: string) {
@@ -3619,6 +3673,20 @@ function onGlobalKeydown(e: KeyboardEvent) {
       removeConnection(targetConn)
     }
     return
+  }
+
+  // 4. 画板整体删除快捷键 (Backspace / Delete)
+  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedNodeId.value && !selectedElementId.value) {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+      return
+    }
+    const targetPage = pages.value.find((p) => p.id === selectedNodeId.value)
+    if (targetPage) {
+      e.preventDefault()
+      confirmDeletePage(targetPage)
+      return
+    }
   }
 
   // 2. Canvas zoom shortcuts
