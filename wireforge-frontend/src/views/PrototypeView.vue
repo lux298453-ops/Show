@@ -316,122 +316,7 @@
           :class="{ 'is-animating': !isAnyDragging && animating, 'is-dragging': isAnyDragging }"
           :style="contentStyle"
         >
-          <!-- ===== Figma Prototype 模式：细致贝塞尔连线与节点圆圈 ===== -->
-          <template v-if="visibleConnections.length > 0 || activeDragLine">
-            <svg
-              class="interaction-svg-layer absolute inset-0 pointer-events-none z-30"
-              style="width: 100%; height: 100%; overflow: visible;"
-            >
-              <defs>
-                <!-- Figma 纤细优雅箭头 (参考 Figma 原型连线样式) -->
-                <marker
-                  id="figma-arrow"
-                  viewBox="0 0 10 10"
-                  refX="7"
-                  refY="5"
-                  markerWidth="6"
-                  markerHeight="6"
-                  orient="auto"
-                >
-                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#60a5fa" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                </marker>
-                <!-- 实时拉线箭头 -->
-                <marker
-                  id="figma-drag-arrow"
-                  viewBox="0 0 10 10"
-                  refX="7"
-                  refY="5"
-                  markerWidth="6"
-                  markerHeight="6"
-                  orient="auto"
-                >
-                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                </marker>
-              </defs>
 
-              <g v-for="conn in visibleConnections" :key="conn.id" class="figma-conn-item">
-                <!-- 纤细外发光辅线 (0.8px 极细微光，优雅不喧宾夺主) -->
-                <path
-                  :d="conn.path"
-                  fill="none"
-                  :stroke="conn.fromId === selectedNodeId ? 'rgba(96, 165, 250, 0.35)' : 'rgba(96, 165, 250, 0.18)'"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                />
-                <!-- Figma 经典 1.6px 纤细贝塞尔曲线 (参考原图) -->
-                <path
-                  :d="conn.path"
-                  fill="none"
-                  :stroke="conn.fromId === selectedNodeId ? '#3b82f6' : '#60a5fa'"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  marker-end="url(#figma-arrow)"
-                />
-                <!-- 起点 Figma 节点圆圈 (正如用户所附截图按钮内部的白底蓝环节点) -->
-                <circle
-                  :cx="conn.x1"
-                  :cy="conn.y1"
-                  r="4.5"
-                  fill="#ffffff"
-                  :stroke="conn.fromId === selectedNodeId ? '#2563eb' : '#60a5fa'"
-                  stroke-width="1.5"
-                />
-                <circle
-                  :cx="conn.x1"
-                  :cy="conn.y1"
-                  r="2"
-                  :fill="conn.fromId === selectedNodeId ? '#2563eb' : '#60a5fa'"
-                />
-              </g>
-
-              <!-- 实时拖拽拉出的贝塞尔连线 (Figma 拖拽连线预览) -->
-              <g v-if="activeDragLine">
-                <path
-                  :d="activeDragLine.path"
-                  fill="none"
-                  stroke="#3b82f6"
-                  stroke-width="1.8"
-                  stroke-dasharray="5,4"
-                  stroke-linecap="round"
-                  marker-end="url(#figma-drag-arrow)"
-                />
-                <circle
-                  :cx="activeDragLine.x1"
-                  :cy="activeDragLine.y1"
-                  r="5"
-                  fill="#ffffff"
-                  stroke="#2563eb"
-                  stroke-width="2"
-                />
-                <circle
-                  :cx="activeDragLine.x1"
-                  :cy="activeDragLine.y1"
-                  r="2.2"
-                  fill="#2563eb"
-                />
-              </g>
-            </svg>
-
-            <!-- 交互连线轻量胶囊标签 (Figma 交互胶囊，悬停可编辑或删除) -->
-            <div
-              v-for="conn in visibleConnections"
-              :key="`tag-${conn.id}`"
-              class="absolute z-35 pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-full text-white text-[10px] font-medium shadow-xs flex items-center gap-1 cursor-pointer select-none transition-all opacity-85 hover:opacity-100 hover:scale-105"
-              :class="conn.fromId === selectedNodeId ? 'bg-blue-600' : 'bg-slate-700/85 hover:bg-blue-600'"
-              :style="{ left: `${conn.midX}px`, top: `${conn.midY}px` }"
-              :title="`交互：${conn.label} ➔ ${conn.actionLabel} (${conn.fromPageName} → ${conn.toPageName})，点击修改或删除`"
-            >
-              <Zap class="w-2.5 h-2.5 fill-current" />
-              <span>{{ conn.label }}: {{ conn.actionLabel }}</span>
-              <button
-                class="w-3 h-3 rounded-full hover:bg-black/30 text-white flex items-center justify-center text-[9px] ml-0.5 cursor-pointer"
-                title="删除交互连线"
-                @click.stop="removeConnection(conn)"
-              >
-                ×
-              </button>
-            </div>
-          </template>
 
           <template v-for="b in blocks" :key="b.page.id">
             <div
@@ -595,6 +480,135 @@
                 @ann-order-change="handleAnnOrderChange"
                 @locked-click="showLockedToast(b.page)"
               />
+            </div>
+          </template>
+
+          <!-- ===== Figma Prototype 模式：细致贝塞尔连线与节点圆圈 (位于画板之上浮层，确保连线不被画板遮盖) ===== -->
+          <template v-if="visibleConnections.length > 0 || activeDragLine">
+            <svg
+              class="interaction-svg-layer pointer-events-none"
+              style="position: absolute; left: 0; top: 0; width: 60000px; height: 60000px; overflow: visible; z-index: 45;"
+            >
+              <defs>
+                <!-- 激活态高亮箭头 -->
+                <marker
+                  id="figma-arrow-active"
+                  viewBox="0 0 10 10"
+                  refX="7"
+                  refY="5"
+                  markerWidth="7"
+                  markerHeight="7"
+                  orient="auto"
+                >
+                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </marker>
+                <!-- 常规状态箭头 -->
+                <marker
+                  id="figma-arrow-normal"
+                  viewBox="0 0 10 10"
+                  refX="7"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto"
+                >
+                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#3b82f6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                </marker>
+                <!-- 实时拖拽拉线箭头 -->
+                <marker
+                  id="figma-drag-arrow"
+                  viewBox="0 0 10 10"
+                  refX="7"
+                  refY="5"
+                  markerWidth="7"
+                  markerHeight="7"
+                  orient="auto"
+                >
+                  <path d="M 1.5 1.5 L 7.5 5 L 1.5 8.5" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </marker>
+              </defs>
+
+              <g v-for="conn in visibleConnections" :key="conn.id" class="figma-conn-item">
+                <!-- 外发光辅线 -->
+                <path
+                  :d="conn.path"
+                  fill="none"
+                  :stroke="isConnActive(conn) ? 'rgba(37, 99, 235, 0.45)' : 'rgba(59, 130, 246, 0.25)'"
+                  :stroke-width="isConnActive(conn) ? 5 : 3"
+                  stroke-linecap="round"
+                />
+                <!-- Figma 经典贝塞尔曲线 (激活时 2.4px 深蓝高亮，普通态 1.8px 优雅天蓝) -->
+                <path
+                  :d="conn.path"
+                  fill="none"
+                  :stroke="isConnActive(conn) ? '#2563eb' : '#3b82f6'"
+                  :stroke-width="isConnActive(conn) ? 2.4 : 1.8"
+                  stroke-linecap="round"
+                  :marker-end="isConnActive(conn) ? 'url(#figma-arrow-active)' : 'url(#figma-arrow-normal)'"
+                />
+                <!-- 起点 Figma 节点圆圈 (白底蓝环节点) -->
+                <circle
+                  :cx="conn.x1"
+                  :cy="conn.y1"
+                  :r="isConnActive(conn) ? 5.5 : 4.5"
+                  fill="#ffffff"
+                  :stroke="isConnActive(conn) ? '#2563eb' : '#3b82f6'"
+                  :stroke-width="isConnActive(conn) ? 2.2 : 1.8"
+                />
+                <circle
+                  :cx="conn.x1"
+                  :cy="conn.y1"
+                  :r="isConnActive(conn) ? 2.5 : 2"
+                  :fill="isConnActive(conn) ? '#2563eb' : '#3b82f6'"
+                />
+              </g>
+
+              <!-- 实时拖拽拉出的贝塞尔连线 (Figma 拖拽连线预览) -->
+              <g v-if="activeDragLine">
+                <path
+                  :d="activeDragLine.path"
+                  fill="none"
+                  stroke="#3b82f6"
+                  stroke-width="2.2"
+                  stroke-dasharray="5,4"
+                  stroke-linecap="round"
+                  marker-end="url(#figma-drag-arrow)"
+                />
+                <circle
+                  :cx="activeDragLine.x1"
+                  :cy="activeDragLine.y1"
+                  r="5.5"
+                  fill="#ffffff"
+                  stroke="#2563eb"
+                  stroke-width="2.2"
+                />
+                <circle
+                  :cx="activeDragLine.x1"
+                  :cy="activeDragLine.y1"
+                  r="2.5"
+                  fill="#2563eb"
+                />
+              </g>
+            </svg>
+
+            <!-- 交互连线轻量胶囊标签 (Figma 交互胶囊，悬浮于连线上方) -->
+            <div
+              v-for="conn in visibleConnections"
+              :key="`tag-${conn.id}`"
+              class="absolute pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2.5 py-0.5 rounded-full text-white text-[10px] font-medium shadow-md flex items-center gap-1 cursor-pointer select-none transition-all"
+              :class="isConnActive(conn) ? 'bg-blue-600 ring-2 ring-blue-300 ring-offset-1 scale-105 z-50' : 'bg-slate-700/90 hover:bg-blue-600 hover:scale-105 opacity-90 hover:opacity-100 z-45'"
+              :style="{ left: `${conn.midX}px`, top: `${conn.midY}px` }"
+              :title="`交互：${conn.label} ➔ ${conn.actionLabel} (${conn.fromPageName} → ${conn.toPageName})，点击修改或删除`"
+            >
+              <Zap class="w-2.5 h-2.5 fill-current" />
+              <span>{{ conn.label }}: {{ conn.actionLabel }}</span>
+              <button
+                class="w-3 h-3 rounded-full hover:bg-black/30 text-white flex items-center justify-center text-[9px] ml-0.5 cursor-pointer"
+                title="删除交互连线"
+                @click.stop="removeConnection(conn)"
+              >
+                ×
+              </button>
             </div>
           </template>
 
@@ -1730,6 +1744,12 @@ const visibleConnections = computed<ConnectionItem[]>(() => {
 function getPageName(pageId?: number | null): string {
   if (!pageId) return ''
   return pages.value.find((p) => p.id === pageId)?.name || '目标画板'
+}
+
+function isConnActive(conn: ConnectionItem): boolean {
+  if (selectedElementId.value && conn.elementId === selectedElementId.value) return true
+  if (selectedNodeId.value && (conn.fromId === selectedNodeId.value || conn.toId === selectedNodeId.value)) return true
+  return false
 }
 
 function onInteractiveElementClick(b: any, el: Element) {
