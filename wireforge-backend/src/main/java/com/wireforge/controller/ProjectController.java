@@ -205,4 +205,25 @@ public class ProjectController {
             @RequestBody Map<String, Object> body) {
         return Result.ok(projectService.createElement(id, pageId, body));
     }
+
+    /**
+     * 新建空白画板/框架 (Figma Frame 工具支持)
+     */
+    @PostMapping("/{id}/pages")
+    public Result<Page> createPage(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        return Result.ok(projectService.createPage(id, body));
+    }
+
+    /**
+     * 删除指定画板/页面
+     */
+    @DeleteMapping("/{id}/pages/{pageId}")
+    public Result<Void> deletePage(
+            @PathVariable Long id,
+            @PathVariable Long pageId) {
+        projectService.deletePage(id, pageId);
+        return Result.ok(null);
+    }
 }

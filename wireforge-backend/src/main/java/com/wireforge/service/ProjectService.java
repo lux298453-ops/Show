@@ -1004,6 +1004,62 @@ public class ProjectService {
         return element;
     }
 
+    public Page createPage(Long projectId, Map<String, Object> body) {
+        getProject(projectId);
+        Page page = new Page();
+        page.setProjectId(projectId);
+
+        Long pageCount = pageMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Page>()
+                .eq(Page::getProjectId, projectId));
+        String defaultName = "画板 " + (pageCount + 1);
+        String name = body.get("name") != null ? body.get("name").toString().trim() : defaultName;
+        page.setName(name.isEmpty() ? defaultName : name);
+
+        Number width = body.get("width") instanceof Number n ? n : 375;
+        Number height = body.get("height") instanceof Number n ? n : 812;
+        page.setCanvasWidth(width.intValue());
+        page.setCanvasHeight(height.intValue());
+
+        if (body.containsKey("x") && body.get("x") != null) {
+            page.setCanvasX(toDouble(body.get("x")));
+        }
+        if (body.containsKey("y") && body.get("y") != null) {
+            page.setCanvasY(toDouble(body.get("y")));
+        }
+
+        page.setSortOrder(100 + pageCount.intValue());
+        page.setAnalyzed(1);
+
+        String initialHtml = "<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width="
+                + page.getCanvasWidth() + "\">\n  <style>\n    body { margin: 0; padding: 16px; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-sizing: border-box; min-height: "
+                + page.getCanvasHeight() + "px; position: relative; }\n  </style>\n</head>\n<body>\n</body>\n</html>";
+        String htmlContent = body.get("htmlContent") != null ? body.get("htmlContent").toString() : initialHtml;
+        page.setHtmlContent(htmlContent);
+        page.setCreatedAt(LocalDateTime.now());
+
+        pageMapper.insert(page);
+        return page;
+    }
+
+    /**
+     * 删除指定画板/页面及其下属元素、交互和说明
+     */
+    @Transactional
+    public void deletePage(Long projectId, Long pageId) {
+        getProject(projectId);
+        Page page = pageMapper.selectById(pageId);
+        if (page == null || !projectId.equals(page.getProjectId())) {
+            return;
+        }
+        List<Element> els = elementMapper.selectList(Wrappers.<Element>lambdaQuery().eq(Element::getPageId, pageId));
+        for (Element el : els) {
+            interactionMapper.delete(Wrappers.<Interaction>lambdaQuery().eq(Interaction::getElementId, el.getId()));
+            elementMapper.deleteById(el.getId());
+        }
+        annotationMapper.delete(Wrappers.<Annotation>lambdaQuery().eq(Annotation::getPageId, pageId));
+        pageMapper.deleteById(pageId);
+    }
+
     private String toFileUrl(String absolutePath) {
         if (absolutePath == null || absolutePath.isBlank()) return "";
         try {

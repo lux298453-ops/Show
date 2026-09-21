@@ -719,6 +719,7 @@
           @set-workbench-mode="setWorkbenchMode"
           @open-pure-preview="openPurePreview"
           @toggle-annotations="showAnnotations = !showAnnotations"
+          @create-frame="handleCreateFramePreset"
         />
       </main>
     </div>
@@ -1190,9 +1191,10 @@ import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBott
 const activeDrawTool = ref<ActiveToolType>('select')
 const toolNames: Record<string, string> = {
   rect: '矩形方框',
-  circle: '圆形头像',
+  circle: '圆形/椭圆',
   container: '卡片容器',
-  text: '文本块',
+  line: '水平分割线',
+  text: '纯文本',
   frame: '画板框架',
 }
 const currentToolName = computed(() => toolNames[activeDrawTool.value] || '组件')
@@ -1274,6 +1276,13 @@ function showLockedToast(page: Page) {
 
 function onPageBlockClick(e: MouseEvent, b: { page: Page; x: number; y: number }) {
   if (suppressBlockClick) return
+  if (activeDrawTool.value === 'frame') {
+    const blockW = (b.page.canvas_width || 375) + 16
+    const nextX = b.x + blockW + 120
+    const nextY = b.y
+    handleCreateFrameOnCanvas(nextX, nextY)
+    return
+  }
   if (activeDrawTool.value !== 'select') {
     onArtboardDrawClick(e, b)
     return
@@ -1513,18 +1522,25 @@ function onArtboardDrawClick(e: MouseEvent, b: { page: Page; x: number; y: numbe
   let isText = false
 
   if (tool === 'rect') {
-    targetName = '矩形占位方框'
-    targetSnippet = `<div class="wf-box" style="width: 335px; height: 90px; border: 2px dashed #94a3b8; border-radius: 12px; background: rgba(241, 245, 249, 0.85); display: flex; align-items: center; justify-content: center; color: #475569; font-size: 13px; font-weight: 600; box-sizing: border-box;">🔲 矩形占位方框</div>`
+    targetName = '纯矩形 (R)'
+    targetSnippet = `<div class="wf-shape wf-shape-rect" style="width: 140px; height: 90px; background: #e2e8f0; border: 1.5px solid #94a3b8; border-radius: 6px; box-sizing: border-box;"></div>`
   } else if (tool === 'circle') {
-    targetName = '圆形头像'
-    targetSnippet = `<div class="wf-avatar" style="width: 52px; height: 52px; border-radius: 50%; background: #e2e8f0; border: 2px solid #cbd5e1; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.1); box-sizing: border-box;"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" style="width: 100%; height: 100%; object-fit: cover;" alt="用户头像" /></div>`
-  } else if (tool === 'container' || tool === 'frame') {
-    targetName = '卡片容器'
-    targetSnippet = `<div class="wf-container" style="width: 335px; padding: 16px; background: #ffffff; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; box-sizing: border-box;"><h4 style="margin: 0 0 6px 0; font-size: 14px; font-weight: 700; color: #1e293b;">📦 卡片容器标题</h4><p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.5;">在此卡片内放置自定义组件、图文信息或操作入口。</p></div>`
+    targetName = '纯圆形/椭圆 (O)'
+    targetSnippet = `<div class="wf-shape wf-shape-circle" style="width: 80px; height: 80px; background: #e2e8f0; border: 1.5px solid #94a3b8; border-radius: 50%; box-sizing: border-box;"></div>`
+  } else if (tool === 'line') {
+    targetName = '水平分割线 (L)'
+    targetSnippet = `<div class="wf-shape wf-shape-line" style="width: 240px; height: 2px; background: #94a3b8; box-sizing: border-box;"></div>`
+  } else if (tool === 'container') {
+    targetName = '空白容器卡片 (Box)'
+    targetSnippet = `<div class="wf-shape wf-shape-card" style="width: 320px; height: 160px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); box-sizing: border-box;"></div>`
   } else if (tool === 'text') {
-    targetName = '文本块'
+    targetName = '纯文本 (T)'
     isText = true
-    targetSnippet = `<div class="wf-text-block" style="width: 280px; box-sizing: border-box;"><h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">输入标题文字</h3><p style="font-size: 13px; color: #475569; line-height: 1.6; margin: 0;">点击此处直接输入正文内容</p></div>`
+    targetSnippet = `<div class="wf-text" style="display: inline-block; font-size: 16px; font-weight: 500; color: #1e293b; line-height: 1.4; outline: none; min-width: 40px; cursor: text;">文本</div>`
+  } else if (tool === 'frame') {
+    handleCreateFramePreset()
+    activeDrawTool.value = 'select'
+    return
   }
 
   insertComponentIntoPage(b.page.id, { name: targetName, html: targetSnippet }, clickX, clickY, isText)
@@ -1533,10 +1549,97 @@ function onArtboardDrawClick(e: MouseEvent, b: { page: Page; x: number; y: numbe
   activeDrawTool.value = 'select'
 }
 
+// ===== Figma Frame 画板创建与画布落盘核心体系 =====
+async function doCreatePage(params: { name: string; width: number; height: number; x: number; y: number }) {
+  try {
+    const defaultHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=${params.width}">
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      box-sizing: border-box;
+      min-height: ${params.height}px;
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+</body>
+</html>`
+
+    const newPage = await projectApi.createPage(id, {
+      name: params.name,
+      width: params.width,
+      height: params.height,
+      x: params.x,
+      y: params.y,
+      htmlContent: defaultHtml,
+    })
+
+    showToast(`✅ 已新建画板「${newPage?.name || params.name}」(${params.width}×${params.height})`)
+    await loadData()
+    if (newPage && newPage.id) {
+      focusPageId.value = newPage.id
+      selectedNodeId.value = newPage.id
+      nextTick(() => {
+        focusPage(newPage.id)
+      })
+    }
+  } catch (err: any) {
+    ElMessage.error(`创建画板失败: ${err?.response?.data?.message || err?.message || '网络错误'}`)
+  }
+}
+
+async function handleCreateFramePreset(preset?: { name: string; width: number; height: number }) {
+  const pName = preset?.name || '新画板'
+  const pWidth = preset?.width || 375
+  const pHeight = preset?.height || 812
+
+  // 智能计算新画板在无限画布上的位置：放置在已有最右侧画板的右侧
+  let posX = 56
+  let posY = 64
+  if (blocks.value.length > 0) {
+    const rightmost = blocks.value.reduce((max, b) => Math.max(max, b.x + b.w), 0)
+    posX = rightmost + 120
+    posY = blocks.value[0]?.y || 64
+  }
+
+  await doCreatePage({
+    name: pName,
+    width: pWidth,
+    height: pHeight,
+    x: posX,
+    y: posY,
+  })
+}
+
+async function handleCreateFrameOnCanvas(logicX: number, logicY: number, preset?: { name: string; width: number; height: number }) {
+  const pName = preset?.name || '新画板'
+  const pWidth = preset?.width || 375
+  const pHeight = preset?.height || 812
+
+  await doCreatePage({
+    name: pName,
+    width: pWidth,
+    height: pHeight,
+    x: logicX,
+    y: logicY,
+  })
+  activeDrawTool.value = 'select'
+}
+
 function handleBottomToolChange(tool: string) {
-  if (['select', 'frame', 'rect', 'circle', 'container', 'text'].includes(tool)) {
+  if (['select', 'frame', 'rect', 'circle', 'container', 'line', 'text'].includes(tool)) {
     activeDrawTool.value = tool as ActiveToolType
-    if (tool !== 'select') {
+    if (tool === 'frame') {
+      showToast('已激活「画板框架 (F)」工具：点击画布任意空白处即可生成新画板，或按 Esc 取消')
+    } else if (tool !== 'select') {
       showToast(`已激活「${toolNames[tool] || tool}」绘制工具：点击画板任意位置放置，按 Esc 键取消`)
     }
   }
@@ -2678,6 +2781,19 @@ function onWindowMouseUp() {
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
   if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel, .figma-bottom-toolbar')) return
+
+  if (activeDrawTool.value === 'frame') {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = viewportRef.value?.getBoundingClientRect()
+    if (rect) {
+      const logicX = Math.round((e.clientX - rect.left - view.value.x) / view.value.k)
+      const logicY = Math.round((e.clientY - rect.top - view.value.y) / view.value.k)
+      handleCreateFrameOnCanvas(logicX, logicY)
+    }
+    return
+  }
+
   selectedElementId.value = null
   selectedConnId.value = null
   // 点击空白区域 → 取消选中，所有连线恢复显示
@@ -3473,10 +3589,20 @@ function onGlobalKeydown(e: KeyboardEvent) {
       activeDrawTool.value = 'text'
       showToast('已切换至文本落字工具 (T)：点击画板任意位置放置')
       return
+    } else if (key === 'F') {
+      e.preventDefault()
+      activeDrawTool.value = 'frame'
+      showToast('已切换至画板框架工具 (F)：点击画布任意位置放置新画板')
+      return
+    } else if (key === 'L') {
+      e.preventDefault()
+      activeDrawTool.value = 'line'
+      showToast('已切换至直线工具 (L)：点击画板任意位置放置')
+      return
     } else if (key === 'O') {
       e.preventDefault()
       activeDrawTool.value = 'circle'
-      showToast('已切换至圆形头像工具 (O)：点击画板任意位置放置')
+      showToast('已切换至圆形绘制工具 (O)：点击画板任意位置放置')
       return
     }
   }

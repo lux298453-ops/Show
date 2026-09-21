@@ -146,22 +146,9 @@
         >
           <div class="flex items-center gap-2">
             <span class="text-sm">🔲</span>
-            <span>矩形/正方形方框</span>
+            <span>矩形 (Rectangle)</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">R</span>
-        </button>
-
-        <button
-          type="button"
-          class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
-          :class="{ 'bg-[#0D99FF]/10 text-[#0D99FF] font-bold': activeTool === 'container' }"
-          @click="selectShapeTool('container')"
-        >
-          <div class="flex items-center gap-2">
-            <span class="text-sm">📦</span>
-            <span>纯色卡片框</span>
-          </div>
-          <span class="text-[10px] font-mono text-slate-400">Box</span>
         </button>
 
         <button
@@ -172,9 +159,22 @@
         >
           <div class="flex items-center gap-2">
             <span class="text-sm">⭕</span>
-            <span>圆形头像占位</span>
+            <span>椭圆 / 圆形 (Ellipse)</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">O</span>
+        </button>
+
+        <button
+          type="button"
+          class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
+          :class="{ 'bg-[#0D99FF]/10 text-[#0D99FF] font-bold': activeTool === 'line' }"
+          @click="selectShapeTool('line')"
+        >
+          <div class="flex items-center gap-2">
+            <span class="text-sm">➖</span>
+            <span>直线 / 分割线 (Line)</span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-400">L</span>
         </button>
 
         <div class="h-[1px] bg-slate-100 my-0.5"></div>
@@ -182,13 +182,14 @@
         <button
           type="button"
           class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
-          @click="insertDividerDirectly"
+          :class="{ 'bg-[#0D99FF]/10 text-[#0D99FF] font-bold': activeTool === 'container' }"
+          @click="selectShapeTool('container')"
         >
           <div class="flex items-center gap-2">
-            <span class="text-sm">➖</span>
-            <span>水平分割线</span>
+            <span class="text-sm">📦</span>
+            <span>空白容器卡片 (Container)</span>
           </div>
-          <span class="text-[10px] font-mono text-slate-400">Line</span>
+          <span class="text-[10px] font-mono text-slate-400">Box</span>
         </button>
       </div>
     </Transition>
@@ -199,9 +200,12 @@
     <Transition name="figma-popover">
       <div
         v-if="isFrameMenuOpen"
-        class="absolute bottom-[calc(100%+10px)] left-12 -translate-x-1/2 bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl shadow-slate-900/15 rounded-xl p-1 min-w-[190px] flex flex-col gap-0.5 z-50"
+        class="absolute bottom-[calc(100%+10px)] left-12 -translate-x-1/2 bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl shadow-slate-900/15 rounded-xl p-1.5 min-w-[210px] flex flex-col gap-0.5 z-50"
         @click.stop
       >
+        <div class="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          放置新画板 (Frame)
+        </div>
         <button
           type="button"
           class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
@@ -209,10 +213,51 @@
           @click="selectFrameTool"
         >
           <div class="flex items-center gap-2">
-            <Frame class="w-3.5 h-3.5" />
-            <span>框架/画板 (Frame)</span>
+            <Frame class="w-3.5 h-3.5 text-[#0D99FF]" />
+            <span>点击画布任意位置放置</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">F</span>
+        </button>
+
+        <div class="h-[1px] bg-slate-100 my-1"></div>
+        <div class="px-2 py-0.5 text-[10px] font-bold text-slate-400">
+          快速创建预设画板
+        </div>
+
+        <button
+          type="button"
+          class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
+          @click="createFramePreset('iPhone 16 Pro', 375, 812)"
+        >
+          <div class="flex items-center gap-2">
+            <span class="text-sm">📱</span>
+            <span>iPhone 16 Pro</span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-400">375×812</span>
+        </button>
+
+        <button
+          type="button"
+          class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
+          @click="createFramePreset('Android', 360, 800)"
+        >
+          <div class="flex items-center gap-2">
+            <span class="text-sm">📱</span>
+            <span>Android 手机</span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-400">360×800</span>
+        </button>
+
+        <button
+          type="button"
+          class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
+          @click="createFramePreset('Desktop Web', 1440, 900)"
+        >
+          <div class="flex items-center gap-2">
+            <span class="text-sm">💻</span>
+            <span>Web 桌面端</span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-400">1440×900</span>
         </button>
       </div>
     </Transition>
@@ -361,6 +406,7 @@ import {
   Square,
   Box,
   Circle,
+  Minus,
   PenTool,
   Type,
   Component,
@@ -374,7 +420,7 @@ import {
   Search,
 } from 'lucide-vue-next'
 
-export type ActiveToolType = 'select' | 'frame' | 'rect' | 'circle' | 'container' | 'text'
+export type ActiveToolType = 'select' | 'frame' | 'rect' | 'circle' | 'container' | 'line' | 'text'
 export type WorkbenchModeType = 'design' | 'interactive'
 
 export interface PaletteItem {
@@ -410,6 +456,7 @@ const emit = defineEmits<{
   (e: 'setWorkbenchMode', mode: WorkbenchModeType): void
   (e: 'openPurePreview'): void
   (e: 'toggleAnnotations'): void
+  (e: 'createFrame', preset?: { name: string; width: number; height: number }): void
 }>()
 
 // Root DOM reference for click outside detection
@@ -564,10 +611,11 @@ const filteredItems = computed(() => {
 })
 
 // Dynamic shape icon
-const isShapeActive = computed(() => ['rect', 'circle', 'container'].includes(props.activeTool))
+const isShapeActive = computed(() => ['rect', 'circle', 'container', 'line'].includes(props.activeTool))
 const activeShapeIcon = computed(() => {
   if (props.activeTool === 'circle') return Circle
   if (props.activeTool === 'container') return Box
+  if (props.activeTool === 'line') return Minus
   return Square
 })
 
@@ -596,6 +644,11 @@ function selectFrameTool() {
   isFrameMenuOpen.value = false
 }
 
+function createFramePreset(name: string, width: number, height: number) {
+  closeAllMenus()
+  emit('createFrame', { name, width, height })
+}
+
 function onShapeToolClick() {
   const willOpen = !isShapesMenuOpen.value
   closeAllMenus()
@@ -608,7 +661,7 @@ function onShapeToolClick() {
   isShapesMenuOpen.value = willOpen
 }
 
-function selectShapeTool(shape: 'rect' | 'circle' | 'container') {
+function selectShapeTool(shape: 'rect' | 'circle' | 'container' | 'line') {
   emit('update:activeTool', shape)
   emit('toolChange', shape)
   isShapesMenuOpen.value = false

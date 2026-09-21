@@ -1,5 +1,5 @@
 import http from './http'
-import type { Project, Prototype } from '../types'
+import type { Project, Prototype, Page } from '../types'
 
 export const projectApi = {
   list: () => http.get<any, Project[]>('/projects'),
@@ -73,6 +73,20 @@ export const projectApi = {
   /** 为页面注册新增元素 */
   createElement: (id: number, pageId: number, body: Record<string, any>) =>
     http.post<any, any>(`/projects/${id}/pages/${pageId}/elements`, body),
+  /** 新建空白画板/框架 (Figma Frame 工具支持) */
+  createPage: (
+    id: number,
+    data: {
+      name?: string
+      width?: number
+      height?: number
+      x?: number
+      y?: number
+      htmlContent?: string
+    },
+  ) => http.post<any, Page>(`/projects/${id}/pages`, data),
+  /** 删除画板/页面 */
+  deletePage: (id: number, pageId: number) => http.delete<any, void>(`/projects/${id}/pages/${pageId}`),
   /** 获取素材库列表 */
   getAssets: () => http.get<any, any[]>('/assets/list'),
 }

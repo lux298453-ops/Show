@@ -1019,6 +1019,9 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       act.innerHTML = '';
 
       var isImg = target.tagName === 'IMG' || (target.style && target.style.backgroundImage && target.style.backgroundImage.indexOf('url(') !== -1);
+      var isPureShape = target.classList && (target.classList.contains('wf-shape-rect') || target.classList.contains('wf-shape-circle') || target.classList.contains('wf-shape-line'));
+      var hasText = findTextTarget(target) !== null && !isPureShape;
+
       if(isImg){
         var btnAsset = document.createElement('button');
         btnAsset.type = 'button';
@@ -1034,7 +1037,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           showToast('已唤起素材库替换面板');
         });
         act.appendChild(btnAsset);
-      } else {
+      } else if(hasText) {
         var btnEdit = document.createElement('button');
         btnEdit.type = 'button';
         btnEdit.className = 'wf-act-btn';
@@ -1114,7 +1117,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
       if(el.closest && (el.closest('#wf-transform-box') || el.id === 'wf-transform-box')) return;
 
-      var topEl = el.closest ? (el.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component') || el) : el;
+      var topEl = el.closest ? (el.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component,.wf-shape,.wf-shape-rect,.wf-shape-circle,.wf-shape-line,.wf-shape-card,.wf-text') || el) : el;
       if(topEl === document.body || topEl === document.documentElement) topEl = el;
 
       clearHover();
@@ -1135,13 +1138,14 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     function findTextTarget(t){
       if(!t) return null;
+      if(t.classList && t.classList.contains('wf-text')) return t;
       if(t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return t;
       if(/^(H[1-6]|P|SPAN|BUTTON|A|LABEL|B|STRONG|EM|I|SMALL)$/i.test(t.tagName)) return t;
-      var sem = t.querySelector ? t.querySelector('h1,h2,h3,h4,h5,h6,p,span,button,a,label,.wf-btn-label') : null;
+      var sem = t.querySelector ? t.querySelector('.wf-text,h1,h2,h3,h4,h5,h6,p,span,button,a,label,.wf-btn-label') : null;
       if(sem) return sem;
-      var box = t.querySelector ? t.querySelector('.wf-box,.wf-container,.wf-text-block') : null;
+      var box = t.querySelector ? t.querySelector('.wf-box,.wf-container,.wf-text-block,.wf-shape') : null;
       if(box){
-        var deep = box.querySelector ? box.querySelector('h1,h2,h3,h4,h5,h6,p,span,button,a,label') : null;
+        var deep = box.querySelector ? box.querySelector('.wf-text,h1,h2,h3,h4,h5,h6,p,span,button,a,label') : null;
         if(deep) return deep;
         return box;
       }
@@ -1326,7 +1330,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       if(t.tagName === 'IMG' || t.tagName === 'svg' || (t.closest && t.closest('svg'))) return;
       if(t.closest && t.closest('#wf-action-bar')) return;
 
-      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box');
+      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
       if(!EDIT && !isInserted) return;
 
       if(!EDIT && isInserted){
@@ -1430,7 +1434,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         e.preventDefault();
         e.stopPropagation();
         pushSnapshot();
-        var toDel = t.closest ? (t.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component') || t) : t;
+        var toDel = t.closest ? (t.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component,.wf-shape,.wf-shape-rect,.wf-shape-circle,.wf-shape-line,.wf-shape-card,.wf-text') || t) : t;
         deselect();
         if(toDel && toDel.parentNode){
           toDel.parentNode.removeChild(toDel);
@@ -1441,7 +1445,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         return;
       }
 
-      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box');
+      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
       if(!EDIT && !isInserted) return;
 
       if(!EDIT && isInserted){
@@ -1449,7 +1453,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         parent.postMessage({ type: 'wf-request-edit' }, '*');
       }
 
-      var moveEl = t.closest ? (t.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component') || t) : t;
+      var moveEl = t.closest ? (t.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component,.wf-shape,.wf-shape-rect,.wf-shape-circle,.wf-shape-line,.wf-shape-card,.wf-text') || t) : t;
       selectElement(moveEl);
 
       // 准备拖动位移
@@ -1497,8 +1501,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           t = resizing.initTop + (resizing.initH - h);
         }
 
-        // 圆形头像保持 1:1
-        if(resizing.el.classList && resizing.el.classList.contains('wf-avatar')){
+        // 圆形头像或纯圆保持 1:1
+        if(resizing.el.classList && (resizing.el.classList.contains('wf-avatar') || resizing.el.classList.contains('wf-shape-circle'))){
           var side = Math.max(w, h);
           w = side;
           h = side;
