@@ -1302,6 +1302,27 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       var isPureShape = target.classList && (target.classList.contains('wf-shape-rect') || target.classList.contains('wf-shape-circle') || target.classList.contains('wf-shape-line'));
       var hasText = findTextTarget(target) !== null && !isPureShape;
 
+      // 0. 若选中的是卡片或列表项内部的子元素，提供快捷「选外层」按钮
+      var parentCard = target.parentElement ? (target.parentElement.closest ? target.parentElement.closest('.wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-app-item, .wf-ios-tab-bar, .wf-container, .wf-box, .wf-card, .wf-inserted-component') : null) : null;
+      if(parentCard && parentCard !== target && parentCard !== document.body){
+        var btnSelectParent = document.createElement('button');
+        btnSelectParent.type = 'button';
+        btnSelectParent.className = 'wf-act-btn';
+        btnSelectParent.title = '一键选中并整体移动外层卡片';
+        btnSelectParent.style.color = '#0284c7';
+        btnSelectParent.style.fontWeight = '600';
+        btnSelectParent.innerHTML = '⬆️ 选外层';
+        btnSelectParent.addEventListener('click', function(e){
+          e.preventDefault(); e.stopPropagation();
+          selectElement(parentCard, true);
+        });
+        act.appendChild(btnSelectParent);
+
+        var divParent = document.createElement('div');
+        divParent.className = 'wf-act-divider';
+        act.appendChild(divParent);
+      }
+
       // 1. 替换图片 / 编辑文字
       if(isImg){
         var btnAsset = document.createElement('button');
@@ -1540,18 +1561,75 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
     }
 
-    function selectElement(el){
+    function resolveTargetElement(t, e){
+      if(!t || t === document.body || t === document.documentElement) return null;
+      if(t.id === 'wf-transform-box' || (t.closest && t.closest('#wf-transform-box'))) return null;
+      if(t.id === 'wf-action-bar' || (t.closest && t.closest('#wf-action-bar'))) return null;
+
+      // 1. Figma 穿透快捷键：按住 Ctrl / ⌘ 键直接点选最底层真实目标
+      if(e && (e.ctrlKey || e.metaKey)){
+        return t;
+      }
+
+      // 2. 容器内钻取模式 (Drill-Down)：
+      // 如果当前已经选中了某一个容器/卡片，且用户再次点击容器内部的某个子节点
+      if(selectedEl && selectedEl !== t && selectedEl.contains && selectedEl.contains(t)){
+        var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, [class*="avatar"], [class*="btn"]') : null;
+        if(subItem && selectedEl.contains(subItem)) return subItem;
+        return t;
+      }
+
+      // 3. 优先命中具体的语义化独立交互子控件（绝不向上被大卡片吞并）
+      // A. 按钮控件（获取按钮、主次按钮等）
+      var btn = t.closest ? t.closest('button, .wf-btn, [role="button"]') : null;
+      if(btn && btn !== document.body) return btn;
+
+      // B. 图片与头像（头像、封面、九宫格拼图里的单张头像等）
+      if(t.tagName === 'IMG') return t;
+      var img = t.closest ? t.closest('.wf-avatar, [class*="avatar"]') : null;
+      if(img && img !== document.body) return img;
+
+      // C. 输入框
+      var input = t.closest ? t.closest('input, textarea, select') : null;
+      if(input && input !== document.body) return input;
+
+      // D. 具体文字段落或标题
+      if(t.tagName && /^(H[1-6]|P|SPAN|A|LABEL|B|STRONG|EM)$/i.test(t.tagName)){
+        return t;
+      }
+
+      // E. 应用列表项（如果点击在整行列表项的间隙，选中整行列表项）
+      var listItem = t.closest ? t.closest('.wf-ios-app-item') : null;
+      if(listItem && listItem !== document.body) return listItem;
+
+      // 4. 基础形状或整张卡片（点击在卡片留白处，选中整张卡片）
+      var comp = t.closest ? t.closest('.wf-shape,.wf-box,.wf-container,.wf-search-box,.wf-text-block,.wf-ios-story-card,.wf-ios-avatar-grid,.wf-ios-tab-bar') : null;
+      if(comp && comp !== document.body && comp !== document.documentElement) return comp;
+
+      // 5. 兜底最近的元素，剔除过度包裹的外层
+      var wrap = t.closest ? t.closest('.wf-inserted-component, .wf-el') : null;
+      if(wrap && wrap.classList && wrap.classList.contains('wf-inserted-component') && wrap.firstElementChild){
+        return wrap.firstElementChild;
+      }
+
+      return wrap || t;
+    }
+
+    function selectElement(el, forceDirect){
       if(!el || el === document.body || el === document.documentElement){
         deselect();
         return;
       }
       if(el.closest && (el.closest('#wf-transform-box') || el.id === 'wf-transform-box')) return;
 
-      var topEl = el.closest ? (el.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component,.wf-shape,.wf-shape-rect,.wf-shape-circle,.wf-shape-line,.wf-shape-card,.wf-text') || el) : el;
-      if(topEl === document.body || topEl === document.documentElement) topEl = el;
+      var targetEl = el;
+      if(!forceDirect){
+        targetEl = resolveTargetElement(el) || el;
+      }
+      if(targetEl === document.body || targetEl === document.documentElement) targetEl = el;
 
       clearHover();
-      selectedEl = topEl;
+      selectedEl = targetEl;
       getTransformBox();
       updateActionBar(selectedEl);
       updateTransformBox(selectedEl);
@@ -1859,11 +1937,10 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
     }, true);
 
-    // 双击任意文本（h1-h6, p, span, button 等）或原子组件直接激活打字编辑
+    // 双击任意元素深入选中并激活对应编辑（文字打字、图片替换）
     document.addEventListener('dblclick', function(e){
       var t = e.target;
       if(!t || t === document.body || t === document.documentElement) return;
-      if(t.tagName === 'IMG' || t.tagName === 'svg' || (t.closest && t.closest('svg'))) return;
       if(t.closest && t.closest('#wf-action-bar')) return;
 
       var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
@@ -1878,7 +1955,22 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       e.stopPropagation();
       clearHover();
 
-      startTextEdit(t);
+      // 双击直接穿透选中具体的叶子元素
+      selectElement(t, true);
+
+      // 如果双击的是图片，唤起替换素材
+      if(t.tagName === 'IMG' || (t.style && t.style.backgroundImage)){
+        t.classList.add('wf-current-asset-target');
+        parent.postMessage({ type: 'wf-pick-asset' }, '*');
+        showToast('已唤起图片素材库，请选择新图片');
+        return;
+      }
+
+      // 如果是文字或按钮标签，激活打字编辑
+      var textTarget = findTextTarget(t) || t;
+      if(textTarget){
+        startTextEdit(textTarget);
+      }
     }, true);
 
     // 接收从原子组件库拖入的 drop 事件，将方框或组件插入页面 HTML 并持久化
@@ -1989,26 +2081,38 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         parent.postMessage({ type: 'wf-request-edit' }, '*');
       }
 
-      var moveEl = t.closest ? (t.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component,.wf-shape,.wf-shape-rect,.wf-shape-circle,.wf-shape-line,.wf-shape-card,.wf-text') || t) : t;
-      selectElement(moveEl);
+      var moveEl = resolveTargetElement(t, e) || t;
+      selectElement(moveEl, true);
 
-      // 准备拖动位移
-      pushSnapshot();
-      var curL = parseFloat(selectedEl.style.left);
-      var curT = parseFloat(selectedEl.style.top);
-      var r = selectedEl.getBoundingClientRect();
-      var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
-      var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
-      if(isNaN(curL)) curL = r.left + sX;
-      if(isNaN(curT)) curT = r.top + sY;
+      // 准备拖动位移：仅当选中的是顶层自由定位元素 (absolute) 时才启动整体拖动，保护卡片内部流式排版
+      var isFreePositioned = false;
+      if(selectedEl){
+        var posVal = selectedEl.style.position || (window.getComputedStyle ? window.getComputedStyle(selectedEl).position : '');
+        var isTopChild = selectedEl.parentElement === document.body || 
+                         (selectedEl.parentElement && selectedEl.parentElement.classList && selectedEl.parentElement.classList.contains('wf-inserted-component'));
+        isFreePositioned = posVal === 'absolute' || isTopChild;
+      }
 
-      drag = {
-        el: selectedEl,
-        startX: e.clientX,
-        startY: e.clientY,
-        initLeft: curL,
-        initTop: curT
-      };
+      if(isFreePositioned && selectedEl){
+        pushSnapshot();
+        var curL = parseFloat(selectedEl.style.left);
+        var curT = parseFloat(selectedEl.style.top);
+        var r = selectedEl.getBoundingClientRect();
+        var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+        var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
+        if(isNaN(curL)) curL = r.left + sX;
+        if(isNaN(curT)) curT = r.top + sY;
+
+        drag = {
+          el: selectedEl,
+          startX: e.clientX,
+          startY: e.clientY,
+          initLeft: curL,
+          initTop: curT
+        };
+      } else {
+        drag = null;
+      }
     }, true);
 
     document.addEventListener('contextmenu', function(e){
