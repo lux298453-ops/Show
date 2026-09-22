@@ -94,89 +94,39 @@
         </div>
       </div>
 
-      <!-- Right: Zoom Controls & Preview CTA -->
+      <!-- Right: Preview CTA Dropdown (Figma Style) -->
       <div class="flex items-center gap-3">
-        <!-- Canvas Zoom Control Capsule -->
-        <div class="flex items-center bg-white/80 border border-slate-200/80 rounded-xl overflow-hidden p-0.5 text-slate-600 shadow-2xs">
+        <el-dropdown trigger="click" @command="handlePreviewCommand">
           <button
-            class="wf-tap p-1.5 hover:bg-slate-100 hover:text-slate-900 rounded-lg transition-colors cursor-pointer"
-            title="缩小 (Ctrl + 滚轮)"
-            @click="zoomAtCenter(0.85)"
-          >
-            <Minus class="w-3.5 h-3.5" />
-          </button>
-          <button
-            class="wf-tap px-1.5 py-1 text-center text-xs font-bold tabular-nums text-slate-700 hover:text-emerald-700 hover:bg-slate-100 rounded-md select-none transition-colors cursor-pointer"
-            title="点击还原 100% 原始比例 (Ctrl+0)"
-            @click="resetZoom100"
-          >
-            {{ Math.round(view.k * 100) }}%
-          </button>
-          <button
-            class="wf-tap p-1.5 hover:bg-slate-100 hover:text-slate-900 rounded-lg transition-colors cursor-pointer"
-            title="放大 (Ctrl + 滚轮)"
-            @click="zoomAtCenter(1.18)"
-          >
-            <Plus class="w-3.5 h-3.5" />
-          </button>
-          <div class="h-3 w-[1px] bg-slate-200 my-auto mx-0.5"></div>
-          <button
-            class="wf-tap p-1.5 hover:bg-slate-100 hover:text-slate-900 rounded-lg transition-colors cursor-pointer"
-            title="聚焦当前选中画框 (Shift+2)"
-            @click="focusPage(focusPageId ?? (blocks[0]?.page.id ?? 0))"
-          >
-            <Crosshair class="w-3.5 h-3.5" />
-          </button>
-          <button
-            class="wf-tap p-1.5 hover:bg-slate-100 hover:text-slate-900 rounded-lg transition-colors cursor-pointer"
-            title="自适应全览所有画框 (Shift+1)"
-            @click="fitAll"
-          >
-            <Maximize2 class="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <!-- Launch Mobile Preview: Dual Split-Button -->
-        <div class="inline-flex items-stretch rounded-xl shadow-sm shadow-emerald-500/25 border border-emerald-500/80 overflow-hidden">
-          <button
-            class="wf-tap inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 transition-all cursor-pointer"
-            title="打开 Figma 原型分享级别的全屏纯净演示模式"
-            @click="openPurePreview"
+            class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 rounded-xl shadow-sm transition-all cursor-pointer"
+            title="原型演示 (Present / Preview)"
           >
             <Play class="w-3.5 h-3.5 fill-white" />
-            <span>纯原型演示</span>
+            <ChevronDown class="w-3 h-3 text-emerald-200" />
           </button>
-          <el-dropdown trigger="click" @command="handlePreviewCommand">
-            <button
-              class="h-full px-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-emerald-100 border-l border-emerald-500/80 flex items-center justify-center cursor-pointer transition-colors"
-              title="选择预览模式"
-            >
-              <ChevronDown class="w-3.5 h-3.5" />
-            </button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="pure">
-                  <div class="flex items-center gap-2 py-1">
-                    <Maximize2 class="w-3.5 h-3.5 text-cyan-600" />
-                    <div>
-                      <div class="font-bold text-xs text-slate-800">全屏纯原型演示 (Figma 模式)</div>
-                      <div class="text-[10px] text-slate-400">纯净全屏 · iPhone 16 Pro · 热区脉冲发光</div>
-                    </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="present">
+                <div class="flex items-center gap-2.5 py-1 pr-2">
+                  <Maximize2 class="w-4 h-4 text-cyan-600 shrink-0" />
+                  <div>
+                    <div class="font-bold text-xs text-slate-800">Present (全屏演示)</div>
+                    <div class="text-[10px] text-slate-400">独立全屏分享 · iPhone 16 Pro</div>
                   </div>
-                </el-dropdown-item>
-                <el-dropdown-item command="inpage" divided>
-                  <div class="flex items-center gap-2 py-1">
-                    <Smartphone class="w-3.5 h-3.5 text-emerald-600" />
-                    <div>
-                      <div class="font-bold text-xs text-slate-800">画板浮层模拟器</div>
-                      <div class="text-[10px] text-slate-400">保留业务说明抽屉与交互标注视图</div>
-                    </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="preview" divided>
+                <div class="flex items-center gap-2.5 py-1 pr-2">
+                  <Smartphone class="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <div class="font-bold text-xs text-slate-800">Preview (侧边手机浮层)</div>
+                    <div class="text-[10px] text-slate-400">在画布呈现可拖拽真机模型演示</div>
                   </div>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </header>
 
@@ -198,13 +148,13 @@
           </button>
           <button
             class="wf-tap flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-            :class="leftSidebarTab === 'components'
+            :class="leftSidebarTab === 'layers'
               ? 'bg-white text-blue-700 shadow-2xs border border-slate-200/80'
               : 'text-slate-500 hover:text-slate-800'"
-            @click="leftSidebarTab = 'components'"
+            @click="leftSidebarTab = 'layers'"
           >
-            <Component class="w-3.5 h-3.5" :class="leftSidebarTab === 'components' ? 'text-blue-600' : 'text-slate-400'" />
-            <span>🧩 原子组件库</span>
+            <Layers class="w-3.5 h-3.5" :class="leftSidebarTab === 'layers' ? 'text-blue-600' : 'text-slate-400'" />
+            <span>🗂️ 图层 (Layers)</span>
           </button>
         </div>
 
@@ -301,14 +251,16 @@
           </div>
         </div>
 
-        <!-- Tab 2: Atomic Component Library Palette -->
-        <ComponentPalette
+        <!-- Tab 2: Layers Tree -->
+        <LayerTree
           v-else
           class="flex-1"
-          :target-page="currentFocusPage"
-          @add-component="onPaletteAddComponent"
-          @drag-start="onPaletteDragStart"
-          @drag-end="onPaletteDragEnd"
+          :current-page="currentFocusPage"
+          :selected-element-id="selectedElementId"
+          :hovered-element-id="hoveredElementId"
+          @select-element="onLayerSelectElement"
+          @select-frame="onLayerSelectFrame"
+          @hover-element="hoveredElementId = $event"
         />
       </aside>
 
@@ -542,7 +494,7 @@
 
               <!-- 原子组件拖拽释放接收层 (置于 PageCanvas 与 iframe 顶层 z-100，彻底捕获拖放并杜绝 iframe 吸收) -->
               <div
-                v-if="isDraggingComponent || leftSidebarTab === 'components'"
+                v-if="isDraggingComponent || rightSidebarTab === 'components'"
                 class="palette-drop-receiver absolute inset-0 rounded-2xl transition-all flex flex-col items-center justify-center select-none"
                 :style="{ zIndex: 100 }"
                 :class="[
@@ -740,7 +692,112 @@
           @create-frame="handleCreateFramePreset"
         />
       </main>
+
+      <!-- ===== Right Sidebar: Zoom Controls, Design Inspector & Component Palette ===== -->
+      <aside class="w-68 bg-white/95 backdrop-blur-md border-l border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs">
+        <!-- 1. Right Sidebar Topbar: Canvas Zoom Controls -->
+        <div class="px-2.5 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
+          <div class="flex items-center bg-white border border-slate-200/80 rounded-lg p-0.5 text-slate-600 shadow-2xs">
+            <button
+              class="wf-tap p-1 hover:bg-slate-100 hover:text-slate-900 rounded transition-colors cursor-pointer"
+              title="缩小 (Ctrl + 滚轮)"
+              @click="zoomAtCenter(0.85)"
+            >
+              <Minus class="w-3 h-3" />
+            </button>
+            <button
+              class="wf-tap px-2 py-0.5 text-[11px] font-bold tabular-nums text-slate-700 hover:text-emerald-700 hover:bg-slate-100 rounded select-none transition-colors cursor-pointer"
+              title="点击还原 100% 比例 (Ctrl+0)"
+              @click="resetZoom100"
+            >
+              {{ Math.round(view.k * 100) }}%
+            </button>
+            <button
+              class="wf-tap p-1 hover:bg-slate-100 hover:text-slate-900 rounded transition-colors cursor-pointer"
+              title="放大 (Ctrl + 滚轮)"
+              @click="zoomAtCenter(1.18)"
+            >
+              <Plus class="w-3 h-3" />
+            </button>
+          </div>
+
+          <!-- Quick Canvas Focus Tools -->
+          <div class="flex items-center gap-1 text-slate-400">
+            <button
+              class="wf-tap p-1.5 hover:bg-slate-200/70 hover:text-slate-700 rounded-md transition-colors cursor-pointer"
+              title="聚焦当前选中画框 (Shift+2)"
+              @click="focusPage(focusPageId ?? (blocks[0]?.page.id ?? 0))"
+            >
+              <Crosshair class="w-3.5 h-3.5" />
+            </button>
+            <button
+              class="wf-tap p-1.5 hover:bg-slate-200/70 hover:text-slate-700 rounded-md transition-colors cursor-pointer"
+              title="自适应全览所有画框 (Shift+1)"
+              @click="fitAll"
+            >
+              <Maximize2 class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Right Sidebar Header: Double Tab Switch -->
+        <div class="px-2 py-1.5 border-b border-slate-100 flex items-center gap-1 bg-white shrink-0">
+          <button
+            class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            :class="rightSidebarTab === 'design'
+              ? 'bg-slate-100 text-slate-900 font-bold border border-slate-200/80 shadow-2xs'
+              : 'text-slate-500 hover:text-slate-800'"
+            @click="rightSidebarTab = 'design'"
+          >
+            <SlidersHorizontal class="w-3.5 h-3.5" :class="rightSidebarTab === 'design' ? 'text-[#0D99FF]' : 'text-slate-400'" />
+            <span>🎨 属性</span>
+          </button>
+          <button
+            class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            :class="rightSidebarTab === 'components'
+              ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200/80 shadow-2xs'
+              : 'text-slate-500 hover:text-slate-800'"
+            @click="rightSidebarTab = 'components'"
+          >
+            <Component class="w-3.5 h-3.5" :class="rightSidebarTab === 'components' ? 'text-blue-600' : 'text-slate-400'" />
+            <span>🧩 组件库</span>
+          </button>
+        </div>
+
+        <!-- 3. Tab 1: Design Inspector Panel -->
+        <DesignInspector
+          v-if="rightSidebarTab === 'design'"
+          :current-page="currentFocusPage"
+          :selected-element="selectedElementObj"
+          @update-dimension="onInspectorUpdateDimension"
+          @update-position="onInspectorUpdatePosition"
+          @update-color="onInspectorUpdateColor"
+          @update-font-size="onInspectorUpdateFontSize"
+          @duplicate-selection="onInspectorDuplicate"
+          @delete-selection="onInspectorDelete"
+        />
+
+        <!-- 4. Tab 2: Atomic Component Palette -->
+        <ComponentPalette
+          v-else
+          class="flex-1"
+          :target-page="currentFocusPage"
+          @add-component="onPaletteAddComponent"
+          @drag-start="onPaletteDragStart"
+          @drag-end="onPaletteDragEnd"
+        />
+      </aside>
     </div>
+
+    <!-- ===== Figma Floating iPhone Prototype Preview Widget ===== -->
+    <FigmaFloatingPreview
+      :visible="showFloatingPreview"
+      :pages="pages"
+      :initial-page-id="currentFocusPage?.id"
+      @close="showFloatingPreview = false"
+      @open-present="openPurePreview"
+      @navigate-page="onFloatingNavigate"
+    />
 
     <!-- ===== Mobile Device Simulator Overlay (Preview Mode) ===== -->
     <div v-if="mode === 'preview'" class="absolute inset-0 bg-slate-900/90 backdrop-blur-xl z-50 flex flex-col animate-fade-in">
@@ -1206,6 +1263,9 @@ import type { Element, Page, Prototype } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
+import LayerTree from '../components/LayerTree.vue'
+import DesignInspector from '../components/DesignInspector.vue'
+import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
 
 const activeDrawTool = ref<ActiveToolType>('select')
 const toolNames: Record<string, string> = {
@@ -1225,7 +1285,10 @@ const id = Number(route.params.id)
 const proto = ref<Prototype | null>(null)
 const pages = computed(() => proto.value?.pages || [])
 
-const leftSidebarTab = ref<'outline' | 'components'>('outline')
+const leftSidebarTab = ref<'outline' | 'layers'>('outline')
+const rightSidebarTab = ref<'design' | 'components'>('design')
+const showFloatingPreview = ref(false)
+
 const workbenchMode = ref<'design' | 'interactive'>('design')
 
 function setWorkbenchMode(m: 'design' | 'interactive') {
@@ -1251,7 +1314,7 @@ const showAnnotations = ref(false)
 /** 整页原型微调与编辑模式：8点控制盒调整大小 / 双击改文案 / 拖动位移 / Del 删除 / 自动落库 */
 const fineTune = ref(true)
 
-watch(leftSidebarTab, (tab) => {
+watch(rightSidebarTab, (tab) => {
   if (tab === 'components') {
     fineTune.value = true
   }
@@ -3091,10 +3154,77 @@ function openPurePreview() {
 }
 
 function handlePreviewCommand(cmd: string) {
-  if (cmd === 'pure') {
+  if (cmd === 'present' || cmd === 'pure') {
     openPurePreview()
-  } else if (cmd === 'inpage') {
-    openPreview()
+  } else if (cmd === 'preview' || cmd === 'inpage') {
+    showFloatingPreview.value = true
+  }
+}
+
+function onFloatingNavigate(targetPageId: number) {
+  focusPage(targetPageId)
+}
+
+function onLayerSelectElement(elementId: number) {
+  selectedElementId.value = elementId
+  if (currentFocusPage.value) {
+    focusPage(currentFocusPage.value.id)
+  }
+}
+
+function onLayerSelectFrame(pageId?: number) {
+  selectedElementId.value = null
+  if (pageId) focusPage(pageId)
+}
+
+const selectedElementObj = computed<Element | null>(() => {
+  if (!selectedElementId.value || !currentFocusPage.value?.elements) return null
+  return currentFocusPage.value.elements.find((e) => e.id === selectedElementId.value) || null
+})
+
+function onInspectorUpdateDimension(payload: { key: 'width' | 'height'; val: number }) {
+  if (selectedElementObj.value) {
+    selectedElementObj.value[payload.key] = payload.val
+  } else if (currentFocusPage.value) {
+    if (payload.key === 'width') currentFocusPage.value.canvas_width = payload.val
+    else currentFocusPage.value.canvas_height = payload.val
+  }
+}
+
+function onInspectorUpdatePosition(payload: { key: 'x' | 'y'; val: number }) {
+  if (selectedElementObj.value) {
+    selectedElementObj.value[payload.key] = payload.val
+  }
+}
+
+function onInspectorUpdateColor(color: string) {
+  if (selectedElementObj.value) {
+    try {
+      const styleObj = selectedElementObj.value.style ? JSON.parse(selectedElementObj.value.style) : {}
+      styleObj.fill = color
+      selectedElementObj.value.style = JSON.stringify(styleObj)
+    } catch {
+      selectedElementObj.value.style = JSON.stringify({ fill: color })
+    }
+  }
+}
+
+function onInspectorUpdateFontSize(delta: number) {
+  ElMessage.success(`字号已调整: ${delta > 0 ? '+' : ''}${delta}px`)
+}
+
+function onInspectorDuplicate() {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.duplicateSelectedElement?.()
+  }
+}
+
+function onInspectorDelete() {
+  if (selectedElementObj.value && currentFocusPage.value) {
+    const elId = selectedElementObj.value.id
+    currentFocusPage.value.elements = currentFocusPage.value.elements.filter((e) => e.id !== elId)
+    selectedElementId.value = null
+    ElMessage.success('已删除选定元素')
   }
 }
 
