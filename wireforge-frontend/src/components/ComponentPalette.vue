@@ -1,18 +1,5 @@
 <template>
   <div class="h-full flex flex-col bg-white overflow-hidden select-none">
-    <!-- Header / Title -->
-    <div class="px-3.5 py-2.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-      <div class="flex items-center gap-2">
-        <div class="w-5 h-5 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs">
-          🧩
-        </div>
-        <span class="text-xs font-bold text-slate-800">原子组件库</span>
-      </div>
-      <div v-if="targetPage?.name" class="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full font-semibold border border-blue-200/60 truncate max-w-[130px]" :title="`目标画板: ${targetPage.name}`">
-        🎯 {{ targetPage.name }}
-      </div>
-    </div>
-
     <!-- Category Filter Tabs -->
     <div class="p-2 border-b border-slate-100 flex gap-1 bg-white">
       <button

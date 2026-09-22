@@ -77,7 +77,7 @@
             @click="leftSidebarTab = 'outline'"
           >
             <Layers class="w-3.5 h-3.5" :class="leftSidebarTab === 'outline' ? 'text-emerald-600' : 'text-slate-400'" />
-            <span>📑 设计稿大纲</span>
+            <span>设计稿大纲</span>
           </button>
           <button
             class="wf-tap flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -86,8 +86,8 @@
               : 'text-slate-500 hover:text-slate-800'"
             @click="leftSidebarTab = 'layers'"
           >
-            <Layers class="w-3.5 h-3.5" :class="leftSidebarTab === 'layers' ? 'text-blue-600' : 'text-slate-400'" />
-            <span>🗂️ 图层 (Layers)</span>
+            <ListTree class="w-3.5 h-3.5" :class="leftSidebarTab === 'layers' ? 'text-blue-600' : 'text-slate-400'" />
+            <span>图层</span>
           </button>
         </div>
 
@@ -627,7 +627,7 @@
       </main>
 
       <!-- ===== Right Sidebar: Mode Switcher, Zoom Controls, Design Inspector & Component Palette ===== -->
-      <aside class="w-68 bg-white/95 backdrop-blur-md border-l border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs">
+      <aside class="w-72 min-w-[288px] max-w-[288px] bg-white/95 backdrop-blur-md border-l border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs overflow-hidden">
         <!-- 0. Right Sidebar Topmost: Mode Switcher [ 需求走查 (Design) | 交互连线 (Prototype) ] -->
         <div class="px-2.5 py-2 border-b border-slate-100 bg-slate-50/90 flex items-center justify-between shrink-0">
           <div class="flex items-center gap-1 w-full bg-slate-200/80 p-1 rounded-xl">
@@ -708,7 +708,7 @@
             @click="rightSidebarTab = 'design'"
           >
             <SlidersHorizontal class="w-3.5 h-3.5" :class="rightSidebarTab === 'design' ? 'text-[#0D99FF]' : 'text-slate-400'" />
-            <span>🎨 属性</span>
+            <span>属性</span>
           </button>
           <button
             class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -718,7 +718,7 @@
             @click="rightSidebarTab = 'components'"
           >
             <Component class="w-3.5 h-3.5" :class="rightSidebarTab === 'components' ? 'text-blue-600' : 'text-slate-400'" />
-            <span>🧩 组件库</span>
+            <span>组件库</span>
           </button>
         </div>
 
@@ -1214,6 +1214,7 @@ import {
   Component,
   Zap,
   Trash2,
+  ListTree,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
