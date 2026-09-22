@@ -776,6 +776,32 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
   <\/script>`
   // 微调编辑器：选中与8点缩放控制盒、双击/点按钮编辑文字、替换图片、Del/Backspace删除、Ctrl+Z撤回、Ctrl+Y重做、方向键微调、拖动移动、自动落库
   const editor = `<style data-wf-inject>
+    /* 彻底杜绝浏览器原生图片拖出副本与文字选区拖蓝 */
+    body.wf-edit-mode img,
+    body.wf-edit-mode a,
+    body.wf-edit-mode button,
+    body.wf-edit-mode div,
+    body.wf-edit-mode span,
+    body.wf-edit-mode p,
+    body.wf-edit-mode h1,
+    body.wf-edit-mode h2,
+    body.wf-edit-mode h3 {
+      -webkit-user-drag: none !important;
+      user-drag: none !important;
+    }
+    body.wf-edit-mode,
+    body.wf-edit-mode * {
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    body.wf-edit-mode [data-wf-editing-text="true"],
+    body.wf-edit-mode [contenteditable="true"],
+    body.wf-edit-mode input,
+    body.wf-edit-mode textarea {
+      -webkit-user-select: text !important;
+      user-select: text !important;
+    }
+
     #wf-transform-box {
       position: absolute;
       display: none;
@@ -1164,6 +1190,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     function cleanupStyles(){
       document.body.style.cursor = '';
+      document.body.classList.remove('wf-edit-mode');
       for(var i = 0; i < touched.length; i++){
         try{ touched[i].style.outline = ''; touched[i].style.outlineOffset = ''; }catch(e){}
       }
@@ -1758,6 +1785,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       if(d.type === 'wf-edit'){
         EDIT = !!d.on;
         document.body.style.cursor = EDIT ? 'default' : '';
+        document.body.classList.toggle('wf-edit-mode', EDIT);
         if(EDIT){
           pushSnapshot();
           showToast('微调模式已开启：点击选框缩放/移动，双击改文案，拖入新组件');
@@ -1973,6 +2001,17 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
     }, true);
 
+    // 拦截画布内部元素的原生拖拽，杜绝图片被拖动时生成原生副本
+    document.addEventListener('dragstart', function(e){
+      var isFromPalette = false;
+      try {
+        isFromPalette = !!(window.parent && window.parent.__wfDraggingComponent);
+      } catch(err){}
+      if(!isFromPalette){
+        e.preventDefault();
+      }
+    }, true);
+
     // 接收从原子组件库拖入的 drop 事件，将方框或组件插入页面 HTML 并持久化
     document.addEventListener('dragover', function(e){
       e.preventDefault();
@@ -1982,11 +2021,28 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     document.addEventListener('drop', function(e){
       e.preventDefault();
       e.stopPropagation();
+
+      // 仅允许从左侧/底部组件库拖入的组件插入！杜绝画板内部图片/元素拖动时产生副本！
+      var isFromPalette = false;
+      try {
+        isFromPalette = !!(window.parent && window.parent.__wfDraggingComponent);
+      } catch(err){}
+      if(!isFromPalette) return;
+
       var html = '';
-      if(e.dataTransfer){
-        html = e.dataTransfer.getData('text/html') || e.dataTransfer.getData('text/plain') || '';
+      try {
+        if(window.parent && window.parent.__wfDraggingComponent){
+          html = window.parent.__wfDraggingComponent.html || '';
+        }
+      }catch(err){}
+      if(!html && e.dataTransfer){
+        html = e.dataTransfer.getData('application/wireforge-component') || e.dataTransfer.getData('text/html') || e.dataTransfer.getData('text/plain') || '';
       }
       if(!html) return;
+      try {
+        if(window.parent) window.parent.__wfDraggingComponent = null;
+      }catch(err){}
+
       pushSnapshot();
       var temp = document.createElement('div');
       temp.innerHTML = html.trim();
@@ -2046,8 +2102,19 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
       if(e.target.closest && e.target.closest('#wf-action-bar')) return;
 
-      var activeText = document.querySelector('[data-wf-editing-text="true"]');
-      if(activeText || e.target.isContentEditable || (e.target.getAttribute && e.target.getAttribute('data-wf-editing-text') === 'true')) return;
+      // 如果之前有正在打字编辑的文本，且当前点击的不是该文本自身：
+      // 立即自动失焦并提交上一条文本编辑，绝不阻断本次单选或拖拽！
+      var activeText = document.querySelector('[data-wf-editing-text="true"], [contenteditable="true"]');
+      if(activeText && activeText !== e.target && !activeText.contains(e.target)){
+        try {
+          activeText.blur();
+        } catch(err){}
+      }
+
+      // 如果点击的是当前正在编辑的文本或输入框内部，允许光标落点打字，不抢占为拖拽
+      if(e.target.isContentEditable || (e.target.getAttribute && e.target.getAttribute('data-wf-editing-text') === 'true')){
+        return;
+      }
 
       if(e.button !== 0) return;
 
@@ -2078,37 +2145,36 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
       if(!EDIT && isInserted){
         EDIT = true;
+        document.body.classList.add('wf-edit-mode');
         parent.postMessage({ type: 'wf-request-edit' }, '*');
       }
 
       var moveEl = resolveTargetElement(t, e) || t;
       selectElement(moveEl, true);
 
-      // 准备拖动位移：仅当选中的是顶层自由定位元素 (absolute) 时才启动整体拖动，保护卡片内部流式排版
-      var isFreePositioned = false;
-      if(selectedEl){
-        var posVal = selectedEl.style.position || (window.getComputedStyle ? window.getComputedStyle(selectedEl).position : '');
-        var isTopChild = selectedEl.parentElement === document.body || 
-                         (selectedEl.parentElement && selectedEl.parentElement.classList && selectedEl.parentElement.classList.contains('wf-inserted-component'));
-        isFreePositioned = posVal === 'absolute' || isTopChild;
-      }
-
-      if(isFreePositioned && selectedEl){
-        pushSnapshot();
-        var curL = parseFloat(selectedEl.style.left);
-        var curT = parseFloat(selectedEl.style.top);
-        var r = selectedEl.getBoundingClientRect();
+      // 准备拖动位移：无论元素是绝对定位还是流式排版（文字/图片/按钮等），都允许准备拖拽！
+      if(selectedEl && selectedEl !== document.body && selectedEl !== document.documentElement){
+        var rect = selectedEl.getBoundingClientRect();
         var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
         var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
-        if(isNaN(curL)) curL = r.left + sX;
-        if(isNaN(curT)) curT = r.top + sY;
+        var curL = parseFloat(selectedEl.style.left);
+        var curT = parseFloat(selectedEl.style.top);
+        if(isNaN(curL)) curL = rect.left + sX;
+        if(isNaN(curT)) curT = rect.top + sY;
+
+        var posVal = selectedEl.style.position || (window.getComputedStyle ? window.getComputedStyle(selectedEl).position : '');
+        var isAbsolute = posVal === 'absolute';
 
         drag = {
           el: selectedEl,
           startX: e.clientX,
           startY: e.clientY,
           initLeft: curL,
-          initTop: curT
+          initTop: curT,
+          initW: rect.width,
+          initH: rect.height,
+          isAbsolute: isAbsolute,
+          hasMoved: false
         };
       } else {
         drag = null;
@@ -2169,11 +2235,38 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       if(drag){
         var dx = e.clientX - drag.startX;
         var dy = e.clientY - drag.startY;
-        drag.el.style.position = 'absolute';
-        drag.el.style.left = Math.round(drag.initLeft + dx) + 'px';
-        drag.el.style.top = Math.round(drag.initTop + dy) + 'px';
-        drag.el.style.zIndex = '999';
-        updateTransformBox(drag.el);
+        var dist = Math.hypot(dx, dy);
+
+        // 仅当鼠标移动超过 3px 时才判定为用户想要拖拽移动，避免普通单纯点击时影响流式排版
+        if(!drag.hasMoved && dist > 3){
+          pushSnapshot();
+          drag.hasMoved = true;
+
+          // 若此前不是绝对定位（如流式排版的文字、卡片、图片），无缝转为绝对定位自由拖动
+          if(!drag.isAbsolute){
+            var r = drag.el.getBoundingClientRect();
+            var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+            var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
+            drag.initLeft = r.left + sX;
+            drag.initTop = r.top + sY;
+
+            drag.el.style.width = Math.round(drag.initW || r.width) + 'px';
+            drag.el.style.height = Math.round(drag.initH || r.height) + 'px';
+            drag.el.style.boxSizing = 'border-box';
+            drag.el.style.position = 'absolute';
+            drag.el.style.margin = '0';
+            drag.el.style.zIndex = '999';
+            drag.isAbsolute = true;
+          }
+        }
+
+        if(drag.hasMoved){
+          drag.el.style.position = 'absolute';
+          drag.el.style.left = Math.round(drag.initLeft + dx) + 'px';
+          drag.el.style.top = Math.round(drag.initTop + dy) + 'px';
+          drag.el.style.zIndex = '999';
+          updateTransformBox(drag.el);
+        }
         return;
       }
     }, true);
@@ -2185,7 +2278,10 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         resizing = null;
       }
       if(drag){
-        scheduleSave();
+        if(drag.hasMoved){
+          scheduleSave();
+          showToast('已更新元素位置并保存');
+        }
         drag = null;
       }
     }, true);
@@ -2391,14 +2487,16 @@ function onSlotDragOver(e: DragEvent) {
 }
 
 function onSlotDrop(e: DragEvent) {
-  const html = (window as any).__wfDraggingComponent?.html || e.dataTransfer?.getData('text/html') || e.dataTransfer?.getData('text/plain')
-  if (html) {
+  const isFromPalette = !!(window as any).__wfDraggingComponent
+  const html = (window as any).__wfDraggingComponent?.html || (isFromPalette ? e.dataTransfer?.getData('text/html') : '')
+  if (html && isFromPalette) {
     e.preventDefault()
     e.stopPropagation()
     const rect = (e.currentTarget as HTMLElement)?.getBoundingClientRect()
     const dropX = rect ? Math.round(Math.max(16, Math.min(320, e.clientX - rect.left))) : 20
     const dropY = rect ? Math.round(Math.max(60, Math.min(720, e.clientY - rect.top))) : 220
     insertComponent(html, dropX, dropY)
+    ;(window as any).__wfDraggingComponent = null
   }
 }
 
