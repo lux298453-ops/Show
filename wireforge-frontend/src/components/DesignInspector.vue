@@ -3,8 +3,8 @@
     <!-- 1. 顶部当前选中对象标识 & 6大对齐工具 -->
     <div class="border-b border-slate-100 bg-slate-50/60 shrink-0">
       <!-- 对象标识行 -->
-      <div class="px-3 py-2 flex items-center justify-between">
-        <div class="flex items-center gap-1.5 min-w-0">
+      <div class="px-3 py-2 flex items-center justify-between gap-1">
+        <div class="flex items-center gap-1.5 min-w-0 flex-1">
           <component
             :is="hasSelection ? Box : Hash"
             class="w-3.5 h-3.5 text-slate-500 shrink-0"
@@ -13,9 +13,20 @@
             {{ hasSelection ? (elementInfo?.tagName || selectedElement?.label || selectedElement?.type || '选定元素') : (currentPage?.name || '未选画板') }}
           </span>
         </div>
-        <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 font-mono">
-          {{ hasSelection ? 'Element' : 'Frame' }}
-        </span>
+        <div class="flex items-center gap-1 shrink-0">
+          <button
+            v-if="elementInfo?.hasParentContainer"
+            type="button"
+            class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-[#0D99FF] hover:bg-blue-100 transition-colors cursor-pointer flex items-center gap-0.5"
+            title="一键选中外层卡片容器"
+            @click="emit('select-parent')"
+          >
+            <span>⬆️ 选外层</span>
+          </button>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 font-mono">
+            {{ hasSelection ? 'Element' : 'Frame' }}
+          </span>
+        </div>
       </div>
 
       <!-- 6 大 Figma 一键对齐工具栏 -->
@@ -261,14 +272,70 @@
       </div>
     </div>
 
-    <!-- 7. 文字属性 (Typography - 仅当选中文字元素时呈现) -->
-    <div v-if="isTextElement" class="p-3 border-b border-slate-100">
-      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">文字 (Typography)</div>
+    <!-- 7. 媒体素材 (Media - 仅当选中图片元素时呈现) -->
+    <div v-if="elementInfo?.isImage" class="p-3 border-b border-slate-100">
+      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">图片素材 (Media)</div>
+      <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200/80 rounded-lg p-2">
+        <div class="w-10 h-10 rounded-md border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center">
+          <img
+            v-if="elementInfo.imgSrc"
+            :src="elementInfo.imgSrc"
+            class="w-full h-full object-cover"
+            alt="素材预览"
+          />
+          <ImageIcon v-else class="w-5 h-5 text-slate-400" />
+        </div>
+        <div class="flex-1 min-w-0">
+          <button
+            type="button"
+            class="w-full py-1.5 px-2 bg-[#0D99FF] hover:bg-blue-600 text-white rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
+            @click="emit('replace-asset')"
+          >
+            <ImageIcon class="w-3.5 h-3.5" />
+            <span>替换图片素材...</span>
+          </button>
+          <p class="text-[10px] text-slate-400 mt-1 truncate">双击画布图片也可直接替换</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8. 文字属性 (Typography - 当选中包含文字或为文字元素时呈现) -->
+    <div v-if="isTextElement || elementInfo?.hasText" class="p-3 border-b border-slate-100">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">文字 (Typography)</div>
+        <button
+          type="button"
+          class="text-[10px] text-[#0D99FF] hover:text-blue-700 font-medium flex items-center gap-0.5 cursor-pointer"
+          title="在画布上直接打字修改文案"
+          @click="emit('start-text-edit')"
+        >
+          <Edit3 class="w-2.5 h-2.5" />
+          <span>双击打字</span>
+        </button>
+      </div>
+
+      <!-- 文案直接编辑输入框 -->
+      <div class="mb-2.5">
+        <div class="text-[10px] text-slate-500 mb-1">文本内容</div>
+        <div class="flex items-center bg-slate-50 border border-slate-200/80 rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white transition-colors">
+          <input
+            type="text"
+            :value="currentTextVal"
+            placeholder="输入文案..."
+            class="w-full bg-transparent text-[11px] outline-none text-slate-700"
+            @input="onTextInput"
+            @change="onTextChange"
+          />
+        </div>
+      </div>
+
+      <!-- 字号调节 -->
       <div class="flex items-center justify-between gap-2">
         <span class="text-slate-500 text-[11px]">字号大小</span>
         <div class="flex items-center gap-1 bg-slate-50 border border-slate-200/80 rounded-lg p-1">
           <button
             class="w-5 h-5 rounded hover:bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs cursor-pointer"
+            title="减小字号 (快捷键 [ )"
             @click="stepFontSize(-2)"
           >
             −
@@ -278,6 +345,7 @@
           </span>
           <button
             class="w-5 h-5 rounded hover:bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs cursor-pointer"
+            title="增大字号 (快捷键 ] )"
             @click="stepFontSize(2)"
           >
             +
@@ -286,11 +354,20 @@
       </div>
     </div>
 
-    <!-- 8. 快速操作 (Actions) -->
+    <!-- 9. 快速操作 (Actions) -->
     <div class="p-3">
       <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">常用操作 (Actions)</div>
       <div class="flex flex-col gap-1.5">
         <button
+          v-if="elementInfo?.hasParentContainer"
+          type="button"
+          class="w-full py-1.5 px-2 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-lg text-[#0D99FF] text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          @click="emit('select-parent')"
+        >
+          <span>⬆️ 选中外层卡片容器</span>
+        </button>
+        <button
+          v-if="hasSelection"
           class="w-full py-1.5 px-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-lg text-slate-700 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
           @click="emit('duplicate-selection')"
         >
@@ -324,6 +401,8 @@ import {
   AlignCenterVertical,
   AlignEndVertical,
   Minimize2,
+  Image as ImageIcon,
+  Edit3,
 } from 'lucide-vue-next'
 import type { Page, Element } from '../types'
 
@@ -343,6 +422,11 @@ const props = defineProps<{
     boxShadow?: string
     backgroundColor?: string
     fontSize?: number
+    isImage?: boolean
+    imgSrc?: string
+    hasText?: boolean
+    textContent?: string
+    hasParentContainer?: boolean
   } | null
 }>()
 
@@ -357,6 +441,10 @@ const emit = defineEmits<{
   (e: 'update-shadow', shadow: string): void
   (e: 'duplicate-selection'): void
   (e: 'delete-selection'): void
+  (e: 'replace-asset'): void
+  (e: 'start-text-edit'): void
+  (e: 'update-text', text: string): void
+  (e: 'select-parent'): void
 }>()
 
 const hasSelection = computed(() => !!props.selectedElement || !!props.elementInfo)
@@ -405,10 +493,15 @@ const shadowOptions = [
   { id: 'deep', label: '立体浮动', value: '0 10px 25px rgba(0,0,0,0.15)' },
 ]
 
+const currentTextVal = ref('')
+
 watch(
   () => props.elementInfo,
   (info) => {
-    if (!info) return
+    if (!info) {
+      currentTextVal.value = ''
+      return
+    }
     if (info.borderRadius !== undefined) currentRadius.value = info.borderRadius
     if (info.borderWidth !== undefined) strokeWidth.value = info.borderWidth
     if (info.borderColor) strokeColor.value = info.borderColor
@@ -416,9 +509,24 @@ watch(
     if (info.backgroundColor && info.backgroundColor !== 'transparent' && info.backgroundColor !== 'rgba(0, 0, 0, 0)') {
       currentFillColor.value = rgbToHex(info.backgroundColor)
     }
+    if (info.textContent !== undefined) {
+      currentTextVal.value = info.textContent
+    }
   },
   { immediate: true, deep: true }
 )
+
+function onTextInput(e: Event) {
+  const v = (e.target as HTMLInputElement).value
+  currentTextVal.value = v
+  emit('update-text', v)
+}
+
+function onTextChange(e: Event) {
+  const v = (e.target as HTMLInputElement).value
+  currentTextVal.value = v
+  emit('update-text', v)
+}
 
 function rgbToHex(rgbStr: string): string {
   if (rgbStr.startsWith('#')) return rgbStr

@@ -842,135 +842,6 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       box-shadow: 0 2px 6px rgba(13,153,255,0.35);
       line-height: 1.2;
       z-index: 1000000;
-    }
-    #wf-action-bar {
-      position: absolute;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      pointer-events: auto;
-      background: rgba(15, 23, 42, 0.94);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-      padding: 3px 6px;
-      border-radius: 6px;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-      white-space: nowrap;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      z-index: 1000000;
-    }
-    .wf-act-btn {
-      background: #2563eb;
-      color: #ffffff;
-      border: none;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 3px 8px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 3px;
-      transition: background 0.15s;
-    }
-    .wf-act-btn:hover {
-      background: #1d4ed8;
-    }
-    .wf-act-btn-del {
-      background: rgba(239, 68, 68, 0.18);
-      color: #fca5a5;
-      border: 1px solid rgba(239, 68, 68, 0.4);
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 3px 7px;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .wf-act-btn-del:hover {
-      background: rgba(239, 68, 68, 0.4);
-      color: #ffffff;
-    }
-    .wf-color-picker-label {
-      position: relative;
-      width: 18px;
-      height: 18px;
-      border-radius: 4px;
-      border: 1px solid rgba(255, 255, 255, 0.4);
-      cursor: pointer;
-      overflow: hidden;
-      display: inline-block;
-      flex-shrink: 0;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    }
-    .wf-color-picker-input {
-      position: absolute;
-      top: -8px;
-      left: -8px;
-      width: 40px;
-      height: 40px;
-      opacity: 0;
-      cursor: pointer;
-    }
-    .wf-color-swatch {
-      width: 12px;
-      height: 12px;
-      border-radius: 2px;
-      cursor: pointer;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      display: inline-block;
-      transition: transform 0.1s;
-      flex-shrink: 0;
-    }
-    .wf-color-swatch:hover {
-      transform: scale(1.25);
-    }
-    .wf-color-swatch-transparent {
-      background: linear-gradient(135deg, #fff 40%, #ef4444 48%, #ef4444 52%, #fff 60%);
-    }
-    .wf-fs-stepper {
-      display: inline-flex;
-      align-items: center;
-      gap: 2px;
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      padding: 1px 3px;
-    }
-    .wf-fs-btn {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      background: rgba(255, 255, 255, 0.12);
-      color: #fff;
-      font-size: 11px;
-      font-weight: 700;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.1s;
-      line-height: 1;
-      padding: 0;
-    }
-    .wf-fs-btn:hover {
-      background: rgba(255, 255, 255, 0.28);
-    }
-    .wf-fs-val {
-      font-size: 11px;
-      color: #e2e8f0;
-      font-weight: 600;
-      min-width: 28px;
-      text-align: center;
-      font-family: ui-monospace, monospace;
-    }
-    .wf-act-divider {
-      width: 1px;
-      height: 14px;
-      background: rgba(255, 255, 255, 0.2);
-      margin: 0 2px;
-      flex-shrink: 0;
-    }
   </style>
   <script data-wf-inject>
   (function(){
@@ -1259,10 +1130,6 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         dim.id = 'wf-dim-badge';
         b.appendChild(dim);
 
-        var act = document.createElement('div');
-        act.id = 'wf-action-bar';
-        b.appendChild(act);
-
         document.body.appendChild(b);
       }
       return b;
@@ -1320,232 +1187,6 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       showToast('颜色已修改并保存');
     }
 
-    function updateActionBar(target){
-      var act = document.getElementById('wf-action-bar');
-      if(!act) return;
-      act.innerHTML = '';
-
-      var isImg = target.tagName === 'IMG' || (target.style && target.style.backgroundImage && target.style.backgroundImage.indexOf('url(') !== -1);
-      var isPureShape = target.classList && (target.classList.contains('wf-shape-rect') || target.classList.contains('wf-shape-circle') || target.classList.contains('wf-shape-line'));
-      var hasText = findTextTarget(target) !== null && !isPureShape;
-
-      // 0. 若选中的是卡片或列表项内部的子元素，提供快捷「选外层」按钮
-      var parentCard = target.parentElement ? (target.parentElement.closest ? target.parentElement.closest('.wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-app-item, .wf-ios-tab-bar, .wf-container, .wf-box, .wf-card, .wf-inserted-component') : null) : null;
-      if(parentCard && parentCard !== target && parentCard !== document.body){
-        var btnSelectParent = document.createElement('button');
-        btnSelectParent.type = 'button';
-        btnSelectParent.className = 'wf-act-btn';
-        btnSelectParent.title = '一键选中并整体移动外层卡片';
-        btnSelectParent.style.color = '#0284c7';
-        btnSelectParent.style.fontWeight = '600';
-        btnSelectParent.innerHTML = '⬆️ 选外层';
-        btnSelectParent.addEventListener('click', function(e){
-          e.preventDefault(); e.stopPropagation();
-          selectElement(parentCard, true);
-        });
-        act.appendChild(btnSelectParent);
-
-        var divParent = document.createElement('div');
-        divParent.className = 'wf-act-divider';
-        act.appendChild(divParent);
-      }
-
-      // 1. 替换图片 / 编辑文字
-      if(isImg){
-        var btnAsset = document.createElement('button');
-        btnAsset.type = 'button';
-        btnAsset.className = 'wf-act-btn';
-        btnAsset.innerHTML = '🖼️ 替换图片';
-        btnAsset.addEventListener('click', function(e){
-          e.preventDefault(); e.stopPropagation();
-          var prev = document.querySelectorAll('.wf-current-asset-target');
-          for(var pi = 0; pi < prev.length; pi++) prev[pi].classList.remove('wf-current-asset-target');
-          target.classList.add('wf-current-asset-target');
-          var src = target.tagName === 'IMG' ? target.src : (target.style.backgroundImage || '');
-          parent.postMessage({ type: 'wf-pick-asset', src: src }, '*');
-          showToast('已唤起素材库替换面板');
-        });
-        act.appendChild(btnAsset);
-      } else if(hasText) {
-        var btnEdit = document.createElement('button');
-        btnEdit.type = 'button';
-        btnEdit.className = 'wf-act-btn';
-        btnEdit.innerHTML = '✏️ 编辑文字';
-        btnEdit.addEventListener('click', function(e){
-          e.preventDefault(); e.stopPropagation();
-          if(selectedEl) startTextEdit(selectedEl);
-        });
-        act.appendChild(btnEdit);
-      }
-
-      // 2. 背景色 / 填充色选择器与快捷色块（除纯图片外均支持）
-      if(!isImg){
-        if(isImg || hasText){
-          var div1 = document.createElement('div');
-          div1.className = 'wf-act-divider';
-          act.appendChild(div1);
-        }
-
-        var colorGroup = document.createElement('div');
-        colorGroup.style.cssText = 'display:flex;align-items:center;gap:3px;';
-
-        var initHex = '';
-        var compBg = window.getComputedStyle(target).backgroundColor;
-        var hasExplicitBg = compBg && compBg !== 'transparent' && compBg !== 'rgba(0, 0, 0, 0)';
-        if(hasExplicitBg){
-          initHex = rgbToHex(compBg);
-        } else {
-          var compColor = window.getComputedStyle(target).color;
-          initHex = rgbToHex(compColor);
-        }
-        if(!initHex) initHex = '#0D99FF';
-
-        var colorLabel = document.createElement('label');
-        colorLabel.className = 'wf-color-picker-label';
-        colorLabel.title = '调色盘';
-        colorLabel.style.backgroundColor = initHex;
-
-        var colorInput = document.createElement('input');
-        colorInput.type = 'color';
-        colorInput.className = 'wf-color-picker-input';
-        colorInput.value = initHex;
-
-        colorInput.addEventListener('input', function(e){
-          var v = e.target.value;
-          colorLabel.style.backgroundColor = v;
-          applyColor(target, v);
-        });
-        colorInput.addEventListener('change', function(e){
-          var v = e.target.value;
-          colorLabel.style.backgroundColor = v;
-          applyColor(target, v);
-        });
-        colorLabel.appendChild(colorInput);
-        colorGroup.appendChild(colorLabel);
-
-        // 快捷色块列表：#0D99FF 蓝 / #10b981 绿 / #f97316 橙 / #ffffff 白
-        var presetColors = ['#0D99FF', '#10b981', '#f97316', '#ffffff'];
-        var isPureRectOrBox = target.classList && (target.classList.contains('wf-shape-rect') || target.classList.contains('wf-box'));
-        if(isPureRectOrBox){
-          presetColors.push('transparent');
-        }
-
-        presetColors.forEach(function(pc){
-          var swatch = document.createElement('div');
-          swatch.className = 'wf-color-swatch' + (pc === 'transparent' ? ' wf-color-swatch-transparent' : '');
-          swatch.title = pc === 'transparent' ? '透明背景' : pc;
-          if(pc !== 'transparent'){
-            swatch.style.backgroundColor = pc;
-          }
-          swatch.addEventListener('click', function(e){
-            e.preventDefault(); e.stopPropagation();
-            if(pc !== 'transparent'){
-              colorLabel.style.backgroundColor = pc;
-              colorInput.value = pc;
-            } else {
-              colorLabel.style.backgroundColor = 'transparent';
-            }
-            applyColor(target, pc);
-          });
-          colorGroup.appendChild(swatch);
-        });
-
-        act.appendChild(colorGroup);
-      }
-
-      // 3. 字号调整器 (Stepper: [−] [14px] [+]) 仅在 hasText 为 true 时显示
-      if(hasText){
-        var div2 = document.createElement('div');
-        div2.className = 'wf-act-divider';
-        act.appendChild(div2);
-
-        var tText = findTextTarget(target);
-        var curFs = parseInt(window.getComputedStyle(tText).fontSize, 10) || 14;
-
-        var fsStepper = document.createElement('div');
-        fsStepper.className = 'wf-fs-stepper';
-
-        var btnMinus = document.createElement('button');
-        btnMinus.type = 'button';
-        btnMinus.className = 'wf-fs-btn';
-        btnMinus.innerHTML = '−';
-        btnMinus.title = '减小字号 (快捷键 [ )';
-
-        var fsVal = document.createElement('span');
-        fsVal.className = 'wf-fs-val';
-        fsVal.textContent = curFs + 'px';
-
-        var btnPlus = document.createElement('button');
-        btnPlus.type = 'button';
-        btnPlus.className = 'wf-fs-btn';
-        btnPlus.innerHTML = '+';
-        btnPlus.title = '增大字号 (快捷键 ] )';
-
-        function changeFontSize(delta){
-          var s = parseInt(window.getComputedStyle(tText).fontSize, 10) || 14;
-          var nextS = Math.max(10, Math.min(60, s + delta));
-          pushSnapshot();
-          tText.style.fontSize = nextS + 'px';
-          var textNodes = target.querySelectorAll ? target.querySelectorAll(tText.tagName) : [];
-          for(var ti = 0; ti < textNodes.length; ti++){
-            if(textNodes[ti].tagName === tText.tagName) textNodes[ti].style.fontSize = nextS + 'px';
-          }
-          fsVal.textContent = nextS + 'px';
-          updateTransformBox(target);
-          scheduleSave();
-          showToast('字号已修改为 ' + nextS + 'px');
-        }
-
-        btnMinus.addEventListener('click', function(e){
-          e.preventDefault(); e.stopPropagation();
-          changeFontSize(-2);
-        });
-        btnPlus.addEventListener('click', function(e){
-          e.preventDefault(); e.stopPropagation();
-          changeFontSize(2);
-        });
-
-        fsStepper.appendChild(btnMinus);
-        fsStepper.appendChild(fsVal);
-        fsStepper.appendChild(btnPlus);
-        act.appendChild(fsStepper);
-      }
-
-      var div3 = document.createElement('div');
-      div3.className = 'wf-act-divider';
-      act.appendChild(div3);
-
-      // 4. 复制与删除按钮
-      var btnCopy = document.createElement('button');
-      btnCopy.type = 'button';
-      btnCopy.className = 'wf-act-btn';
-      btnCopy.innerHTML = '📋 复制';
-      btnCopy.title = '复制此元素 (Ctrl+C / ⌘C)';
-      btnCopy.addEventListener('click', function(e){
-        e.preventDefault(); e.stopPropagation();
-        if(selectedEl) copyElement(selectedEl);
-      });
-      act.appendChild(btnCopy);
-
-      var btnDel = document.createElement('button');
-      btnDel.type = 'button';
-      btnDel.className = 'wf-act-btn-del';
-      btnDel.title = '删除元素 (Backspace / Del)';
-      btnDel.innerHTML = '🗑️';
-      btnDel.addEventListener('click', function(e){
-        e.preventDefault(); e.stopPropagation();
-        if(selectedEl){
-          pushSnapshot();
-          var toDel = selectedEl;
-          deselect();
-          if(toDel.parentNode) toDel.parentNode.removeChild(toDel);
-          scheduleSave();
-          showToast('已删除元素 (Ctrl+Z 可撤回)');
-        }
-      });
-      act.appendChild(btnDel);
-    }
-
     function updateTransformBox(target){
       if(!target || !target.isConnected){
         deselect();
@@ -1577,21 +1218,11 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           dim.style.top = 'auto';
         }
       }
-
-      var act = document.getElementById('wf-action-bar');
-      if(act){
-        if(t < 38){
-          act.style.top = 'calc(100% + 6px)';
-        } else {
-          act.style.top = '-34px';
-        }
-      }
     }
 
     function resolveTargetElement(t, e){
       if(!t || t === document.body || t === document.documentElement) return null;
       if(t.id === 'wf-transform-box' || (t.closest && t.closest('#wf-transform-box'))) return null;
-      if(t.id === 'wf-action-bar' || (t.closest && t.closest('#wf-action-bar'))) return null;
 
       // 1. Figma 穿透快捷键：按住 Ctrl / ⌘ 键直接点选最底层真实目标
       if(e && (e.ctrlKey || e.metaKey)){
@@ -1658,7 +1289,6 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       clearHover();
       selectedEl = targetEl;
       getTransformBox();
-      updateActionBar(selectedEl);
       updateTransformBox(selectedEl);
       setTimeout(function(){
         if(selectedEl) updateTransformBox(selectedEl);
@@ -1668,6 +1298,18 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       try {
         var cs = window.getComputedStyle(selectedEl);
         var rect = selectedEl.getBoundingClientRect();
+        var isImg = selectedEl.tagName === 'IMG' || !!(selectedEl.style && selectedEl.style.backgroundImage && selectedEl.style.backgroundImage.indexOf('url(') !== -1);
+        var imgSrc = selectedEl.tagName === 'IMG' ? selectedEl.src : (selectedEl.style.backgroundImage ? selectedEl.style.backgroundImage.replace(/^url\(["']?|["']?\)$/g, '') : '');
+        var isPureShape = selectedEl.classList && (selectedEl.classList.contains('wf-shape-rect') || selectedEl.classList.contains('wf-shape-circle') || selectedEl.classList.contains('wf-shape-line'));
+        var tText = findTextTarget(selectedEl);
+        var hasText = tText !== null && !isPureShape;
+        var textContent = '';
+        if(hasText && tText){
+          textContent = (tText.tagName === 'INPUT' || tText.tagName === 'TEXTAREA') ? tText.value : (tText.innerText || tText.textContent || '').trim();
+        }
+        var parentCard = selectedEl.parentElement ? (selectedEl.parentElement.closest ? selectedEl.parentElement.closest('.wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-app-item, .wf-ios-tab-bar, .wf-container, .wf-box, .wf-card, .wf-inserted-component') : null) : null;
+        var hasParentContainer = !!(parentCard && parentCard !== selectedEl && parentCard !== document.body);
+
         window.parent.postMessage({
           type: 'wf-element-selected',
           info: {
@@ -1682,7 +1324,12 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
             borderStyle: cs.borderTopStyle || 'solid',
             boxShadow: cs.boxShadow || 'none',
             backgroundColor: cs.backgroundColor || 'transparent',
-            fontSize: parseInt(cs.fontSize) || 14
+            fontSize: parseInt(cs.fontSize) || 14,
+            isImage: isImg,
+            imgSrc: imgSrc,
+            hasText: hasText,
+            textContent: textContent,
+            hasParentContainer: hasParentContainer
           }
         }, '*');
       } catch(e) {}
@@ -1854,22 +1501,61 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         }
       }else if(d.type === 'wf-color'){
         if(selectedEl){
-          pushSnapshot();
-          var tag = selectedEl.tagName.toLowerCase();
-          if(/^(h[1-6]|p|span|a|label|strong|em)$/.test(tag)){
-            selectedEl.style.color = d.color;
-          }else{
-            selectedEl.style.backgroundColor = d.color;
-          }
-          scheduleSave();
+          applyColor(selectedEl, d.color);
         }
       }else if(d.type === 'wf-font-size'){
         if(selectedEl){
+          var tText = findTextTarget(selectedEl) || selectedEl;
+          var curFs = parseInt(window.getComputedStyle(tText).fontSize) || 14;
+          var nextFs = Math.max(10, Math.min(60, curFs + d.delta));
           pushSnapshot();
-          var curFs = parseInt(window.getComputedStyle(selectedEl).fontSize) || 14;
-          selectedEl.style.fontSize = Math.max(10, Math.min(60, curFs + d.delta)) + 'px';
+          tText.style.fontSize = nextFs + 'px';
+          var textNodes = selectedEl.querySelectorAll ? selectedEl.querySelectorAll(tText.tagName) : [];
+          for(var ti = 0; ti < textNodes.length; ti++){
+            if(textNodes[ti].tagName === tText.tagName) textNodes[ti].style.fontSize = nextFs + 'px';
+          }
           updateTransformBox(selectedEl);
           scheduleSave();
+        }
+      }else if(d.type === 'wf-start-text-edit'){
+        if(selectedEl) startTextEdit(selectedEl);
+      }else if(d.type === 'wf-update-text'){
+        if(selectedEl){
+          var tText = findTextTarget(selectedEl) || selectedEl;
+          if(tText){
+            pushSnapshot();
+            if(tText.tagName === 'INPUT' || tText.tagName === 'TEXTAREA'){
+              tText.value = d.text || '';
+            } else {
+              tText.innerText = d.text || '';
+            }
+            updateTransformBox(selectedEl);
+            scheduleSave();
+          }
+        }
+      }else if(d.type === 'wf-select-parent'){
+        if(selectedEl && selectedEl.parentElement){
+          var parentCard = selectedEl.parentElement.closest ? selectedEl.parentElement.closest('.wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-app-item, .wf-ios-tab-bar, .wf-container, .wf-box, .wf-card, .wf-inserted-component') : null;
+          if(parentCard && parentCard !== selectedEl && parentCard !== document.body){
+            selectElement(parentCard, true);
+          }
+        }
+      }else if(d.type === 'wf-delete'){
+        if(selectedEl && selectedEl !== document.body){
+          pushSnapshot();
+          var toDel = selectedEl;
+          deselect();
+          if(toDel.parentNode) toDel.parentNode.removeChild(toDel);
+          scheduleSave();
+          showToast('已删除元素 (Ctrl+Z 可撤回)');
+        }
+      }else if(d.type === 'wf-open-asset-picker'){
+        if(selectedEl){
+          var prev = document.querySelectorAll('.wf-current-asset-target');
+          for(var pi = 0; pi < prev.length; pi++) prev[pi].classList.remove('wf-current-asset-target');
+          selectedEl.classList.add('wf-current-asset-target');
+          var src = selectedEl.tagName === 'IMG' ? selectedEl.src : (selectedEl.style && selectedEl.style.backgroundImage ? selectedEl.style.backgroundImage.replace(/^url\(["']?|["']?\)$/g, '') : '');
+          parent.postMessage({ type: 'wf-pick-asset', src: src }, '*');
         }
       }
       else if(d.type === 'wf-export'){ doExport(); }
@@ -1969,7 +1655,6 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     document.addEventListener('dblclick', function(e){
       var t = e.target;
       if(!t || t === document.body || t === document.documentElement) return;
-      if(t.closest && t.closest('#wf-action-bar')) return;
 
       var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
       if(!EDIT && !isInserted) return;
@@ -2099,8 +1784,6 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         };
         return;
       }
-
-      if(e.target.closest && e.target.closest('#wf-action-bar')) return;
 
       // 如果之前有正在打字编辑的文本，且当前点击的不是该文本自身：
       // 立即自动失焦并提交上一条文本编辑，绝不阻断本次单选或拖拽！
@@ -2416,10 +2099,17 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           for(var ti = 0; ti < textNodes.length; ti++){
             if(textNodes[ti].tagName === tText.tagName) textNodes[ti].style.fontSize = newSize + 'px';
           }
-          var fsDisplay = document.querySelector('#wf-action-bar .wf-fs-val');
-          if(fsDisplay) fsDisplay.textContent = newSize + 'px';
           updateTransformBox(selectedEl);
           scheduleSave();
+          try {
+            window.parent.postMessage({
+              type: 'wf-element-selected',
+              info: {
+                tagName: selectedEl.tagName.toLowerCase(),
+                fontSize: newSize
+              }
+            }, '*');
+          } catch(err){}
           showToast('已调整字号: ' + newSize + 'px');
           return;
         }
@@ -3032,6 +2722,26 @@ function updateElementFontSize(delta: number) {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-font-size', delta }, '*')
 }
 
+function startTextEdit() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-start-text-edit' }, '*')
+}
+
+function updateText(text: string) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-update-text', text }, '*')
+}
+
+function selectParentContainer() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-select-parent' }, '*')
+}
+
+function deleteSelectedElement() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-delete' }, '*')
+}
+
+function openAssetPickerForSelected() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-open-asset-picker' }, '*')
+}
+
 // 暴露尺寸与热区提示及组件插入/复制/粘贴/样式修改方法，供父组件调用
 defineExpose({
   stageW,
@@ -3041,12 +2751,17 @@ defineExpose({
   copySelectedElement,
   pasteCopiedElement,
   duplicateSelectedElement,
+  deleteSelectedElement,
   alignSelectedElement,
   updateElementRadius,
   updateElementStroke,
   updateElementShadow,
   updateElementColor,
   updateElementFontSize,
+  startTextEdit,
+  updateText,
+  selectParentContainer,
+  openAssetPickerForSelected,
 })
 </script>
 

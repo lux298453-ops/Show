@@ -737,6 +737,10 @@
           @update-shadow="onInspectorUpdateShadow"
           @duplicate-selection="onInspectorDuplicate"
           @delete-selection="onInspectorDelete"
+          @replace-asset="onInspectorReplaceAsset"
+          @start-text-edit="onInspectorStartTextEdit"
+          @update-text="onInspectorUpdateText"
+          @select-parent="onInspectorSelectParent"
         />
 
         <!-- 4. Tab 2: Atomic Component Palette -->
@@ -3225,11 +3229,41 @@ function onInspectorDuplicate() {
 }
 
 function onInspectorDelete() {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.deleteSelectedElement?.()
+  }
   if (selectedElementObj.value && currentFocusPage.value) {
     const elId = selectedElementObj.value.id
     currentFocusPage.value.elements = currentFocusPage.value.elements.filter((e) => e.id !== elId)
     selectedElementId.value = null
-    ElMessage.success('已删除选定元素')
+  }
+  ElMessage.success('已删除选定元素')
+}
+
+function onInspectorReplaceAsset() {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.openAssetPickerForSelected?.()
+  }
+}
+
+function onInspectorStartTextEdit() {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.startTextEdit?.()
+  }
+}
+
+function onInspectorUpdateText(text: string) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateText?.(text)
+  }
+  if (activeSelectedElementInfo.value) {
+    activeSelectedElementInfo.value.textContent = text
+  }
+}
+
+function onInspectorSelectParent() {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.selectParentContainer?.()
   }
 }
 
