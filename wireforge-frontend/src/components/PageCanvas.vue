@@ -863,6 +863,86 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       background: rgba(239, 68, 68, 0.4);
       color: #ffffff;
     }
+    .wf-color-picker-label {
+      position: relative;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      cursor: pointer;
+      overflow: hidden;
+      display: inline-block;
+      flex-shrink: 0;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    .wf-color-picker-input {
+      position: absolute;
+      top: -8px;
+      left: -8px;
+      width: 40px;
+      height: 40px;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .wf-color-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      display: inline-block;
+      transition: transform 0.1s;
+      flex-shrink: 0;
+    }
+    .wf-color-swatch:hover {
+      transform: scale(1.25);
+    }
+    .wf-color-swatch-transparent {
+      background: linear-gradient(135deg, #fff 40%, #ef4444 48%, #ef4444 52%, #fff 60%);
+    }
+    .wf-fs-stepper {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 1px 3px;
+    }
+    .wf-fs-btn {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.1s;
+      line-height: 1;
+      padding: 0;
+    }
+    .wf-fs-btn:hover {
+      background: rgba(255, 255, 255, 0.28);
+    }
+    .wf-fs-val {
+      font-size: 11px;
+      color: #e2e8f0;
+      font-weight: 600;
+      min-width: 28px;
+      text-align: center;
+      font-family: ui-monospace, monospace;
+    }
+    .wf-act-divider {
+      width: 1px;
+      height: 14px;
+      background: rgba(255, 255, 255, 0.2);
+      margin: 0 2px;
+      flex-shrink: 0;
+    }
   </style>
   <script data-wf-inject>
   (function(){
@@ -1159,6 +1239,58 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       return b;
     }
 
+    function rgbToHex(col){
+      if(!col || col === 'transparent' || col === 'rgba(0, 0, 0, 0)') return '';
+      if(col.indexOf('#') === 0) return col;
+      var m = col.match(/\d+/g);
+      if(!m || m.length < 3) return '';
+      var r = parseInt(m[0], 10).toString(16); if(r.length < 2) r = '0' + r;
+      var g = parseInt(m[1], 10).toString(16); if(g.length < 2) g = '0' + g;
+      var b = parseInt(m[2], 10).toString(16); if(b.length < 2) b = '0' + b;
+      return '#' + r + g + b;
+    }
+
+    function applyColor(target, colorVal){
+      pushSnapshot();
+      var isPureRectOrBox = target.classList && (target.classList.contains('wf-shape-rect') || target.classList.contains('wf-box'));
+      var isPureCircle = target.classList && target.classList.contains('wf-shape-circle');
+      var isPureLine = target.classList && target.classList.contains('wf-shape-line');
+
+      if(colorVal === 'transparent'){
+        target.style.background = 'transparent';
+        if(!target.style.borderColor || target.style.borderColor === 'transparent'){
+          target.style.borderColor = '#0D99FF';
+        }
+      } else if(isPureLine){
+        target.style.background = colorVal;
+        target.style.borderColor = colorVal;
+      } else if(isPureRectOrBox || isPureCircle){
+        target.style.background = colorVal;
+        target.style.borderColor = colorVal;
+      } else {
+        var bg = window.getComputedStyle(target).backgroundColor;
+        var hasBg = bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
+        var isContainerLike = target.classList && (
+          target.classList.contains('wf-btn') ||
+          target.classList.contains('wf-card') ||
+          target.classList.contains('wf-container') ||
+          target.classList.contains('wf-search-box') ||
+          target.classList.contains('wf-inserted-component')
+        );
+        if(hasBg || isContainerLike || target.tagName === 'BUTTON'){
+          target.style.background = colorVal;
+        } else {
+          target.style.color = colorVal;
+          var textSubs = target.querySelectorAll ? target.querySelectorAll('h1,h2,h3,h4,h5,h6,p,span,div,label,button,.wf-text') : [];
+          for(var si = 0; si < textSubs.length; si++){
+            textSubs[si].style.color = colorVal;
+          }
+        }
+      }
+      scheduleSave();
+      showToast('颜色已修改并保存');
+    }
+
     function updateActionBar(target){
       var act = document.getElementById('wf-action-bar');
       if(!act) return;
@@ -1168,6 +1300,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       var isPureShape = target.classList && (target.classList.contains('wf-shape-rect') || target.classList.contains('wf-shape-circle') || target.classList.contains('wf-shape-line'));
       var hasText = findTextTarget(target) !== null && !isPureShape;
 
+      // 1. 替换图片 / 编辑文字
       if(isImg){
         var btnAsset = document.createElement('button');
         btnAsset.type = 'button';
@@ -1195,6 +1328,144 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         act.appendChild(btnEdit);
       }
 
+      // 2. 背景色 / 填充色选择器与快捷色块（除纯图片外均支持）
+      if(!isImg){
+        if(isImg || hasText){
+          var div1 = document.createElement('div');
+          div1.className = 'wf-act-divider';
+          act.appendChild(div1);
+        }
+
+        var colorGroup = document.createElement('div');
+        colorGroup.style.cssText = 'display:flex;align-items:center;gap:3px;';
+
+        var initHex = '';
+        var compBg = window.getComputedStyle(target).backgroundColor;
+        var hasExplicitBg = compBg && compBg !== 'transparent' && compBg !== 'rgba(0, 0, 0, 0)';
+        if(hasExplicitBg){
+          initHex = rgbToHex(compBg);
+        } else {
+          var compColor = window.getComputedStyle(target).color;
+          initHex = rgbToHex(compColor);
+        }
+        if(!initHex) initHex = '#0D99FF';
+
+        var colorLabel = document.createElement('label');
+        colorLabel.className = 'wf-color-picker-label';
+        colorLabel.title = '调色盘';
+        colorLabel.style.backgroundColor = initHex;
+
+        var colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.className = 'wf-color-picker-input';
+        colorInput.value = initHex;
+
+        colorInput.addEventListener('input', function(e){
+          var v = e.target.value;
+          colorLabel.style.backgroundColor = v;
+          applyColor(target, v);
+        });
+        colorInput.addEventListener('change', function(e){
+          var v = e.target.value;
+          colorLabel.style.backgroundColor = v;
+          applyColor(target, v);
+        });
+        colorLabel.appendChild(colorInput);
+        colorGroup.appendChild(colorLabel);
+
+        // 快捷色块列表：#0D99FF 蓝 / #10b981 绿 / #f97316 橙 / #ffffff 白
+        var presetColors = ['#0D99FF', '#10b981', '#f97316', '#ffffff'];
+        var isPureRectOrBox = target.classList && (target.classList.contains('wf-shape-rect') || target.classList.contains('wf-box'));
+        if(isPureRectOrBox){
+          presetColors.push('transparent');
+        }
+
+        presetColors.forEach(function(pc){
+          var swatch = document.createElement('div');
+          swatch.className = 'wf-color-swatch' + (pc === 'transparent' ? ' wf-color-swatch-transparent' : '');
+          swatch.title = pc === 'transparent' ? '透明背景' : pc;
+          if(pc !== 'transparent'){
+            swatch.style.backgroundColor = pc;
+          }
+          swatch.addEventListener('click', function(e){
+            e.preventDefault(); e.stopPropagation();
+            if(pc !== 'transparent'){
+              colorLabel.style.backgroundColor = pc;
+              colorInput.value = pc;
+            } else {
+              colorLabel.style.backgroundColor = 'transparent';
+            }
+            applyColor(target, pc);
+          });
+          colorGroup.appendChild(swatch);
+        });
+
+        act.appendChild(colorGroup);
+      }
+
+      // 3. 字号调整器 (Stepper: [−] [14px] [+]) 仅在 hasText 为 true 时显示
+      if(hasText){
+        var div2 = document.createElement('div');
+        div2.className = 'wf-act-divider';
+        act.appendChild(div2);
+
+        var tText = findTextTarget(target);
+        var curFs = parseInt(window.getComputedStyle(tText).fontSize, 10) || 14;
+
+        var fsStepper = document.createElement('div');
+        fsStepper.className = 'wf-fs-stepper';
+
+        var btnMinus = document.createElement('button');
+        btnMinus.type = 'button';
+        btnMinus.className = 'wf-fs-btn';
+        btnMinus.innerHTML = '−';
+        btnMinus.title = '减小字号 (快捷键 [ )';
+
+        var fsVal = document.createElement('span');
+        fsVal.className = 'wf-fs-val';
+        fsVal.textContent = curFs + 'px';
+
+        var btnPlus = document.createElement('button');
+        btnPlus.type = 'button';
+        btnPlus.className = 'wf-fs-btn';
+        btnPlus.innerHTML = '+';
+        btnPlus.title = '增大字号 (快捷键 ] )';
+
+        function changeFontSize(delta){
+          var s = parseInt(window.getComputedStyle(tText).fontSize, 10) || 14;
+          var nextS = Math.max(10, Math.min(60, s + delta));
+          pushSnapshot();
+          tText.style.fontSize = nextS + 'px';
+          var textNodes = target.querySelectorAll ? target.querySelectorAll(tText.tagName) : [];
+          for(var ti = 0; ti < textNodes.length; ti++){
+            if(textNodes[ti].tagName === tText.tagName) textNodes[ti].style.fontSize = nextS + 'px';
+          }
+          fsVal.textContent = nextS + 'px';
+          updateTransformBox(target);
+          scheduleSave();
+          showToast('字号已修改为 ' + nextS + 'px');
+        }
+
+        btnMinus.addEventListener('click', function(e){
+          e.preventDefault(); e.stopPropagation();
+          changeFontSize(-2);
+        });
+        btnPlus.addEventListener('click', function(e){
+          e.preventDefault(); e.stopPropagation();
+          changeFontSize(2);
+        });
+
+        fsStepper.appendChild(btnMinus);
+        fsStepper.appendChild(fsVal);
+        fsStepper.appendChild(btnPlus);
+        act.appendChild(fsStepper);
+      }
+
+      var div3 = document.createElement('div');
+      div3.className = 'wf-act-divider';
+      act.appendChild(div3);
+
+      // 4. 复制与删除按钮
       var btnCopy = document.createElement('button');
       btnCopy.type = 'button';
       btnCopy.className = 'wf-act-btn';
@@ -1809,6 +2080,29 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         updateTransformBox(selectedEl);
         scheduleSave();
         return;
+      }
+
+      // [ 键和 ] 键快捷调整字号 (在选中文本元素时生效)
+      if((e.key === '[' || e.key === ']') && selectedEl && selectedEl !== document.body && !isEditing){
+        var tText = findTextTarget(selectedEl);
+        if(tText){
+          e.preventDefault();
+          var curSize = parseInt(window.getComputedStyle(tText).fontSize, 10) || 14;
+          var delta = e.key === ']' ? 2 : -2;
+          var newSize = Math.max(10, Math.min(60, curSize + delta));
+          pushSnapshot();
+          tText.style.fontSize = newSize + 'px';
+          var textNodes = selectedEl.querySelectorAll ? selectedEl.querySelectorAll(tText.tagName) : [];
+          for(var ti = 0; ti < textNodes.length; ti++){
+            if(textNodes[ti].tagName === tText.tagName) textNodes[ti].style.fontSize = newSize + 'px';
+          }
+          var fsDisplay = document.querySelector('#wf-action-bar .wf-fs-val');
+          if(fsDisplay) fsDisplay.textContent = newSize + 'px';
+          updateTransformBox(selectedEl);
+          scheduleSave();
+          showToast('已调整字号: ' + newSize + 'px');
+          return;
+        }
       }
 
       if(e.key === 'Escape'){
