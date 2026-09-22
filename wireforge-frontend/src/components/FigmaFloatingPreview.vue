@@ -2,19 +2,21 @@
   <div
     v-if="visible"
     ref="floatingCardRef"
-    class="figma-floating-preview fixed z-[80] select-none flex flex-col items-center drop-shadow-2xl"
+    class="figma-floating-preview fixed z-[80] select-none flex flex-col items-center drop-shadow-2xl transition-[opacity,transform] duration-200"
     :style="{
       left: `${pos.x}px`,
       top: `${pos.y}px`,
+      transform: `scale(${scaleRatio})`,
+      transformOrigin: 'top center',
     }"
   >
     <!-- ===== 顶部浮动控制胶囊 (同时作为拖动手柄) ===== -->
     <div
-      class="drag-handle mb-3 flex items-center justify-between gap-6 px-3.5 py-1.5 rounded-full bg-slate-900/90 backdrop-blur-xl border border-white/20 text-white shadow-2xl cursor-grab active:cursor-grabbing transition-transform hover:scale-105"
+      class="drag-handle mb-2.5 flex items-center justify-between gap-3 px-3 py-1.5 rounded-full bg-slate-900/90 backdrop-blur-xl border border-white/20 text-white shadow-2xl cursor-grab active:cursor-grabbing transition-transform hover:scale-[1.02]"
       @mousedown.stop="startDrag"
     >
       <!-- 左侧操作组：返回与刷新 -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
         <button
           class="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           title="返回上一页"
@@ -32,16 +34,26 @@
         </button>
       </div>
 
-      <!-- 中间指示点 -->
-      <div class="flex items-center gap-1.5 pointer-events-none">
-        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-        <span class="text-[10px] font-bold text-slate-300 truncate max-w-[100px]">
-          {{ currentPage?.name || 'Preview' }}
-        </span>
+      <!-- 中间指示点与缩放切换 -->
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1.5 pointer-events-none">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-[10px] font-bold text-slate-300 truncate max-w-[80px]">
+            {{ currentPage?.name || 'Preview' }}
+          </span>
+        </div>
+        <!-- 比例缩放切换按钮 -->
+        <button
+          class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/10 hover:bg-white/20 text-slate-300 transition-colors cursor-pointer"
+          :title="`当前缩放 ${Math.round(scaleRatio * 100)}%（点击切换缩放）`"
+          @click.stop="toggleScale"
+        >
+          {{ Math.round(scaleRatio * 100) }}%
+        </button>
       </div>
 
       <!-- 右侧操作组：全屏 Present 与关闭 -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
         <button
           class="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
           title="进入全屏纯原型演示模式 (Present)"
@@ -61,53 +73,53 @@
 
     <!-- ===== 高精度 iPhone 16 Pro 手机机身 ===== -->
     <div
-      class="phone-chassis relative bg-[#1a1f2c] p-[10px] rounded-[48px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_0_3px_#272e3f,0_0_0_4px_rgba(255,255,255,0.06),0_25px_80px_-15px_rgba(0,0,0,0.9),0_0_50px_rgba(6,182,212,0.15)] select-none border border-slate-700/60"
+      class="phone-chassis relative bg-[#1a1f2c] p-[8px] rounded-[44px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_0_3px_#272e3f,0_0_0_4px_rgba(255,255,255,0.06),0_20px_60px_-10px_rgba(0,0,0,0.85),0_0_40px_rgba(6,182,212,0.12)] select-none border border-slate-700/60"
     >
       <!-- 左侧硬件按键 (操作键/音量键) -->
-      <div class="absolute -left-[4px] top-[90px] w-[4px] h-[22px] bg-slate-600 rounded-l-xs"></div>
-      <div class="absolute -left-[4px] top-[125px] w-[4px] h-[40px] bg-slate-600 rounded-l-xs"></div>
-      <div class="absolute -left-[4px] top-[175px] w-[4px] h-[40px] bg-slate-600 rounded-l-xs"></div>
+      <div class="absolute -left-[3.5px] top-[80px] w-[3.5px] h-[20px] bg-slate-600 rounded-l-xs"></div>
+      <div class="absolute -left-[3.5px] top-[110px] w-[3.5px] h-[36px] bg-slate-600 rounded-l-xs"></div>
+      <div class="absolute -left-[3.5px] top-[155px] w-[3.5px] h-[36px] bg-slate-600 rounded-l-xs"></div>
       <!-- 右侧电源键 -->
-      <div class="absolute -right-[4px] top-[135px] w-[4px] h-[55px] bg-slate-600 rounded-r-xs"></div>
+      <div class="absolute -right-[3.5px] top-[120px] w-[3.5px] h-[48px] bg-slate-600 rounded-r-xs"></div>
 
-      <!-- 手机屏幕视口 -->
+      <!-- 手机屏幕视口 (紧凑黄金比例 296 x 580，完美适应屏幕高度) -->
       <div
-        class="phone-screen relative w-[320px] h-[640px] bg-white rounded-[38px] overflow-hidden flex flex-col shadow-inner"
+        class="phone-screen relative w-[296px] h-[580px] bg-white rounded-[36px] overflow-hidden flex flex-col shadow-inner"
       >
         <!-- iOS 顶部状态栏与灵动岛 -->
-        <div class="ios-status-bar absolute top-0 left-0 right-0 h-10 z-40 flex items-center justify-between px-6 text-slate-800 pointer-events-none">
-          <span class="text-[12px] font-semibold tracking-tight tabular-nums pl-0.5">
+        <div class="ios-status-bar absolute top-0 left-0 right-0 h-9 z-40 flex items-center justify-between px-5 text-slate-800 pointer-events-none bg-gradient-to-b from-white/90 via-white/50 to-transparent">
+          <span class="text-[11px] font-semibold tracking-tight tabular-nums pl-0.5">
             {{ currentTime }}
           </span>
           <!-- 灵动岛 (Dynamic Island) -->
-          <div class="w-[90px] h-[26px] rounded-full bg-black flex items-center justify-between px-2.5 shadow-sm pointer-events-auto">
-            <div class="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center">
+          <div class="w-[82px] h-[24px] rounded-full bg-black flex items-center justify-between px-2 shadow-sm pointer-events-auto">
+            <div class="w-2 h-2 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center">
               <div class="w-1 h-1 rounded-full bg-blue-900"></div>
             </div>
-            <div class="w-1.5 h-1.5 rounded-full bg-slate-800"></div>
+            <div class="w-1 h-1 rounded-full bg-slate-800"></div>
           </div>
           <!-- 右侧信号电量 -->
-          <div class="flex items-center gap-1.5 text-slate-800 pr-0.5">
-            <div class="flex items-end gap-[1.5px] h-2.5">
+          <div class="flex items-center gap-1 text-slate-800 pr-0.5">
+            <div class="flex items-end gap-[1.5px] h-2">
               <span class="w-[2px] h-[3px] bg-slate-800 rounded-xs"></span>
-              <span class="w-[2px] h-[5px] bg-slate-800 rounded-xs"></span>
-              <span class="w-[2px] h-[7px] bg-slate-800 rounded-xs"></span>
-              <span class="w-[2px] h-[9px] bg-slate-800 rounded-xs"></span>
+              <span class="w-[2px] h-[4.5px] bg-slate-800 rounded-xs"></span>
+              <span class="w-[2px] h-[6px] bg-slate-800 rounded-xs"></span>
+              <span class="w-[2px] h-[7.5px] bg-slate-800 rounded-xs"></span>
             </div>
-            <div class="w-4 h-2 rounded-[2px] border border-slate-800 p-[1px] flex items-center">
+            <div class="w-3.5 h-2 rounded-[2px] border border-slate-800 p-[1px] flex items-center">
               <div class="w-full h-full bg-slate-800 rounded-[1px]"></div>
             </div>
           </div>
         </div>
 
-        <!-- 页面 HTML 内容承载区 (自适应缩放以适配 320px 宽度) -->
-        <div class="screen-content flex-1 overflow-hidden relative pt-10">
+        <!-- 页面 HTML 内容承载区 (iframe 自适应缩放到 296px 宽，且支持上下丝滑滚动长页面) -->
+        <div class="screen-content flex-1 overflow-y-auto overflow-x-hidden relative pt-9 pb-4 custom-phone-scrollbar">
           <iframe
             v-if="currentPage?.html_content"
             ref="iframeRef"
             :srcdoc="runtimeHtml"
-            class="w-[375px] h-[750px] border-none origin-top-left"
-            style="transform: scale(0.8533);"
+            class="w-[375px] min-h-[680px] border-none origin-top-left"
+            style="transform: scale(0.7893); width: 375px; height: 735px;"
             sandbox="allow-scripts allow-same-origin"
             @load="onIframeLoad"
           />
@@ -118,8 +130,8 @@
           </div>
         </div>
 
-        <!-- 底部手势指示条 -->
-        <div class="absolute bottom-1 left-1/2 -translate-x-1/2 w-28 h-1 bg-slate-400/80 rounded-full z-40 pointer-events-none"></div>
+        <!-- 底部手势指示条 (绝对浮于屏幕最下方，100% 不会被遮挡) -->
+        <div class="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-24 h-1 bg-slate-500/80 rounded-full z-40 pointer-events-none shadow-xs"></div>
       </div>
     </div>
   </div>
@@ -148,9 +160,34 @@ const emit = defineEmits<{
   (e: 'navigate-page', pageId: number): void
 }>()
 
-// 浮层位置 (默认定位于屏幕右侧、偏上方)
-const pos = ref({ x: window.innerWidth - 380, y: 70 })
+// 缩放比例控制 (默认自适应，若屏幕较矮 < 780px 自动采用 0.85 紧凑比例)
+const scaleRatio = ref(window.innerHeight < 780 ? 0.85 : 1)
+
+function toggleScale() {
+  if (scaleRatio.value === 1) {
+    scaleRatio.value = 0.85
+  } else if (scaleRatio.value === 0.85) {
+    scaleRatio.value = 0.75
+  } else {
+    scaleRatio.value = 1
+  }
+}
+
+// 浮层位置 (依据视口高度智能居中并预留底部至少 20px 安全空间)
+const pos = ref({ x: Math.max(20, window.innerWidth - 350), y: 30 })
 const floatingCardRef = ref<HTMLElement | null>(null)
+
+function resetToSafePosition() {
+  const h = window.innerHeight
+  const w = window.innerWidth
+  // 根据缩放后的实际高度计算
+  const estimatedHeight = 635 * scaleRatio.value
+  const safeY = Math.max(16, Math.min((h - estimatedHeight) / 2, h - estimatedHeight - 24))
+  pos.value = {
+    x: Math.max(20, w - 340),
+    y: Math.max(16, safeY),
+  }
+}
 
 // 拖拽控制逻辑
 let isDragging = false
@@ -168,11 +205,13 @@ function startDrag(e: MouseEvent) {
 
 function onDragging(e: MouseEvent) {
   if (!isDragging) return
-  const maxX = window.innerWidth - 340
-  const maxY = window.innerHeight - 300
+  const cardH = (floatingCardRef.value?.offsetHeight || 630) * scaleRatio.value
+  const cardW = 315 * scaleRatio.value
+  const maxX = window.innerWidth - cardW - 10
+  const maxY = Math.max(10, window.innerHeight - cardH - 16)
   pos.value = {
-    x: Math.max(20, Math.min(maxX, e.clientX - dragOffset.x)),
-    y: Math.max(50, Math.min(maxY, e.clientY - dragOffset.y)),
+    x: Math.max(10, Math.min(maxX, e.clientX - dragOffset.x)),
+    y: Math.max(10, Math.min(maxY, e.clientY - dragOffset.y)),
   }
 }
 
@@ -270,10 +309,19 @@ function updateTime() {
   currentTime.value = `${h}:${m}`
 }
 
+function onResize() {
+  if (window.innerHeight < 780 && scaleRatio.value === 1) {
+    scaleRatio.value = 0.85
+  }
+  resetToSafePosition()
+}
+
 onMounted(() => {
   updateTime()
+  resetToSafePosition()
   timer = setInterval(updateTime, 10000)
   window.addEventListener('message', onWindowMessage)
+  window.addEventListener('resize', onResize)
   if (activePageId.value && !historyStack.value.length) {
     historyStack.value.push(activePageId.value)
   }
@@ -282,6 +330,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   window.removeEventListener('message', onWindowMessage)
+  window.removeEventListener('resize', onResize)
   window.removeEventListener('mousemove', onDragging)
   window.removeEventListener('mouseup', stopDrag)
 })
@@ -290,5 +339,12 @@ onUnmounted(() => {
 <style scoped>
 .figma-floating-preview {
   touch-action: none;
+}
+.custom-phone-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-phone-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
 }
 </style>

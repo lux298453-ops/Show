@@ -377,7 +377,7 @@ export interface PaletteItem {
   emoji: string
   tag: string
   description: string
-  category: 'shapes' | 'controls'
+  category: 'ios' | 'shapes' | 'controls'
   html: string
   previewHtml: string
 }
@@ -418,16 +418,67 @@ const isPenSelected = ref(false)
 
 // Search & Filter in Resources
 const searchQuery = ref('')
-const activeCat = ref<'all' | 'shapes' | 'controls'>('all')
+const activeCat = ref<'all' | 'ios' | 'shapes' | 'controls'>('all')
 
 const categories = [
-  { id: 'all' as const, name: '全部组件' },
-  { id: 'shapes' as const, name: '形状与占位' },
+  { id: 'all' as const, name: '全部' },
+  { id: 'ios' as const, name: 'iOS 移动' },
+  { id: 'shapes' as const, name: '形状占位' },
   { id: 'controls' as const, name: '交互控件' },
 ]
 
 // All Atom Component Library Items
 const atomComponents: PaletteItem[] = [
+  {
+    id: 'ios-app-item',
+    name: '应用列表单元项',
+    emoji: '📱',
+    tag: 'iOS App Item',
+    category: 'ios',
+    description: '标准 App Store 列表单元项（图标+主副标题+获取按钮）',
+    html: `<div class="wf-el wf-ios-app-item" style="display: flex; align-items: center; justify-content: space-between; width: 335px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; background: #ffffff; box-sizing: border-box;"><div style="display: flex; align-items: center; gap: 12px; min-width: 0;"><img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=120&auto=format&fit=crop&q=80" style="width: 52px; height: 52px; border-radius: 12px; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.08); flex-shrink: 0;" alt="App Icon" /><div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;"><span style="font-size: 14px; font-weight: 700; color: #0f172a; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Soul — 年轻人的社交元宇宙</span><span style="font-size: 11px; color: #64748b; line-height: 1.2;">有趣多元温暖真实</span></div></div><button class="wf-btn" style="padding: 5px 16px; background: #f1f5f9; color: #0284c7; border: none; border-radius: 9999px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; margin-left: 8px;">获取</button></div>`,
+    previewHtml: `<div style="width: 84px; display: flex; align-items: center; justify-content: space-between; gap: 4px;"><div style="width: 18px; height: 18px; background: #cbd5e1; border-radius: 4px; flex-shrink: 0;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 2px;"><div style="width: 32px; height: 3px; background: #334155; border-radius: 1px;"></div><div style="width: 22px; height: 2px; background: #94a3b8; border-radius: 1px;"></div></div><div style="width: 16px; height: 8px; background: #e0f2fe; border-radius: 4px;"></div></div>`,
+  },
+  {
+    id: 'ios-story-card',
+    name: 'App推荐大卡片',
+    emoji: '🎬',
+    tag: 'Story Card',
+    category: 'ios',
+    description: 'App Store 顶部主打推荐大卡片（封面+信息条+获取按钮）',
+    html: `<div class="wf-el wf-ios-story-card" style="width: 335px; height: 280px; border-radius: 20px; overflow: hidden; position: relative; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); box-shadow: 0 10px 25px rgba(0,0,0,0.18); box-sizing: border-box; color: #ffffff;"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85; position: absolute; inset: 0;" alt="Feature Cover" /><div style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.05) 50%, rgba(0,0,0,0.85) 100%);"></div><div style="position: absolute; top: 16px; left: 16px; right: 16px;"><div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; margin-bottom: 2px;">主打推荐</div><div style="font-size: 20px; font-weight: 800; line-height: 1.2;">Videoleap</div><div style="font-size: 12px; opacity: 0.9; margin-top: 2px;">创意混剪视频 点亮精彩瞬间</div></div><div style="position: absolute; bottom: 14px; left: 14px; right: 14px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.15); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 8px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.25);"><div style="display: flex; align-items: center; gap: 8px;"><div style="width: 32px; height: 32px; border-radius: 8px; background: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 16px;">🎬</div><div><div style="font-size: 12px; font-weight: 700;">Videoleap</div><div style="font-size: 10px; opacity: 0.8;">制作专业后期</div></div></div><button class="wf-btn" style="padding: 4px 14px; background: rgba(255,255,255,0.9); color: #0284c7; border: none; border-radius: 9999px; font-size: 11px; font-weight: 700; cursor: pointer;">获取</button></div></div>`,
+    previewHtml: `<div style="width: 76px; height: 44px; background: linear-gradient(135deg, #334155, #0f172a); border-radius: 8px; position: relative; overflow: hidden; padding: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);"><div style="width: 24px; height: 3px; background: #fff; border-radius: 1px; margin-bottom: 2px;"></div><div style="width: 16px; height: 2px; background: rgba(255,255,255,0.7); border-radius: 1px;"></div><div style="position: absolute; bottom: 3px; left: 4px; right: 4px; height: 10px; background: rgba(255,255,255,0.3); border-radius: 3px; display: flex; align-items: center; justify-content: space-between; padding: 0 3px;"><div style="width: 6px; height: 6px; background: #fff; border-radius: 2px;"></div><div style="width: 10px; height: 4px; background: #0284c7; border-radius: 2px;"></div></div></div>`,
+  },
+  {
+    id: 'ios-avatar-grid',
+    name: '头像九宫格卡片',
+    emoji: '👥',
+    tag: 'Avatar Grid',
+    category: 'ios',
+    description: '创意拼贴卡片（标题+圆角方形头像矩阵）',
+    html: `<div class="wf-el wf-ios-avatar-grid" style="width: 335px; background: #ffffff; border-radius: 18px; padding: 14px; box-shadow: 0 4px 18px rgba(0,0,0,0.06); border: 1px solid #f1f5f9; box-sizing: border-box;"><div style="font-size: 11px; color: #64748b; font-weight: 600; margin-bottom: 2px;">释放创意</div><div style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 12px;">迈开创作第一步</div><div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;"><img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80" style="width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover;" alt="A" /><img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80" style="width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover;" alt="B" /><img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80" style="width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover;" alt="C" /><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" style="width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover;" alt="D" /><img src="https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&auto=format&fit=crop&q=80" style="width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover;" alt="E" /><img src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&auto=format&fit=crop&q=80" style="width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover;" alt="F" /><img src="https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=100&auto=format&fit=crop&q=80" style="width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover;" alt="G" /><img src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&auto=format&fit=crop&q=80" style="width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover;" alt="H" /></div></div>`,
+    previewHtml: `<div style="width: 68px; height: 42px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 3px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;"><div style="background: #e2e8f0; border-radius: 2px;"></div><div style="background: #cbd5e1; border-radius: 2px;"></div><div style="background: #94a3b8; border-radius: 2px;"></div><div style="background: #e2e8f0; border-radius: 2px;"></div><div style="background: #cbd5e1; border-radius: 2px;"></div><div style="background: #e2e8f0; border-radius: 2px;"></div><div style="background: #94a3b8; border-radius: 2px;"></div><div style="background: #cbd5e1; border-radius: 2px;"></div></div>`,
+  },
+  {
+    id: 'ios-tab-bar',
+    name: 'iOS毛玻璃底部栏',
+    emoji: '🧭',
+    tag: 'iOS TabBar',
+    category: 'ios',
+    description: '标准 iOS 底部 4-Tab 导航栏（毛玻璃底色）',
+    html: `<div class="wf-el wf-ios-tab-bar" style="width: 375px; height: 60px; background: rgba(255,255,255,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-top: 1px solid rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: space-around; position: relative; box-sizing: border-box; z-index: 100;"><div style="display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: #000000; font-weight: 700;"><span style="font-size: 16px;">🏠</span><span style="font-size: 10px;">Today</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: #8e8e93;"><span style="font-size: 16px;">🔍</span><span style="font-size: 10px;">Browse</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: #8e8e93;"><span style="font-size: 16px;">📻</span><span style="font-size: 10px;">Radio</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: #8e8e93;"><span style="font-size: 16px;">📚</span><span style="font-size: 10px;">Library</span></div></div>`,
+    previewHtml: `<div style="width: 76px; height: 18px; background: rgba(255,255,255,0.9); border-top: 1px solid #cbd5e1; border-radius: 4px; display: flex; align-items: center; justify-content: space-around; padding: 0 4px;"><div style="width: 6px; height: 6px; background: #000; border-radius: 1px;"></div><div style="width: 6px; height: 6px; background: #94a3b8; border-radius: 1px;"></div><div style="width: 6px; height: 6px; background: #94a3b8; border-radius: 1px;"></div><div style="width: 6px; height: 6px; background: #94a3b8; border-radius: 1px;"></div></div>`,
+  },
+  {
+    id: 'ios-btn-pill',
+    name: 'iOS获取胶囊按钮',
+    emoji: '💊',
+    tag: 'Pill Button',
+    category: 'ios',
+    description: 'App Store 经典浅灰底天蓝字胶囊按钮',
+    html: `<button class="wf-btn wf-ios-pill-btn" style="padding: 6px 18px; background: #f1f5f9; color: #007aff; border: none; border-radius: 9999px; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;">获取</button>`,
+    previewHtml: `<div style="padding: 3px 12px; background: #f1f5f9; color: #007aff; font-size: 10px; font-weight: 700; border-radius: 9999px; border: 1px solid #e2e8f0;">获取</div>`,
+  },
   {
     id: 'shape-box',
     name: '矩形/正方形方框',

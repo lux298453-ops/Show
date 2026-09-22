@@ -328,6 +328,8 @@ const emit = defineEmits<{
   (e: 'lockedClick'): void
   (e: 'missClick'): void
   (e: 'requestEdit'): void
+  (e: 'elementSelected', info: any): void
+  (e: 'elementDeselected'): void
 }>()
 
 // Stitch 式整页直出：页面有 AI 生成的 HTML 时只展示整页视图（无 HTML 的未分析页回退组件渲染）。
@@ -1556,12 +1558,38 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       setTimeout(function(){
         if(selectedEl) updateTransformBox(selectedEl);
       }, 40);
+
+      // 通知父级检查器同步选中元素信息
+      try {
+        var cs = window.getComputedStyle(selectedEl);
+        var rect = selectedEl.getBoundingClientRect();
+        window.parent.postMessage({
+          type: 'wf-element-selected',
+          info: {
+            tagName: selectedEl.tagName.toLowerCase(),
+            x: Math.round(selectedEl.offsetLeft || rect.left),
+            y: Math.round(selectedEl.offsetTop || rect.top),
+            width: Math.round(selectedEl.offsetWidth || rect.width),
+            height: Math.round(selectedEl.offsetHeight || rect.height),
+            borderRadius: parseInt(cs.borderRadius) || 0,
+            borderWidth: parseInt(cs.borderTopWidth) || 0,
+            borderColor: cs.borderTopColor || '#cbd5e1',
+            borderStyle: cs.borderTopStyle || 'solid',
+            boxShadow: cs.boxShadow || 'none',
+            backgroundColor: cs.backgroundColor || 'transparent',
+            fontSize: parseInt(cs.fontSize) || 14
+          }
+        }, '*');
+      } catch(e) {}
     }
 
     function deselect(){
       selectedEl = null;
       var b = document.getElementById('wf-transform-box');
       if(b) b.style.display = 'none';
+      try {
+        window.parent.postMessage({ type: 'wf-element-deselected' }, '*');
+      } catch(e) {}
     }
 
     function findTextTarget(t){
@@ -1667,6 +1695,76 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         pasteElement(d.x, d.y);
       }else if(d.type === 'wf-duplicate'){
         if(selectedEl) duplicateElement(selectedEl);
+      }else if(d.type === 'wf-align'){
+        if(selectedEl){
+          pushSnapshot();
+          var pW = document.body.clientWidth || 375;
+          var pH = document.body.clientHeight || 812;
+          var eW = selectedEl.offsetWidth || 100;
+          var eH = selectedEl.offsetHeight || 40;
+          selectedEl.style.position = 'absolute';
+          if(d.alignType === 'left'){
+            selectedEl.style.left = '16px';
+          }else if(d.alignType === 'center-h'){
+            selectedEl.style.left = Math.round((pW - eW) / 2) + 'px';
+          }else if(d.alignType === 'right'){
+            selectedEl.style.left = Math.round(pW - eW - 16) + 'px';
+          }else if(d.alignType === 'top'){
+            selectedEl.style.top = '16px';
+          }else if(d.alignType === 'center-v'){
+            selectedEl.style.top = Math.round((pH - eH) / 2) + 'px';
+          }else if(d.alignType === 'bottom'){
+            selectedEl.style.top = Math.round(pH - eH - 16) + 'px';
+          }
+          updateTransformBox(selectedEl);
+          scheduleSave();
+          showToast('已对齐元素位置并保存');
+        }
+      }else if(d.type === 'wf-radius'){
+        if(selectedEl){
+          pushSnapshot();
+          selectedEl.style.borderRadius = (typeof d.radius === 'number' ? (d.radius >= 999 ? '9999px' : d.radius + 'px') : d.radius);
+          updateTransformBox(selectedEl);
+          scheduleSave();
+        }
+      }else if(d.type === 'wf-stroke'){
+        if(selectedEl){
+          pushSnapshot();
+          if(d.width === 0){
+            selectedEl.style.border = 'none';
+          }else{
+            selectedEl.style.border = d.width + 'px ' + (d.style || 'solid') + ' ' + (d.color || '#cbd5e1');
+          }
+          selectedEl.style.boxSizing = 'border-box';
+          updateTransformBox(selectedEl);
+          scheduleSave();
+        }
+      }else if(d.type === 'wf-shadow'){
+        if(selectedEl){
+          pushSnapshot();
+          selectedEl.style.boxShadow = d.shadow;
+          updateTransformBox(selectedEl);
+          scheduleSave();
+        }
+      }else if(d.type === 'wf-color'){
+        if(selectedEl){
+          pushSnapshot();
+          var tag = selectedEl.tagName.toLowerCase();
+          if(/^(h[1-6]|p|span|a|label|strong|em)$/.test(tag)){
+            selectedEl.style.color = d.color;
+          }else{
+            selectedEl.style.backgroundColor = d.color;
+          }
+          scheduleSave();
+        }
+      }else if(d.type === 'wf-font-size'){
+        if(selectedEl){
+          pushSnapshot();
+          var curFs = parseInt(window.getComputedStyle(selectedEl).fontSize) || 14;
+          selectedEl.style.fontSize = Math.max(10, Math.min(60, curFs + d.delta)) + 'px';
+          updateTransformBox(selectedEl);
+          scheduleSave();
+        }
       }
       else if(d.type === 'wf-export'){ doExport(); }
       else if(d.type === 'wf-fit'){
@@ -2223,6 +2321,10 @@ function onIframeMessage(e: MessageEvent) {
     }, 1500)
   } else if (d.type === 'wf-request-edit') {
     emit('requestEdit')
+  } else if (d.type === 'wf-element-selected') {
+    emit('elementSelected', (d as any).info)
+  } else if (d.type === 'wf-element-deselected') {
+    emit('elementDeselected')
   } else if (d.type === 'wf-size' && typeof d.h === 'number' && d.h > 0) {
     const target = props.page.canvas_height
     // 模板渲染的页面 body 高度恒等于画布高度；scrollHeight 被溢出/浮层内容撑大属于幻影高度，
@@ -2682,7 +2784,31 @@ function duplicateSelectedElement() {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-duplicate' }, '*')
 }
 
-// 暴露尺寸与热区提示及组件插入/复制/粘贴方法，供父组件（无限画布）计算布局与调用
+function alignSelectedElement(alignType: string) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-align', alignType }, '*')
+}
+
+function updateElementRadius(radius: number) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-radius', radius }, '*')
+}
+
+function updateElementStroke(stroke: { width: number; color: string; style: string }) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-stroke', ...stroke }, '*')
+}
+
+function updateElementShadow(shadow: string) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-shadow', shadow }, '*')
+}
+
+function updateElementColor(color: string) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-color', color }, '*')
+}
+
+function updateElementFontSize(delta: number) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-font-size', delta }, '*')
+}
+
+// 暴露尺寸与热区提示及组件插入/复制/粘贴/样式修改方法，供父组件调用
 defineExpose({
   stageW,
   stageH,
@@ -2691,6 +2817,12 @@ defineExpose({
   copySelectedElement,
   pasteCopiedElement,
   duplicateSelectedElement,
+  alignSelectedElement,
+  updateElementRadius,
+  updateElementStroke,
+  updateElementShadow,
+  updateElementColor,
+  updateElementFontSize,
 })
 </script>
 

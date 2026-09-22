@@ -373,6 +373,8 @@
                 @ann-order-change="handleAnnOrderChange"
                 @locked-click="showLockedToast(b.page)"
                 @request-edit="fineTune = true"
+                @element-selected="onElementSelected(b.page.id, $event)"
+                @element-deselected="onElementDeselected(b.page.id)"
               />
 
               <!-- ===== Figma 交互模式：具体组件加号方框与拉线手柄 (浮于画板与 iframe 之上，确保双击/单击精准捕获) ===== -->
@@ -724,10 +726,15 @@
           v-if="rightSidebarTab === 'design'"
           :current-page="currentFocusPage"
           :selected-element="selectedElementObj"
+          :element-info="activeSelectedElementInfo"
           @update-dimension="onInspectorUpdateDimension"
           @update-position="onInspectorUpdatePosition"
           @update-color="onInspectorUpdateColor"
           @update-font-size="onInspectorUpdateFontSize"
+          @align-selection="onInspectorAlign"
+          @update-radius="onInspectorUpdateRadius"
+          @update-stroke="onInspectorUpdateStroke"
+          @update-shadow="onInspectorUpdateShadow"
           @duplicate-selection="onInspectorDuplicate"
           @delete-selection="onInspectorDelete"
         />
@@ -3133,10 +3140,47 @@ function onLayerSelectFrame(pageId?: number) {
   if (pageId) focusPage(pageId)
 }
 
+const activeSelectedElementInfo = ref<any>(null)
+
+function onElementSelected(pageId: number, info: any) {
+  focusPageId.value = pageId
+  activeSelectedElementInfo.value = info
+}
+
+function onElementDeselected(pageId: number) {
+  if (focusPageId.value === pageId) {
+    activeSelectedElementInfo.value = null
+  }
+}
+
 const selectedElementObj = computed<Element | null>(() => {
   if (!selectedElementId.value || !currentFocusPage.value?.elements) return null
   return currentFocusPage.value.elements.find((e) => e.id === selectedElementId.value) || null
 })
+
+function onInspectorAlign(alignType: string) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.alignSelectedElement?.(alignType)
+  }
+}
+
+function onInspectorUpdateRadius(radius: number) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateElementRadius?.(radius)
+  }
+}
+
+function onInspectorUpdateStroke(stroke: { width: number; color: string; style: string }) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateElementStroke?.(stroke)
+  }
+}
+
+function onInspectorUpdateShadow(shadow: string) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateElementShadow?.(shadow)
+  }
+}
 
 function onInspectorUpdateDimension(payload: { key: 'width' | 'height'; val: number }) {
   if (selectedElementObj.value) {
@@ -3154,6 +3198,9 @@ function onInspectorUpdatePosition(payload: { key: 'x' | 'y'; val: number }) {
 }
 
 function onInspectorUpdateColor(color: string) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateElementColor?.(color)
+  }
   if (selectedElementObj.value) {
     try {
       const styleObj = selectedElementObj.value.style ? JSON.parse(selectedElementObj.value.style) : {}
@@ -3166,7 +3213,9 @@ function onInspectorUpdateColor(color: string) {
 }
 
 function onInspectorUpdateFontSize(delta: number) {
-  ElMessage.success(`字号已调整: ${delta > 0 ? '+' : ''}${delta}px`)
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateElementFontSize?.(delta)
+  }
 }
 
 function onInspectorDuplicate() {
