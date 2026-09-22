@@ -614,13 +614,10 @@
         <FigmaBottomToolbar
           v-if="mode === 'edit'"
           v-model:active-tool="activeDrawTool"
-          :workbench-mode="workbenchMode"
           :show-annotations="showAnnotations"
           :target-page="currentFocusPage"
           @tool-change="handleBottomToolChange"
           @add-component="handleBottomAddComponent"
-          @set-workbench-mode="setWorkbenchMode"
-          @open-pure-preview="openPurePreview"
           @toggle-annotations="showAnnotations = !showAnnotations"
           @create-frame="handleCreateFramePreset"
         />

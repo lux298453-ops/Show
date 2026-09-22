@@ -342,36 +342,6 @@
       >
         <MessageSquare class="w-4 h-4" />
       </button>
-
-      <!-- 【中部分割线】 -->
-      <div class="h-5 w-[1px] bg-slate-200/80 mx-1"></div>
-
-      <!-- 【右侧模式与运行操作组】 -->
-
-      <!-- 8) 交互连线模式 (⚡ Prototype) -->
-      <button
-        type="button"
-        class="h-9 px-2.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer"
-        :class="workbenchMode === 'interactive'
-          ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
-          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/90'"
-        title="切换需求走查 (Design) 与交互连线 (Prototype) 模式"
-        @click="toggleWorkbenchMode"
-      >
-        <Zap class="w-3.5 h-3.5 fill-current" />
-        <span>交互连线</span>
-      </button>
-
-      <!-- 9) 纯原型演示 (▶ Play) -->
-      <button
-        type="button"
-        class="h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white flex items-center gap-1.5 text-xs font-bold shadow-sm shadow-emerald-600/30 transition-all cursor-pointer active:scale-95"
-        title="打开 Figma 原型分享级别的全屏纯净演示模式"
-        @click="onPlayClick"
-      >
-        <Play class="w-3.5 h-3.5 fill-white" />
-        <span>演示</span>
-      </button>
     </div>
   </div>
 </template>
