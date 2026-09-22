@@ -524,7 +524,7 @@ function handleNavigate(pageName: string) {
   )
   if (target) {
     navigateTo(target.id)
-    showToast(`🔗 前往: ${target.name}`)
+    showToast(`前往: ${target.name}`)
   } else {
     // 尝试包含匹配
     const fuzzy = pages.value.find(
@@ -532,7 +532,7 @@ function handleNavigate(pageName: string) {
     )
     if (fuzzy) {
       navigateTo(fuzzy.id)
-      showToast(`🔗 前往: ${fuzzy.name}`)
+      showToast(`前往: ${fuzzy.name}`)
     }
   }
 }
@@ -568,7 +568,7 @@ function resetPrototype() {
   }
   activeModal.value = null
   nextTick(updatePhoneScale)
-  showToast('↺ 原型已重置至首页')
+  showToast('原型已重置至首页')
 }
 
 function copyShareLink() {
@@ -576,7 +576,7 @@ function copyShareLink() {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard
       .writeText(url)
-      .then(() => showToast('🔗 已复制纯原型演示链接到剪贴板'))
+      .then(() => showToast('已复制纯原型演示链接到剪贴板'))
       .catch(() => showToast(`请复制链接: ${url}`))
   } else {
     const ta = document.createElement('textarea')
@@ -585,7 +585,7 @@ function copyShareLink() {
     ta.select()
     document.execCommand('copy')
     document.body.removeChild(ta)
-    showToast('🔗 已复制纯原型演示链接到剪贴板')
+    showToast('已复制纯原型演示链接到剪贴板')
   }
 }
 
@@ -661,7 +661,7 @@ async function loadData() {
     }
     nextTick(updatePhoneScale)
   } catch (e: any) {
-    showToast(`❌ 加载失败: ${e.message || '网络错误'}`)
+    showToast(`加载失败: ${e.message || '网络错误'}`)
   }
 }
 

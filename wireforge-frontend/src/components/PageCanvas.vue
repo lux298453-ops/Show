@@ -194,7 +194,7 @@
                 :class="ap.interactionType"
                 :title="ap.interactionTarget ? `${ap.interactionLabel}: ${ap.interactionTarget}` : (ap.interactionLabel || '')"
               >
-                {{ ap.interactionType === 'navigate' ? '⚡ 跳转' : (ap.interactionType === 'modal' ? '⚡ 弹窗' : '⚡ 切换') }}
+                {{ ap.interactionType === 'navigate' ? '跳转' : (ap.interactionType === 'modal' ? '弹窗' : '切换') }}
               </span>
             </div>
             <div v-if="ap.interactionTarget" class="ann-target-hint">
@@ -212,7 +212,7 @@
     <!-- 素材库替换弹窗 -->
     <el-dialog
       v-model="showAssetPicker"
-      title="🖼️ 素材库替换图片/头像"
+      title="素材库替换图片/头像"
       width="560px"
       append-to-body
       :close-on-click-modal="true"

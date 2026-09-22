@@ -1062,7 +1062,7 @@
                     </div>
                     <div class="text-[11px] text-slate-400 flex items-center gap-2">
                       <span>{{ simAnnList.length }} 条说明</span>
-                      <span v-if="simInteractiveCount" class="text-emerald-400 font-medium">⚡ {{ simInteractiveCount }} 项交互</span>
+                      <span v-if="simInteractiveCount" class="text-emerald-400 font-medium">{{ simInteractiveCount }} 项交互</span>
                     </div>
                   </div>
                 </div>
@@ -1176,7 +1176,7 @@
                           'bg-amber-500/20 text-amber-300 border border-amber-500/30': item.interactionType === 'toggle',
                         }"
                       >
-                        <span>{{ item.interactionType === 'navigate' ? '⚡ 跳转' : (item.interactionType === 'modal' ? '⚡ 弹窗' : '⚡ 切换') }}</span>
+                        <span>{{ item.interactionType === 'navigate' ? '跳转' : (item.interactionType === 'modal' ? '弹窗' : '切换') }}</span>
                       </span>
                     </div>
 
@@ -1552,12 +1552,12 @@ function setWorkbenchMode(m: 'design' | 'interactive') {
       selectedNodeId.value = focusPageId.value || pages.value[0]?.id
     }
     ElMessage.info({
-      message: '⚡ 已开启 Figma 交互连线模式：拖拽画板边缘的 [+] 蓝色手柄到目标画板即可连线',
+      message: '已开启交互连线模式：拖拽画板边缘的 [+] 蓝色手柄到目标画板即可连线',
       duration: 3500,
     })
   } else {
     ElMessage.info({
-      message: '🎨 已返回需求走查模式',
+      message: '已返回需求走查模式',
       duration: 2000,
     })
   }
@@ -1607,7 +1607,7 @@ const currentConflictNotice = computed(() => {
 
 function showLockedToast(page: Page) {
   const editor = pageEditingConflicts.value[page.id]?.editor || '其他成员'
-  showToast(`🔒「${page.name}」正由 ${editor} 独占微调中，已开启防覆盖保护。您可以微调其他页面！`)
+  showToast(`「${page.name}」正由 ${editor} 独占微调中，已开启防覆盖保护。您可以微调其他页面。`)
 }
 
 function onPageBlockClick(e: MouseEvent, b: { page: Page; x: number; y: number }) {
@@ -1638,7 +1638,7 @@ function onSaveHtml(p: { pageId: number; html: string }) {
   if (conflict) {
     const editor = pageEditingConflicts.value[p.pageId]?.editor || '其他成员'
     const pageName = pages.value.find((pg) => pg.id === p.pageId)?.name || '页面'
-    showToast(`🔒 保存被拦截:「${pageName}」当前正被 ${editor} 独占微调，无法覆盖其修改！`)
+    showToast(`保存被拦截:「${pageName}」当前正被 ${editor} 独占微调，无法覆盖其修改。`)
     return
   }
   projectApi
@@ -1646,9 +1646,9 @@ function onSaveHtml(p: { pageId: number; html: string }) {
     .then(() => {
       const page = proto.value?.pages.find((pg) => pg.id === p.pageId)
       if (page) page.html_content = p.html
-      showToast('✅ 微调已保存')
+      showToast('微调已保存')
     })
-    .catch((e: any) => showToast(`❌ 保存失败: ${e?.response?.data?.message || e?.message || '未知错误'}`))
+    .catch((e: any) => showToast(`保存失败: ${e?.response?.data?.message || e?.message || '未知错误'}`))
 }
 
 // ===== 原子组件库拖拽放置与快捷添加系统 =====
@@ -1788,7 +1788,7 @@ function onDropZoneDrop(e: DragEvent, pageId: number) {
 function onPaletteAddComponent(item: PaletteItem) {
   const targetId = focusPageId.value || selectedNodeId.value || pages.value[0]?.id
   if (!targetId) {
-    showToast('⚠️ 请先在画布上点击选择一个目标画板')
+    showToast('请先在画布上点击选择一个目标画板')
     return
   }
   insertComponentIntoPage(targetId, item, 20, 220)
@@ -1810,7 +1810,7 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   const inst = pageRefs.value[pageId]
   if (inst && typeof (inst as any).insertComponent === 'function') {
     ;(inst as any).insertComponent(htmlSnippet, dropX, dropY, autoEditText)
-    showToast(`✅ 已将「${itemName}」添加至「${page.name}」(${dropX}, ${dropY})`)
+    showToast(`已将「${itemName}」添加至「${page.name}」(${dropX}, ${dropY})`)
     return
   }
 
@@ -1827,7 +1827,7 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
     currentHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=375"><style>body{margin:0;padding:16px;background:#f8fafc;font-family:sans-serif;}</style></head><body>${currentHtml}\n${wrappedSnippet}</body></html>`
   }
   onSaveHtml({ pageId, html: currentHtml })
-  showToast(`✅ 已将「${itemName}」添加至「${page.name}」`)
+  showToast(`已将「${itemName}」添加至「${page.name}」`)
 }
 
 // Figma 自由拖拽绘制组件 (Drag-to-Draw / Click-to-Place)
@@ -2091,7 +2091,7 @@ async function doCreatePage(params: { name: string; width: number; height: numbe
       htmlContent: params.htmlContent || defaultHtml,
     })
 
-    showToast(`✅ 已新建画板「${newPage?.name || params.name}」(${params.width}×${params.height})`)
+    showToast(`已新建画板「${newPage?.name || params.name}」(${params.width}×${params.height})`)
     await loadData()
     if (newPage && newPage.id) {
       focusPageId.value = newPage.id
@@ -2157,7 +2157,7 @@ async function confirmDeletePage(page: Page) {
     )
 
     await projectApi.deletePage(id, page.id)
-    showToast(`🗑️ 已删除画板「${page.name}」`)
+    showToast(`已删除画板「${page.name}」`)
     if (pageOverrides.value[page.id]) {
       delete pageOverrides.value[page.id]
     }
@@ -2192,7 +2192,7 @@ function handleBottomToolChange(tool: string) {
 function handleBottomAddComponent(item: any) {
   const targetId = focusPageId.value || selectedNodeId.value || pages.value[0]?.id
   if (!targetId) {
-    showToast('⚠️ 请先在画布上点击选择一个目标画板')
+    showToast('请先在画布上点击选择一个目标画板')
     return
   }
   insertComponentIntoPage(targetId, item, 20, 220)
@@ -2249,9 +2249,9 @@ async function onRegenerateHtml(pageId: number) {
     const html = await projectApi.regenerateHtml(id, pageId)
     const page = proto.value?.pages.find((p) => p.id === pageId)
     if (page) page.html_content = html
-    showToast(`✅ 页面「${page?.name || pageId}」原型交互已刷新`)
+    showToast(`页面「${page?.name || pageId}」原型交互已刷新`)
   } catch (e: any) {
-    showToast(`❌ 刷新失败: ${e?.message || '未知错误'}`)
+    showToast(`刷新失败: ${e?.message || '未知错误'}`)
   } finally {
     regeneratingIds.value.delete(pageId)
     regenChecked.value.delete(pageId)
@@ -2270,7 +2270,7 @@ async function onRegenerateChecked() {
     await onRegenerateHtml(pageId)
     ok++
   }
-  showToast(`✅ 已刷新 ${ok} 个页面的原型交互`)
+  showToast(`已刷新 ${ok} 个页面的原型交互`)
 }
 
 const isReanalyzing = ref(false)
@@ -2302,13 +2302,13 @@ async function onReanalyzePage(pageId: number) {
   if (isReanalyzing.value) return
   isReanalyzing.value = true
   const page = proto.value?.pages.find((p) => p.id === pageId)
-  showToast(`🧠 正在调用 AI 重新深度识别「${page?.name || pageId}」...`)
+  showToast(`正在调用 AI 重新深度识别「${page?.name || pageId}」...`)
   try {
     await projectApi.reanalyzePage(id, pageId)
     await loadData()
-    showToast(`✅ 页面「${page?.name || pageId}」已由 AI 重新识别并更新！`)
+    showToast(`页面「${page?.name || pageId}」已由 AI 重新识别并更新`)
   } catch (e: any) {
-    showToast(`❌ 识别失败: ${e?.message || '未知错误'}`)
+    showToast(`识别失败: ${e?.message || '未知错误'}`)
   } finally {
     isReanalyzing.value = false
     regenChecked.value.delete(pageId)
@@ -2323,15 +2323,15 @@ async function onReanalyzeChecked() {
   }
   if (isReanalyzing.value) return
   isReanalyzing.value = true
-  showToast(`🧠 正在调用 AI 重新深度识别选中的 ${targets.length} 个页面...`)
+  showToast(`正在调用 AI 重新深度识别选中的 ${targets.length} 个页面...`)
   try {
     for (const pageId of targets) {
       await projectApi.reanalyzePage(id, pageId)
     }
     await loadData()
-    showToast(`✅ 已完成 ${targets.length} 个页面的 AI 深度重新识别！`)
+    showToast(`已完成 ${targets.length} 个页面的 AI 深度重新识别`)
   } catch (e: any) {
-    showToast(`❌ 重新识别失败: ${e?.message || '未知错误'}`)
+    showToast(`重新识别失败: ${e?.message || '未知错误'}`)
   } finally {
     isReanalyzing.value = false
     regenChecked.value.clear()
@@ -2819,7 +2819,7 @@ async function undoInteraction(): Promise<boolean> {
       })
       await loadData()
       selectedConnId.value = `conn-${item.elementId}-${item.targetPageId}`
-      ElMessage.success(`↺ 已撤销删除：已恢复「${item.label} ➔ ${item.toPageName || '目标画板'}」连线`)
+      ElMessage.success(`已撤销删除：已恢复「${item.label} ➔ ${item.toPageName || '目标画板'}」连线`)
       return true
     } else if (item.type === 'connect') {
       if (item.prevTargetPageId) {
@@ -2832,7 +2832,7 @@ async function undoInteraction(): Promise<boolean> {
           params: item.params,
         })
         selectedConnId.value = `conn-${item.elementId}-${item.prevTargetPageId}`
-        ElMessage.success(`↺ 已撤销连线：已恢复为「${item.label} ➔ ${item.prevToPageName || '原目标画板'}」`)
+        ElMessage.success(`已撤销连线：已恢复为「${item.label} ➔ ${item.prevToPageName || '原目标画板'}」`)
       } else {
         await projectApi.saveInteraction(id, {
           elementId: item.elementId,
@@ -2840,7 +2840,7 @@ async function undoInteraction(): Promise<boolean> {
           targetPageId: null,
         })
         selectedConnId.value = null
-        ElMessage.success(`↺ 已撤销新建连线`)
+        ElMessage.success(`已撤销新建连线`)
       }
       await loadData()
       return true
@@ -2865,7 +2865,7 @@ async function redoInteraction(): Promise<boolean> {
       })
       selectedConnId.value = null
       await loadData()
-      ElMessage.info(`↻ 已重做删除：连线已再次删除`)
+      ElMessage.info(`已重做删除：连线已再次删除`)
       return true
     } else if (item.type === 'connect') {
       await projectApi.saveInteraction(id, {
@@ -2878,7 +2878,7 @@ async function redoInteraction(): Promise<boolean> {
       })
       await loadData()
       selectedConnId.value = `conn-${item.elementId}-${item.targetPageId}`
-      ElMessage.success(`↻ 已重做连线：「${item.label} ➔ ${item.toPageName || '目标画板'}」`)
+      ElMessage.success(`已重做连线：「${item.label} ➔ ${item.toPageName || '目标画板'}」`)
       return true
     }
   } catch (err: any) {
@@ -3483,7 +3483,7 @@ function handleAnnOrderChange(pageId: number, order: number[]) {
   projectApi.updatePageAnnotationOrders(id, pageId, order).catch((e: any) => {
     console.error('Failed to sync annotation orders to server', e)
   })
-  showToast('📌 画布说明顺序已更新并同步')
+  showToast('画布说明顺序已更新并同步')
 }
 
 // 持久化自定义说明标题 (双向同步到画布与模拟器)
@@ -3531,7 +3531,7 @@ function handleAnnSave(annId: number, text: string, title?: string) {
     .updateAnnotation(id, annId, { text, title })
     .then(() => {
       if (ann) ann.text = text
-      showToast('✅ 说明已保存')
+      showToast('说明已保存')
     })
     .catch((e: any) => {
       ElMessage.error(`保存失败: ${e.message || '网络错误'}`)
@@ -3819,7 +3819,7 @@ function onSimDrop(e: DragEvent, targetId: number) {
     projectApi.updatePageAnnotationOrders(id, pageId, newOrder).catch((e: any) => {
       console.error('Failed to sync annotation orders to server', e)
     })
-    showToast('📌 已置顶/调整该业务说明')
+    showToast('已调整业务说明排序')
   }
 
   dragOverAnnId.value = null
@@ -4026,13 +4026,13 @@ function onSimCardClick(item: SimAnnItem) {
   sendSpotlightToIframe(item, targetEl)
 
   if (item.interactionType === 'navigate') {
-    showToast(`🎯 已定位: ${item.title}${item.interactionTarget ? ` (去向: ${item.interactionTarget})` : ''}`)
+    showToast(`已定位: ${item.title}${item.interactionTarget ? ` (去向: ${item.interactionTarget})` : ''}`)
   } else if (item.interactionType === 'modal') {
-    showToast(`🎯 已定位弹窗组件: ${item.title}`)
+    showToast(`已定位弹窗组件: ${item.title}`)
   } else if (item.interactionType === 'toggle') {
-    showToast(`🎯 已定位开关组件: ${item.title}`)
+    showToast(`已定位开关组件: ${item.title}`)
   } else {
-    showToast(`📌 组件说明: ${item.title}`)
+    showToast(`组件说明: ${item.title}`)
   }
 }
 
@@ -4054,7 +4054,7 @@ function handlePreviewClick(el: Element) {
   const ix = el.interaction
   if (!ix) return
   if (ix.action === 'navigate' && ix.target_page_id) {
-    showToast(`🔗 跳转到: ${targetPageName(ix)}`)
+    showToast(`跳转到: ${targetPageName(ix)}`)
     slideClass.value = ''
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -4063,9 +4063,9 @@ function handlePreviewClick(el: Element) {
       })
     })
   } else if (ix.action === 'modal') {
-    showToast(`💬 弹窗: ${el.label || '弹窗'}`)
+    showToast(`弹窗: ${el.label || '弹窗'}`)
   } else if (ix.action === 'input_focus') {
-    showToast(`⌨️ 输入框获得焦点`)
+    showToast(`输入框获得焦点`)
   }
 }
 
@@ -4123,7 +4123,7 @@ async function syncEditingSession() {
       lastLockedPageId = currentEditId
       if (lockRes.conflict) {
         const p = pages.value.find((pg) => pg.id === currentEditId)
-        showToast(`🔒「${p?.name || '本页'}」已被 ${lockRes.editor || '其他成员'} 独占微调，已为您开启只读保护`)
+        showToast(`「${p?.name || '本页'}」已被 ${lockRes.editor || '其他成员'} 独占微调，已为您开启只读保护`)
       }
     } catch {}
   } else if (lastLockedPageId) {
@@ -4405,7 +4405,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
           localStorage.setItem('wf_clipboard_page', JSON.stringify(pageData))
           localStorage.setItem('wf_last_copy_type', 'page')
         } catch {}
-        showToast(`📋 已复制画板「${targetPage.name}」(按 Ctrl+V 粘贴新画板)`)
+        showToast(`已复制画板「${targetPage.name}」(按 Ctrl+V 粘贴新画板)`)
         e.preventDefault()
         return
       }
@@ -4431,7 +4431,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
           localStorage.setItem('wf_clipboard_element', JSON.stringify(data))
           localStorage.setItem('wf_last_copy_type', 'element')
         } catch {}
-        showToast(`📋 已复制组件「${data.name}」(按 Ctrl+V 粘贴)`)
+        showToast(`已复制组件「${data.name}」(按 Ctrl+V 粘贴)`)
         e.preventDefault()
         return
       }

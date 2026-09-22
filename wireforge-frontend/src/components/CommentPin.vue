@@ -83,8 +83,9 @@
             :title="thread.resolved ? '重新开启此评论' : '标记为已解决'"
             @click="onToggleResolve"
           >
-            <span v-if="thread.resolved">↺ 重开</span>
-            <span v-else>✓ 解决</span>
+            <RotateCcw v-if="thread.resolved" class="w-3 h-3" />
+            <Check v-else class="w-3 h-3" />
+            <span>{{ thread.resolved ? '重开' : '解决' }}</span>
           </button>
 
           <!-- 删除按钮 -->
@@ -175,7 +176,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from 'vue'
-import { X, Trash2 } from 'lucide-vue-next'
+import { X, Trash2, RotateCcw, Check } from 'lucide-vue-next'
 import type { CommentThread } from '../types'
 
 const props = withDefaults(

@@ -49,9 +49,9 @@ http.interceptors.response.use(
         }
       }
     } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      msg = '⏱️ 请求响应超时，大模型生成任务可能较耗时，请稍后刷新查看'
+      msg = '请求响应超时，大模型生成任务可能较耗时，请稍后刷新查看'
     } else if (error.message === 'Network Error') {
-      msg = '🔌 无法连接到后端服务，请确认后端已正常启动'
+      msg = '无法连接到后端服务，请确认后端已正常启动'
     } else {
       msg = error.message || '未知错误'
     }

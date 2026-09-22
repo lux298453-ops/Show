@@ -123,7 +123,7 @@
           @click="selectShapeTool('rect')"
         >
           <div class="flex items-center gap-2">
-            <span class="text-sm">🔲</span>
+            <Square class="w-3.5 h-3.5 text-slate-500" />
             <span>矩形 (Rectangle)</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">R</span>
@@ -136,7 +136,7 @@
           @click="selectShapeTool('circle')"
         >
           <div class="flex items-center gap-2">
-            <span class="text-sm">⭕</span>
+            <Circle class="w-3.5 h-3.5 text-slate-500" />
             <span>椭圆 / 圆形 (Ellipse)</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">O</span>
@@ -149,7 +149,7 @@
           @click="selectShapeTool('line')"
         >
           <div class="flex items-center gap-2">
-            <span class="text-sm">➖</span>
+            <Minus class="w-3.5 h-3.5 text-slate-500" />
             <span>直线 / 分割线 (Line)</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">L</span>
@@ -164,7 +164,7 @@
           @click="selectShapeTool('container')"
         >
           <div class="flex items-center gap-2">
-            <span class="text-sm">📦</span>
+            <Box class="w-3.5 h-3.5 text-slate-500" />
             <span>空白容器卡片 (Container)</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">Box</span>
@@ -208,7 +208,7 @@
           @click="createFramePreset('iPhone 16 Pro', 375, 812)"
         >
           <div class="flex items-center gap-2">
-            <span class="text-sm">📱</span>
+            <Smartphone class="w-3.5 h-3.5 text-slate-500" />
             <span>iPhone 16 Pro</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">375×812</span>
@@ -220,7 +220,7 @@
           @click="createFramePreset('Android', 360, 800)"
         >
           <div class="flex items-center gap-2">
-            <span class="text-sm">📱</span>
+            <Smartphone class="w-3.5 h-3.5 text-slate-500" />
             <span>Android 手机</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">360×800</span>
@@ -232,7 +232,7 @@
           @click="createFramePreset('Desktop Web', 1440, 900)"
         >
           <div class="flex items-center gap-2">
-            <span class="text-sm">💻</span>
+            <Monitor class="w-3.5 h-3.5 text-slate-500" />
             <span>Web 桌面端</span>
           </div>
           <span class="text-[10px] font-mono text-slate-400">1440×900</span>
@@ -386,6 +386,8 @@ import {
   GripVertical,
   X,
   Search,
+  Smartphone,
+  Monitor,
 } from 'lucide-vue-next'
 
 export type ActiveToolType = 'select' | 'frame' | 'rect' | 'circle' | 'container' | 'line' | 'text' | 'comment'
@@ -454,7 +456,7 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'ios-app-item',
     name: '应用列表单元项',
-    emoji: '📱',
+    emoji: '',
     tag: 'iOS App Item',
     category: 'ios',
     description: '标准 App Store 列表单元项（图标+主副标题+获取按钮）',
@@ -464,17 +466,17 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'ios-story-card',
     name: 'App推荐大卡片',
-    emoji: '🎬',
+    emoji: '',
     tag: 'Story Card',
     category: 'ios',
     description: 'App Store 顶部主打推荐大卡片（封面+信息条+获取按钮）',
-    html: `<div class="wf-el wf-ios-story-card" style="width: 335px; height: 280px; border-radius: 20px; overflow: hidden; position: relative; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); box-shadow: 0 10px 25px rgba(0,0,0,0.18); box-sizing: border-box; color: #ffffff;"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85; position: absolute; inset: 0;" alt="Feature Cover" /><div style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.05) 50%, rgba(0,0,0,0.85) 100%);"></div><div style="position: absolute; top: 16px; left: 16px; right: 16px;"><div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; margin-bottom: 2px;">主打推荐</div><div style="font-size: 20px; font-weight: 800; line-height: 1.2;">Videoleap</div><div style="font-size: 12px; opacity: 0.9; margin-top: 2px;">创意混剪视频 点亮精彩瞬间</div></div><div style="position: absolute; bottom: 14px; left: 14px; right: 14px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.15); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 8px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.25);"><div style="display: flex; align-items: center; gap: 8px;"><div style="width: 32px; height: 32px; border-radius: 8px; background: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 16px;">🎬</div><div><div style="font-size: 12px; font-weight: 700;">Videoleap</div><div style="font-size: 10px; opacity: 0.8;">制作专业后期</div></div></div><button class="wf-btn" style="padding: 4px 14px; background: rgba(255,255,255,0.9); color: #0284c7; border: none; border-radius: 9999px; font-size: 11px; font-weight: 700; cursor: pointer;">获取</button></div></div>`,
+    html: `<div class="wf-el wf-ios-story-card" style="width: 335px; height: 280px; border-radius: 20px; overflow: hidden; position: relative; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); box-shadow: 0 10px 25px rgba(0,0,0,0.18); box-sizing: border-box; color: #ffffff;"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.85; position: absolute; inset: 0;" alt="Feature Cover" /><div style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.05) 50%, rgba(0,0,0,0.85) 100%);"></div><div style="position: absolute; top: 16px; left: 16px; right: 16px;"><div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; margin-bottom: 2px;">主打推荐</div><div style="font-size: 20px; font-weight: 800; line-height: 1.2;">Videoleap</div><div style="font-size: 12px; opacity: 0.9; margin-top: 2px;">创意混剪视频 点亮精彩瞬间</div></div><div style="position: absolute; bottom: 14px; left: 14px; right: 14px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.15); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 8px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.25);"><div style="display: flex; align-items: center; gap: 8px;"><div style="width: 32px; height: 32px; border-radius: 8px; background: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #ffffff;">APP</div><div><div style="font-size: 12px; font-weight: 700;">Videoleap</div><div style="font-size: 10px; opacity: 0.8;">制作专业后期</div></div></div><button class="wf-btn" style="padding: 4px 14px; background: rgba(255,255,255,0.9); color: #0284c7; border: none; border-radius: 9999px; font-size: 11px; font-weight: 700; cursor: pointer;">获取</button></div></div>`,
     previewHtml: `<div style="width: 76px; height: 44px; background: linear-gradient(135deg, #334155, #0f172a); border-radius: 8px; position: relative; overflow: hidden; padding: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);"><div style="width: 24px; height: 3px; background: #fff; border-radius: 1px; margin-bottom: 2px;"></div><div style="width: 16px; height: 2px; background: rgba(255,255,255,0.7); border-radius: 1px;"></div><div style="position: absolute; bottom: 3px; left: 4px; right: 4px; height: 10px; background: rgba(255,255,255,0.3); border-radius: 3px; display: flex; align-items: center; justify-content: space-between; padding: 0 3px;"><div style="width: 6px; height: 6px; background: #fff; border-radius: 2px;"></div><div style="width: 10px; height: 4px; background: #0284c7; border-radius: 2px;"></div></div></div>`,
   },
   {
     id: 'ios-avatar-grid',
     name: '头像九宫格卡片',
-    emoji: '👥',
+    emoji: '',
     tag: 'Avatar Grid',
     category: 'ios',
     description: '创意拼贴卡片（标题+圆角方形头像矩阵）',
@@ -484,17 +486,17 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'ios-tab-bar',
     name: 'iOS毛玻璃底部栏',
-    emoji: '🧭',
+    emoji: '',
     tag: 'iOS TabBar',
     category: 'ios',
     description: '标准 iOS 底部 4-Tab 导航栏（毛玻璃底色）',
-    html: `<div class="wf-el wf-ios-tab-bar" style="width: 375px; height: 60px; background: rgba(255,255,255,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-top: 1px solid rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: space-around; position: relative; box-sizing: border-box; z-index: 100;"><div style="display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: #000000; font-weight: 700;"><span style="font-size: 16px;">🏠</span><span style="font-size: 10px;">Today</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: #8e8e93;"><span style="font-size: 16px;">🔍</span><span style="font-size: 10px;">Browse</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: #8e8e93;"><span style="font-size: 16px;">📻</span><span style="font-size: 10px;">Radio</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; color: #8e8e93;"><span style="font-size: 16px;">📚</span><span style="font-size: 10px;">Library</span></div></div>`,
+    html: `<div class="wf-el wf-ios-tab-bar" style="width: 375px; height: 60px; background: rgba(255,255,255,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-top: 1px solid rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: space-around; position: relative; box-sizing: border-box; z-index: 100;"><div style="display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; color: #0284c7; font-weight: 700;"><div style="width: 18px; height: 18px; border-radius: 4px; background: #0284c7;"></div><span style="font-size: 10px;">Today</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; color: #8e8e93;"><div style="width: 18px; height: 18px; border-radius: 4px; background: #cbd5e1;"></div><span style="font-size: 10px;">Browse</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; color: #8e8e93;"><div style="width: 18px; height: 18px; border-radius: 4px; background: #cbd5e1;"></div><span style="font-size: 10px;">Radio</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; color: #8e8e93;"><div style="width: 18px; height: 18px; border-radius: 4px; background: #cbd5e1;"></div><span style="font-size: 10px;">Library</span></div></div>`,
     previewHtml: `<div style="width: 76px; height: 18px; background: rgba(255,255,255,0.9); border-top: 1px solid #cbd5e1; border-radius: 4px; display: flex; align-items: center; justify-content: space-around; padding: 0 4px;"><div style="width: 6px; height: 6px; background: #000; border-radius: 1px;"></div><div style="width: 6px; height: 6px; background: #94a3b8; border-radius: 1px;"></div><div style="width: 6px; height: 6px; background: #94a3b8; border-radius: 1px;"></div><div style="width: 6px; height: 6px; background: #94a3b8; border-radius: 1px;"></div></div>`,
   },
   {
     id: 'ios-btn-pill',
     name: 'iOS获取胶囊按钮',
-    emoji: '💊',
+    emoji: '',
     tag: 'Pill Button',
     category: 'ios',
     description: 'App Store 经典浅灰底天蓝字胶囊按钮',
@@ -504,7 +506,7 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'shape-box',
     name: '矩形/正方形方框',
-    emoji: '🔲',
+    emoji: '',
     tag: 'Box',
     category: 'shapes',
     description: '',
@@ -514,7 +516,7 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'shape-container',
     name: '卡片容器',
-    emoji: '📦',
+    emoji: '',
     tag: 'Card',
     category: 'shapes',
     description: '',
@@ -524,17 +526,17 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'shape-circle',
     name: '圆形头像',
-    emoji: '⭕',
+    emoji: '',
     tag: 'Avatar',
     category: 'shapes',
     description: '',
     html: `<div class="wf-avatar" style="width: 52px; height: 52px; border-radius: 50%; background: #e2e8f0; border: 2px solid #cbd5e1; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.1); box-sizing: border-box;"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" style="width: 100%; height: 100%; object-fit: cover;" alt="用户头像" /></div>`,
-    previewHtml: `<div style="width: 28px; height: 28px; border-radius: 50%; background: #e2e8f0; border: 1.5px solid #cbd5e1; display: flex; align-items: center; justify-content: center; font-size: 12px;">👤</div>`,
+    previewHtml: `<div style="width: 28px; height: 28px; border-radius: 50%; background: #e2e8f0; border: 1.5px solid #cbd5e1; display: flex; align-items: center; justify-content: center;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #94a3b8;"></div></div>`,
   },
   {
     id: 'shape-text',
     name: '文本',
-    emoji: '📝',
+    emoji: '',
     tag: 'Text',
     category: 'shapes',
     description: '',
@@ -544,7 +546,7 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'shape-divider',
     name: '分割线',
-    emoji: '➖',
+    emoji: '',
     tag: 'Divider',
     category: 'shapes',
     description: '',
@@ -554,7 +556,7 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'ctrl-btn-primary',
     name: '主按钮',
-    emoji: '🟢',
+    emoji: '',
     tag: 'Btn',
     category: 'controls',
     description: '',
@@ -564,7 +566,7 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'ctrl-btn-secondary',
     name: '次按钮',
-    emoji: '⚪',
+    emoji: '',
     tag: 'Outline',
     category: 'controls',
     description: '',
@@ -574,17 +576,17 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'ctrl-search',
     name: '搜索框',
-    emoji: '🔍',
+    emoji: '',
     tag: 'Search',
     category: 'controls',
     description: '',
-    html: `<div class="wf-search-box" style="display: flex; align-items: center; width: 335px; height: 40px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 0 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); box-sizing: border-box;"><span style="color: #94a3b8; margin-right: 8px; font-size: 14px;">🔍</span><input type="text" placeholder="搜索..." style="border: none; background: transparent; outline: none; font-size: 13px; color: #1e293b; width: 100%;" /></div>`,
-    previewHtml: `<div style="width: 72px; height: 24px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; display: flex; align-items: center; padding: 0 6px; font-size: 11px; color: #94a3b8;">🔍</div>`,
+    html: `<div class="wf-search-box" style="display: flex; align-items: center; width: 335px; height: 40px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 0 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); box-sizing: border-box;"><svg class="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; margin-right: 8px;"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg><input type="text" placeholder="搜索..." style="border: none; background: transparent; outline: none; font-size: 13px; color: #1e293b; width: 100%;" /></div>`,
+    previewHtml: `<div style="width: 72px; height: 24px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; display: flex; align-items: center; padding: 0 6px; font-size: 11px; color: #94a3b8;"><div style="width: 8px; height: 8px; border: 1.5px solid #94a3b8; border-radius: 50%; margin-right: 4px;"></div>搜索</div>`,
   },
   {
     id: 'ctrl-switch',
     name: '开关',
-    emoji: '🔀',
+    emoji: '',
     tag: 'Switch',
     category: 'controls',
     description: '',
@@ -594,7 +596,7 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'ctrl-modal',
     name: '弹窗',
-    emoji: '🪟',
+    emoji: '',
     tag: 'Modal',
     category: 'controls',
     description: '',
@@ -604,7 +606,7 @@ const atomComponents: PaletteItem[] = [
   {
     id: 'ctrl-sheet',
     name: '抽屉',
-    emoji: '📥',
+    emoji: '',
     tag: 'Sheet',
     category: 'controls',
     description: '',

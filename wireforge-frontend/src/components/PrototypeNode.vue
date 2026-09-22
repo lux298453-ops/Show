@@ -1,10 +1,10 @@
-﻿<template>
+<template>
   <div class="proto-node" :class="{ collapsed }">
     <!-- 节点头部（参考 HTML：类型徽章 + 标题 + 标注数 + 折叠） -->
     <div class="node-header" @dblclick.stop="collapsed = !collapsed">
       <span class="node-type-badge badge-wireframe">线框</span>
       <span class="node-title">{{ page.name }}</span>
-      <span v-if="page.annotations.length" class="ann-count">📝 {{ page.annotations.length }}</span>
+      <span v-if="page.annotations.length" class="ann-count">{{ page.annotations.length }}</span>
       <span class="collapse-btn" @click.stop="collapsed = !collapsed">{{ collapsed ? '▸' : '▾' }}</span>
     </div>
 

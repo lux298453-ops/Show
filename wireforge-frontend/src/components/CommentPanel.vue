@@ -4,7 +4,7 @@
     <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
       <div class="flex items-center gap-2">
         <div class="w-5 h-5 rounded-md bg-amber-500/10 text-amber-600 flex items-center justify-center font-bold text-xs">
-          💬
+          <MessageSquare class="w-3.5 h-3.5" />
         </div>
         <h2 class="text-xs font-bold text-slate-800 tracking-wide">项目评论</h2>
         <span class="text-[10px] text-slate-400 font-mono">Comments</span>
@@ -99,14 +99,14 @@
     <!-- 评论列表 -->
     <div class="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
       <div v-if="filteredComments.length === 0" class="py-12 px-4 text-center">
-        <div class="w-10 h-10 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center text-lg mx-auto mb-3">
-          💬
+        <div class="w-10 h-10 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center mx-auto mb-3">
+          <MessageSquare class="w-5 h-5" />
         </div>
         <p class="text-xs font-semibold text-slate-700 mb-1">
-          {{ filterTab === 'unresolved' ? '太棒了，所有评论均已解决！' : '当前暂无任何评论' }}
+          {{ filterTab === 'unresolved' ? '所有评论均已解决' : '当前暂无任何评论' }}
         </p>
         <p class="text-[11px] text-slate-400 leading-relaxed">
-          点击画布或任意画板位置，即可立刻投放带序号的评论图钉进行评审讨论。
+          点击画布或任意画板位置，即可投放带序号的评论图钉进行评审讨论。
         </p>
       </div>
 
@@ -165,11 +165,11 @@
           <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               type="button"
-              class="px-1.5 py-0.5 text-[10px] rounded hover:bg-slate-200/70 text-slate-600 cursor-pointer"
+              class="px-2 py-0.5 text-[10px] rounded hover:bg-slate-200/70 text-slate-600 cursor-pointer font-medium"
               :title="item.thread.resolved ? '重新开启' : '标记解决'"
               @click.stop="emit('toggleResolve', item.thread.id)"
             >
-              {{ item.thread.resolved ? '↺ 重开' : '✓ 解决' }}
+              {{ item.thread.resolved ? '重开' : '解决' }}
             </button>
             <button
               type="button"
@@ -188,7 +188,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
-import { X, Edit2, Trash2 } from 'lucide-vue-next'
+import { X, Edit2, Trash2, MessageSquare } from 'lucide-vue-next'
 import type { CommentThread } from '../types'
 
 const props = withDefaults(
