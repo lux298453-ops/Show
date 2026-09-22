@@ -2165,14 +2165,27 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         var posVal = selectedEl.style.position || (window.getComputedStyle ? window.getComputedStyle(selectedEl).position : '');
         var isAbsolute = posVal === 'absolute';
 
+        var curL = parseFloat(selectedEl.style.left);
+        var curT = parseFloat(selectedEl.style.top);
+
+        if(isAbsolute){
+          var rect = selectedEl.getBoundingClientRect();
+          var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+          var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
+          if(isNaN(curL)) curL = rect.left + sX;
+          if(isNaN(curT)) curT = rect.top + sY;
+        } else {
+          // 流式排版元素：使用 position: relative 相对自身原位的偏移量，初始为 0
+          if(isNaN(curL)) curL = 0;
+          if(isNaN(curT)) curT = 0;
+        }
+
         drag = {
           el: selectedEl,
           startX: e.clientX,
           startY: e.clientY,
           initLeft: curL,
           initTop: curT,
-          initW: rect.width,
-          initH: rect.height,
           isAbsolute: isAbsolute,
           hasMoved: false
         };
@@ -2219,13 +2232,24 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         resizing.el.style.maxWidth = 'none';
         resizing.el.style.boxSizing = 'border-box';
 
+        var rPos = resizing.el.style.position || (window.getComputedStyle ? window.getComputedStyle(resizing.el).position : '');
         if(resizing.dir.indexOf('w') !== -1){
-          resizing.el.style.position = 'absolute';
-          resizing.el.style.left = Math.round(l) + 'px';
+          if(rPos === 'absolute'){
+            resizing.el.style.left = Math.round(l) + 'px';
+          } else {
+            resizing.el.style.position = 'relative';
+            var curRelL = parseFloat(resizing.el.style.left) || 0;
+            resizing.el.style.left = Math.round(curRelL + (resizing.initW - w)) + 'px';
+          }
         }
         if(resizing.dir.indexOf('n') !== -1){
-          resizing.el.style.position = 'absolute';
-          resizing.el.style.top = Math.round(t) + 'px';
+          if(rPos === 'absolute'){
+            resizing.el.style.top = Math.round(t) + 'px';
+          } else {
+            resizing.el.style.position = 'relative';
+            var curRelT = parseFloat(resizing.el.style.top) || 0;
+            resizing.el.style.top = Math.round(curRelT + (resizing.initH - h)) + 'px';
+          }
         }
 
         updateTransformBox(resizing.el);
@@ -2237,34 +2261,22 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         var dy = e.clientY - drag.startY;
         var dist = Math.hypot(dx, dy);
 
-        // 仅当鼠标移动超过 3px 时才判定为用户想要拖拽移动，避免普通单纯点击时影响流式排版
+        // 仅当鼠标移动超过 3px 时才判定为用户想要拖拽移动
         if(!drag.hasMoved && dist > 3){
           pushSnapshot();
           drag.hasMoved = true;
 
-          // 若此前不是绝对定位（如流式排版的文字、卡片、图片），无缝转为绝对定位自由拖动
+          // 关键：对流式排版元素使用 position: relative 相对位移
+          // 100% 保持在原文档流中的占位空间，彻底消除其他兄弟元素/下方组件坍塌或移位！
           if(!drag.isAbsolute){
-            var r = drag.el.getBoundingClientRect();
-            var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
-            var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
-            drag.initLeft = r.left + sX;
-            drag.initTop = r.top + sY;
-
-            drag.el.style.width = Math.round(drag.initW || r.width) + 'px';
-            drag.el.style.height = Math.round(drag.initH || r.height) + 'px';
-            drag.el.style.boxSizing = 'border-box';
-            drag.el.style.position = 'absolute';
-            drag.el.style.margin = '0';
-            drag.el.style.zIndex = '999';
-            drag.isAbsolute = true;
+            drag.el.style.position = 'relative';
           }
+          drag.el.style.zIndex = '999';
         }
 
         if(drag.hasMoved){
-          drag.el.style.position = 'absolute';
           drag.el.style.left = Math.round(drag.initLeft + dx) + 'px';
           drag.el.style.top = Math.round(drag.initTop + dy) + 'px';
-          drag.el.style.zIndex = '999';
           updateTransformBox(drag.el);
         }
         return;
@@ -2359,20 +2371,30 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       if(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && selectedEl){
         e.preventDefault();
         var step = e.shiftKey ? 10 : 1;
+        var posVal = selectedEl.style.position || (window.getComputedStyle ? window.getComputedStyle(selectedEl).position : '');
+        var isAbsolute = posVal === 'absolute';
+
         var l = parseFloat(selectedEl.style.left);
         var t = parseFloat(selectedEl.style.top);
-        var rect = selectedEl.getBoundingClientRect();
-        var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
-        var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
-        if(isNaN(l)) l = rect.left + sX;
-        if(isNaN(t)) t = rect.top + sY;
+
+        if(isAbsolute){
+          var rect = selectedEl.getBoundingClientRect();
+          var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+          var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
+          if(isNaN(l)) l = rect.left + sX;
+          if(isNaN(t)) t = rect.top + sY;
+        } else {
+          selectedEl.style.position = 'relative';
+          selectedEl.style.zIndex = '999';
+          if(isNaN(l)) l = 0;
+          if(isNaN(t)) t = 0;
+        }
 
         if(e.key === 'ArrowLeft') l -= step;
         if(e.key === 'ArrowRight') l += step;
         if(e.key === 'ArrowUp') t -= step;
         if(e.key === 'ArrowDown') t += step;
 
-        selectedEl.style.position = 'absolute';
         selectedEl.style.left = Math.round(l) + 'px';
         selectedEl.style.top = Math.round(t) + 'px';
         updateTransformBox(selectedEl);
