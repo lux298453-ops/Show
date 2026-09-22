@@ -218,7 +218,7 @@
             class="absolute top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-slate-900/90 backdrop-blur-md text-white border border-white/15 rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-semibold select-none pointer-events-auto"
           >
             <span class="w-2 h-2 rounded-full bg-[#0D99FF] animate-ping shrink-0"></span>
-            <span>正在绘制{{ currentToolName }}：点击画板任意位置放置，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 键取消</span>
+            <span>正在绘制{{ currentToolName }}：按住鼠标左键拖拽自由画出尺寸，或点击放置，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 取消</span>
             <button
               type="button"
               class="ml-1 p-0.5 text-white/70 hover:text-white rounded-full hover:bg-white/20 transition-colors cursor-pointer"
@@ -454,16 +454,55 @@
                 </div>
               </div>
 
-              <!-- 直接选择绘制点击放置层 (浮于 iframe 之上，确保 click 100% 捕获并杜绝 iframe 吸收事件) -->
+              <!-- 实时自由拖拽绘制矩形/形状选框 (Figma Live Drag-to-Draw Marquee) -->
+              <div
+                v-if="activeShapeDraw && activeShapeDraw.block.page.id === b.page.id && (activeShapeDraw.width > 2 || activeShapeDraw.height > 2)"
+                class="live-draw-marquee pointer-events-none absolute z-[130] select-none"
+                :style="{
+                  left: `${(activeShapeDraw.isDesignSide ? 0 : ((b.page.canvas_width || 375) + 16)) + activeShapeDraw.left}px`,
+                  top: `${activeShapeDraw.top}px`,
+                  width: `${activeShapeDraw.width}px`,
+                  height: `${activeShapeDraw.height}px`,
+                  borderRadius: activeShapeDraw.tool === 'circle' ? '50%' : (activeShapeDraw.tool === 'container' ? '14px' : (activeShapeDraw.tool === 'rect' ? '6px' : '2px')),
+                  border: '2px solid #0D99FF',
+                  backgroundColor: 'rgba(13, 153, 255, 0.16)',
+                  boxShadow: '0 0 0 1px rgba(13, 153, 255, 0.4), 0 4px 16px rgba(13, 153, 255, 0.25)'
+                }"
+              >
+                <!-- Figma 实时尺寸标注悬浮胶囊 -->
+                <div
+                  class="absolute -bottom-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-[#0D99FF] text-white text-[10px] font-mono font-bold shadow-lg whitespace-nowrap leading-none flex items-center gap-1 ring-1 ring-white/50"
+                >
+                  <span>{{ Math.round(activeShapeDraw.width) }} × {{ Math.round(activeShapeDraw.height) }}</span>
+                </div>
+              </div>
+
+              <!-- 直接选择绘制交互层 (浮于 iframe 之上，捕获 mousedown 自由拖拽拉框与快速点击) -->
               <div
                 v-if="activeDrawTool !== 'select'"
-                class="draw-placement-overlay absolute inset-0 rounded-2xl z-[110] transition-all select-none border-2 border-dashed border-[#0D99FF]/60 bg-[#0D99FF]/5"
+                class="draw-placement-overlay absolute inset-0 rounded-2xl z-[110] select-none border-2 border-dashed border-[#0D99FF]/60 bg-[#0D99FF]/5"
                 :class="activeDrawTool === 'text' ? '!cursor-text' : '!cursor-crosshair'"
-                :title="`点击画板任意位置放置「${currentToolName}」`"
-                @click.stop="onArtboardDrawClick($event, b)"
+                :title="`在画板上拖拽自由画出尺寸，或点击放置「${currentToolName}」`"
+                @mousedown.stop.prevent="onArtboardDrawMouseDown($event, b)"
               />
             </div>
           </template>
+
+          <!-- 实时自由拖拽绘制画板选框 (Live Frame Marquee) -->
+          <div
+            v-if="activeFrameDraw && (activeFrameDraw.width > 2 || activeFrameDraw.height > 2)"
+            class="live-frame-draw-marquee pointer-events-none absolute z-[140] border-2 border-blue-500 bg-blue-500/10 rounded-2xl shadow-2xl select-none"
+            :style="{
+              left: `${activeFrameDraw.left}px`,
+              top: `${activeFrameDraw.top}px`,
+              width: `${activeFrameDraw.width}px`,
+              height: `${activeFrameDraw.height}px`,
+            }"
+          >
+            <div class="absolute -top-7 left-0 px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold shadow-md flex items-center gap-1">
+              <span>Frame {{ Math.round(activeFrameDraw.width) }} × {{ Math.round(activeFrameDraw.height) }}</span>
+            </div>
+          </div>
 
           <!-- ===== Figma Prototype 模式：细致贝塞尔连线与节点圆圈 (位于画板之上浮层，确保连线不被画板遮盖) ===== -->
           <template v-if="visibleConnections.length > 0 || activeDragLine">
@@ -1245,6 +1284,33 @@ const toolNames: Record<string, string> = {
 }
 const currentToolName = computed(() => toolNames[activeDrawTool.value] || '组件')
 
+interface ShapeDrawState {
+  tool: ActiveToolType
+  block: { page: Page; x: number; y: number }
+  startX: number
+  startY: number
+  curX: number
+  curY: number
+  left: number
+  top: number
+  width: number
+  height: number
+  isDesignSide: boolean
+}
+const activeShapeDraw = ref<ShapeDrawState | null>(null)
+
+interface FrameDrawState {
+  startX: number
+  startY: number
+  curX: number
+  curY: number
+  left: number
+  top: number
+  width: number
+  height: number
+}
+const activeFrameDraw = ref<FrameDrawState | null>(null)
+
 const route = useRoute()
 const router = useRouter()
 const id = Number(route.params.id)
@@ -1333,7 +1399,6 @@ function onPageBlockClick(e: MouseEvent, b: { page: Page; x: number; y: number }
     return
   }
   if (activeDrawTool.value !== 'select') {
-    onArtboardDrawClick(e, b)
     return
   }
   if (pageEditingConflicts.value[b.page.id]?.conflict) {
@@ -1544,58 +1609,207 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   showToast(`✅ 已将「${itemName}」添加至「${page.name}」`)
 }
 
-// 直接选择绘制 (Click-to-Draw / Click-to-Place) 交互逻辑
-function onArtboardDrawClick(e: MouseEvent, b: { page: Page; x: number; y: number }) {
+// Figma 自由拖拽绘制组件 (Drag-to-Draw / Click-to-Place)
+function onArtboardDrawMouseDown(e: MouseEvent, b: { page: Page; x: number; y: number }) {
+  if (e.button !== 0) return
   if (activeDrawTool.value === 'select') return
-  const tool = activeDrawTool.value
+  e.preventDefault()
+  e.stopPropagation()
 
-  // 计算相对画板局部的精确放置坐标 (clickX, clickY)
-  let clickX = 20
-  let clickY = 120
-  if (viewportRef.value) {
-    const rect = viewportRef.value.getBoundingClientRect()
-    const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
-    const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
-    const blockRelX = logicX - b.x
-    const blockRelY = logicY - b.y
-    const canvasW = b.page.canvas_width || 375
-    const wireX = canvasW + 16
-    const rawX = blockRelX >= wireX ? (blockRelX - wireX) : blockRelX
-    const rawY = blockRelY
-    clickX = Math.round(Math.max(16, Math.min(canvasW - 40, rawX)))
-    clickY = Math.round(Math.max(20, Math.min((b.page.canvas_height || 812) - 40, rawY)))
+  if (!viewportRef.value) return
+  const rect = viewportRef.value.getBoundingClientRect()
+  const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
+  const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
+  const blockRelX = logicX - b.x
+  const blockRelY = logicY - b.y
+  const canvasW = b.page.canvas_width || 375
+  const canvasH = b.page.canvas_height || 812
+  const wireX = canvasW + 16
+  const isDesignSide = blockRelX < wireX
+  const rawX = isDesignSide ? blockRelX : (blockRelX - wireX)
+  const rawY = blockRelY
+
+  const startX = Math.round(Math.max(0, Math.min(canvasW, rawX)))
+  const startY = Math.round(Math.max(0, Math.min(canvasH, rawY)))
+
+  activeShapeDraw.value = {
+    tool: activeDrawTool.value,
+    block: b,
+    startX,
+    startY,
+    curX: startX,
+    curY: startY,
+    left: startX,
+    top: startY,
+    width: 0,
+    height: 0,
+    isDesignSide,
   }
+
+  window.addEventListener('mousemove', onArtboardDrawMouseMove, { capture: true })
+  window.addEventListener('mouseup', onArtboardDrawMouseUp, { capture: true, once: true })
+}
+
+function onArtboardDrawMouseMove(e: MouseEvent) {
+  if (!activeShapeDraw.value || !viewportRef.value) return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const s = activeShapeDraw.value
+  const b = s.block
+  const rect = viewportRef.value.getBoundingClientRect()
+  const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
+  const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
+  const blockRelX = logicX - b.x
+  const blockRelY = logicY - b.y
+  const canvasW = b.page.canvas_width || 375
+  const canvasH = b.page.canvas_height || 812
+  const rawX = s.isDesignSide ? blockRelX : (blockRelX - (canvasW + 16))
+  const rawY = blockRelY
+
+  const curX = Math.round(Math.max(0, Math.min(canvasW, rawX)))
+  const curY = Math.round(Math.max(0, Math.min(canvasH, rawY)))
+
+  let w = Math.abs(curX - s.startX)
+  let h = Math.abs(curY - s.startY)
+
+  // Shift 键或圆形工具强制等比约束 (正方形 / 正圆)
+  if (e.shiftKey || s.tool === 'circle') {
+    const maxSide = Math.max(w, h)
+    w = maxSide
+    h = maxSide
+  }
+
+  const left = curX >= s.startX ? s.startX : s.startX - w
+  const top = curY >= s.startY ? s.startY : s.startY - h
+
+  s.curX = curX
+  s.curY = curY
+  s.left = Math.max(0, left)
+  s.top = Math.max(0, top)
+  s.width = w
+  s.height = h
+}
+
+function onArtboardDrawMouseUp(e: MouseEvent) {
+  window.removeEventListener('mousemove', onArtboardDrawMouseMove, { capture: true })
+  if (!activeShapeDraw.value) return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const s = activeShapeDraw.value
+  activeShapeDraw.value = null
+
+  const b = s.block
+  const tool = s.tool
+  let w = Math.round(s.width)
+  let h = Math.round(s.height)
+  let left = Math.round(s.left)
+  let top = Math.round(s.top)
 
   let targetSnippet = ''
   let targetName = ''
   let isText = false
 
+  // 如果拖拽尺寸小于 6px，视作快速单点点击，自动回退至标准推荐尺寸
+  const isClick = w < 6 && h < 6
+
   if (tool === 'rect') {
     targetName = '纯矩形 (R)'
-    targetSnippet = `<div class="wf-shape wf-shape-rect" style="width: 140px; height: 90px; background: #e2e8f0; border: 1.5px solid #94a3b8; border-radius: 6px; box-sizing: border-box;"></div>`
+    if (isClick) { w = 140; h = 90; }
+    targetSnippet = `<div class="wf-shape wf-shape-rect" style="width: ${w}px; height: ${h}px; background: #e2e8f0; border: 1.5px solid #94a3b8; border-radius: 6px; box-sizing: border-box;"></div>`
   } else if (tool === 'circle') {
     targetName = '纯圆形/椭圆 (O)'
-    targetSnippet = `<div class="wf-shape wf-shape-circle" style="width: 80px; height: 80px; background: #e2e8f0; border: 1.5px solid #94a3b8; border-radius: 50%; box-sizing: border-box;"></div>`
+    if (isClick) { w = 80; h = 80; }
+    targetSnippet = `<div class="wf-shape wf-shape-circle" style="width: ${w}px; height: ${h}px; background: #e2e8f0; border: 1.5px solid #94a3b8; border-radius: 50%; box-sizing: border-box;"></div>`
   } else if (tool === 'line') {
     targetName = '水平分割线 (L)'
-    targetSnippet = `<div class="wf-shape wf-shape-line" style="width: 240px; height: 2px; background: #94a3b8; box-sizing: border-box;"></div>`
+    if (isClick) { w = 240; h = 2; }
+    targetSnippet = `<div class="wf-shape wf-shape-line" style="width: ${w}px; height: ${Math.max(2, h)}px; background: #94a3b8; box-sizing: border-box;"></div>`
   } else if (tool === 'container') {
     targetName = '空白容器卡片 (Box)'
-    targetSnippet = `<div class="wf-shape wf-shape-card" style="width: 320px; height: 160px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); box-sizing: border-box;"></div>`
+    if (isClick) { w = 320; h = 160; }
+    targetSnippet = `<div class="wf-shape wf-shape-card" style="width: ${w}px; height: ${h}px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); box-sizing: border-box;"></div>`
   } else if (tool === 'text') {
     targetName = '纯文本 (T)'
     isText = true
-    targetSnippet = `<div class="wf-text" style="display: inline-block; font-size: 16px; font-weight: 500; color: #1e293b; line-height: 1.4; outline: none; min-width: 40px; cursor: text;">文本</div>`
+    if (isClick) {
+      targetSnippet = `<div class="wf-text" style="display: inline-block; font-size: 16px; font-weight: 500; color: #1e293b; line-height: 1.4; outline: none; min-width: 40px; cursor: text;">文本</div>`
+    } else {
+      targetSnippet = `<div class="wf-text" style="display: block; width: ${w}px; min-height: ${Math.max(24, h)}px; font-size: 16px; font-weight: 500; color: #1e293b; line-height: 1.4; outline: none; cursor: text;">文本</div>`
+    }
   } else if (tool === 'frame') {
     handleCreateFramePreset()
     activeDrawTool.value = 'select'
     return
   }
 
-  insertComponentIntoPage(b.page.id, { name: targetName, html: targetSnippet }, clickX, clickY, isText)
+  insertComponentIntoPage(b.page.id, { name: targetName, html: targetSnippet }, left, top, isText)
 
-  // 注入后自动重置 activeDrawTool = 'select' 退出绘制模式，让用户立即可以缩放/移动
+  // 注入后自动重置 activeDrawTool = 'select' 退出绘制模式，恢复选择与编辑态
   activeDrawTool.value = 'select'
+  ElMessage.success(`已绘制「${targetName}」(${w} × ${h}px)`)
+}
+
+// 自由拖拽绘制画板框架 (Drag-to-Draw Frame)
+function startFrameDraw(logicX: number, logicY: number) {
+  activeFrameDraw.value = {
+    startX: logicX,
+    startY: logicY,
+    curX: logicX,
+    curY: logicY,
+    left: logicX,
+    top: logicY,
+    width: 0,
+    height: 0,
+  }
+
+  function onFrameMouseMove(e: MouseEvent) {
+    if (!activeFrameDraw.value || !viewportRef.value) return
+    const rect = viewportRef.value.getBoundingClientRect()
+    const curX = Math.round((e.clientX - rect.left - view.value.x) / view.value.k)
+    const curY = Math.round((e.clientY - rect.top - view.value.y) / view.value.k)
+    let w = Math.abs(curX - activeFrameDraw.value.startX)
+    let h = Math.abs(curY - activeFrameDraw.value.startY)
+    if (e.shiftKey) {
+      const maxSide = Math.max(w, h)
+      w = maxSide
+      h = maxSide
+    }
+    const left = curX >= activeFrameDraw.value.startX ? activeFrameDraw.value.startX : activeFrameDraw.value.startX - w
+    const top = curY >= activeFrameDraw.value.startY ? activeFrameDraw.value.startY : activeFrameDraw.value.startY - h
+
+    activeFrameDraw.value.curX = curX
+    activeFrameDraw.value.curY = curY
+    activeFrameDraw.value.left = left
+    activeFrameDraw.value.top = top
+    activeFrameDraw.value.width = w
+    activeFrameDraw.value.height = h
+  }
+
+  async function onFrameMouseUp(e: MouseEvent) {
+    window.removeEventListener('mousemove', onFrameMouseMove, { capture: true })
+    if (!activeFrameDraw.value) return
+    const s = activeFrameDraw.value
+    activeFrameDraw.value = null
+
+    const w = Math.round(s.width)
+    const h = Math.round(s.height)
+    const isClick = w < 20 && h < 20
+    const finalW = isClick ? 375 : Math.max(120, w)
+    const finalH = isClick ? 812 : Math.max(120, h)
+    const finalX = isClick ? s.startX : s.left
+    const finalY = isClick ? s.startY : s.top
+
+    await handleCreateFrameOnCanvas(finalX, finalY, {
+      name: `Frame ${pages.value.length + 1}`,
+      width: finalW,
+      height: finalH,
+    })
+  }
+
+  window.addEventListener('mousemove', onFrameMouseMove, { capture: true })
+  window.addEventListener('mouseup', onFrameMouseUp, { capture: true, once: true })
 }
 
 function createHtmlSnippetForElement(el: any): string {
@@ -2883,7 +3097,7 @@ function onMouseDown(e: MouseEvent) {
     if (rect) {
       const logicX = Math.round((e.clientX - rect.left - view.value.x) / view.value.k)
       const logicY = Math.round((e.clientY - rect.top - view.value.y) / view.value.k)
-      handleCreateFrameOnCanvas(logicX, logicY)
+      startFrameDraw(logicX, logicY)
     }
     return
   }
@@ -3790,8 +4004,10 @@ watch(
 function onGlobalKeydown(e: KeyboardEvent) {
   // 1. ESC key: exits draw mode, or cancels line selection, or exits preview
   if (e.key === 'Escape') {
-    if (activeDrawTool.value !== 'select') {
+    if (activeDrawTool.value !== 'select' || activeShapeDraw.value || activeFrameDraw.value) {
       e.preventDefault()
+      activeShapeDraw.value = null
+      activeFrameDraw.value = null
       activeDrawTool.value = 'select'
       showToast('已取消绘制模式')
       return
