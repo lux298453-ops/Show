@@ -342,6 +342,25 @@
       >
         <MessageSquare class="w-4 h-4" />
       </button>
+
+      <!-- 8) Figma 评论工具 (Comment - C) -->
+      <button
+        type="button"
+        class="h-9 w-9 rounded-xl flex items-center justify-center transition-all cursor-pointer relative"
+        :class="activeTool === 'comment'
+          ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30'
+          : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
+        title="评论模式 (C)：在画板打点添加评审意见与团队讨论"
+        @click="onCommentToolClick"
+      >
+        <MessageCircle class="w-4 h-4" />
+        <span
+          v-if="commentCount && commentCount > 0"
+          class="absolute -top-1 -right-1 px-1 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center font-mono border border-white"
+        >
+          {{ commentCount > 99 ? '99+' : commentCount }}
+        </span>
+      </button>
     </div>
   </div>
 </template>
@@ -359,6 +378,7 @@ import {
   Type,
   Component,
   MessageSquare,
+  MessageCircle,
   Zap,
   Play,
   ChevronDown,
@@ -368,7 +388,7 @@ import {
   Search,
 } from 'lucide-vue-next'
 
-export type ActiveToolType = 'select' | 'frame' | 'rect' | 'circle' | 'container' | 'line' | 'text'
+export type ActiveToolType = 'select' | 'frame' | 'rect' | 'circle' | 'container' | 'line' | 'text' | 'comment'
 export type WorkbenchModeType = 'design' | 'interactive'
 
 export interface PaletteItem {
@@ -388,12 +408,14 @@ const props = withDefaults(
     workbenchMode?: WorkbenchModeType
     showAnnotations?: boolean
     targetPage?: { id: number; name: string } | null
+    commentCount?: number
   }>(),
   {
     activeTool: 'select',
     workbenchMode: 'design',
     showAnnotations: true,
     targetPage: null,
+    commentCount: 0,
   }
 )
 
@@ -708,6 +730,14 @@ function toggleWorkbenchMode() {
 
 function onPlayClick() {
   emit('openPurePreview')
+}
+
+function onCommentToolClick() {
+  closeAllMenus()
+  isPenSelected.value = false
+  const nextTool = props.activeTool === 'comment' ? 'select' : 'comment'
+  emit('update:activeTool', nextTool)
+  emit('toolChange', nextTool)
 }
 
 function closeAllMenus() {

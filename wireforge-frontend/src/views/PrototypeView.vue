@@ -217,12 +217,20 @@
             v-if="activeDrawTool !== 'select'"
             class="absolute top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-slate-900/90 backdrop-blur-md text-white border border-white/15 rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-semibold select-none pointer-events-auto"
           >
-            <span class="w-2 h-2 rounded-full bg-[#0D99FF] animate-ping shrink-0"></span>
-            <span>正在绘制{{ currentToolName }}：按住鼠标左键拖拽自由画出尺寸，或点击放置，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 取消</span>
+            <span
+              class="w-2 h-2 rounded-full shrink-0"
+              :class="activeDrawTool === 'comment' ? 'bg-amber-400 animate-ping' : 'bg-[#0D99FF] animate-ping'"
+            ></span>
+            <span v-if="activeDrawTool === 'comment'">
+              正在评论模式：点击画板任意位置打点发表评论，点击已有图钉展开回复，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 退出
+            </span>
+            <span v-else>
+              正在绘制{{ currentToolName }}：按住鼠标左键拖拽自由画出尺寸，或点击放置，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 取消
+            </span>
             <button
               type="button"
               class="ml-1 p-0.5 text-white/70 hover:text-white rounded-full hover:bg-white/20 transition-colors cursor-pointer"
-              title="取消绘制 (Esc)"
+              :title="activeDrawTool === 'comment' ? '退出评论模式 (Esc)' : '取消绘制 (Esc)'"
               @click="activeDrawTool = 'select'"
             >
               <X class="w-3.5 h-3.5" />
@@ -477,12 +485,96 @@
                 </div>
               </div>
 
-              <!-- 直接选择绘制交互层 (浮于 iframe 之上，捕获 mousedown 自由拖拽拉框与快速点击) -->
+              <!-- ===== Figma 评论图钉层 (在评论模式下呈现于画板上) ===== -->
+              <template v-if="activeDrawTool === 'comment'">
+                <CommentPin
+                  v-for="th in getPageComments(b.page.id)"
+                  :key="th.id"
+                  :thread="th"
+                  :index="getCommentIndex(th.id)"
+                  :is-selected="selectedThreadId === th.id"
+                  :current-user="currentCommentUser"
+                  @select="selectCommentThread(th.id)"
+                  @close="selectedThreadId = null"
+                  @reply="handleCommentReply(th.id, $event)"
+                  @resolve="handleCommentResolve(th.id, $event)"
+                  @delete="handleCommentDelete(th.id)"
+                />
+              </template>
+
+              <!-- 草稿评论输入气泡 (在评论模式下点击画板后暂存输入) -->
+              <div
+                v-if="draftComment && draftComment.pageId === b.page.id"
+                class="draft-comment-container absolute z-[160] select-none"
+                :style="{ left: `${draftComment.x}px`, top: `${draftComment.y}px` }"
+                @click.stop
+                @mousedown.stop
+              >
+                <!-- 临时草稿图钉 -->
+                <div class="relative -translate-x-1/2 -translate-y-full">
+                  <div class="w-7 h-7 rounded-full bg-amber-500 text-white font-bold text-xs flex items-center justify-center shadow-lg border-2 border-white ring-4 ring-amber-400/40 animate-bounce">
+                    +
+                  </div>
+                  <div class="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] border-t-amber-500 mx-auto -mt-[1px]"></div>
+                </div>
+
+                <!-- 草稿输入气泡框 -->
+                <div class="absolute top-1 left-2 w-[290px] bg-white border border-slate-200/90 rounded-2xl shadow-2xl p-3 z-[170] flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-100">
+                  <div class="flex items-center justify-between text-xs font-semibold text-slate-800">
+                    <div class="flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                      <span>添加评审评论</span>
+                    </div>
+                    <button type="button" class="text-slate-400 hover:text-slate-700 p-0.5 rounded cursor-pointer" @click="cancelDraftComment">
+                      <X class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <textarea
+                    ref="draftInputRef"
+                    v-model="draftComment.text"
+                    placeholder="输入你的评审意见... (Enter 发送, Esc 取消)"
+                    rows="2"
+                    class="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-amber-500 focus:bg-white focus:ring-2 focus:ring-amber-500/20 resize-none custom-scrollbar"
+                    @keydown.enter.exact.prevent="submitDraftComment"
+                    @keydown.esc="cancelDraftComment"
+                  ></textarea>
+
+                  <div class="flex items-center justify-between pt-1">
+                    <span class="text-[10px] text-slate-400">
+                      以 <strong class="text-slate-700">{{ currentCommentUser }}</strong> 的身份
+                    </span>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        class="px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 rounded-lg cursor-pointer"
+                        @click="cancelDraftComment"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        class="px-3 py-1 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-[11px] font-semibold rounded-lg shadow-sm disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+                        :disabled="!draftComment.text.trim()"
+                        @click="submitDraftComment"
+                      >
+                        发送
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 直接选择绘制 / 评论交互层 (浮于 iframe 之上，捕获 mousedown 自由拖拽拉框与快速点击) -->
               <div
                 v-if="activeDrawTool !== 'select'"
-                class="draw-placement-overlay absolute inset-0 rounded-2xl z-[110] select-none border-2 border-dashed border-[#0D99FF]/60 bg-[#0D99FF]/5"
-                :class="activeDrawTool === 'text' ? '!cursor-text' : '!cursor-crosshair'"
-                :title="`在画板上拖拽自由画出尺寸，或点击放置「${currentToolName}」`"
+                class="draw-placement-overlay absolute inset-0 rounded-2xl z-[110] select-none border-2 border-dashed"
+                :class="[
+                  activeDrawTool === 'comment'
+                    ? 'border-amber-400/60 bg-amber-400/5 !cursor-crosshair'
+                    : (activeDrawTool === 'text' ? '!cursor-text border-[#0D99FF]/60 bg-[#0D99FF]/5' : '!cursor-crosshair border-[#0D99FF]/60 bg-[#0D99FF]/5')
+                ]"
+                :title="activeDrawTool === 'comment' ? '点击画板打点添加评审评论' : `在画板上拖拽自由画出尺寸，或点击放置「${currentToolName}」`"
                 @mousedown.stop.prevent="onArtboardDrawMouseDown($event, b)"
               />
             </div>
@@ -657,6 +749,7 @@
           v-model:active-tool="activeDrawTool"
           :show-annotations="showAnnotations"
           :target-page="currentFocusPage"
+          :comment-count="unresolvedCommentsCount"
           @tool-change="handleBottomToolChange"
           @add-component="handleBottomAddComponent"
           @toggle-annotations="showAnnotations = !showAnnotations"
@@ -666,8 +759,23 @@
 
       <!-- ===== Right Sidebar: Mode Switcher, Zoom Controls, Design Inspector & Component Palette ===== -->
       <aside class="w-72 min-w-[288px] max-w-[288px] bg-white/95 backdrop-blur-md border-l border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs overflow-hidden">
-        <!-- 0. Right Sidebar Topmost: Mode Switcher [ 需求走查 (Design) | 交互连线 (Prototype) ] -->
-        <div class="px-2.5 py-2 border-b border-slate-100 bg-slate-50/90 flex items-center justify-between shrink-0">
+        <!-- 评论模式：右侧呈现专属评论面板 -->
+        <CommentPanel
+          v-if="activeDrawTool === 'comment'"
+          class="flex-1 w-full"
+          :comments="comments"
+          :selected-thread-id="selectedThreadId"
+          :current-user="currentCommentUser"
+          @close="activeDrawTool = 'select'"
+          @select-thread="selectCommentThread"
+          @update-current-user="onUpdateCommentUser"
+          @toggle-resolve="handleCommentResolve($event, !comments.find(c => c.id === $event)?.resolved)"
+          @delete-thread="handleCommentDelete"
+        />
+
+        <template v-else>
+          <!-- 0. Right Sidebar Topmost: Mode Switcher [ 需求走查 (Design) | 交互连线 (Prototype) ] -->
+          <div class="px-2.5 py-2 border-b border-slate-100 bg-slate-50/90 flex items-center justify-between shrink-0">
           <div class="flex items-center gap-1 w-full bg-slate-200/80 p-1 rounded-xl">
             <button
               class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all cursor-pointer text-center flex items-center justify-center gap-1"
@@ -791,6 +899,7 @@
           @drag-start="onPaletteDragStart"
           @drag-end="onPaletteDragEnd"
         />
+        </template>
       </aside>
     </div>
 
@@ -1265,13 +1374,15 @@ import {
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
-import type { Element, Page, Prototype } from '../types'
+import type { Element, Page, Prototype, CommentThread, CommentReply } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
 import LayerTree from '../components/LayerTree.vue'
 import DesignInspector from '../components/DesignInspector.vue'
 import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
+import CommentPin from '../components/CommentPin.vue'
+import CommentPanel from '../components/CommentPanel.vue'
 
 const activeDrawTool = ref<ActiveToolType>('select')
 const toolNames: Record<string, string> = {
@@ -1281,6 +1392,7 @@ const toolNames: Record<string, string> = {
   line: '水平分割线',
   text: '纯文本',
   frame: '画板框架',
+  comment: '评论图钉',
 }
 const currentToolName = computed(() => toolNames[activeDrawTool.value] || '组件')
 
@@ -1310,6 +1422,115 @@ interface FrameDrawState {
   height: number
 }
 const activeFrameDraw = ref<FrameDrawState | null>(null)
+
+// ===== Figma 评论系统状态与交互管理 =====
+const comments = ref<CommentThread[]>([])
+const selectedThreadId = ref<number | null>(null)
+const currentCommentUser = ref(localStorage.getItem('wf_comment_author') || '我')
+const draftComment = ref<{ pageId: number; x: number; y: number; text: string } | null>(null)
+const draftInputRef = ref<HTMLTextAreaElement | null>(null)
+
+const unresolvedCommentsCount = computed(() => {
+  return comments.value.filter((c) => !c.resolved).length
+})
+
+function getPageComments(pageId: number) {
+  return comments.value.filter((c) => c.pageId === pageId)
+}
+
+function getCommentIndex(threadId: number) {
+  const idx = comments.value.findIndex((c) => c.id === threadId)
+  return idx >= 0 ? idx + 1 : 1
+}
+
+function selectCommentThread(threadId: number) {
+  selectedThreadId.value = threadId
+  const thread = comments.value.find((c) => c.id === threadId)
+  if (thread) {
+    focusPage(thread.pageId)
+  }
+}
+
+function onUpdateCommentUser(name: string) {
+  currentCommentUser.value = name
+  localStorage.setItem('wf_comment_author', name)
+}
+
+function cancelDraftComment() {
+  draftComment.value = null
+}
+
+async function loadComments() {
+  try {
+    const list = await projectApi.listComments(id)
+    comments.value = list || []
+  } catch (e: any) {
+    console.error('Failed to load comments', e)
+  }
+}
+
+async function submitDraftComment() {
+  if (!draftComment.value || !draftComment.value.text.trim()) return
+  const { pageId, x, y, text } = draftComment.value
+  try {
+    const thread = await projectApi.createComment(id, {
+      pageId,
+      x,
+      y,
+      author: currentCommentUser.value,
+      content: text.trim(),
+    })
+    comments.value.push(thread)
+    selectedThreadId.value = thread.id
+    draftComment.value = null
+    ElMessage.success('评论已发表')
+  } catch (err: any) {
+    ElMessage.error(err.message || '发表评论失败')
+  }
+}
+
+async function handleCommentReply(threadId: number, content: string) {
+  try {
+    const reply = await projectApi.addReply(id, threadId, {
+      author: currentCommentUser.value,
+      content,
+    })
+    const thread = comments.value.find((c) => c.id === threadId)
+    if (thread) {
+      if (!thread.replies) thread.replies = []
+      thread.replies.push(reply)
+    }
+  } catch (err: any) {
+    ElMessage.error(err.message || '回复失败')
+  }
+}
+
+async function handleCommentResolve(threadId: number, resolved: boolean) {
+  try {
+    const updated = await projectApi.toggleResolveComment(id, threadId, { resolved })
+    const thread = comments.value.find((c) => c.id === threadId)
+    if (thread) {
+      thread.resolved = updated.resolved
+    }
+    ElMessage.success(resolved ? '评论已标记为已解决' : '评论已重新打开')
+  } catch (err: any) {
+    ElMessage.error(err.message || '操作失败')
+  }
+}
+
+async function handleCommentDelete(threadId: number) {
+  try {
+    await projectApi.deleteCommentThread(id, threadId)
+    comments.value = comments.value.filter((c) => c.id !== threadId)
+    if (selectedThreadId.value === threadId) {
+      selectedThreadId.value = null
+    }
+    ElMessage.success('评论已删除')
+  } catch (err: any) {
+    ElMessage.error(err.message || '删除失败')
+  }
+}
+
 
 const route = useRoute()
 const router = useRouter()
@@ -1622,6 +1843,21 @@ function onArtboardDrawMouseDown(e: MouseEvent, b: { page: Page; x: number; y: n
   const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
   const blockRelX = logicX - b.x
   const blockRelY = logicY - b.y
+
+  if (activeDrawTool.value === 'comment') {
+    selectedThreadId.value = null
+    draftComment.value = {
+      pageId: b.page.id,
+      x: Math.round(blockRelX),
+      y: Math.round(blockRelY),
+      text: '',
+    }
+    nextTick(() => {
+      draftInputRef.value?.focus()
+    })
+    return
+  }
+
   const canvasW = b.page.canvas_width || 375
   const canvasH = b.page.canvas_height || 812
   const wireX = canvasW + 16
@@ -2042,6 +2278,7 @@ const isReanalyzing = ref(false)
 async function loadData() {
   try {
     proto.value = await projectApi.prototype(id)
+    await loadComments()
     for (const p of proto.value.pages) {
       if (p.canvas_x != null && p.canvas_y != null) {
         pageOverrides.value[p.id] = { x: p.canvas_x, y: p.canvas_y }
@@ -4290,6 +4527,31 @@ function onGlobalKeydown(e: KeyboardEvent) {
     if (targetId && pageRefs.value[targetId]) {
       e.preventDefault()
       pageRefs.value[targetId]?.duplicateSelectedElement?.()
+      return
+    }
+  }
+
+  // 8. 评论模式快捷键 (C 键，单键)
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+    if (activeTag !== 'input' && activeTag !== 'textarea' && !(document.activeElement as HTMLElement)?.isContentEditable) {
+      activeDrawTool.value = activeDrawTool.value === 'comment' ? 'select' : 'comment'
+      return
+    }
+  }
+
+  // 9. 取消评论草稿 / 退出评论模式 (Escape 键)
+  if (e.key === 'Escape') {
+    if (draftComment.value) {
+      draftComment.value = null
+      return
+    }
+    if (selectedThreadId.value) {
+      selectedThreadId.value = null
+      return
+    }
+    if (activeDrawTool.value === 'comment') {
+      activeDrawTool.value = 'select'
       return
     }
   }

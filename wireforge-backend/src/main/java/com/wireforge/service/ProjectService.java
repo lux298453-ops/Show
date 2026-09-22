@@ -6,7 +6,11 @@ import com.wireforge.entity.Element;
 import com.wireforge.entity.Interaction;
 import com.wireforge.entity.Page;
 import com.wireforge.entity.Project;
+import com.wireforge.entity.CommentReply;
+import com.wireforge.entity.CommentThread;
 import com.wireforge.mapper.AnnotationMapper;
+import com.wireforge.mapper.CommentReplyMapper;
+import com.wireforge.mapper.CommentThreadMapper;
 import com.wireforge.mapper.ElementMapper;
 import com.wireforge.mapper.InteractionMapper;
 import com.wireforge.mapper.PageMapper;
@@ -41,6 +45,8 @@ public class ProjectService {
     private final ElementMapper elementMapper;
     private final InteractionMapper interactionMapper;
     private final AnnotationMapper annotationMapper;
+    private final CommentThreadMapper commentThreadMapper;
+    private final CommentReplyMapper commentReplyMapper;
     private final AnalyzeService analyzeService;
     private final AppMapService appMapService;
     private final InteractionAutowireService interactionAutowireService;
@@ -157,6 +163,14 @@ public class ProjectService {
                     Wrappers.<Element>lambdaQuery().in(Element::getPageId, pageIds));
             pageMapper.delete(
                     Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, id));
+        }
+
+        List<CommentThread> threads = commentThreadMapper.selectList(
+                Wrappers.<CommentThread>lambdaQuery().eq(CommentThread::getProjectId, id));
+        if (!threads.isEmpty()) {
+            List<Long> threadIds = threads.stream().map(CommentThread::getId).collect(Collectors.toList());
+            commentReplyMapper.delete(Wrappers.<CommentReply>lambdaQuery().in(CommentReply::getThreadId, threadIds));
+            commentThreadMapper.delete(Wrappers.<CommentThread>lambdaQuery().eq(CommentThread::getProjectId, id));
         }
 
         projectMapper.deleteById(id);
@@ -1059,6 +1073,149 @@ public class ProjectService {
         annotationMapper.delete(Wrappers.<Annotation>lambdaQuery().eq(Annotation::getPageId, pageId));
         pageMapper.deleteById(pageId);
     }
+
+    // ==========================================
+    // Figma 风格评论系统 (Comment Thread & Reply)
+    // ==========================================
+
+    /**
+     * 获取项目下所有评论线程（按创建时间排序，并挂载所有回复列表）
+     */
+    public List<CommentThread> getProjectComments(Long projectId) {
+        getProject(projectId);
+        List<CommentThread> threads = commentThreadMapper.selectList(
+                Wrappers.<CommentThread>lambdaQuery()
+                        .eq(CommentThread::getProjectId, projectId)
+                        .orderByAsc(CommentThread::getCreatedAt));
+
+        if (threads.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Long> threadIds = threads.stream().map(CommentThread::getId).toList();
+        List<CommentReply> replies = commentReplyMapper.selectList(
+                Wrappers.<CommentReply>lambdaQuery()
+                        .in(CommentReply::getThreadId, threadIds)
+                        .orderByAsc(CommentReply::getCreatedAt));
+        Map<Long, List<CommentReply>> repliesByThread = replies.stream()
+                .collect(Collectors.groupingBy(CommentReply::getThreadId));
+
+        Map<Long, String> pageNameMap = pageMapper.selectList(
+                Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId).select(Page::getId, Page::getName))
+                .stream().collect(Collectors.toMap(Page::getId, Page::getName, (a, b) -> a));
+
+        for (CommentThread t : threads) {
+            t.setReplies(repliesByThread.getOrDefault(t.getId(), new ArrayList<>()));
+            t.setPageName(pageNameMap.getOrDefault(t.getPageId(), "未知页面"));
+        }
+        return threads;
+    }
+
+    /**
+     * 创建新评论线程并发表第一条评论内容
+     */
+    @Transactional
+    public CommentThread createCommentThread(Long projectId, Map<String, Object> body) {
+        getProject(projectId);
+        Long pageId = body.containsKey("pageId") ? Long.valueOf(body.get("pageId").toString()) : null;
+        if (pageId == null) {
+            throw new IllegalArgumentException("pageId 不能为空");
+        }
+        Double x = body.containsKey("x") ? Double.valueOf(body.get("x").toString()) : 0.0;
+        Double y = body.containsKey("y") ? Double.valueOf(body.get("y").toString()) : 0.0;
+        String author = body.containsKey("author") && body.get("author") != null && !body.get("author").toString().isBlank()
+                ? body.get("author").toString().trim() : "我";
+        String content = body.containsKey("content") && body.get("content") != null
+                ? body.get("content").toString().trim() : "";
+        if (content.isBlank()) {
+            throw new IllegalArgumentException("评论内容不能为空");
+        }
+
+        CommentThread thread = new CommentThread();
+        thread.setProjectId(projectId);
+        thread.setPageId(pageId);
+        thread.setX(x);
+        thread.setY(y);
+        thread.setAuthor(author);
+        thread.setResolved(false);
+        thread.setCreatedAt(LocalDateTime.now());
+        commentThreadMapper.insert(thread);
+
+        CommentReply firstReply = new CommentReply();
+        firstReply.setThreadId(thread.getId());
+        firstReply.setAuthor(author);
+        firstReply.setContent(content);
+        firstReply.setCreatedAt(LocalDateTime.now());
+        commentReplyMapper.insert(firstReply);
+
+        List<CommentReply> replyList = new ArrayList<>();
+        replyList.add(firstReply);
+        thread.setReplies(replyList);
+
+        Page page = pageMapper.selectById(pageId);
+        thread.setPageName(page != null ? page.getName() : "画板");
+        return thread;
+    }
+
+    /**
+     * 为已有评论线程添加一条回复
+     */
+    @Transactional
+    public CommentReply addCommentReply(Long projectId, Long threadId, Map<String, Object> body) {
+        getProject(projectId);
+        CommentThread thread = commentThreadMapper.selectById(threadId);
+        if (thread == null || !projectId.equals(thread.getProjectId())) {
+            throw new IllegalArgumentException("评论线程不存在或不属于该项目: " + threadId);
+        }
+        String author = body.containsKey("author") && body.get("author") != null && !body.get("author").toString().isBlank()
+                ? body.get("author").toString().trim() : "我";
+        String content = body.containsKey("content") && body.get("content") != null
+                ? body.get("content").toString().trim() : "";
+        if (content.isBlank()) {
+            throw new IllegalArgumentException("回复内容不能为空");
+        }
+
+        CommentReply reply = new CommentReply();
+        reply.setThreadId(threadId);
+        reply.setAuthor(author);
+        reply.setContent(content);
+        reply.setCreatedAt(LocalDateTime.now());
+        commentReplyMapper.insert(reply);
+        return reply;
+    }
+
+    /**
+     * 解决 / 重新打开评论线程
+     */
+    @Transactional
+    public CommentThread toggleResolveCommentThread(Long projectId, Long threadId, Map<String, Object> body) {
+        getProject(projectId);
+        CommentThread thread = commentThreadMapper.selectById(threadId);
+        if (thread == null || !projectId.equals(thread.getProjectId())) {
+            throw new IllegalArgumentException("评论线程不存在或不属于该项目: " + threadId);
+        }
+        Boolean resolved = body != null && body.containsKey("resolved")
+                ? Boolean.valueOf(body.get("resolved").toString())
+                : !Boolean.TRUE.equals(thread.getResolved());
+        thread.setResolved(resolved);
+        commentThreadMapper.updateById(thread);
+        return thread;
+    }
+
+    /**
+     * 删除整条评论线程及其所有回复
+     */
+    @Transactional
+    public void deleteCommentThread(Long projectId, Long threadId) {
+        getProject(projectId);
+        CommentThread thread = commentThreadMapper.selectById(threadId);
+        if (thread == null || !projectId.equals(thread.getProjectId())) {
+            return;
+        }
+        commentReplyMapper.delete(Wrappers.<CommentReply>lambdaQuery().eq(CommentReply::getThreadId, threadId));
+        commentThreadMapper.deleteById(threadId);
+    }
+
 
     private String toFileUrl(String absolutePath) {
         if (absolutePath == null || absolutePath.isBlank()) return "";

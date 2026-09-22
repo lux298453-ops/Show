@@ -69,3 +69,24 @@ export interface Prototype {
   project: Project
   pages: Page[]
 }
+
+export interface CommentReply {
+  id: number
+  threadId: number
+  author: string
+  content: string
+  createdAt: string
+}
+
+export interface CommentThread {
+  id: number
+  projectId: number
+  pageId: number
+  x: number
+  y: number
+  author: string
+  resolved: boolean
+  createdAt: string
+  replies: CommentReply[]
+  pageName?: string
+}

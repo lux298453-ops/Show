@@ -95,3 +95,26 @@ SET @sql_ann_order = IF(@exist_ann_order = 0,
 PREPARE stmt_ann_order FROM @sql_ann_order;
 EXECUTE stmt_ann_order;
 DEALLOCATE PREPARE stmt_ann_order;
+
+CREATE TABLE IF NOT EXISTS `comment_thread` (
+  `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `project_id`  BIGINT NOT NULL,
+  `page_id`     BIGINT NOT NULL,
+  `x`           DOUBLE NOT NULL COMMENT '画板内逻辑坐标 X',
+  `y`           DOUBLE NOT NULL COMMENT '画板内逻辑坐标 Y',
+  `author`      VARCHAR(64) DEFAULT '我',
+  `resolved`    TINYINT(1) DEFAULT 0,
+  `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY `idx_project` (`project_id`),
+  KEY `idx_page` (`page_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `comment_reply` (
+  `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `thread_id`   BIGINT NOT NULL,
+  `author`      VARCHAR(64) DEFAULT '我',
+  `content`     TEXT NOT NULL,
+  `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY `idx_thread` (`thread_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+

@@ -1,6 +1,8 @@
 package com.wireforge.controller;
 
 import com.wireforge.common.Result;
+import com.wireforge.entity.CommentReply;
+import com.wireforge.entity.CommentThread;
 import com.wireforge.entity.Element;
 import com.wireforge.entity.Interaction;
 import com.wireforge.entity.Page;
@@ -226,4 +228,59 @@ public class ProjectController {
         projectService.deletePage(id, pageId);
         return Result.ok(null);
     }
-}
+
+    // ==========================================
+    // Figma 风格评论系统 (Comment Thread & Reply)
+    // ==========================================
+
+    /**
+     * 查询项目下全部评论线程（含回复列表）
+     */
+    @GetMapping("/{id}/comments")
+    public Result<List<CommentThread>> listComments(@PathVariable Long id) {
+        return Result.ok(projectService.getProjectComments(id));
+    }
+
+    /**
+     * 在画板上发表新评论（创建线程 + 首条评论）
+     */
+    @PostMapping("/{id}/comments")
+    public Result<CommentThread> createComment(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        return Result.ok(projectService.createCommentThread(id, body));
+    }
+
+    /**
+     * 为评论线程追加回复
+     */
+    @PostMapping("/{id}/comments/{threadId}/replies")
+    public Result<CommentReply> addReply(
+            @PathVariable Long id,
+            @PathVariable Long threadId,
+            @RequestBody Map<String, Object> body) {
+        return Result.ok(projectService.addCommentReply(id, threadId, body));
+    }
+
+    /**
+     * 解决 / 重新打开评论线程
+     */
+    @PutMapping("/{id}/comments/{threadId}/resolve")
+    public Result<CommentThread> toggleResolve(
+            @PathVariable Long id,
+            @PathVariable Long threadId,
+            @RequestBody(required = false) Map<String, Object> body) {
+        return Result.ok(projectService.toggleResolveCommentThread(id, threadId, body));
+    }
+
+    /**
+     * 删除整条评论线程
+     */
+    @DeleteMapping("/{id}/comments/{threadId}")
+    public Result<Void> deleteCommentThread(
+            @PathVariable Long id,
+            @PathVariable Long threadId) {
+        projectService.deleteCommentThread(id, threadId);
+        return Result.ok(null);
+    }
+}

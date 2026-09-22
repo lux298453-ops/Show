@@ -1,5 +1,5 @@
 import http from './http'
-import type { Project, Prototype, Page } from '../types'
+import type { Project, Prototype, Page, CommentThread, CommentReply } from '../types'
 
 export const projectApi = {
   list: () => http.get<any, Project[]>('/projects'),
@@ -89,4 +89,17 @@ export const projectApi = {
   deletePage: (id: number, pageId: number) => http.delete<any, void>(`/projects/${id}/pages/${pageId}`),
   /** 获取素材库列表 */
   getAssets: () => http.get<any, any[]>('/assets/list'),
-}
+
+  // ==========================================
+  // Figma 评论系统
+  // ==========================================
+  listComments: (id: number) => http.get<any, CommentThread[]>(`/projects/${id}/comments`),
+  createComment: (id: number, body: { pageId: number; x: number; y: number; author: string; content: string }) =>
+    http.post<any, CommentThread>(`/projects/${id}/comments`, body),
+  addReply: (id: number, threadId: number, body: { author: string; content: string }) =>
+    http.post<any, CommentReply>(`/projects/${id}/comments/${threadId}/replies`, body),
+  toggleResolveComment: (id: number, threadId: number, body?: { resolved?: boolean }) =>
+    http.put<any, CommentThread>(`/projects/${id}/comments/${threadId}/resolve`, body || {}),
+  deleteCommentThread: (id: number, threadId: number) =>
+    http.delete<any, void>(`/projects/${id}/comments/${threadId}`),
+}
