@@ -651,6 +651,16 @@ public class ProjectService {
         }
     }
 
+    private static Integer toInt(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number n) return n.intValue();
+        try {
+            return (int) Double.parseDouble(value.toString().trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static Long toLong(Object value) {
         if (value == null) return null;
         if (value instanceof Number n) return n.longValue();
@@ -713,6 +723,35 @@ public class ProjectService {
         result.put("id", page.getId());
         result.put("canvasX", page.getCanvasX());
         result.put("canvasY", page.getCanvasY());
+        return result;
+    }
+
+    /**
+     * 更新画板宽高，写入 page.canvasWidth / canvasHeight。
+     * width 限制 50–4000，height 限制 50–8000。
+     */
+    public Map<String, Object> updatePageSize(Long projectId, Long pageId, Map<String, Object> body) {
+        getProject(projectId);
+        Page page = pageMapper.selectById(pageId);
+        if (page == null || !projectId.equals(page.getProjectId())) {
+            throw new IllegalStateException("页面不属于该项目: " + pageId);
+        }
+        Integer width = toInt(body.get("width"));
+        Integer height = toInt(body.get("height"));
+        if (width == null || width < 50 || width > 4000) {
+            throw new IllegalArgumentException("width 必须在 50 到 4000 之间");
+        }
+        if (height == null || height < 50 || height > 8000) {
+            throw new IllegalArgumentException("height 必须在 50 到 8000 之间");
+        }
+        page.setCanvasWidth(width);
+        page.setCanvasHeight(height);
+        pageMapper.updateById(page);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", page.getId());
+        result.put("canvasWidth", page.getCanvasWidth());
+        result.put("canvasHeight", page.getCanvasHeight());
         return result;
     }
 
@@ -1106,7 +1145,11 @@ public class ProjectService {
 
         for (CommentThread t : threads) {
             t.setReplies(repliesByThread.getOrDefault(t.getId(), new ArrayList<>()));
-            t.setPageName(pageNameMap.getOrDefault(t.getPageId(), "未知页面"));
+            if (t.getPageId() == null || t.getPageId() == 0L) {
+                t.setPageName("画布");
+            } else {
+                t.setPageName(pageNameMap.getOrDefault(t.getPageId(), "未知页面"));
+            }
         }
         return threads;
     }
@@ -1117,10 +1160,8 @@ public class ProjectService {
     @Transactional
     public CommentThread createCommentThread(Long projectId, Map<String, Object> body) {
         getProject(projectId);
-        Long pageId = body.containsKey("pageId") ? Long.valueOf(body.get("pageId").toString()) : null;
-        if (pageId == null) {
-            throw new IllegalArgumentException("pageId 不能为空");
-        }
+        Long pageId = body.containsKey("pageId") && body.get("pageId") != null
+                ? Long.valueOf(body.get("pageId").toString()) : 0L;
         Double x = body.containsKey("x") ? Double.valueOf(body.get("x").toString()) : 0.0;
         Double y = body.containsKey("y") ? Double.valueOf(body.get("y").toString()) : 0.0;
         String author = body.containsKey("author") && body.get("author") != null && !body.get("author").toString().isBlank()
@@ -1152,8 +1193,8 @@ public class ProjectService {
         replyList.add(firstReply);
         thread.setReplies(replyList);
 
-        Page page = pageMapper.selectById(pageId);
-        thread.setPageName(page != null ? page.getName() : "画板");
+        Page page = (pageId != null && pageId > 0) ? pageMapper.selectById(pageId) : null;
+        thread.setPageName(page != null ? page.getName() : "画布");
         return thread;
     }
 

@@ -54,8 +54,9 @@
           <!-- Primary CTA: Open Interactive Canvas -->
           <button
             class="wf-tap inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 rounded-lg shadow-xs shadow-emerald-600/20 border border-emerald-500/90 transition-all disabled:opacity-50 cursor-pointer"
-            :disabled="pages.length === 0"
-            @click="router.push(`/projects/${id}/prototype`)"
+            :disabled="entering"
+            title="没有设计稿也可以进入，会先放一块空白画板"
+            @click="enterCanvas"
           >
             <Play class="w-3.5 h-3.5 fill-white" />
             <span>进入原型画布</span>
@@ -163,18 +164,28 @@
         <div class="w-11 h-11 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3 border border-slate-200/70">
           <Folder class="w-5 h-5" />
         </div>
-        <h3 class="text-sm font-bold text-slate-800">尚未发现设计稿画框</h3>
+        <h3 class="text-sm font-bold text-slate-800">还没有画板</h3>
         <p class="text-xs text-slate-400 mt-1 mb-5 leading-relaxed max-w-xs mx-auto">
-          请将设计稿图片 (PNG / JPG) 放入项目对应的本地目录，点击下方按钮开始载入。
+          可以不扫描设计稿，直接进画布画原型。也可以把图片放进本地目录后再扫描导入。
         </p>
-        <button
-          class="wf-tap inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm transition-all cursor-pointer"
-          :disabled="scanning"
-          @click="scan"
-        >
-          <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': scanning }" />
-          <span>扫描设计稿目录</span>
-        </button>
+        <div class="flex items-center justify-center gap-2">
+          <button
+            class="wf-tap inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm transition-all cursor-pointer disabled:opacity-50"
+            :disabled="entering"
+            @click="enterCanvas"
+          >
+            <Play class="w-3.5 h-3.5 fill-white" />
+            <span>{{ entering ? '正在进入...' : '直接画原型' }}</span>
+          </button>
+          <button
+            class="wf-tap inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-all cursor-pointer disabled:opacity-50"
+            :disabled="scanning"
+            @click="scan"
+          >
+            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': scanning }" />
+            <span>扫描设计稿</span>
+          </button>
+        </div>
       </div>
 
       <!-- Filter No Results -->
@@ -212,6 +223,22 @@
               :alt="p.name"
               loading="lazy"
             />
+            <div
+              v-else-if="pagePreviewHtml(p)"
+              class="absolute inset-0 overflow-hidden bg-white"
+              :ref="(el) => bindHtmlThumb(el as HTMLElement | null)"
+            >
+              <iframe
+                class="absolute top-0 left-0 origin-top-left pointer-events-none border-0 bg-white"
+                :data-w="p.canvas_width || 375"
+                :data-h="p.canvas_height || 812"
+                :style="{ width: (p.canvas_width || 375) + 'px', height: (p.canvas_height || 812) + 'px' }"
+                :srcdoc="p.html_content || ''"
+                sandbox=""
+                tabindex="-1"
+                title=""
+              />
+            </div>
             <div v-else class="text-[10px] text-slate-300 font-medium flex flex-col items-center gap-1">
               <ImageIcon class="w-5 h-5 text-slate-200" />
               <span>无预览</span>
@@ -267,8 +294,24 @@
             >
               <!-- Thumbnail -->
               <td class="py-2 px-4">
-                <div class="w-7 h-11 bg-slate-100 rounded border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                <div class="w-7 h-11 bg-slate-100 rounded border border-slate-200 overflow-hidden flex items-center justify-center shrink-0 relative">
                   <img v-if="p.background_image" :src="getFileUrl(p.background_image)" class="w-full h-full object-cover" />
+                  <div
+                    v-else-if="pagePreviewHtml(p)"
+                    class="absolute inset-0 overflow-hidden bg-white"
+                    :ref="(el) => bindHtmlThumb(el as HTMLElement | null)"
+                  >
+                    <iframe
+                      class="absolute top-0 left-0 origin-top-left pointer-events-none border-0 bg-white"
+                      :data-w="p.canvas_width || 375"
+                      :data-h="p.canvas_height || 812"
+                      :style="{ width: (p.canvas_width || 375) + 'px', height: (p.canvas_height || 812) + 'px' }"
+                      :srcdoc="p.html_content || ''"
+                      sandbox=""
+                      tabindex="-1"
+                      title=""
+                    />
+                  </div>
                   <ImageIcon v-else class="w-3.5 h-3.5 text-slate-300" />
                 </div>
               </td>
@@ -308,7 +351,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -341,6 +384,9 @@ interface PageCard {
   analyzed: number
   elements: number
   annotations: number
+  html_content?: string | null
+  canvas_width?: number
+  canvas_height?: number
 }
 
 const project = ref<any>(null)
@@ -348,6 +394,7 @@ const pages = ref<PageCard[]>([])
 const loading = ref(true)
 const scanning = ref(false)
 const analyzing = ref(false)
+const entering = ref(false)
 const DEFAULT_DESIGNS_DIR = 'D:/idea/Project/html版本/html不是很好版/designs'
 const designsDir = ref(DEFAULT_DESIGNS_DIR)
 
@@ -356,6 +403,32 @@ const searchQuery = ref('')
 const statusFilter = ref<'all' | 'analyzed' | 'pending'>('all')
 const viewMode = ref<'grid' | 'list'>('grid')
 const copied = ref(false)
+const thumbObservers = new Map<HTMLElement, ResizeObserver>()
+
+function pagePreviewHtml(p: PageCard) {
+  const html = p.html_content || ''
+  const body = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html
+  const visible = body.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '')
+  return /<[a-z][\s\S]*>/i.test(visible)
+}
+
+function bindHtmlThumb(el: HTMLElement | null) {
+  if (!el) return
+  const frame = el.querySelector('iframe') as HTMLIFrameElement | null
+  if (!frame) return
+  const apply = () => {
+    const pageW = Number(frame.dataset.w) || 375
+    const pageH = Number(frame.dataset.h) || 812
+    const s = Math.min(el.clientWidth / pageW, el.clientHeight / pageH)
+    if (!s || !Number.isFinite(s)) return
+    frame.style.transform = `scale(${s})`
+  }
+  apply()
+  thumbObservers.get(el)?.disconnect()
+  const ro = new ResizeObserver(apply)
+  ro.observe(el)
+  thumbObservers.set(el, ro)
+}
 
 const analyzedCount = computed(() => pages.value.filter((p) => p.analyzed === 1).length)
 const pendingCount = computed(() => pages.value.filter((p) => p.analyzed === 0).length)
@@ -388,6 +461,22 @@ async function copyDirectoryPath() {
   } catch {
     ElMessage.info('复制路径: ' + designsDir.value)
   }
+}
+
+async function enterCanvas() {
+  if (entering.value) return
+  if (pages.value.length === 0) {
+    entering.value = true
+    try {
+      await projectApi.createPage(id, { name: '画板 1', width: 375, height: 812, x: 56, y: 64 })
+    } catch (e: any) {
+      ElMessage.error(e?.response?.data?.message || e?.message || '创建空白画板失败')
+      entering.value = false
+      return
+    }
+    entering.value = false
+  }
+  router.push(`/projects/${id}/prototype`)
 }
 
 async function load() {
@@ -439,6 +528,11 @@ async function analyze() {
     analyzing.value = false
   }
 }
+
+onBeforeUnmount(() => {
+  thumbObservers.forEach((ro) => ro.disconnect())
+  thumbObservers.clear()
+})
 
 onMounted(async () => {
   try {

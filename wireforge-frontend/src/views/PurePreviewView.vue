@@ -32,7 +32,7 @@
           <span class="font-bold text-xs tracking-tight text-white max-w-[150px] truncate" :title="proto?.project.name">
             {{ proto?.project.name || 'WireForge 原型' }}
           </span>
-          <span class="text-[9px] text-slate-400 font-normal leading-none">纯净全屏演示</span>
+          <span class="text-[9px] text-slate-300 font-normal leading-none">纯净全屏演示</span>
         </div>
       </div>
 
@@ -65,7 +65,7 @@
           class="wf-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer"
           :class="showDeviceFrame 
             ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]' 
-            : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-slate-200'"
+            : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-slate-200'"
           title="切换 iPhone 16 Pro 钛金属机身外壳与灵动岛 (快捷键 D)"
           @click="showDeviceFrame = !showDeviceFrame"
         >
@@ -283,7 +283,7 @@
                       <span>{{ activeModal.title || '操作提示' }}</span>
                     </h4>
                     <button
-                      class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                      class="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                       @click="closeModal"
                     >
                       <X class="w-4 h-4" />
@@ -322,7 +322,7 @@
                       {{ activeModal.title || '操作菜单' }}
                     </h4>
                     <button
-                      class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                      class="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                       @click="closeModal"
                     >
                       <X class="w-4 h-4" />
@@ -381,6 +381,7 @@ import {
 import { projectApi } from '../api/project'
 import type { Element, Page, Prototype } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
+import { findInteractionByDomUids, resolveNavigateElement } from '../utils/interactionHit'
 
 const route = useRoute()
 const router = useRouter()
@@ -483,8 +484,11 @@ function spawnRipple(x: number, y: number) {
 const pageCanvasRef = ref<any>(null)
 
 // 屏幕未命中交互区域点击处理（热区显示已关闭，仅保留接口不报错）
-function onScreenMissClick() {
-  // 热区提示已关闭
+function onScreenMissClick(pos?: { x: number; y: number; uids?: string[] }) {
+  if (!pos || !currentPage.value) return
+  const hit = resolveNavigateElement(currentPage.value, pos.x, pos.y, pos.uids)
+  const targetId = hit?.interaction?.target_page_id
+  if (targetId) navigateTo(targetId)
 }
 
 function onScreenClick(e: MouseEvent) {
@@ -517,7 +521,15 @@ function navigateTo(targetPageId: number) {
   nextTick(updatePhoneScale)
 }
 
-function handleNavigate(pageName: string) {
+function handleNavigate(pageName: string, uids?: string[]) {
+  const byUid = findInteractionByDomUids(currentPage.value, uids)
+  const uidTarget = byUid?.interaction?.target_page_id
+  if (uidTarget) {
+    navigateTo(uidTarget)
+    const named = pages.value.find((p) => p.id === uidTarget)
+    if (named) showToast(`前往: ${named.name}`)
+    return
+  }
   const clean = pageName.trim().toLowerCase()
   const target = pages.value.find(
     (p) => p.name.trim().toLowerCase() === clean || String(p.id) === clean,

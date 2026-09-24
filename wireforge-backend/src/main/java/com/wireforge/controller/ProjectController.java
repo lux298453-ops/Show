@@ -123,6 +123,15 @@ public class ProjectController {
         return Result.ok(projectService.updatePagePosition(id, pageId, body));
     }
 
+    /** 更新页面画板宽高 */
+    @PutMapping("/{id}/pages/{pageId}/size")
+    public Result<Map<String, Object>> updatePageSize(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @RequestBody Map<String, Object> body) {
+        return Result.ok(projectService.updatePageSize(id, pageId, body));
+    }
+
     /** 仅重新生成某页的整页 HTML（Stitch 式直出，不重跑元素识别），用于快速迭代效果 */
     @PostMapping("/{id}/pages/{pageId}/regenerate-html")
     public Result<String> regeneratePageHtml(@PathVariable Long id, @PathVariable Long pageId) {

@@ -3,34 +3,37 @@
 @tailwind utilities;
 
 :root {
-  --wf-primary: #059669;
-  --wf-primary-hover: #047857;
-  --wf-primary-light: #ecfdf5;
-  --wf-border: #e2e8f0;
+  --wf-primary: #0d99ff;
+  --wf-primary-hover: #0b7ed4;
+  --wf-primary-light: #e5f4ff;
+  --wf-border: #e5e5e5;
   --wf-surface: #ffffff;
-  --wf-bg: #f8fafc;
-  --wf-text-main: #0f172a;
-  --wf-text-muted: #64748b;
+  --wf-bg: #f5f5f5;
+  --wf-text-main: #000000;
+  --wf-text-muted: #333333;
 
-  /* Element Plus Theme Token Overrides - Emerald Theme */
-  --el-color-primary: #059669;
-  --el-color-primary-light-3: #34d399;
-  --el-color-primary-light-5: #6ee7b7;
-  --el-color-primary-light-7: #a7f3d0;
-  --el-color-primary-light-8: #d1fae5;
-  --el-color-primary-light-9: #ecfdf5;
-  --el-color-primary-dark-2: #047857;
+  /* Element Plus 主色与 Figma 蓝对齐；成功、警告仍用原来的语义色 */
+  --el-color-primary: #0d99ff;
+  --el-color-primary-light-3: #4db5ff;
+  --el-color-primary-light-5: #8fd0ff;
+  --el-color-primary-light-7: #c5e6ff;
+  --el-color-primary-light-8: #e5f4ff;
+  --el-color-primary-light-9: #f2f9ff;
+  --el-color-primary-dark-2: #0b7ed4;
   --el-color-success: #10b981;
   --el-color-warning: #f59e0b;
   --el-color-danger: #ef4444;
-  --el-color-info: #64748b;
+  --el-color-info: #333333;
+  --el-text-color-primary: #000000;
+  --el-text-color-regular: #1a1a1a;
+  --el-text-color-secondary: #333333;
+  --el-text-color-placeholder: #8a8a8a;
   
   --el-border-radius-base: 8px;
   --el-border-radius-small: 6px;
   --el-border-radius-round: 9999px;
   
-  --el-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --el-font-family: Inter, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
 * {
@@ -46,8 +49,6 @@ body,
   font-family: var(--el-font-family);
   background-color: var(--wf-bg);
   color: var(--wf-text-main);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom Scrollbar */
@@ -59,11 +60,11 @@ body,
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #d4d4d4;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #a3a3a3;
 }
 
 /* Base button animations and clean focus */
@@ -137,6 +138,12 @@ button {
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* 界面图标按像素描边。画板连线、钢笔路径不套这条，避免折线变锯齿。 */
+svg.lucide,
+svg.wf-ui-icon {
+  shape-rendering: crispEdges;
 }
 
 /* ===== Figma 经典青色热区脉冲发光与波纹 ===== */

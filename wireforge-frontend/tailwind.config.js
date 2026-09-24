@@ -6,7 +6,38 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'sans-serif'],
+      },
       colors: {
+        // 界面灰不带蓝，靠近 Figma 的中性灰
+        slate: {
+          50: '#fafafa',
+          100: '#f5f5f5',
+          200: '#e5e5e5',
+          300: '#d4d4d4',
+          400: '#333333',
+          500: '#1a1a1a',
+          600: '#111111',
+          700: '#000000',
+          800: '#000000',
+          900: '#000000',
+          950: '#000000',
+        },
+        // 原先的翠绿强调色改成 Figma 蓝 #0D99FF
+        emerald: {
+          50: '#f2f9ff',
+          100: '#e5f4ff',
+          200: '#c5e6ff',
+          300: '#8fd0ff',
+          400: '#4db5ff',
+          500: '#0d99ff',
+          600: '#0d99ff',
+          700: '#0b7ed4',
+          800: '#0963a8',
+          900: '#064a7d',
+          950: '#043056',
+        },
         brand: {
           50: '#eef2ff',
           100: '#e0e7ff',

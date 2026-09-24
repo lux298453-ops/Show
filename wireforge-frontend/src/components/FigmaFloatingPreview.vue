@@ -6,8 +6,8 @@
     :style="{
       left: `${pos.x}px`,
       top: `${pos.y}px`,
-      transform: `scale(${scaleRatio})`,
-      transformOrigin: 'top center',
+      transform: `scale(${fitScale})`,
+      transformOrigin: 'top left',
     }"
   >
     <!-- ===== 顶部浮动控制胶囊 (同时作为拖动手柄) ===== -->
@@ -20,7 +20,7 @@
         <button
           class="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           title="返回上一页"
-          :disabled="historyStack.length <= 1"
+          :disabled="historyStack.length === 0"
           @click.stop="goBack"
         >
           <ChevronLeft class="w-3.5 h-3.5" />
@@ -44,11 +44,10 @@
         </div>
         <!-- 比例缩放切换按钮 -->
         <button
-          class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/10 hover:bg-white/20 text-slate-300 transition-colors cursor-pointer"
-          :title="`当前缩放 ${Math.round(scaleRatio * 100)}%（点击切换缩放）`"
-          @click.stop="toggleScale"
+          class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/10 text-slate-300 cursor-default"
+          title="与全屏演示相同的缩放比例"
         >
-          {{ Math.round(scaleRatio * 100) }}%
+          {{ Math.round(fitScale * 100) }}%
         </button>
       </div>
 
@@ -71,67 +70,63 @@
       </div>
     </div>
 
-    <!-- ===== 高精度 iPhone 16 Pro 手机机身 ===== -->
+    <!-- ===== 与全屏演示相同的 iPhone 机身：375 宽，按页面高度，再整体缩放到同一视觉大小 ===== -->
     <div
-      class="phone-chassis relative bg-[#1a1f2c] p-[8px] rounded-[44px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_0_3px_#272e3f,0_0_0_4px_rgba(255,255,255,0.06),0_20px_60px_-10px_rgba(0,0,0,0.85),0_0_40px_rgba(6,182,212,0.12)] select-none border border-slate-700/60"
+      class="phone-chassis relative bg-[#1a1f2c] p-[14px] rounded-[56px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_0_3px_#272e3f,0_0_0_4px_rgba(255,255,255,0.06),0_25px_80px_-15px_rgba(0,0,0,0.9)] select-none"
     >
-      <!-- 左侧硬件按键 (操作键/音量键) -->
-      <div class="absolute -left-[3.5px] top-[80px] w-[3.5px] h-[20px] bg-slate-600 rounded-l-xs"></div>
-      <div class="absolute -left-[3.5px] top-[110px] w-[3.5px] h-[36px] bg-slate-600 rounded-l-xs"></div>
-      <div class="absolute -left-[3.5px] top-[155px] w-[3.5px] h-[36px] bg-slate-600 rounded-l-xs"></div>
-      <!-- 右侧电源键 -->
-      <div class="absolute -right-[3.5px] top-[120px] w-[3.5px] h-[48px] bg-slate-600 rounded-r-xs"></div>
+      <div class="absolute -left-[5px] top-[108px] w-[5px] h-[28px] bg-slate-700/80 rounded-l-[3px]"></div>
+      <div class="absolute -left-[5px] top-[152px] w-[5px] h-[52px] bg-slate-700/80 rounded-l-[3px]"></div>
+      <div class="absolute -left-[5px] top-[214px] w-[5px] h-[52px] bg-slate-700/80 rounded-l-[3px]"></div>
+      <div class="absolute -right-[5px] top-[168px] w-[5px] h-[68px] bg-slate-700/80 rounded-r-[3px]"></div>
 
-      <!-- 手机屏幕视口 (紧凑黄金比例 296 x 580，完美适应屏幕高度) -->
       <div
-        class="phone-screen relative w-[296px] h-[580px] bg-white rounded-[36px] overflow-hidden flex flex-col shadow-inner"
+        class="phone-screen relative w-[375px] bg-black overflow-hidden rounded-[44px]"
+        :style="{ height: `${screenHeight}px` }"
       >
-        <!-- iOS 顶部状态栏与灵动岛 -->
-        <div class="ios-status-bar absolute top-0 left-0 right-0 h-9 z-40 flex items-center justify-between px-5 text-slate-800 pointer-events-none bg-gradient-to-b from-white/90 via-white/50 to-transparent">
-          <span class="text-[11px] font-semibold tracking-tight tabular-nums pl-0.5">
+        <div class="ios-status-bar absolute top-0 left-0 right-0 h-12 z-40 flex items-center justify-between px-7 text-white pointer-events-none select-none">
+          <span class="text-[14px] font-semibold tracking-tight tabular-nums pl-1 drop-shadow-sm">
             {{ currentTime }}
           </span>
-          <!-- 灵动岛 (Dynamic Island) -->
-          <div class="w-[82px] h-[24px] rounded-full bg-black flex items-center justify-between px-2 shadow-sm pointer-events-auto">
-            <div class="w-2 h-2 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center">
-              <div class="w-1 h-1 rounded-full bg-blue-900"></div>
-            </div>
-            <div class="w-1 h-1 rounded-full bg-slate-800"></div>
+          <div class="absolute top-2.5 left-1/2 -translate-x-1/2 w-[122px] h-[34px] rounded-full bg-black flex items-center justify-between px-3 shadow-md">
+            <div class="w-3 h-3 rounded-full bg-slate-950 border border-slate-800/80"></div>
+            <div class="w-2 h-2 rounded-full bg-slate-950/80 border border-slate-900"></div>
           </div>
-          <!-- 右侧信号电量 -->
-          <div class="flex items-center gap-1 text-slate-800 pr-0.5">
-            <div class="flex items-end gap-[1.5px] h-2">
-              <span class="w-[2px] h-[3px] bg-slate-800 rounded-xs"></span>
-              <span class="w-[2px] h-[4.5px] bg-slate-800 rounded-xs"></span>
-              <span class="w-[2px] h-[6px] bg-slate-800 rounded-xs"></span>
-              <span class="w-[2px] h-[7.5px] bg-slate-800 rounded-xs"></span>
-            </div>
-            <div class="w-3.5 h-2 rounded-[2px] border border-slate-800 p-[1px] flex items-center">
-              <div class="w-full h-full bg-slate-800 rounded-[1px]"></div>
-            </div>
+          <div class="flex items-center gap-1.5 pr-1 drop-shadow-sm text-white text-[11px] font-semibold">
+            <span>5G</span>
           </div>
         </div>
 
-        <!-- 页面 HTML 内容承载区 (iframe 自适应缩放到 296px 宽，且支持上下丝滑滚动长页面) -->
-        <div class="screen-content flex-1 overflow-y-auto overflow-x-hidden relative pt-9 pb-4 custom-phone-scrollbar">
-          <iframe
-            v-if="currentPage?.html_content"
-            ref="iframeRef"
-            :srcdoc="runtimeHtml"
-            class="w-[375px] min-h-[680px] border-none origin-top-left"
-            style="transform: scale(0.7893); width: 375px; height: 735px;"
-            sandbox="allow-scripts allow-same-origin"
-            @load="onIframeLoad"
+        <div class="absolute inset-0 overflow-hidden bg-white">
+          <PageCanvas
+            v-if="currentPage"
+            :key="currentPage.id"
+            :page="currentPage"
+            :all-pages="pages"
+            frame-type="prototype"
+            :show-wireframe="true"
+            :show-design="false"
+            :show-annotations="false"
+            :edit-mode="false"
+            :interactive="true"
+            :box-w="0"
+            :gap="0"
+            @navigate="onCanvasNavigate"
+            @back="goBack"
+            @miss-click="onHotspotClick"
+            @element-click="onElementClick"
           />
-          <div v-else class="w-full h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center">
-            <Smartphone class="w-8 h-8 text-slate-300 mb-2" />
-            <span class="text-xs font-semibold text-slate-500">当前页面暂无交互原型</span>
-            <span class="text-[10px] text-slate-400 mt-1">请在画布使用 AI 分析或生成 HTML</span>
-          </div>
         </div>
 
-        <!-- 底部手势指示条 (绝对浮于屏幕最下方，100% 不会被遮挡) -->
-        <div class="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-24 h-1 bg-slate-500/80 rounded-full z-40 pointer-events-none shadow-xs"></div>
+        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-1 bg-slate-500/80 rounded-full z-40 pointer-events-none"></div>
+
+        <button
+          v-if="historyStack.length > 0"
+          class="wf-tap absolute top-14 left-3.5 z-40 w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-lg border border-white/20"
+          title="返回上一页"
+          @click.stop="goBack"
+        >
+          <ArrowLeft class="w-4 h-4" />
+        </button>
       </div>
     </div>
   </div>
@@ -140,13 +135,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import {
+  ArrowLeft,
   ChevronLeft,
   RotateCcw,
   Maximize2,
   X,
-  Smartphone,
 } from 'lucide-vue-next'
-import type { Page } from '../types'
+import type { Element, Page } from '../types'
+import { findInteractionByDomUids, resolveNavigateElement } from '../utils/interactionHit'
+import PageCanvas from './PageCanvas.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -160,32 +157,31 @@ const emit = defineEmits<{
   (e: 'navigate-page', pageId: number): void
 }>()
 
-// 缩放比例控制 (默认自适应，若屏幕较矮 < 780px 自动采用 0.85 紧凑比例)
-const scaleRatio = ref(window.innerHeight < 780 ? 0.85 : 1)
-
-function toggleScale() {
-  if (scaleRatio.value === 1) {
-    scaleRatio.value = 0.85
-  } else if (scaleRatio.value === 0.85) {
-    scaleRatio.value = 0.75
-  } else {
-    scaleRatio.value = 1
-  }
-}
-
-// 浮层位置 (依据视口高度智能居中并预留底部至少 20px 安全空间)
-const pos = ref({ x: Math.max(20, window.innerWidth - 350), y: 30 })
+const viewport = ref({ w: window.innerWidth, h: window.innerHeight })
+const pos = ref({ x: 24, y: 24 })
 const floatingCardRef = ref<HTMLElement | null>(null)
 
+const currentPage = computed(() => {
+  return props.pages.find((p) => p.id === activePageId.value) || props.pages[0] || null
+})
+
+const screenHeight = computed(() => currentPage.value?.canvas_height || 812)
+
+/** 与全屏演示同一套缩放：375 宽的手机按窗口高宽放进画面 */
+const fitScale = computed(() => {
+  const availW = Math.max(100, viewport.value.w - 40)
+  const availH = Math.max(100, viewport.value.h - 100)
+  const frameW = 403
+  const frameH = screenHeight.value + 28
+  return Math.min(1.05, Math.max(0.4, Math.min(availW / frameW, availH / frameH)))
+})
+
 function resetToSafePosition() {
-  const h = window.innerHeight
-  const w = window.innerWidth
-  // 根据缩放后的实际高度计算
-  const estimatedHeight = 635 * scaleRatio.value
-  const safeY = Math.max(16, Math.min((h - estimatedHeight) / 2, h - estimatedHeight - 24))
+  const frameW = 403 * fitScale.value
+  const frameH = (screenHeight.value + 28 + 52) * fitScale.value
   pos.value = {
-    x: Math.max(20, w - 340),
-    y: Math.max(16, safeY),
+    x: Math.max(12, viewport.value.w - frameW - 20),
+    y: Math.max(12, (viewport.value.h - frameH) / 2),
   }
 }
 
@@ -205,13 +201,13 @@ function startDrag(e: MouseEvent) {
 
 function onDragging(e: MouseEvent) {
   if (!isDragging) return
-  const cardH = (floatingCardRef.value?.offsetHeight || 630) * scaleRatio.value
-  const cardW = 315 * scaleRatio.value
-  const maxX = window.innerWidth - cardW - 10
-  const maxY = Math.max(10, window.innerHeight - cardH - 16)
+  const cardW = 403 * fitScale.value
+  const cardH = (screenHeight.value + 28 + 52) * fitScale.value
+  const maxX = window.innerWidth - cardW - 8
+  const maxY = Math.max(8, window.innerHeight - cardH - 8)
   pos.value = {
-    x: Math.max(10, Math.min(maxX, e.clientX - dragOffset.x)),
-    y: Math.max(10, Math.min(maxY, e.clientY - dragOffset.y)),
+    x: Math.max(8, Math.min(maxX, e.clientX - dragOffset.x)),
+    y: Math.max(8, Math.min(maxY, e.clientY - dragOffset.y)),
   }
 }
 
@@ -228,74 +224,53 @@ const historyStack = ref<number[]>([])
 watch(
   () => props.initialPageId,
   (id) => {
-    if (id && id !== activePageId.value) {
-      activePageId.value = id
-      if (!historyStack.value.includes(id)) {
-        historyStack.value.push(id)
-      }
-    }
+    if (id && id !== activePageId.value) activePageId.value = id
   },
-  { immediate: true }
 )
 
-const currentPage = computed(() => {
-  return props.pages.find((p) => p.id === activePageId.value) || props.pages[0] || null
-})
+function navigateTo(pageId: number) {
+  if (!pageId || pageId === activePageId.value) return
+  if (activePageId.value != null) historyStack.value.push(activePageId.value)
+  activePageId.value = pageId
+  emit('navigate-page', pageId)
+}
 
-// 运行时 HTML (注入真机交互监听器)
-const runtimeHtml = computed(() => {
-  const html = currentPage.value?.html_content || ''
-  if (!html) return ''
-  const inject = `
-    <script>
-      document.addEventListener('click', function(e){
-        var el = e.target.closest('[data-nav]');
-        if(el){
-          e.preventDefault(); e.stopPropagation();
-          var nav = el.getAttribute('data-nav');
-          window.parent.postMessage({ type: 'wf-floating-nav', page: nav }, '*');
-        }
-      }, true);
-    <\/script>
-  `
-  if (/<\/body>/i.test(html)) {
-    return html.replace(/<\/body>/i, `${inject}</body>`)
+function onCanvasNavigate(pageName: string, uids?: string[]) {
+  const byUid = findInteractionByDomUids(currentPage.value, uids)
+  const uidTarget = byUid?.interaction?.target_page_id
+  if (uidTarget) {
+    navigateTo(uidTarget)
+    return
   }
-  return html + inject
-})
+  const clean = pageName.trim().toLowerCase()
+  const target = props.pages.find(
+    (p) => p.name.trim().toLowerCase() === clean || String(p.id) === clean,
+  ) || props.pages.find(
+    (p) => p.name.toLowerCase().includes(clean) || clean.includes(p.name.toLowerCase()),
+  )
+  if (target) navigateTo(target.id)
+}
 
-function onIframeLoad() {
-  // frame 加载完毕
+function onHotspotClick(pos?: { x: number; y: number; uids?: string[] }) {
+  if (!pos) return
+  const targetId = resolveNavigateElement(currentPage.value, pos.x, pos.y, pos.uids)?.interaction?.target_page_id
+  if (targetId) navigateTo(targetId)
+}
+
+function onElementClick(el: Element) {
+  const targetId = el.interaction?.target_page_id
+  const action = el.interaction?.action
+  if (targetId && (!action || action === 'navigate')) navigateTo(targetId)
 }
 
 function goBack() {
-  if (historyStack.value.length > 1) {
-    historyStack.value.pop()
-    const prev = historyStack.value[historyStack.value.length - 1]
-    activePageId.value = prev
-  }
+  if (!historyStack.value.length) return
+  activePageId.value = historyStack.value.pop()!
 }
 
 function resetPreview() {
-  if (props.pages.length) {
-    const firstId = props.pages[0].id
-    activePageId.value = firstId
-    historyStack.value = [firstId]
-  }
-}
-
-// 跨页导航消息监听
-function onWindowMessage(e: MessageEvent) {
-  if (!e.data || e.data.type !== 'wf-floating-nav') return
-  const targetName = e.data.page
-  const targetP = props.pages.find(
-    (p) => p.name === targetName || (p.name && targetName && (p.name.includes(targetName) || targetName.includes(p.name)))
-  )
-  if (targetP) {
-    activePageId.value = targetP.id
-    historyStack.value.push(targetP.id)
-    emit('navigate-page', targetP.id)
-  }
+  historyStack.value = []
+  if (props.pages.length) activePageId.value = props.pages[0].id
 }
 
 // 实时时间
@@ -310,9 +285,7 @@ function updateTime() {
 }
 
 function onResize() {
-  if (window.innerHeight < 780 && scaleRatio.value === 1) {
-    scaleRatio.value = 0.85
-  }
+  viewport.value = { w: window.innerWidth, h: window.innerHeight }
   resetToSafePosition()
 }
 
@@ -320,16 +293,11 @@ onMounted(() => {
   updateTime()
   resetToSafePosition()
   timer = setInterval(updateTime, 10000)
-  window.addEventListener('message', onWindowMessage)
   window.addEventListener('resize', onResize)
-  if (activePageId.value && !historyStack.value.length) {
-    historyStack.value.push(activePageId.value)
-  }
 })
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
-  window.removeEventListener('message', onWindowMessage)
   window.removeEventListener('resize', onResize)
   window.removeEventListener('mousemove', onDragging)
   window.removeEventListener('mouseup', stopDrag)

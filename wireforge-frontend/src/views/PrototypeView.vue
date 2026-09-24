@@ -133,30 +133,30 @@
           <!-- Pages Scroll List -->
           <div class="flex-1 overflow-y-auto p-2 space-y-1">
             <div
-              v-for="b in blocks"
-              :key="b.page.id"
+              v-for="p in pages"
+              :key="p.id"
               class="group relative flex items-center gap-2.5 p-2 rounded-xl transition-all cursor-pointer border"
-              :class="b.page.id === focusPageId
+              :class="p.id === focusPageId
                 ? 'bg-emerald-50/80 border-emerald-200/80 text-emerald-950 shadow-2xs'
                 : 'hover:bg-slate-50 border-transparent text-slate-700'"
-              @click="focusPage(b.page.id)"
+              @click="focusPage(p.id)"
             >
               <!-- Thumbnail -->
               <div class="w-9 h-12 rounded-lg bg-slate-100 overflow-hidden border border-slate-200/80 shrink-0 flex items-center justify-center shadow-2xs">
-                <img v-if="b.page.background_image" :src="getFileUrl(b.page.background_image)" class="w-full h-full object-cover" />
+                <img v-if="p.background_image" :src="getFileUrl(p.background_image)" class="w-full h-full object-cover" />
                 <div v-else class="text-[9px] text-slate-400">无图</div>
               </div>
 
               <!-- Meta Info -->
               <div class="flex-1 min-w-0">
-                <div class="text-xs font-bold truncate leading-tight mb-1" :class="b.page.id === focusPageId ? 'text-emerald-900' : 'text-slate-900'">
-                  {{ b.page.name }}
+                <div class="text-xs font-bold truncate leading-tight mb-1 text-slate-900">
+                  {{ p.name }}
                 </div>
                 <div class="flex items-center gap-1.5 text-[10px] text-slate-400 tabular-nums">
-                  <span class="w-1.5 h-1.5 rounded-full" :class="b.page.analyzed ? 'bg-emerald-500' : 'bg-amber-400'"></span>
-                  <span>{{ b.page.analyzed ? '已分析' : '待分析' }}</span>
+                  <span class="w-1.5 h-1.5 rounded-full" :class="p.analyzed ? 'bg-emerald-500' : 'bg-amber-400'"></span>
+                  <span>{{ p.analyzed ? '已分析' : '待分析' }}</span>
                   <span>·</span>
-                  <span>{{ b.page.elements.length }} 元素</span>
+                  <span>{{ p.elements.length }} 元素</span>
                 </div>
               </div>
 
@@ -164,7 +164,7 @@
               <button
                 class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer shrink-0"
                 title="删除画板"
-                @click.stop="confirmDeletePage(b.page)"
+                @click.stop="confirmDeletePage(p)"
                 @mousedown.stop
               >
                 <Trash2 class="w-3.5 h-3.5" />
@@ -179,7 +179,7 @@
             <div class="flex justify-between"><span>说明标注</span><span class="font-bold text-slate-700">{{ totalAnnotations }}</span></div>
             <div class="pt-1.5 border-t border-slate-200/60 text-[10px] text-slate-400 flex items-center gap-1">
               <MousePointer class="w-3 h-3" />
-              <span>拖动画布漫游，滚轮平滑缩放</span>
+              <span>拖拽框选多画板，空格+拖拽漫游</span>
             </div>
           </div>
         </div>
@@ -191,26 +191,70 @@
           :current-page="currentFocusPage"
           :selected-element-id="selectedElementId"
           :hovered-element-id="hoveredElementId"
+          :dom-layers="currentFocusDomLayers"
+          :selected-layer-uid="selectedDomLayerUid"
+          :selected-layer-uids="selectedDomLayerUids"
           @select-element="onLayerSelectElement"
           @select-frame="onLayerSelectFrame"
+          @select-dom-layer="onSelectDomLayer"
+          @toggle-layer-hidden="onToggleLayerHidden"
+          @toggle-layer-locked="onToggleLayerLocked"
+          @group-layers="postToFocusFrame({ type: 'wf-group' })"
+          @ungroup-layers="postToFocusFrame({ type: 'wf-ungroup' })"
+          @rename-layer="postToFocusFrame({ type: 'wf-rename-layer', uid: $event.uid, name: $event.name })"
+          @reorder-layer="postToFocusFrame({ type: 'wf-reorder-layer', uid: $event.uid, targetUid: $event.targetUid, place: $event.place })"
+          @open-layer-menu="openLayerContextMenu($event.x, $event.y)"
           @hover-element="hoveredElementId = $event"
         />
       </aside>
 
       <!-- ===== Right: Infinite Workbench Canvas ===== -->
       <main
-        class="canvas-viewport flex-1 overflow-hidden relative cursor-grab bg-slate-100"
+        class="canvas-viewport flex-1 overflow-hidden relative cursor-default"
         ref="viewportRef"
         :class="{
-          '!cursor-grabbing': isAnyDragging,
+          '!cursor-grab': (activeDrawTool === 'hand' || isSpacePressed) && !isAnyDragging,
+          '!cursor-grabbing': (activeDrawTool === 'hand' || isSpacePressed) && isAnyDragging,
           '!cursor-text': activeDrawTool === 'text' && !isAnyDragging,
-          '!cursor-crosshair': activeDrawTool !== 'select' && activeDrawTool !== 'text' && !isAnyDragging,
+          '!cursor-crosshair': activeDrawTool !== 'select' && activeDrawTool !== 'hand' && activeDrawTool !== 'text' && !isAnyDragging,
+          '!cursor-default': activeDrawTool === 'select',
         }"
         @wheel.prevent="onWheel"
         @mousedown="onMouseDown"
         @dragover.prevent="onViewportDragOver"
         @drop.prevent="onViewportDrop"
       >
+        <!-- ===== 多选画板批量操作悬浮条 (Figma Style) ===== -->
+        <Transition name="fade-fast">
+          <div
+            v-if="selectedBlockKeys.size > 1"
+            class="fixed top-18 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-slate-900/90 backdrop-blur-md text-white border border-white/15 rounded-2xl shadow-2xl flex items-center gap-3 text-xs font-semibold select-none"
+          >
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+              <span>已框选 <strong>{{ selectedBlockKeys.size }}</strong> 个画板</span>
+            </div>
+            <div class="h-4 w-[1px] bg-white/20"></div>
+            <button
+              type="button"
+              class="px-2.5 py-1 text-xs font-medium text-red-400 hover:text-white hover:bg-red-500/80 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+              title="批量删除所选画板 (Delete / Backspace)"
+              @click="confirmBatchDeleteBlocks"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+              <span>批量删除 (Del)</span>
+            </button>
+            <button
+              type="button"
+              class="p-1 text-white/60 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+              title="取消多选 (Esc)"
+              @click="clearSelection"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </Transition>
+
         <!-- ===== 画布顶部悬浮轻量绘制指引胶囊提示 ===== -->
         <Transition name="fade-fast">
           <div
@@ -221,8 +265,20 @@
               class="w-2 h-2 rounded-full shrink-0"
               :class="activeDrawTool === 'comment' ? 'bg-amber-400 animate-ping' : 'bg-[#0D99FF] animate-ping'"
             ></span>
-            <span v-if="activeDrawTool === 'comment'">
-              正在评论模式：点击画板任意位置打点发表评论，点击已有图钉展开回复，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 退出
+            <span v-if="activeDrawTool === 'hand'">
+              正在拖拽漫游模式：按住鼠标左键拖动画布，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">V</kbd> 键切换回选择工具
+            </span>
+            <span v-else-if="activeDrawTool === 'comment'">
+              正在评论模式：点击画布或画板任意位置打点发表评论，点击已有图钉展开回复，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 退出
+            </span>
+            <span v-else-if="isEditingVector">
+              矢量编辑模式：拖动锚点与手柄调整曲率，点击 Bend 弯曲线段，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Enter</kbd> 保存修改
+            </span>
+            <span v-else-if="activeDrawTool === 'pencil'">
+              铅笔手绘模式：松手即保存这一笔，可连续画。按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 退出
+            </span>
+            <span v-else-if="activeDrawTool === 'pen'">
+              钢笔绘制模式：点击落点，按住拖拽出对称控制手柄，靠近起点闭合，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Enter</kbd> 完成
             </span>
             <span v-else>
               正在绘制{{ currentToolName }}：按住鼠标左键拖拽自由画出尺寸，或点击放置，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 取消
@@ -231,7 +287,7 @@
               type="button"
               class="ml-1 p-0.5 text-white/70 hover:text-white rounded-full hover:bg-white/20 transition-colors cursor-pointer"
               :title="activeDrawTool === 'comment' ? '退出评论模式 (Esc)' : '取消绘制 (Esc)'"
-              @click="activeDrawTool = 'select'"
+              @click="isVectorMode ? onVectorToolbarCancel() : (activeDrawTool = 'select')"
             >
               <X class="w-3.5 h-3.5" />
             </button>
@@ -242,7 +298,11 @@
         <div
           v-if="isAnyDragging || isDraggingConnection"
           class="fixed inset-0 z-[9999] select-none"
-          :class="isDraggingConnection ? 'cursor-crosshair' : 'cursor-grabbing'"
+          :class="[
+            isDraggingConnection
+              ? 'cursor-crosshair'
+              : ((activeDrawTool === 'hand' || isSpacePressed) ? 'cursor-grabbing' : 'cursor-default')
+          ]"
           style="pointer-events: auto;"
         />
 
@@ -253,9 +313,11 @@
         >
 
 
-          <template v-for="b in blocks" :key="b.page.id">
+          <template v-for="b in blocks" :key="b.key">
             <div
-              class="page-block absolute transition-all duration-200 rounded-2xl cursor-pointer"
+              class="page-block absolute rounded-2xl cursor-default transition-[box-shadow,opacity] duration-150"
+              :data-page-id="b.page.id"
+              :data-block-key="b.key"
               :class="{
                 'ring-4 ring-emerald-400 ring-offset-2 shadow-[0_0_24px_rgba(52,211,153,0.5)] scale-[1.01]': hoveredTargetBlockId === b.page.id,
                 'ring-2 ring-blue-500 ring-offset-4 ring-offset-slate-100 shadow-[0_0_0_2px_#3b82f6,0_12px_28px_rgba(59,130,246,0.22)]': selectedNodeId === b.page.id && hoveredTargetBlockId !== b.page.id,
@@ -271,25 +333,9 @@
 
 
 
-              <!-- Figma 画板级别交互连线拉线手柄 (交互连线模式下：选中或悬停时呈现于原型屏幕右侧边缘) -->
-              <div
-                v-if="workbenchMode === 'interactive' && (selectedNodeId === b.page.id || hoveredNodeId === b.page.id)"
-                class="node-connector-handle absolute z-40 w-7 h-7 rounded-full text-white flex items-center justify-center cursor-crosshair shadow-[0_0_0_3px_#ffffff,0_4px_14px_rgba(37,99,235,0.7)] hover:scale-125 transition-all select-none group pointer-events-auto"
-                :class="selectedNodeId === b.page.id ? 'bg-blue-600 hover:bg-blue-500 ring-2 ring-blue-300 ring-offset-1 animate-pulse' : 'bg-blue-500/85 hover:bg-blue-600'"
-                :style="{
-                  left: `${(b.page.canvas_width || 375) + 16 + (b.page.canvas_width || 375)}px`,
-                  top: `${(b.page.canvas_height || 812) / 2}px`,
-                  transform: 'translate(-50%, -50%)',
-                }"
-                :title="selectedNodeId === b.page.id ? '画板整体连线：按住拖拽至目标画板以建立连线' : '画板整体连线：点击或按住拖拽至其他画板'"
-                @mousedown.stop="startNodeConnectionDrag($event, b)"
-              >
-                <Plus class="w-4 h-4 stroke-[2.8] group-hover:rotate-90 transition-transform" />
-              </div>
-
               <!-- Block Header Capsule Floating Label -->
               <div
-                class="block-label absolute -top-9 left-0 inline-flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-md border border-slate-200/85 rounded-xl shadow-xs text-xs font-bold text-slate-800 hover:border-emerald-300 hover:text-emerald-600 hover:shadow-md transition-all cursor-grab active:cursor-grabbing"
+                class="block-label absolute -top-9 left-0 inline-flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-md border border-slate-200/85 rounded-xl shadow-xs text-xs font-bold text-slate-800 hover:border-emerald-300 hover:text-emerald-600 hover:shadow-md transition-all cursor-default"
                 @mousedown.stop="onBlockDragStart($event, b)"
               >
                 <input
@@ -302,7 +348,7 @@
                   @mousedown.stop
                 />
                 <GripVertical class="w-3.5 h-3.5 text-slate-400" />
-                <span class="cursor-pointer hover:underline truncate max-w-[150px]" @click.stop="focusPage(b.page.id)">{{ b.page.name }}</span>
+                <span class="cursor-pointer hover:underline truncate max-w-[170px]" @click.stop="focusPage(b.page.id)">{{ b.title }}</span>
 
                 <!-- 独占锁定徽标：他人正在微调此页 -->
                 <span
@@ -332,6 +378,17 @@
                   <Maximize2 class="w-3 h-3" />
                 </button>
                 <button
+                  v-if="!b.page.html_content && b.page.background_image"
+                  class="wf-tap px-2 py-0.5 rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                  :class="{ 'animate-pulse pointer-events-none': regeneratingIds.has(b.page.id) }"
+                  title="为设计稿生成独立原型图（放置在右侧）"
+                  @click.stop="onGeneratePrototypeForDesign(b)"
+                  @mousedown.stop
+                >
+                  <Sparkles class="w-3 h-3 text-emerald-600" :class="{ 'animate-spin': regeneratingIds.has(b.page.id) }" />
+                  <span>生成原型图</span>
+                </button>
+                <button
                   v-if="b.page.html_content"
                   class="wf-tap p-1 rounded-md text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 transition-colors cursor-pointer"
                   :class="{ 'animate-spin pointer-events-none': regeneratingIds.has(b.page.id) }"
@@ -353,11 +410,12 @@
 
               <!-- Page Canvas Component (画布上禁止跳转，仅供选中与布线) -->
               <PageCanvas
-                :ref="(el: any) => setPageRef(b.page.id, el)"
+                :ref="(el: any) => setPageRef(b.page.id, el, b.blockType)"
                 :page="b.page"
                 :all-pages="pages"
                 :show-wireframe="showWireframe"
-                :show-annotations="showAnnotations"
+                :show-annotations="blockShowsAnnotations(b)"
+                :frame-type="b.blockType"
                 :selected-element-id="selectedElementId"
                 :hovered-element-id="hoveredElementId"
                 :hovered-ann-id="hoveredAnnId"
@@ -383,11 +441,55 @@
                 @request-edit="fineTune = true"
                 @element-selected="onElementSelected(b.page.id, $event)"
                 @element-deselected="onElementDeselected(b.page.id)"
+                @frame-fill="onFrameFill(b.page.id, $event)"
+                @selection-changed="onDomSelectionChanged(b.page.id, $event)"
+                @context-menu="openLayerContextMenu($event.x, $event.y)"
+                @layers-changed="onLayersChanged"
+                :proto-hotspot="workbenchMode === 'interactive' && b.blockType === 'prototype'"
+                @frame-focus="onPrototypeFrameFocus(b.page.id, b.key)"
+                @edit-vector="onEditVector(b.page.id, $event)"
+                @hotspot="onPrototypeHotspot(b, $event)"
+                @hotspot-clear="onPrototypeHotspotClear(b.key)"
               />
 
-              <!-- ===== Figma 交互模式：具体组件加号方框与拉线手柄 (浮于画板与 iframe 之上，确保双击/单击精准捕获) ===== -->
+              <!-- 移到原型里的组件上：右侧先是蓝点，移上去变成加号，按住拖到别的画板 -->
               <div
-                v-if="workbenchMode === 'interactive'"
+                v-if="workbenchMode === 'interactive' && liveHotspot && liveHotspot.blockKey === b.key"
+                class="pointer-events-none absolute z-[60]"
+                :style="{
+                  left: `${liveHotspot.x}px`,
+                  top: `${liveHotspot.y}px`,
+                  width: `${liveHotspot.w}px`,
+                  height: `${liveHotspot.h}px`,
+                }"
+              >
+                <div class="absolute inset-0 rounded-md border border-[#0D99FF] pointer-events-none" />
+                <div class="absolute -bottom-5 left-0 right-0 flex justify-center pointer-events-none">
+                  <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-[#0D99FF] text-white leading-none shadow-sm select-none whitespace-nowrap">
+                    {{ Math.round(liveHotspot.w) }} × {{ Math.round(liveHotspot.h) }}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="figma-flow-handle absolute top-1/2 left-full z-[61] w-4 h-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-0 p-0 flex items-center justify-center cursor-crosshair pointer-events-auto bg-transparent"
+                  :title="flowHandleArmed ? '按住拖到另一块画板' : '移到这里开始连线'"
+                  @mouseenter.stop="onFlowHandleEnter"
+                  @mouseleave.stop="onFlowHandleLeave"
+                  @mousedown.stop="startLiveHotspotDrag($event, b)"
+                >
+                  <span
+                    class="block rounded-full bg-[#0D99FF] transition-all duration-100"
+                    :class="flowHandleArmed
+                      ? 'w-3 h-3'
+                      : 'w-1 h-1 shadow-[0_0_0_1px_#fff]'"
+                  />
+                  <Plus v-if="flowHandleArmed" class="absolute w-2 h-2 text-white stroke-[3] pointer-events-none" />
+                </button>
+              </div>
+
+              <!-- 设计稿上没有实时组件时，仍用识别出的元素框来连线 -->
+              <div
+                v-if="workbenchMode === 'interactive' && b.blockType === 'design'"
                 class="figma-interactive-layer absolute inset-0 pointer-events-none z-38"
               >
                 <div
@@ -395,7 +497,7 @@
                   :key="`figma-el-${el.id}`"
                   class="figma-element-target absolute pointer-events-auto transition-all cursor-pointer"
                   :style="{
-                    left: `${(b.page.canvas_width || 375) + 16 + el.x}px`,
+                    left: `${el.x}px`,
                     top: `${el.y}px`,
                     width: `${el.width}px`,
                     height: `${el.height}px`,
@@ -411,8 +513,8 @@
                     v-if="selectedElementId === el.id || hoveredElementId === el.id"
                     class="absolute inset-0 rounded-sm pointer-events-none transition-all"
                     :class="selectedElementId === el.id
-                      ? 'border-2 border-[#0D99FF] bg-[#0D99FF]/12 ring-2 ring-[#0D99FF]/30'
-                      : 'border-[1.5px] border-[#0D99FF]/80 bg-[#0D99FF]/6'"
+                      ? 'border border-[#0D99FF] bg-[#0D99FF]/12'
+                      : 'border border-[#0D99FF]/80 bg-[#0D99FF]/6'"
                   />
 
                   <!-- 元素尺寸标注（Figma 风格，悬停/选中时显示在下方） -->
@@ -425,13 +527,24 @@
                     </span>
                   </div>
 
-                  <!-- Figma 连线手柄：悬停/选中时显示在元素右侧边缘中点，按住即可拖动连接线 -->
-                  <div
+                  <!-- 悬停组件先出蓝点，移到蓝点上变成加号 -->
+                  <button
                     v-if="selectedElementId === el.id || hoveredElementId === el.id"
-                    class="absolute top-1/2 -right-[5px] -translate-y-1/2 z-50 w-[11px] h-[11px] rounded-full bg-white border-[2px] border-[#0D99FF] cursor-crosshair shadow-[0_0_0_1.5px_rgba(13,153,255,0.6),0_2px_8px_rgba(13,153,255,0.4)] hover:scale-150 hover:bg-sky-50 transition-transform select-none pointer-events-auto"
-                    :title="el.interaction?.target_page_id ? `按住拖动可重连（当前→「${getPageName(el.interaction.target_page_id)}」）` : `按住拖动连接线到其他画板`"
+                    type="button"
+                    class="absolute top-1/2 left-full z-50 w-4 h-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-0 p-0 flex items-center justify-center cursor-crosshair pointer-events-auto bg-transparent"
+                    :title="flowHandleKey === `el-${el.id}` ? '按住拖到另一块画板' : '移到这里开始连线'"
+                    @mouseenter.stop="flowHandleKey = `el-${el.id}`"
+                    @mouseleave.stop="flowHandleKey = flowHandleKey === `el-${el.id}` ? null : flowHandleKey"
                     @mousedown.stop="startElementConnectionDrag($event, b, el)"
-                  />
+                  >
+                    <span
+                      class="block rounded-full bg-[#0D99FF] transition-all duration-100"
+                      :class="flowHandleKey === `el-${el.id}`
+                        ? 'w-3 h-3'
+                        : 'w-1 h-1 shadow-[0_0_0_1px_#fff]'"
+                    />
+                    <Plus v-if="flowHandleKey === `el-${el.id}`" class="absolute w-2 h-2 text-white stroke-[3] pointer-events-none" />
+                  </button>
                 </div>
               </div>
 
@@ -448,7 +561,7 @@
                 ]"
                 @dragover.prevent.stop="onDropZoneDragOver($event, b.page.id)"
                 @dragleave.stop="onDropZoneDragLeave($event, b.page.id)"
-                @drop.prevent.stop="onDropZoneDrop($event, b.page.id)"
+                @drop.prevent.stop="onDropZoneDrop($event, b)"
               >
                 <div
                   v-if="isDraggingComponent"
@@ -467,7 +580,7 @@
                 v-if="activeShapeDraw && activeShapeDraw.block.page.id === b.page.id && (activeShapeDraw.width > 2 || activeShapeDraw.height > 2)"
                 class="live-draw-marquee pointer-events-none absolute z-[130] select-none"
                 :style="{
-                  left: `${(activeShapeDraw.isDesignSide ? 0 : ((b.page.canvas_width || 375) + 16)) + activeShapeDraw.left}px`,
+                  left: `${activeShapeDraw.left}px`,
                   top: `${activeShapeDraw.top}px`,
                   width: `${activeShapeDraw.width}px`,
                   height: `${activeShapeDraw.height}px`,
@@ -488,7 +601,7 @@
               <!-- ===== Figma 评论图钉层 (在评论模式下呈现于画板上) ===== -->
               <template v-if="activeDrawTool === 'comment'">
                 <CommentPin
-                  v-for="th in getPageComments(b.page.id)"
+                  v-for="th in getBlockComments(b)"
                   :key="th.id"
                   :thread="th"
                   :index="getCommentIndex(th.id)"
@@ -504,7 +617,7 @@
 
               <!-- 草稿评论输入气泡 (在评论模式下点击画板后暂存输入) -->
               <div
-                v-if="draftComment && draftComment.pageId === b.page.id"
+                v-if="draftComment && (draftComment.blockKey ? draftComment.blockKey === b.key : draftComment.pageId === b.page.id)"
                 class="draft-comment-container absolute z-[160] select-none"
                 :style="{ left: `${draftComment.x}px`, top: `${draftComment.y}px` }"
                 @click.stop
@@ -567,18 +680,154 @@
 
               <!-- 直接选择绘制 / 评论交互层 (浮于 iframe 之上，捕获 mousedown 自由拖拽拉框与快速点击) -->
               <div
-                v-if="activeDrawTool !== 'select'"
+                v-if="activeDrawTool !== 'select' && activeDrawTool !== 'pen' && activeDrawTool !== 'pencil' && !isEditingVector"
                 class="draw-placement-overlay absolute inset-0 rounded-2xl z-[110] select-none border-2 border-dashed"
                 :class="[
-                  activeDrawTool === 'comment'
-                    ? 'border-amber-400/60 bg-amber-400/5 !cursor-crosshair'
-                    : (activeDrawTool === 'text' ? '!cursor-text border-[#0D99FF]/60 bg-[#0D99FF]/5' : '!cursor-crosshair border-[#0D99FF]/60 bg-[#0D99FF]/5')
+                  activeDrawTool === 'hand'
+                    ? '!cursor-grab border-transparent bg-transparent'
+                    : (activeDrawTool === 'comment'
+                        ? 'border-amber-400/60 bg-amber-400/5 !cursor-crosshair'
+                        : (activeDrawTool === 'text' ? '!cursor-text border-[#0D99FF]/60 bg-[#0D99FF]/5' : '!cursor-crosshair border-[#0D99FF]/60 bg-[#0D99FF]/5')
+                      )
                 ]"
                 :title="activeDrawTool === 'comment' ? '点击画板打点添加评审评论' : `在画板上拖拽自由画出尺寸，或点击放置「${currentToolName}」`"
                 @mousedown.stop.prevent="onArtboardDrawMouseDown($event, b)"
               />
+
+              <!-- ===== Figma 矢量绘制与路径编辑顶层交互层 (VectorDrawOverlay) ===== -->
+              <VectorDrawOverlay
+                v-if="isVectorMode && vectorHostKey === b.key"
+                :ref="(el: any) => { if (el) vectorOverlayRef = el }"
+                :active-tool="activeDrawTool === 'pencil' ? 'pencil' : 'pen'"
+                :active-sub-tool="activeVectorSubTool"
+                :scale="view.k"
+                :artboard-w="b.page.canvas_width || 375"
+                :artboard-h="b.page.canvas_height || 812"
+                :initial-path="editingVectorPath"
+                :initial-left="editingVectorLeft"
+                :initial-top="editingVectorTop"
+                :is-space-pressed="isSpacePressed"
+                @update:active-sub-tool="activeVectorSubTool = $event"
+                @update:is-closed="isVectorClosed = $event"
+                @commit="onVectorCommit"
+                @cancel="onVectorCancel"
+                @delete-original="onVectorDeleteOriginal"
+                @toast="showToast"
+              />
+              <!-- 绘制层当前不在这块画板上时，点击设计稿或另一页原型会把绘制切过来 -->
+              <div
+                v-else-if="isVectorMode && !isEditingVector && canHostVectorDraw(b)"
+                class="absolute z-[140] cursor-crosshair"
+                :style="{ left: '0px', top: '0px', width: `${b.page.canvas_width || 375}px`, height: `${b.page.canvas_height || 812}px` }"
+                @mousedown.stop.prevent="retargetVectorDraw($event, b)"
+              />
             </div>
           </template>
+
+          <!-- ===== 画布全局评论图钉与草稿气泡 (可在画框外任意画布区域打点) ===== -->
+          <template v-if="activeDrawTool === 'comment'">
+            <CommentPin
+              v-for="th in canvasComments"
+              :key="th.id"
+              :thread="th"
+              :index="getCommentIndex(th.id)"
+              :is-selected="selectedThreadId === th.id"
+              :current-user="currentCommentUser"
+              @select="selectCommentThread(th.id)"
+              @close="selectedThreadId = null"
+              @reply="handleCommentReply(th.id, $event)"
+              @resolve="handleCommentResolve(th.id, $event)"
+              @delete="handleCommentDelete(th.id)"
+            />
+
+            <!-- 画布全局草稿评论气泡 (点击空白画布后在画布坐标呈现) -->
+            <div
+              v-if="draftComment && draftComment.blockKey === 'canvas'"
+              class="draft-comment-container absolute z-[160] select-none"
+              :style="{ left: `${draftComment.x}px`, top: `${draftComment.y}px` }"
+              @click.stop
+              @mousedown.stop
+            >
+              <!-- 临时草稿图钉 -->
+              <div class="relative -translate-x-1/2 -translate-y-full">
+                <div class="w-7 h-7 rounded-full bg-amber-500 text-white font-bold text-xs flex items-center justify-center shadow-lg border-2 border-white ring-4 ring-amber-400/40 animate-bounce">
+                  +
+                </div>
+                <div class="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] border-t-amber-500 mx-auto -mt-[1px]"></div>
+              </div>
+
+              <!-- 草稿输入气泡框 -->
+              <div class="absolute top-1 left-2 w-[290px] bg-white border border-slate-200/90 rounded-2xl shadow-2xl p-3 z-[170] flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-100">
+                <div class="flex items-center justify-between text-xs font-semibold text-slate-800">
+                  <div class="flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                    <span>添加画布评审评论</span>
+                  </div>
+                  <button type="button" class="text-slate-400 hover:text-slate-700 p-0.5 rounded cursor-pointer" @click="cancelDraftComment">
+                    <X class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <textarea
+                  ref="draftInputRef"
+                  v-model="draftComment.text"
+                  placeholder="输入你的评审意见... (Enter 发送, Esc 取消)"
+                  rows="2"
+                  class="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-amber-500 focus:bg-white focus:ring-2 focus:ring-amber-500/20 resize-none custom-scrollbar"
+                  @keydown.enter.exact.prevent="submitDraftComment"
+                  @keydown.esc="cancelDraftComment"
+                ></textarea>
+
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[10px] text-slate-400">
+                    以 <strong class="text-slate-700">{{ currentCommentUser }}</strong> 的身份
+                  </span>
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      class="px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 rounded-lg cursor-pointer"
+                      @click="cancelDraftComment"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      class="px-3 py-1 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-[11px] font-semibold rounded-lg shadow-sm disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+                      :disabled="!draftComment.text.trim()"
+                      @click="submitDraftComment"
+                    >
+                      发送
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ===== Figma 风格画布多选框选虚框 (Selection Marquee) ===== -->
+          <div
+            v-if="selectionMarquee && (selectionMarquee.width > 3 || selectionMarquee.height > 3)"
+            class="selection-marquee pointer-events-none absolute z-[145] border border-blue-500 bg-blue-500/15 rounded-sm select-none"
+            :style="{
+              left: `${selectionMarquee.left}px`,
+              top: `${selectionMarquee.top}px`,
+              width: `${selectionMarquee.width}px`,
+              height: `${selectionMarquee.height}px`,
+            }"
+          >
+            <div
+              v-if="workbenchMode === 'interactive' && selectedConnIds.size > 0"
+              class="absolute -top-7 left-0 px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold shadow-md whitespace-nowrap"
+            >
+              <span>已选中 {{ selectedConnIds.size }} 条连线</span>
+            </div>
+            <div
+              v-else-if="selectedBlockKeys.size > 0"
+              class="absolute -top-7 left-0 px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold shadow-md flex items-center gap-1"
+            >
+              <span>已选中 {{ selectedBlockKeys.size }} 个画板</span>
+            </div>
+          </div>
 
           <!-- 实时自由拖拽绘制画板选框 (Live Frame Marquee) -->
           <div
@@ -597,7 +846,7 @@
           </div>
 
           <!-- ===== Figma Prototype 模式：细致贝塞尔连线与节点圆圈 (位于画板之上浮层，确保连线不被画板遮盖) ===== -->
-          <template v-if="visibleConnections.length > 0 || activeDragLine">
+          <template v-if="!isBlockDragging && (visibleConnections.length > 0 || activeDragLine)">
             <svg
               class="interaction-svg-layer pointer-events-none"
               style="position: absolute; left: 0; top: 0; width: 60000px; height: 60000px; overflow: visible; z-index: 45;"
@@ -642,26 +891,15 @@
               </defs>
 
               <g v-for="conn in visibleConnections" :key="conn.id" class="figma-conn-item">
-                <!-- 宽热区透明线 (18px 宽，点击可精准选中该连线并隐藏其他连线，敲击键盘 Backspace 键可直接删除) -->
-                <path
-                  :d="conn.path"
-                  fill="none"
-                  stroke="transparent"
-                  stroke-width="18"
-                  class="cursor-pointer pointer-events-auto"
-                  :title="`交互连线：${conn.label} ➔ ${conn.actionLabel} (点击选中此连线，按 Backspace 键可删除)`"
-                  @click.stop="selectConnection(conn)"
-                />
-
-                <!-- 外发光辅线 (0.8px-2px 柔和微光) -->
+                <!-- 外发光辅线 -->
                 <path
                   :d="conn.path"
                   fill="none"
                   :stroke="isConnActive(conn) ? 'rgba(13, 153, 255, 0.45)' : 'rgba(13, 153, 255, 0.18)'"
                   :stroke-width="isConnActive(conn) ? 5 : 3"
                   stroke-linecap="round"
+                  class="pointer-events-none"
                 />
-                <!-- Figma 纯正亮天蓝贝塞尔曲线 (还原 Figma Prototype 官方标准 1.6px 纤细轻灵设计) -->
                 <path
                   :d="conn.path"
                   fill="none"
@@ -669,8 +907,8 @@
                   :stroke-width="isConnActive(conn) ? 2.2 : 1.6"
                   stroke-linecap="round"
                   :marker-end="isConnActive(conn) ? 'url(#figma-arrow-active)' : 'url(#figma-arrow-normal)'"
+                  class="pointer-events-none"
                 />
-                <!-- 起点 Figma 节点圆圈 (白底蓝环小圆点) -->
                 <circle
                   :cx="conn.x1"
                   :cy="conn.y1"
@@ -678,12 +916,24 @@
                   fill="#ffffff"
                   stroke="#0D99FF"
                   :stroke-width="isConnActive(conn) ? 2.2 : 1.6"
+                  class="pointer-events-none"
                 />
                 <circle
                   :cx="conn.x1"
                   :cy="conn.y1"
                   :r="isConnActive(conn) ? 2.4 : 1.8"
                   fill="#0D99FF"
+                  class="pointer-events-none"
+                />
+                <!-- 宽热区放在最上层，点蓝线或线旁都能选中 -->
+                <path
+                  :d="conn.path"
+                  fill="none"
+                  stroke="transparent"
+                  stroke-width="18"
+                  class="cursor-pointer pointer-events-auto"
+                  :title="`交互连线：${conn.label} ➔ ${conn.actionLabel}（点击选中，Shift 加选，拉框可多选，Backspace 删除）`"
+                  @click.stop="selectConnection(conn, $event)"
                 />
               </g>
 
@@ -714,34 +964,32 @@
                 />
               </g>
             </svg>
-
-            <!-- 交互连线轻量胶囊标签 (Figma 交互胶囊，悬浮于连线上方) -->
-            <div
-              v-for="conn in visibleConnections"
-              :key="`tag-${conn.id}`"
-              class="absolute pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 px-2.5 py-0.5 rounded-full text-white text-[10px] font-medium shadow-md flex items-center gap-1 cursor-pointer select-none transition-all"
-              :class="isConnActive(conn) ? 'bg-[#0D99FF] ring-2 ring-sky-300 ring-offset-1 scale-105 z-50' : 'bg-slate-700/90 hover:bg-[#0D99FF] hover:scale-105 opacity-90 hover:opacity-100 z-45'"
-              :style="{ left: `${conn.midX}px`, top: `${conn.midY}px` }"
-              :title="`交互：${conn.label} ➔ ${conn.actionLabel} (${conn.fromPageName} → ${conn.toPageName})，点击选中此连线，敲击键盘 Backspace 键可删除`"
-              @click.stop="selectConnection(conn)"
-            >
-              <Zap class="w-2.5 h-2.5 fill-current" />
-              <span>{{ conn.label }}: {{ conn.actionLabel }}</span>
-              <button
-                class="w-3.5 h-3.5 rounded-full hover:bg-black/30 text-white flex items-center justify-center text-[9px] ml-0.5 cursor-pointer"
-                title="删除交互连线 (快捷键 Backspace)"
-                @click.stop="removeConnection(conn)"
-              >
-                ×
-              </button>
-            </div>
           </template>
 
           <div v-if="!pages.length" class="flex flex-col items-center justify-center p-20 text-slate-400">
             <Layers class="w-12 h-12 text-slate-300 mb-3" />
-            <p class="text-sm font-medium">项目暂无页面，请先返回项目页扫描设计稿</p>
+            <p class="text-sm font-medium text-slate-600">还没有画板</p>
+            <p class="text-xs text-slate-400 mt-1 mb-4">可以直接新建空白画板开始画，不必先扫描设计稿。</p>
+            <button
+              type="button"
+              class="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg cursor-pointer"
+              @click="createFirstBlankFrame"
+            >
+              新建空白画板
+            </button>
           </div>
         </div>
+
+        <!-- ===== Figma 矢量编辑副工具栏 (VectorSubToolbar) ===== -->
+        <VectorSubToolbar
+          v-if="mode === 'edit' && isVectorMode"
+          v-model:active-sub-tool="activeVectorSubTool"
+          :is-closed="isVectorClosed"
+          :continuous="activeDrawTool === 'pencil' && !isEditingVector"
+          @done="onVectorToolbarDone"
+          @cancel="onVectorToolbarCancel"
+          @toggle-fill="onVectorToggleFill"
+        />
 
         <!-- ===== Figma UI3 底部居中悬浮工具栏 ===== -->
         <FigmaBottomToolbar
@@ -774,7 +1022,7 @@
         />
 
         <template v-else>
-          <!-- 0. Right Sidebar Topmost: Mode Switcher [ 需求走查 (Design) | 交互连线 (Prototype) ] -->
+          <!-- 0. Right Sidebar Topmost: Mode Switcher [ Design | Prototype ] -->
           <div class="px-2.5 py-2 border-b border-slate-100 bg-slate-50/90 flex items-center justify-between shrink-0">
           <div class="flex items-center gap-1 w-full bg-slate-200/80 p-1 rounded-xl">
             <button
@@ -784,7 +1032,7 @@
                 : 'text-slate-500 hover:text-slate-800'"
               @click="setWorkbenchMode('design')"
             >
-              <span>需求走查</span>
+              <span>Design</span>
             </button>
             <button
               class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all cursor-pointer text-center flex items-center justify-center gap-1"
@@ -793,8 +1041,7 @@
                 : 'text-slate-500 hover:text-slate-800'"
               @click="setWorkbenchMode('interactive')"
             >
-              <Zap class="w-3 h-3 fill-current" />
-              <span>交互连线</span>
+              <span>Prototype</span>
             </button>
           </div>
         </div>
@@ -874,14 +1121,16 @@
           :current-page="currentFocusPage"
           :selected-element="selectedElementObj"
           :element-info="activeSelectedElementInfo"
+          :frame-fill="frameFillColor"
           @update-dimension="onInspectorUpdateDimension"
           @update-position="onInspectorUpdatePosition"
           @update-color="onInspectorUpdateColor"
+          @update-frame-color="onInspectorUpdateFrameColor"
           @update-font-size="onInspectorUpdateFontSize"
           @align-selection="onInspectorAlign"
           @update-radius="onInspectorUpdateRadius"
           @update-stroke="onInspectorUpdateStroke"
-          @update-shadow="onInspectorUpdateShadow"
+          @update-effects="onInspectorUpdateEffects"
           @duplicate-selection="onInspectorDuplicate"
           @delete-selection="onInspectorDelete"
           @replace-asset="onInspectorReplaceAsset"
@@ -923,7 +1172,7 @@
           </div>
           <div>
             <div class="text-sm font-bold tracking-tight">真机原型预览</div>
-            <div class="text-xs text-slate-400">当前页面: {{ previewPage?.name }}</div>
+            <div class="text-xs text-slate-300">当前页面: {{ previewPage?.name }}</div>
           </div>
         </div>
 
@@ -1000,6 +1249,7 @@
                       :gap="0"
                       @navigate="onProtoNavigate"
                       @back="onProtoBack"
+                      @miss-click="onPreviewHotspotClick"
                       @save-html="onSaveHtml"
                       @element-click="handlePreviewClick"
                     />
@@ -1060,14 +1310,14 @@
                         <span>当前有人正在编辑</span>
                       </span>
                     </div>
-                    <div class="text-[11px] text-slate-400 flex items-center gap-2">
+                    <div class="text-[11px] text-slate-300 flex items-center gap-2">
                       <span>{{ simAnnList.length }} 条说明</span>
                       <span v-if="simInteractiveCount" class="text-emerald-400 font-medium">{{ simInteractiveCount }} 项交互</span>
                     </div>
                   </div>
                 </div>
                 <button
-                  class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                  class="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
                   title="收起说明抽屉"
                   @click="showSimDrawer = false"
                 >
@@ -1077,7 +1327,7 @@
 
               <!-- Drawer List Content -->
               <div class="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
-                <div v-if="!simAnnList.length" class="h-44 flex flex-col items-center justify-center text-slate-500 text-xs">
+                <div v-if="!simAnnList.length" class="h-44 flex flex-col items-center justify-center text-slate-300 text-xs">
                   <FileText class="w-8 h-8 opacity-30 mb-2" />
                   <span>当前页面暂无业务逻辑标注说明</span>
                 </div>
@@ -1105,22 +1355,22 @@
                   <!-- Edit Form Mode -->
                   <div v-if="editingSimAnnId === item.id" class="space-y-2 text-xs" @click.stop @mousedown.stop>
                     <div class="space-y-1">
-                      <span class="text-[10px] font-semibold text-slate-400">组件标题</span>
+                      <span class="text-[10px] font-semibold text-slate-300">组件标题</span>
                       <input
                         ref="simTitleInputRef"
                         v-model="editSimTitle"
-                        class="w-full bg-slate-900 border border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-emerald-400"
+                        class="w-full bg-slate-900 border border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-300 outline-none focus:ring-1 focus:ring-emerald-400"
                         placeholder="组件名称..."
                         @keydown.enter.prevent="saveSimEdit(item)"
                         @keydown.esc.stop="cancelSimEdit"
                       />
                     </div>
                     <div class="space-y-1">
-                      <span class="text-[10px] font-semibold text-slate-400">业务说明详情</span>
+                      <span class="text-[10px] font-semibold text-slate-300">业务说明详情</span>
                       <textarea
                         v-model="editSimText"
                         rows="3"
-                        class="w-full bg-slate-900 border border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:ring-1 focus:ring-emerald-400 leading-relaxed resize-none"
+                        class="w-full bg-slate-900 border border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-300 outline-none focus:ring-1 focus:ring-emerald-400 leading-relaxed resize-none"
                         placeholder="业务说明详情..."
                         @keydown.ctrl.enter.prevent="saveSimEdit(item)"
                         @keydown.esc.stop="cancelSimEdit"
@@ -1149,7 +1399,7 @@
                       <div class="flex items-center gap-1.5 overflow-hidden flex-1">
                         <!-- Drag Handle Indicator -->
                         <span
-                          class="text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 -ml-1 rounded"
+                          class="text-slate-300 hover:text-white cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 -ml-1 rounded"
                           title="长按或拖拽调整顺序"
                           @mousedown.stop
                         >
@@ -1158,7 +1408,7 @@
                         <span class="font-semibold text-xs text-white truncate" :title="item.title">{{ item.title }}</span>
                         <!-- Edit Button on Hover -->
                         <button
-                          class="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-emerald-400 rounded transition-opacity cursor-pointer shrink-0"
+                          class="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-emerald-400 rounded transition-opacity cursor-pointer shrink-0"
                           title="编辑标题与说明"
                           @click.stop="startSimEdit(item)"
                           @mousedown.stop
@@ -1185,7 +1435,7 @@
                       v-if="item.interactionTarget"
                       class="mb-2 px-2 py-1 rounded-md bg-slate-950/40 border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between gap-1"
                     >
-                      <span class="truncate text-slate-400">去向: <span class="text-emerald-300 font-medium">{{ item.interactionTarget }}</span></span>
+                      <span class="truncate text-slate-300">去向: <span class="text-emerald-300 font-medium">{{ item.interactionTarget }}</span></span>
                       <ChevronRight v-if="item.interactionType === 'navigate'" class="w-3 h-3 text-emerald-400 shrink-0 group-hover:translate-x-0.5 transition-transform" />
                     </div>
 
@@ -1336,6 +1586,34 @@
         </div>
       </template>
     </el-dialog>
+
+    <Teleport to="body">
+      <div
+        v-if="layerMenu"
+        ref="layerMenuRef"
+        class="wf-layer-menu fixed z-[80] min-w-[220px] py-1 rounded-lg bg-[#2c2c2c] text-white shadow-[0_8px_24px_rgba(0,0,0,0.28)] border border-white/10 select-none"
+        :style="{ left: layerMenu.x + 'px', top: layerMenu.y + 'px' }"
+        @mousedown.stop
+        @contextmenu.prevent
+      >
+        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="!selectedDomLayerUids.length" @click="runLayerMenu('copy')">
+          <span>复制</span><span class="text-[11px] text-white/60">Ctrl+C</span>
+        </button>
+        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="!selectedDomLayerUids.length" @click="runLayerMenu('front')">
+          <span>置于顶层</span><span class="text-[11px] text-white/60">]</span>
+        </button>
+        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="!selectedDomLayerUids.length" @click="runLayerMenu('back')">
+          <span>置于底层</span><span class="text-[11px] text-white/60">[</span>
+        </button>
+        <div class="my-1 h-px bg-white/15"></div>
+        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="selectedDomLayerUids.length < 2" @click="runLayerMenu('group')">
+          <span>分组</span><span class="text-[11px] text-white/60">Ctrl+G</span>
+        </button>
+        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="!canUngroupSelection" @click="runLayerMenu('ungroup')">
+          <span>解组</span><span class="text-[11px] text-white/60">Ctrl+Shift+G</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1383,6 +1661,11 @@ import DesignInspector from '../components/DesignInspector.vue'
 import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
 import CommentPin from '../components/CommentPin.vue'
 import CommentPanel from '../components/CommentPanel.vue'
+import VectorSubToolbar, { type VectorSubToolType } from '../components/VectorSubToolbar.vue'
+import VectorDrawOverlay from '../components/VectorDrawOverlay.vue'
+import type { VectorPathData, VectorPoint } from '../utils/vectorEngine'
+import { scalePointsAndHandles } from '../utils/vectorEngine'
+import { findInteractionByDomUids, interactionDomUid, resolveNavigateElement } from '../utils/interactionHit'
 
 const activeDrawTool = ref<ActiveToolType>('select')
 const toolNames: Record<string, string> = {
@@ -1390,11 +1673,96 @@ const toolNames: Record<string, string> = {
   circle: '圆形/椭圆',
   container: '卡片容器',
   line: '水平分割线',
+  pen: '钢笔',
+  pencil: '铅笔',
   text: '纯文本',
   frame: '画板框架',
   comment: '评论图钉',
 }
 const currentToolName = computed(() => toolNames[activeDrawTool.value] || '组件')
+
+// ===== Figma 矢量绘制与编辑状态 =====
+const activeVectorSubTool = ref<VectorSubToolType>('pen')
+const isVectorClosed = ref(false)
+const activeVectorPageId = ref<number | null>(null)
+const isEditingVector = ref(false)
+const editingVectorUid = ref('')
+const editingVectorPath = ref<VectorPathData | null>(null)
+const editingVectorLeft = ref(0)
+const editingVectorTop = ref(0)
+const vectorOverlayRef = ref<InstanceType<typeof VectorDrawOverlay> | null>(null)
+const vectorHostKey = ref<string | null>(null)
+
+function vectorOverlayInst() {
+  return Array.isArray(vectorOverlayRef.value) ? vectorOverlayRef.value[0] : vectorOverlayRef.value
+}
+
+function preferredVectorHostKey(pageId: number) {
+  const list = blocks.value.filter((b) => b.pageId === pageId)
+  return list.find((b) => b.blockType === 'prototype')?.key || list[0]?.key || null
+}
+
+function canHostVectorDraw(b: CanvasBlock) {
+  if (b.blockType === 'prototype') return true
+  return b.blockType === 'design' && !!b.page.html_content
+}
+
+function boardLocalPos(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const s = view.value.k || 1
+  return {
+    x: Math.round(((e.clientX - rect.left) / s) * 10) / 10,
+    y: Math.round(((e.clientY - rect.top) / s) * 10) / 10,
+  }
+}
+
+function retargetVectorDraw(e: MouseEvent, b: CanvasBlock) {
+  const pos = boardLocalPos(e)
+  if (vectorOverlayInst()?.hasActivePoints?.()) {
+    showToast('请在当前这块画板上继续，或按 Enter 完成')
+    return
+  }
+  vectorHostKey.value = b.key
+  activeVectorPageId.value = b.page.id
+  let released = false
+  const onUp = () => {
+    released = true
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mouseup', onUp)
+  nextTick(() => {
+    vectorOverlayInst()?.externalPointerDown?.(pos)
+    if (released) vectorOverlayInst()?.externalPointerUp?.()
+  })
+}
+
+const isVectorMode = computed(() => {
+  return activeDrawTool.value === 'pen' || activeDrawTool.value === 'pencil' || isEditingVector.value
+})
+
+watch(
+  () => activeDrawTool.value,
+  (tool) => {
+    if (tool === 'pen') {
+      activeVectorSubTool.value = 'pen'
+      const pid = focusPageId.value ?? currentFocusPage.value?.id ?? pages.value[0]?.id ?? null
+      if (!activeVectorPageId.value) activeVectorPageId.value = pid
+      if (!vectorHostKey.value && activeVectorPageId.value) {
+        vectorHostKey.value = preferredVectorHostKey(activeVectorPageId.value)
+      }
+    } else if (tool === 'pencil') {
+      const pid = focusPageId.value ?? currentFocusPage.value?.id ?? pages.value[0]?.id ?? null
+      if (!activeVectorPageId.value) activeVectorPageId.value = pid
+      if (!vectorHostKey.value && activeVectorPageId.value) {
+        vectorHostKey.value = preferredVectorHostKey(activeVectorPageId.value)
+      }
+    } else if (!isEditingVector.value) {
+      activeVectorPageId.value = null
+      vectorHostKey.value = null
+    }
+  },
+)
 
 interface ShapeDrawState {
   tool: ActiveToolType
@@ -1427,7 +1795,7 @@ const activeFrameDraw = ref<FrameDrawState | null>(null)
 const comments = ref<CommentThread[]>([])
 const selectedThreadId = ref<number | null>(null)
 const currentCommentUser = ref(localStorage.getItem('wf_comment_author') || '我')
-const draftComment = ref<{ pageId: number; x: number; y: number; text: string } | null>(null)
+const draftComment = ref<{ blockKey: string; blockType?: string; pageId: number; x: number; y: number; text: string } | null>(null)
 const draftInputRef = ref<HTMLTextAreaElement | null>(null)
 
 const unresolvedCommentsCount = computed(() => {
@@ -1438,16 +1806,51 @@ function getPageComments(pageId: number) {
   return comments.value.filter((c) => c.pageId === pageId)
 }
 
+const canvasComments = computed(() => {
+  return comments.value.filter((c: any) => {
+    return c.pageId === 0 || c.blockKey === 'canvas' || (!c.pageId && !c.blockKey)
+  })
+})
+
+function getBlockComments(b: any) {
+  return comments.value.filter((c: any) => {
+    if (c.pageId === 0 || c.blockKey === 'canvas') return false
+    if (c.blockKey) {
+      return c.blockKey === b.key
+    }
+    if (b.blockType === 'design') {
+      return c.pageId === b.pageId && c.blockType === 'design'
+    } else {
+      return c.pageId === b.pageId && c.blockType !== 'design'
+    }
+  })
+}
+
 function getCommentIndex(threadId: number) {
   const idx = comments.value.findIndex((c) => c.id === threadId)
   return idx >= 0 ? idx + 1 : 1
+}
+
+function focusCanvasPoint(x: number, y: number) {
+  const { w, h } = viewportSize()
+  const v = view.value
+  const targetX = w / 2 - x * v.k
+  const targetY = h / 2 - y * v.k
+  animating.value = true
+  view.value = { ...v, x: targetX, y: targetY }
+  if (animTimer) clearTimeout(animTimer)
+  animTimer = setTimeout(() => (animating.value = false), 500)
 }
 
 function selectCommentThread(threadId: number) {
   selectedThreadId.value = threadId
   const thread = comments.value.find((c) => c.id === threadId)
   if (thread) {
-    focusPage(thread.pageId)
+    if (thread.pageId && thread.pageId > 0) {
+      focusPage(thread.pageId)
+    } else {
+      focusCanvasPoint(thread.x, thread.y)
+    }
   }
 }
 
@@ -1471,7 +1874,7 @@ async function loadComments() {
 
 async function submitDraftComment() {
   if (!draftComment.value || !draftComment.value.text.trim()) return
-  const { pageId, x, y, text } = draftComment.value
+  const { blockKey, blockType, pageId, x, y, text } = draftComment.value as any
   try {
     const thread = await projectApi.createComment(id, {
       pageId,
@@ -1480,6 +1883,8 @@ async function submitDraftComment() {
       author: currentCommentUser.value,
       content: text.trim(),
     })
+    ;(thread as any).blockKey = blockKey
+    ;(thread as any).blockType = blockType
     comments.value.push(thread)
     selectedThreadId.value = thread.id
     draftComment.value = null
@@ -1552,12 +1957,15 @@ function setWorkbenchMode(m: 'design' | 'interactive') {
       selectedNodeId.value = focusPageId.value || pages.value[0]?.id
     }
     ElMessage.info({
-      message: '已开启交互连线模式：拖拽画板边缘的 [+] 蓝色手柄到目标画板即可连线',
+      message: '移到组件上会出现蓝点，再移到蓝点上变成加号，按住拖到另一块画板即可连线',
       duration: 3500,
     })
   } else {
+    liveHotspot.value = null
+    flowHandleArmed.value = false
+    selectedConnIds.value = new Set()
     ElMessage.info({
-      message: '已返回需求走查模式',
+      message: '已切回 Design',
       duration: 2000,
     })
   }
@@ -1610,13 +2018,21 @@ function showLockedToast(page: Page) {
   showToast(`「${page.name}」正由 ${editor} 独占微调中，已开启防覆盖保护。您可以微调其他页面。`)
 }
 
-function onPageBlockClick(e: MouseEvent, b: { page: Page; x: number; y: number }) {
+function onPageBlockClick(e: MouseEvent, b: any) {
   if (suppressBlockClick) return
+  if (activeDrawTool.value === 'hand') return
   if (activeDrawTool.value === 'frame') {
     const blockW = (b.page.canvas_width || 375) + 16
     const nextX = b.x + blockW + 120
     const nextY = b.y
     handleCreateFrameOnCanvas(nextX, nextY)
+    return
+  }
+  if (activeDrawTool.value === 'pen' || activeDrawTool.value === 'pencil') {
+    if (b.blockType === 'prototype') {
+      activeVectorPageId.value = b.page.id
+      focusPageId.value = b.page.id
+    }
     return
   }
   if (activeDrawTool.value !== 'select') {
@@ -1627,10 +2043,33 @@ function onPageBlockClick(e: MouseEvent, b: { page: Page; x: number; y: number }
     if (p) showLockedToast(p)
     return
   }
-  selectedNodeId.value = b.page.id
-  selectedConnId.value = null
+
+  if (e.shiftKey) {
+    const next = new Set(selectedBlockKeys.value)
+    if (next.has(b.key)) {
+      next.delete(b.key)
+      if (selectedNodeKey.value === b.key) {
+        selectedNodeKey.value = Array.from(next)[0] || null
+      }
+    } else {
+      next.add(b.key)
+      selectedNodeKey.value = b.key
+      selectedNodeId.value = b.page.id
+    }
+    selectedBlockKeys.value = next
+  } else {
+    selectedBlockKeys.value = new Set([b.key])
+    selectedNodeId.value = b.page.id
+    selectedNodeKey.value = b.key || null
+  }
+
+  selectedConnIds.value = new Set()
   selectedElementId.value = null
+  activeSelectedElementInfo.value = null
+  selectedDomLayerUid.value = null
+  selectedDomLayerUids.value = []
   focusPageId.value = b.page.id
+  showFrameFill(b.page.id)
 }
 
 function onSaveHtml(p: { pageId: number; html: string }) {
@@ -1696,6 +2135,25 @@ function onViewportDragOver(e: DragEvent) {
   hoveredDropBlockId.value = targetId
 }
 
+/** 组件左上角跟着鼠标时，335 宽的卡片会有一半伸出 375 的画框。改成以落点为中心，并整块留在画框内。 */
+function fitDropInFrame(x: number, y: number, html: string, canvasW: number, canvasH: number) {
+  const open = html.trim().match(/^<[\w-]+[^>]*\bstyle="([^"]*)"/i)
+  const style = open?.[1] || ''
+  const px = (prop: string) => {
+    const m = style.match(new RegExp('(?:^|;)\\s*' + prop + '\\s*:\\s*(\\d+(?:\\.\\d+)?)px', 'i'))
+    return m ? Number(m[1]) : 0
+  }
+  const w = px('width')
+  const h = px('height')
+  let left = w > 0 ? x - w / 2 : x
+  let top = h > 0 ? y - h / 2 : y
+  if (w > 0) left = Math.min(Math.max(0, left), Math.max(0, canvasW - w))
+  else left = Math.min(Math.max(0, left), canvasW)
+  if (h > 0) top = Math.min(Math.max(0, top), Math.max(0, canvasH - h))
+  else top = Math.min(Math.max(0, top), canvasH)
+  return { x: Math.round(left), y: Math.round(top) }
+}
+
 function onViewportDrop(e: DragEvent) {
   if (!isDraggingComponent.value && !(window as any).__wfDraggingComponent) return
   e.preventDefault()
@@ -1712,23 +2170,15 @@ function onViewportDrop(e: DragEvent) {
   hoveredDropBlockId.value = null
 
   if (targetId && html) {
-    const block = blocks.value.find((b) => b.page.id === targetId)
-    let dropX = 20
-    let dropY = 220
-    if (block && viewportRef.value) {
-      const rect = viewportRef.value.getBoundingClientRect()
-      const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
-      const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
-      const blockRelX = logicX - block.x
-      const blockRelY = logicY - block.y
-      const canvasW = block.page.canvas_width || 375
-      const wireX = canvasW + 16
-      const rawX = blockRelX >= wireX ? (blockRelX - wireX) : blockRelX
-      const rawY = blockRelY
-      dropX = Math.round(Math.max(16, Math.min(canvasW - 60, rawX)))
-      dropY = Math.round(Math.max(60, Math.min((block.page.canvas_height || 812) - 80, rawY)))
-    }
-    insertComponentIntoPage(targetId, item || html, dropX, dropY)
+    const rect = viewportRef.value?.getBoundingClientRect()
+    const logicX = rect ? (e.clientX - rect.left - view.value.x) / view.value.k : 0
+    const logicY = rect ? (e.clientY - rect.top - view.value.y) / view.value.k : 0
+    const block = blockAtCanvasPoint(logicX, logicY) || blocks.value.find((b) => b.page.id === targetId)
+    const point = block ? artboardPointInBlock(e, block) : { x: 20, y: 220 }
+    const canvasW = block?.page.canvas_width || 375
+    const canvasH = block?.page.canvas_height || 812
+    const { x: dropX, y: dropY } = fitDropInFrame(point.x, point.y, html, canvasW, canvasH)
+    insertComponentIntoPage(targetId, item || html, dropX, dropY, false, true)
   }
 }
 
@@ -1748,7 +2198,37 @@ function onDropZoneDragLeave(e: DragEvent, pageId: number) {
   }
 }
 
-function onDropZoneDrop(e: DragEvent, pageId: number) {
+function blockAtCanvasPoint(logicX: number, logicY: number) {
+  let hit: CanvasBlock | null = null
+  for (const b of blocks.value) {
+    if (logicX >= b.x && logicX <= b.x + b.w && logicY >= b.y && logicY <= b.y + b.h) hit = b
+  }
+  return hit
+}
+
+/** 鼠标在这块画框里的位置。一块画框就是一屏，不再按「左边设计稿 + 右边原型」去减一段宽度。 */
+function artboardPointInBlock(e: DragEvent, block: CanvasBlock, host?: HTMLElement | null) {
+  const canvasW = block.page.canvas_width || 375
+  const canvasH = block.page.canvas_height || 812
+  let rawX = 0
+  let rawY = 0
+  const k = view.value.k || 1
+  if (host) {
+    const r = host.getBoundingClientRect()
+    rawX = (e.clientX - r.left) / k
+    rawY = (e.clientY - r.top) / k
+  } else if (viewportRef.value) {
+    const rect = viewportRef.value.getBoundingClientRect()
+    rawX = (e.clientX - rect.left - view.value.x) / k - block.x
+    rawY = (e.clientY - rect.top - view.value.y) / k - block.y
+  }
+  return {
+    x: Math.round(Math.max(0, Math.min(canvasW, rawX))),
+    y: Math.round(Math.max(0, Math.min(canvasH, rawY))),
+  }
+}
+
+function onDropZoneDrop(e: DragEvent, block: CanvasBlock) {
   e.preventDefault()
   e.stopPropagation()
   hoveredDropBlockId.value = null
@@ -1764,25 +2244,16 @@ function onDropZoneDrop(e: DragEvent, pageId: number) {
   const item = (window as any).__wfDraggingComponent
   if (!html) return
 
-  const block = blocks.value.find((b) => b.page.id === pageId)
-  let dropX = 20
-  let dropY = 220
-
-  if (block && viewportRef.value) {
-    const rect = viewportRef.value.getBoundingClientRect()
-    const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
-    const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
-    const blockRelX = logicX - block.x
-    const blockRelY = logicY - block.y
-    const canvasW = block.page.canvas_width || 375
-    const wireX = canvasW + 16
-    const rawX = blockRelX >= wireX ? (blockRelX - wireX) : blockRelX
-    const rawY = blockRelY
-    dropX = Math.round(Math.max(16, Math.min(canvasW - 60, rawX)))
-    dropY = Math.round(Math.max(60, Math.min((block.page.canvas_height || 812) - 80, rawY)))
-  }
-
-  insertComponentIntoPage(pageId, item || html, dropX, dropY)
+  const host = e.currentTarget as HTMLElement | null
+  const point = artboardPointInBlock(e, block, host)
+  const { x: dropX, y: dropY } = fitDropInFrame(
+    point.x,
+    point.y,
+    html,
+    block.page.canvas_width || 375,
+    block.page.canvas_height || 812,
+  )
+  insertComponentIntoPage(block.page.id, item || html, dropX, dropY, false, true)
 }
 
 function onPaletteAddComponent(item: PaletteItem) {
@@ -1794,7 +2265,7 @@ function onPaletteAddComponent(item: PaletteItem) {
   insertComponentIntoPage(targetId, item, 20, 220)
 }
 
-function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dropY = 220, autoEditText = false) {
+function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dropY = 220, autoEditText = false, fitInside = false) {
   const page = pages.value.find((p) => p.id === pageId)
   if (!page) return
   const htmlSnippet = typeof itemOrHtml === 'string' ? itemOrHtml : (itemOrHtml?.html || '')
@@ -1809,7 +2280,7 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   // 1. 优先通过 PageCanvas 实例向运行中的 iframe 注入并自动触发持久化
   const inst = pageRefs.value[pageId]
   if (inst && typeof (inst as any).insertComponent === 'function') {
-    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY, autoEditText)
+    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY, autoEditText, fitInside)
     showToast(`已将「${itemName}」添加至「${page.name}」(${dropX}, ${dropY})`)
     return
   }
@@ -1832,8 +2303,15 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
 
 // Figma 自由拖拽绘制组件 (Drag-to-Draw / Click-to-Place)
 function onArtboardDrawMouseDown(e: MouseEvent, b: { page: Page; x: number; y: number }) {
-  if (e.button !== 0) return
+  if (e.button !== 0 && e.button !== 1) return
   if (activeDrawTool.value === 'select') return
+  // 抓手只平移画布。若走绘制收尾，会记成一次 0×0 的空绘制并弹「已绘制」
+  if (activeDrawTool.value === 'hand') {
+    e.preventDefault()
+    e.stopPropagation()
+    startCanvasPan(e)
+    return
+  }
   e.preventDefault()
   e.stopPropagation()
 
@@ -1847,6 +2325,8 @@ function onArtboardDrawMouseDown(e: MouseEvent, b: { page: Page; x: number; y: n
   if (activeDrawTool.value === 'comment') {
     selectedThreadId.value = null
     draftComment.value = {
+      blockKey: (b as any).key || `page-${b.page.id}`,
+      blockType: (b as any).blockType || 'prototype',
       pageId: b.page.id,
       x: Math.round(blockRelX),
       y: Math.round(blockRelY),
@@ -1909,8 +2389,8 @@ function onArtboardDrawMouseMove(e: MouseEvent) {
   let w = Math.abs(curX - s.startX)
   let h = Math.abs(curY - s.startY)
 
-  // Shift 键或圆形工具强制等比约束 (正方形 / 正圆)
-  if (e.shiftKey || s.tool === 'circle') {
+  // 仅按住 Shift 时强制等比约束（正方形 / 正圆）；圆形工具默认可拖出扁椭圆
+  if (e.shiftKey) {
     const maxSide = Math.max(w, h)
     w = maxSide
     h = maxSide
@@ -1958,10 +2438,31 @@ function onArtboardDrawMouseUp(e: MouseEvent) {
     targetName = '纯圆形/椭圆 (O)'
     if (isClick) { w = 80; h = 80; }
     targetSnippet = `<div class="wf-shape wf-shape-circle" style="width: ${w}px; height: ${h}px; background: #e2e8f0; border: 1.5px solid #94a3b8; border-radius: 50%; box-sizing: border-box;"></div>`
-  } else if (tool === 'line') {
-    targetName = '水平分割线 (L)'
-    if (isClick) { w = 240; h = 2; }
-    targetSnippet = `<div class="wf-shape wf-shape-line" style="width: ${w}px; height: ${Math.max(2, h)}px; background: #94a3b8; box-sizing: border-box;"></div>`
+  } else if (tool === 'line' || (tool as string) === 'pen') {
+    const isPen = (tool as string) === 'pen'
+    targetName = isPen ? '钢笔 (P)' : '直线 (L)'
+    const shapeClass = isPen ? 'wf-shape wf-shape-line wf-shape-pen' : 'wf-shape wf-shape-line'
+    if (isClick) {
+      if (isPen) {
+        w = 48
+        h = 48
+        targetSnippet = `<svg class="${shapeClass}" width="48" height="48" style="display:block;overflow:visible;box-sizing:border-box;" xmlns="http://www.w3.org/2000/svg"><line x1="4" y1="44" x2="44" y2="4" stroke="#334155" stroke-width="2" stroke-linecap="round"/></svg>`
+      } else {
+        w = 160
+        h = 2
+        targetSnippet = `<svg class="${shapeClass}" width="160" height="2" style="display:block;overflow:visible;box-sizing:border-box;" xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="1" x2="160" y2="1" stroke="#334155" stroke-width="2" stroke-linecap="round"/></svg>`
+      }
+    } else {
+      const svgW = Math.max(w, 2)
+      const svgH = Math.max(h, 2)
+      w = svgW
+      h = svgH
+      const x1 = Math.round(s.startX - left)
+      const y1 = Math.round(s.startY - top)
+      const x2 = Math.round(s.curX - left)
+      const y2 = Math.round(s.curY - top)
+      targetSnippet = `<svg class="${shapeClass}" width="${svgW}" height="${svgH}" style="display:block;overflow:visible;box-sizing:border-box;" xmlns="http://www.w3.org/2000/svg"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#334155" stroke-width="2" stroke-linecap="round"/></svg>`
+    }
   } else if (tool === 'container') {
     targetName = '空白容器卡片 (Box)'
     if (isClick) { w = 320; h = 160; }
@@ -1979,6 +2480,8 @@ function onArtboardDrawMouseUp(e: MouseEvent) {
     activeDrawTool.value = 'select'
     return
   }
+
+  if (!targetSnippet) return
 
   insertComponentIntoPage(b.page.id, { name: targetName, html: targetSnippet }, left, top, isText)
 
@@ -2059,6 +2562,10 @@ function createHtmlSnippetForElement(el: any): string {
 }
 
 // ===== Figma Frame 画板创建与画布落盘核心体系 =====
+function createFirstBlankFrame() {
+  doCreatePage({ name: '画板 1', width: 375, height: 812, x: 56, y: 64 })
+}
+
 async function doCreatePage(params: { name: string; width: number; height: number; x: number; y: number; htmlContent?: string }) {
   try {
     const defaultHtml = `<!DOCTYPE html>
@@ -2143,6 +2650,102 @@ async function handleCreateFrameOnCanvas(logicX: number, logicY: number, preset?
   activeDrawTool.value = 'select'
 }
 
+async function confirmBatchDeleteBlocks() {
+  if (selectedBlockKeys.value.size === 0) return
+  const count = selectedBlockKeys.value.size
+  try {
+    await ElMessageBox.confirm(
+      `确定要批量删除已选中的 ${count} 个画板吗？此操作无法撤销。`,
+      '批量删除画板确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+        type: 'warning',
+      }
+    )
+
+    const blocksToDelete = blocks.value.filter((b) => selectedBlockKeys.value.has(b.key))
+    const pageIds = Array.from(new Set(blocksToDelete.map((b) => b.pageId)))
+
+    for (const pid of pageIds) {
+      const pageBlocks = blocks.value.filter((b) => b.pageId === pid)
+      const selectedForThisPage = blocksToDelete.filter((b) => b.pageId === pid)
+
+      if (selectedForThisPage.length >= pageBlocks.length) {
+        // 该页所有画板均被选中，直接删除整页
+        await projectApi.deletePage(id, pid).catch(() => {})
+        if (pageOverrides.value[pid]) delete pageOverrides.value[pid]
+      } else {
+        // 仅选中成对画板中的一个
+        for (const sb of selectedForThisPage) {
+          if (sb.blockType === 'design') {
+            await projectApi.createElement(id, pid, { action: 'clear_bg' }).catch(() => {})
+            sb.page.background_image = ''
+          } else if (sb.blockType === 'prototype') {
+            await projectApi.saveHtml(id, pid, '').catch(() => {})
+            sb.page.html_content = null
+          }
+        }
+      }
+      selectedForThisPage.forEach((sb) => {
+        delete pageOverrides.value[sb.key]
+      })
+    }
+
+    selectedBlockKeys.value = new Set()
+    selectedNodeId.value = null
+    selectedNodeKey.value = null
+    showToast(`已成功删除选中的 ${count} 个画板`)
+    await loadData()
+  } catch (err) {
+    // 用户取消
+  }
+}
+
+async function confirmDeleteBlock(b: CanvasBlock) {
+  try {
+    if (b.blockType === 'design') {
+      await ElMessageBox.confirm(
+        `确定要删除设计稿画板「${b.title}」吗？右侧的原型图将完整保留。`,
+        '删除设计稿确认',
+        { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+      )
+      // 如果该页有原型，只清空设计稿背景图，保留该页及原型
+      if (b.page.html_content) {
+        // 更新数据库背景图为空
+        await projectApi.createElement(id, b.pageId, { action: 'clear_bg' }).catch(() => {})
+        // 前端置空
+        b.page.background_image = ''
+        showToast(`已删除设计稿「${b.title}」，原型图已保留`)
+      } else {
+        // 纯设计稿无原型，直接删除该画板
+        await projectApi.deletePage(id, b.pageId)
+        showToast(`已删除画板「${b.title}」`)
+      }
+    } else {
+      await ElMessageBox.confirm(
+        `确定要删除原型图画板「${b.title}」吗？左侧的设计稿将完整保留。`,
+        '删除原型图确认',
+        { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+      )
+      // 如果该页有设计稿，只清空原型内容，保留设计稿
+      if (b.page.background_image) {
+        await projectApi.saveHtml(id, b.pageId, '')
+        b.page.html_content = null
+        showToast(`已删除原型图「${b.title}」，设计稿已保留`)
+      } else {
+        // 纯原型画框（如新建空白画框），直接删除画板
+        await projectApi.deletePage(id, b.pageId)
+        showToast(`已删除画板「${b.title}」`)
+      }
+    }
+    await loadData()
+  } catch (err) {
+    // 用户点击取消
+  }
+}
+
 async function confirmDeletePage(page: Page) {
   try {
     await ElMessageBox.confirm(
@@ -2179,10 +2782,12 @@ async function confirmDeletePage(page: Page) {
 }
 
 function handleBottomToolChange(tool: string) {
-  if (['select', 'frame', 'rect', 'circle', 'container', 'line', 'text'].includes(tool)) {
+  if (['select', 'frame', 'rect', 'circle', 'container', 'line', 'pen', 'pencil', 'text'].includes(tool)) {
     activeDrawTool.value = tool as ActiveToolType
     if (tool === 'frame') {
       showToast('已激活「画板框架 (F)」工具：点击画布任意空白处即可生成新画板，或按 Esc 取消')
+    } else if (tool === 'pencil') {
+      showToast('已激活「铅笔 (Shift+P)」手绘涂鸦工具：按住鼠标拖拽手绘自由线条')
     } else if (tool !== 'select') {
       showToast(`已激活「${toolNames[tool] || tool}」绘制工具：点击画板任意位置放置，按 Esc 键取消`)
     }
@@ -2240,6 +2845,45 @@ function toggleRegenAll() {
     regenable.forEach((id) => regenChecked.value.add(id))
   }
   regenChecked.value = new Set(regenChecked.value)
+}
+
+async function onGeneratePrototypeForDesign(b: { page: Page; x: number; y: number }) {
+  const pageId = b.page.id
+  if (regeneratingIds.value.has(pageId)) return
+  regeneratingIds.value.add(pageId)
+  showToast(`正在为「${b.page.name}」生成独立原型图...`)
+  try {
+    const html = await projectApi.regenerateHtml(id, pageId)
+    const pWidth = b.page.canvas_width || 375
+    const pHeight = b.page.canvas_height || 812
+    // 在设计稿画框右侧 60px 处紧靠放置
+    const newX = b.x + pWidth + 60
+    const newY = b.y
+
+    const newPage = await projectApi.createPage(id, {
+      name: `${b.page.name} 原型`,
+      width: pWidth,
+      height: pHeight,
+      x: newX,
+      y: newY,
+      htmlContent: html,
+    })
+
+    showToast(`已成功为「${b.page.name}」在右侧生成独立原型画框！`)
+    await loadData()
+    if (newPage && newPage.id) {
+      focusPageId.value = newPage.id
+      selectedNodeId.value = newPage.id
+      nextTick(() => {
+        focusPage(newPage.id)
+      })
+    }
+  } catch (e: any) {
+    ElMessage.error(`生成原型图失败: ${e?.message || '未知错误'}`)
+  } finally {
+    regeneratingIds.value.delete(pageId)
+    regeneratingIds.value = new Set(regeneratingIds.value)
+  }
 }
 
 async function onRegenerateHtml(pageId: number) {
@@ -2338,6 +2982,28 @@ async function onReanalyzeChecked() {
   }
 }
 const backStack = ref<number[]>([])
+
+function onPreviewHotspotClick(pos?: { x: number; y: number; uids?: string[] }) {
+  if (!pos || !previewPage.value) return
+  const hit = resolveNavigateElement(previewPage.value, pos.x, pos.y, pos.uids)
+  const targetId = hit?.interaction?.target_page_id
+  if (!targetId) return
+  const name = pages.value.find((p) => p.id === targetId)?.name
+  if (name) onProtoNavigate(name)
+}
+
+function clearStampedNav(params?: string | null, pageId?: number) {
+  if (!params || !pageId) return
+  try {
+    const parsed = JSON.parse(params)
+    if (parsed?.domUid) {
+      pageRefs.value[pageId]?.stampElementNav?.(String(parsed.domUid), null)
+    }
+  } catch {
+    /* 旧连线没有记下组件，删连线时不用改页面 */
+  }
+}
+
 function onProtoBack() {
   clearSpotlightInIframe()
   const prev = backStack.value.pop()
@@ -2366,7 +3032,16 @@ function findTargetPage(pageKey: string, fromPageId?: number | null): Page | nul
     if (byId) return byId
   }
 
-  // 2. 若有来源页面上下文，优先寻找当前页具有对应交互行为的目标页面
+  // 2. 页面全名精准匹配。自己连的线会带上页面名或页面编号，必须先于“按钮文案碰巧同名”的猜测。
+  const exact = pages.value.find((p) => p.name.trim() === rawKey)
+  if (exact) return exact
+
+  const norm = (s: string) => s.replace(/[（\(].*?[）\)]/g, '').replace(/[_\-\s]/g, '').trim()
+  const normKey = norm(rawKey)
+  const normMatch = pages.value.find((p) => norm(p.name) === normKey)
+  if (normMatch) return normMatch
+
+  // 3. 文案不是页面名时，再看来源页上有没有同名按钮的连线
   if (fromPageId) {
     const fromPage = pages.value.find((p) => p.id === fromPageId)
     if (fromPage) {
@@ -2382,13 +3057,7 @@ function findTargetPage(pageKey: string, fromPageId?: number | null): Page | nul
     }
   }
 
-  // 3. 页面全名精准匹配
-  const exact = pages.value.find((p) => p.name.trim() === rawKey)
-  if (exact) return exact
-
   // 4. 常见语义模糊归一化处理（彻底修复“我的”跳错、“家园”跳错问题）
-  const norm = (s: string) => s.replace(/[（\(].*?[）\)]/g, '').replace(/[_\-\s]/g, '').trim()
-  const normKey = norm(rawKey)
 
   if (normKey === '我的') {
     const myLogged = pages.value.find((p) => p.name.includes('我的') && p.name.includes('已登录'))
@@ -2405,9 +3074,6 @@ function findTargetPage(pageKey: string, fromPageId?: number | null): Page | nul
     if (coll) return coll
   }
 
-  const normMatch = pages.value.find((p) => norm(p.name) === normKey)
-  if (normMatch) return normMatch
-
   // 5. 前缀与包含匹配
   const startsWith = pages.value.find((p) => p.name.trim().startsWith(rawKey))
   if (startsWith) return startsWith
@@ -2422,12 +3088,17 @@ function findTargetPage(pageKey: string, fromPageId?: number | null): Page | nul
 }
 
 // ===== 整页 HTML 内的跨页跳转：点击 data-nav 元素 → 切换到目标页原型 =====
-function onProtoNavigate(pageName: string) {
+function onProtoNavigate(pageName: string, uids?: string[]) {
   clearSpotlightInIframe()
   const current = mode.value === 'preview' ? previewPageId.value : focusPageId.value ?? null
+  const fromPage = current != null ? pages.value.find((p) => p.id === current) : null
+  const byUid = findInteractionByDomUids(fromPage, uids)
   if (current != null) backStack.value.push(current)
 
-  const target = findTargetPage(pageName, current)
+  const uidTargetId = byUid?.interaction?.target_page_id
+  const target = uidTargetId
+    ? pages.value.find((p) => p.id === uidTargetId) || null
+    : findTargetPage(pageName, current)
   if (!target) {
     showToast(`未找到页面「${pageName}」`)
     return
@@ -2457,45 +3128,213 @@ const viewportRef = ref<HTMLElement | null>(null)
 // ===== 页面区块布局 =====
 const pageRefs = ref<Record<number, InstanceType<typeof PageCanvas> | null>>({})
 
-function setPageRef(pageId: number, el: InstanceType<typeof PageCanvas> | null) {
+function setPageRef(pageId: number, el: InstanceType<typeof PageCanvas> | null, blockType?: 'design' | 'prototype') {
+  if (!el) return
+  // 同一页会同时挂设计稿和原型两个画板。属性修改必须打到带 iframe 的原型，不能被设计稿覆盖。
+  if (blockType === 'design' && pageRefs.value[pageId]) return
   pageRefs.value[pageId] = el
 }
 
-const fallbackW = computed(() => (showAnnotations.value ? 980 : 766))
+/** 仅向当前焦点页的单个 iframe 发送撤销/重做，避免 querySelectorAll 广播所有画板 */
+function postUndoRedoToFocusPage(pageId: number, type: 'wf-undo' | 'wf-redo') {
+  const inst = pageRefs.value[pageId] as any
+  const root = inst?.$el as HTMLElement | undefined
+  let iframe: HTMLIFrameElement | null = null
+  if (root) {
+    if (root.tagName === 'IFRAME') {
+      iframe = root as HTMLIFrameElement
+    } else {
+      iframe = root.querySelector?.('iframe.html-frame') as HTMLIFrameElement | null
+    }
+  }
+  if (!iframe) {
+    const block = document.querySelector(`.page-block[data-page-id="${pageId}"] iframe.html-frame`) as HTMLIFrameElement | null
+    iframe = block
+  }
+  iframe?.contentWindow?.postMessage({ type }, '*')
+}
+
+const fallbackW = computed(() => (showAnnotations.value ? 620 : 375))
 const fallbackH = 1000
 
-const pageOverrides = ref<Record<number, { x: number; y: number }>>({})
+const pageOverrides = ref<Record<string | number, { x: number; y: number }>>({})
 
-const blocks = computed(() => {
-  // 依赖跟踪：当标注面板显隐或线框图显隐切换时，重新排版各画板位置
-  const _ann = showAnnotations.value
-  const _wire = showWireframe.value
-  const list: { page: Page; x: number; y: number; w: number; h: number }[] = []
-  const perRow = 10
-  const gapX = 120
+export interface CanvasBlock {
+  key: string
+  id: string
+  pageId: number
+  blockType: 'design' | 'prototype'
+  title: string
+  page: Page
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** 说明面板开着时，画框右侧要留出的空档（面板宽约 240，再加一点缝） */
+const ANN_CLEAR = 300
+
+function blockShowsAnnotations(b: { blockType: 'design' | 'prototype'; page: Page }) {
+  if (!showAnnotations.value || !b.page.annotations?.length) return false
+  // 左右两块都在时，说明只挂在左边设计稿上，避免和右边原型各画一套
+  if (b.blockType === 'prototype' && b.page.background_image) return false
+  return true
+}
+
+const blocks = computed<CanvasBlock[]>(() => {
+  const list: CanvasBlock[] = []
+  const pairGap = 40 // 设计稿与原型图左右紧靠间距
+  const groupGapX = 120 // 组与组之间的横向间距
   const gapY = 160
-  let x = 56
-  let y = 64
+  let curX = 56
+  let curY = 64
   let col = 0
-  let rowMaxH = 0
+  const perRow = 4
+
   pages.value.forEach((p) => {
-    const inst = pageRefs.value[p.id]
-    const w = inst?.stageW ?? fallbackW.value
-    const h = inst?.stageH ?? fallbackH
-    if (col >= perRow) {
-      y += rowMaxH + gapY
-      x = 56
-      col = 0
-      rowMaxH = 0
+    const pageW = p.canvas_width || 375
+    const pageH = p.canvas_height || 812
+
+    const hasDesign = !!p.background_image
+    const hasProto = !!p.html_content || !p.background_image
+
+    if (hasDesign && hasProto) {
+      // 核心解耦：既有设计稿又有原型图的页面，拆分成两个完全独立的单画框左右并列摆放
+      const designKey = `design-${p.id}`
+      const protoKey = `proto-${p.id}`
+
+      const designOv = pageOverrides.value[designKey] || (pageOverrides.value[p.id] ? { x: pageOverrides.value[p.id].x, y: pageOverrides.value[p.id].y } : null)
+      const protoOv = pageOverrides.value[protoKey]
+
+      const dx = designOv ? designOv.x : curX
+      const dy = designOv ? designOv.y : curY
+
+      // 说明打开时，把右侧原型推到说明面板外面，避免盖住说明
+      const lane = blockShowsAnnotations({ blockType: 'design', page: p }) ? ANN_CLEAR : pairGap
+      const storedPx = protoOv ? protoOv.x : (dx + pageW + pairGap)
+      const py = protoOv ? protoOv.y : dy
+      const minPx = dx + pageW + lane
+      const beside = Math.abs(py - dy) < pageH * 0.75
+      const px = lane > pairGap && beside && storedPx < minPx ? minPx : storedPx
+
+      list.push({
+        key: designKey,
+        id: designKey,
+        pageId: p.id,
+        blockType: 'design',
+        title: `${p.name} - 设计稿`,
+        page: p,
+        x: dx,
+        y: dy,
+        w: pageW,
+        h: pageH,
+      })
+
+      list.push({
+        key: protoKey,
+        id: protoKey,
+        pageId: p.id,
+        blockType: 'prototype',
+        title: `${p.name} - 原型图`,
+        page: p,
+        x: px,
+        y: py,
+        w: pageW,
+        h: pageH,
+      })
+
+      const annShift = Math.max(0, px - storedPx)
+      curX += pageW * 2 + pairGap + annShift + groupGapX
+    } else if (hasDesign) {
+      // 只有设计稿的画框
+      const designKey = `design-${p.id}`
+      const ov = pageOverrides.value[designKey] || pageOverrides.value[p.id]
+      list.push({
+        key: designKey,
+        id: designKey,
+        pageId: p.id,
+        blockType: 'design',
+        title: `${p.name} - 设计稿`,
+        page: p,
+        x: ov ? ov.x : curX,
+        y: ov ? ov.y : curY,
+        w: pageW,
+        h: pageH,
+      })
+      curX += pageW + groupGapX + (blockShowsAnnotations({ blockType: 'design', page: p }) ? Math.max(0, ANN_CLEAR - groupGapX) : 0)
+    } else {
+      // 纯原型图或新建的空白画框
+      const protoKey = `proto-${p.id}`
+      const ov = pageOverrides.value[protoKey] || pageOverrides.value[p.id]
+      list.push({
+        key: protoKey,
+        id: protoKey,
+        pageId: p.id,
+        blockType: 'prototype',
+        title: p.name,
+        page: p,
+        x: ov ? ov.x : curX,
+        y: ov ? ov.y : curY,
+        w: pageW,
+        h: pageH,
+      })
+      curX += pageW + groupGapX + (blockShowsAnnotations({ blockType: 'prototype', page: p }) ? Math.max(0, ANN_CLEAR - groupGapX) : 0)
     }
-    const defX = x
-    const defY = y
-    x += w + gapX
+
     col++
-    rowMaxH = Math.max(rowMaxH, h)
-    const ov = pageOverrides.value[p.id]
-    list.push({ page: p, x: ov ? ov.x : defX, y: ov ? ov.y : defY, w, h })
+    if (col >= perRow) {
+      curX = 56
+      curY += pageH + gapY
+      col = 0
+    }
   })
+
+  // 说明打开后，按整组右边缘往后让：后面的设计稿排到「说明 + 原型」外面，避免原型跨到下一张设计稿上
+  if (showAnnotations.value) {
+    const sameRow = (a: CanvasBlock, b: CanvasBlock) =>
+      a.y < b.y + b.h - 8 && b.y < a.y + a.h - 8
+    for (let pass = 0; pass < list.length + 2; pass++) {
+      let moved = false
+      for (const host of list) {
+        if (!blockShowsAnnotations(host)) continue
+        let reservedR = host.x + host.w + ANN_CLEAR
+        if (host.blockType === 'design') {
+          const ownProto = list.find((b) => b.key === `proto-${host.pageId}`)
+          if (ownProto && sameRow(host, ownProto) && ownProto.x >= host.x) {
+            reservedR = Math.max(reservedR, ownProto.x + ownProto.w)
+          }
+        }
+        const followers = list
+          .filter((other) => other.pageId !== host.pageId && sameRow(host, other) && other.x >= host.x + host.w * 0.4)
+          .sort((a, b) => a.x - b.x || a.y - b.y)
+        let cursor = reservedR + groupGapX
+        const placed = new Set<number>()
+        for (const other of followers) {
+          if (placed.has(other.pageId)) continue
+          if (other.blockType === 'prototype') {
+            const design = list.find((b) => b.key === `design-${other.pageId}`)
+            if (design && sameRow(host, design)) continue
+          }
+          if (other.x < cursor - 0.5) {
+            const shift = cursor - other.x
+            other.x += shift
+            if (other.blockType === 'design') {
+              const proto = list.find((b) => b.key === `proto-${other.pageId}`)
+              if (proto) proto.x += shift
+            }
+            moved = true
+          }
+          const proto = other.blockType === 'design' ? list.find((b) => b.key === `proto-${other.pageId}`) : null
+          const groupR = proto && proto.x >= other.x ? proto.x + proto.w : other.x + other.w
+          cursor = Math.max(cursor, groupR + groupGapX)
+          placed.add(other.pageId)
+        }
+      }
+      if (!moved) break
+    }
+  }
+
   return list
 })
 
@@ -2508,6 +3347,106 @@ interface AnchorItem {
   label: string
   x: number
   y: number
+  box?: { x: number; y: number; w: number; h: number }
+  domUid?: string
+}
+
+interface LiveHotspot {
+  blockKey: string
+  pageId: number
+  x: number
+  y: number
+  w: number
+  h: number
+  label: string
+  uid: string
+}
+
+const liveHotspot = ref<LiveHotspot | null>(null)
+const flowHandleArmed = ref(false)
+const flowHandleKey = ref<string | null>(null)
+let hotspotClearTimer: number | null = null
+
+function onPrototypeHotspot(b: { key: string; page: { id: number } }, payload: { x: number; y: number; w: number; h: number; label: string; uid: string }) {
+  if (workbenchMode.value !== 'interactive' || isDraggingConnection.value) return
+  if (!payload || payload.w < 8 || payload.h < 8) return
+  if (hotspotClearTimer) {
+    clearTimeout(hotspotClearTimer)
+    hotspotClearTimer = null
+  }
+  const same = liveHotspot.value
+    && liveHotspot.value.blockKey === b.key
+    && liveHotspot.value.uid === payload.uid
+    && liveHotspot.value.x === payload.x
+    && liveHotspot.value.y === payload.y
+  if (same) return
+  liveHotspot.value = {
+    blockKey: b.key,
+    pageId: b.page.id,
+    x: payload.x,
+    y: payload.y,
+    w: payload.w,
+    h: payload.h,
+    label: payload.label,
+    uid: payload.uid,
+  }
+}
+
+function onPrototypeHotspotClear(blockKey: string) {
+  if (liveHotspot.value?.blockKey !== blockKey) return
+  if (flowHandleArmed.value || isDraggingConnection.value) return
+  if (hotspotClearTimer) return
+  hotspotClearTimer = window.setTimeout(() => {
+    hotspotClearTimer = null
+    if (flowHandleArmed.value || isDraggingConnection.value) return
+    if (liveHotspot.value?.blockKey === blockKey) liveHotspot.value = null
+  }, 180)
+}
+
+function onFlowHandleEnter() {
+  flowHandleArmed.value = true
+  if (hotspotClearTimer) {
+    clearTimeout(hotspotClearTimer)
+    hotspotClearTimer = null
+  }
+}
+
+function onFlowHandleLeave() {
+  if (isDraggingConnection.value) return
+  flowHandleArmed.value = false
+  if (!liveHotspot.value) return
+  const blockKey = liveHotspot.value.blockKey
+  if (hotspotClearTimer) clearTimeout(hotspotClearTimer)
+  hotspotClearTimer = window.setTimeout(() => {
+    hotspotClearTimer = null
+    if (flowHandleArmed.value || isDraggingConnection.value) return
+    if (liveHotspot.value?.blockKey === blockKey) liveHotspot.value = null
+  }, 160)
+}
+
+function pageElementsByDomUid(page: Page, uid?: string): Element | null {
+  if (!uid) return null
+  for (const el of page.elements || []) {
+    if (interactionDomUid(el) === uid) return el
+  }
+  return null
+}
+
+function findElementForHotspot(page: Page, box: { x: number; y: number; w: number; h: number }): Element | null {
+  const cx = box.x + box.w / 2
+  const cy = box.y + box.h / 2
+  let best: Element | null = null
+  let bestD = 32
+  for (const el of page.elements || []) {
+    if (el.type === 'background') continue
+    const d = Math.hypot(el.x + (el.width || 0) / 2 - cx, el.y + (el.height || 0) / 2 - cy)
+    const inside = cx >= el.x - 8 && cx <= el.x + (el.width || 0) + 8 && cy >= el.y - 8 && cy <= el.y + (el.height || 0) + 8
+    if ((inside || d <= 32) && d < bestD) {
+      best = el
+      bestD = d
+    }
+  }
+  return best
 }
 
 const isDraggingConnection = ref(false)
@@ -2584,6 +3523,29 @@ function getPrimaryInteractiveElements(page: Page): Element[] {
 
 // ===== Figma Prototype 模式：节点驱动连线架构 =====
 const selectedNodeId = ref<number | null>(null)
+const selectedNodeKey = ref<string | null>(null)
+const selectedBlockKeys = ref<Set<string>>(new Set())
+const isSpacePressed = ref(false)
+
+interface SelectionMarquee {
+  startX: number
+  startY: number
+  curX: number
+  curY: number
+  left: number
+  top: number
+  width: number
+  height: number
+}
+const selectionMarquee = ref<SelectionMarquee | null>(null)
+
+function clearSelection() {
+  selectedBlockKeys.value = new Set()
+  selectedNodeId.value = null
+  selectedNodeKey.value = null
+  selectedElementId.value = null
+  selectedConnIds.value = new Set()
+}
 const hoveredNodeId = ref<number | null>(null)
 
 interface NodeItem {
@@ -2604,7 +3566,7 @@ const nodes = computed<NodeItem[]>(() => {
     const pageW = b.page.canvas_width || 375
     const pageH = b.page.canvas_height || 812
     // showDesign is always true on the workbench canvas, so wireframe always starts at pageW + gap (16)
-    const wireX = pageW + 16
+    const wireX = 0
     return {
       id: b.page.id,
       name: b.page.name,
@@ -2618,6 +3580,29 @@ const nodes = computed<NodeItem[]>(() => {
     }
   })
 })
+
+/** 两端沿水平方向短短伸出，几乎水平的线再轻轻拱起，避免死直线，也不甩成大圈。 */
+function buildFlowPath(x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const adx = Math.abs(dx)
+  const ady = Math.abs(dy)
+  const sign = dx < 0 ? -1 : 1
+  const handle = Math.max(36, Math.min(adx * 0.35, 120))
+  const slope = ady / Math.max(adx, 1)
+  const bow = slope < 0.12 ? Math.min(26, Math.max(14, adx * 0.045)) : 0
+  const cx1 = x1 + sign * handle
+  const cy1 = y1 - bow
+  const cx2 = x2 - sign * handle
+  const cy2 = y2 - bow
+  const midX = 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2
+  const midY = 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2
+  return {
+    path: `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`,
+    midX,
+    midY,
+  }
+}
 
 interface ConnectionItem {
   id: string
@@ -2652,6 +3637,7 @@ const connections = computed<ConnectionItem[]>(() => {
   for (const b of blocks.value) {
     const fromNode = nodeMap.get(b.page.id)
     if (!fromNode) continue
+    if (b.blockType === 'design' && b.page.html_content) continue
 
     const primaryEls = getPrimaryInteractiveElements(b.page)
 
@@ -2696,37 +3682,27 @@ const connections = computed<ConnectionItem[]>(() => {
         midX = startX + 25
         midY = fromNode.y - 25
       } else if (toRightX <= fromWireX + 30) {
-        // 目标页面在源页面左侧 (正如用户所附 Figma 截图：右屏 APP 连向左屏 Today！)
-        startX = fromNode.x + fromNode.wireX + el.x + Math.min(12, elW / 2)
+        // 线从组件右侧的加号出发，再弯向左侧的目标画板
+        startX = fromNode.x + fromNode.wireX + el.x + elW
         startY = elCenterY
         endX = toRightX
         endY = Math.max(toNode.y + 40, Math.min(toNode.y + toNode.pageH - 40, elCenterY))
 
-        const dx = Math.abs(startX - endX)
-        const cx1 = startX - Math.max(dx * 0.45, 50)
-        const cy1 = startY
-        const cx2 = endX + Math.max(dx * 0.45, 50)
-        const cy2 = endY
-        path = `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`
-
-        midX = (startX + endX) / 2
-        midY = (startY + endY) / 2
+        const curve = buildFlowPath(startX, startY, endX, endY)
+        path = curve.path
+        midX = curve.midX
+        midY = curve.midY
       } else {
-        // 目标页面在源页面右侧或下方
-        startX = fromNode.x + fromNode.wireX + el.x + elW - Math.min(12, elW / 2)
+        // 目标页面在源页面右侧或下方，同样从组件右侧加号拉出
+        startX = fromNode.x + fromNode.wireX + el.x + elW
         startY = elCenterY
         endX = toWireX
         endY = Math.max(toNode.y + 40, Math.min(toNode.y + toNode.pageH - 40, elCenterY))
 
-        const dx = Math.abs(endX - startX)
-        const cx1 = startX + Math.max(dx * 0.45, 50)
-        const cy1 = startY
-        const cx2 = endX - Math.max(dx * 0.45, 50)
-        const cy2 = endY
-        path = `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`
-
-        midX = (startX + endX) / 2
-        midY = (startY + endY) / 2
+        const curve = buildFlowPath(startX, startY, endX, endY)
+        path = curve.path
+        midX = curve.midX
+        midY = curve.midY
       }
 
       list.push({
@@ -2758,24 +3734,29 @@ const connections = computed<ConnectionItem[]>(() => {
   return list
 })
 
-// 单选特定连线状态：点击某条连接线时，只高亮该条连线，其他连线全部隐藏
-const selectedConnId = ref<string | null>(null)
+// 框选或点选的连线。可以同时选中多条，再一起删除。
+const selectedConnIds = ref<Set<string>>(new Set())
 
-// 连线激活状态：
-// 1. 如果选中了某条特定的连接线，其他所有连线隐藏，仅展示当前选中的连线（还原 Figma 连线点击聚焦）
-// 2. 在交互连线模式下，展示所有连线
-// 3. 在走查模式下，若点击了某节点则展示关联线，否则隐藏
+function selectConnIds(ids: string[]) {
+  selectedConnIds.value = new Set(ids)
+}
+
+// 连线显示：
+// 1. 交互连线模式里，当前画板的线都留着，选中的线额外加亮
+// 2. 走查模式不画线
 const visibleConnections = computed<ConnectionItem[]>(() => {
-  if (selectedConnId.value) {
-    return connections.value.filter((c) => c.id === selectedConnId.value)
+  if (workbenchMode.value !== 'interactive') return []
+  const pageId = liveHotspot.value?.pageId || hoveredNodeId.value || selectedNodeId.value
+  const pageLines = pageId
+    ? connections.value.filter((c) => c.fromId === pageId || c.toId === pageId)
+    : []
+  if (selectedConnIds.value.size === 0) return pageLines
+  const merged = new Map<string, ConnectionItem>()
+  for (const conn of pageLines) merged.set(conn.id, conn)
+  for (const conn of connections.value) {
+    if (selectedConnIds.value.has(conn.id)) merged.set(conn.id, conn)
   }
-  if (workbenchMode.value === 'interactive') {
-    return connections.value
-  }
-  if (!selectedNodeId.value) return []
-  return connections.value.filter(
-    (c) => c.fromId === selectedNodeId.value || c.toId === selectedNodeId.value
-  )
+  return [...merged.values()]
 })
 
 function getPageName(pageId?: number | null): string {
@@ -2785,7 +3766,7 @@ function getPageName(pageId?: number | null): string {
 
 // ===== 连线撤销与重做历史记录栈 (支持 Ctrl+Z / Ctrl+Y) =====
 interface InteractionHistoryItem {
-  type: 'delete' | 'connect'
+  type: 'delete' | 'connect' | 'delete-many'
   elementId?: number
   pageId: number
   targetPageId?: number | null
@@ -2797,6 +3778,7 @@ interface InteractionHistoryItem {
   fromPageName: string
   toPageName?: string
   prevToPageName?: string
+  items?: InteractionHistoryItem[]
 }
 
 const interactionUndoStack = ref<InteractionHistoryItem[]>([])
@@ -2818,8 +3800,23 @@ async function undoInteraction(): Promise<boolean> {
         params: item.params,
       })
       await loadData()
-      selectedConnId.value = `conn-${item.elementId}-${item.targetPageId}`
+      selectConnIds([`conn-${item.elementId}-${item.targetPageId}`])
       ElMessage.success(`已撤销删除：已恢复「${item.label} ➔ ${item.toPageName || '目标画板'}」连线`)
+      return true
+    } else if (item.type === 'delete-many' && item.items?.length) {
+      for (const one of item.items) {
+        await projectApi.saveInteraction(id, {
+          elementId: one.elementId,
+          pageId: one.pageId,
+          targetPageId: one.targetPageId,
+          triggerType: one.triggerType,
+          actionType: one.actionType,
+          params: one.params,
+        })
+      }
+      await loadData()
+      selectConnIds(item.items.map((one) => `conn-${one.elementId}-${one.targetPageId}`))
+      ElMessage.success(`已恢复 ${item.items.length} 条连线`)
       return true
     } else if (item.type === 'connect') {
       if (item.prevTargetPageId) {
@@ -2831,7 +3828,7 @@ async function undoInteraction(): Promise<boolean> {
           actionType: item.actionType,
           params: item.params,
         })
-        selectedConnId.value = `conn-${item.elementId}-${item.prevTargetPageId}`
+        selectConnIds([`conn-${item.elementId}-${item.prevTargetPageId}`])
         ElMessage.success(`已撤销连线：已恢复为「${item.label} ➔ ${item.prevToPageName || '原目标画板'}」`)
       } else {
         await projectApi.saveInteraction(id, {
@@ -2839,7 +3836,7 @@ async function undoInteraction(): Promise<boolean> {
           pageId: item.pageId,
           targetPageId: null,
         })
-        selectedConnId.value = null
+        selectedConnIds.value = new Set()
         ElMessage.success(`已撤销新建连线`)
       }
       await loadData()
@@ -2863,9 +3860,21 @@ async function redoInteraction(): Promise<boolean> {
         pageId: item.pageId,
         targetPageId: null,
       })
-      selectedConnId.value = null
+      selectedConnIds.value = new Set()
       await loadData()
       ElMessage.info(`已重做删除：连线已再次删除`)
+      return true
+    } else if (item.type === 'delete-many' && item.items?.length) {
+      for (const one of item.items) {
+        await projectApi.saveInteraction(id, {
+          elementId: one.elementId,
+          pageId: one.pageId,
+          targetPageId: null,
+        })
+      }
+      selectedConnIds.value = new Set()
+      await loadData()
+      ElMessage.info(`已再次删除 ${item.items.length} 条连线`)
       return true
     } else if (item.type === 'connect') {
       await projectApi.saveInteraction(id, {
@@ -2877,7 +3886,7 @@ async function redoInteraction(): Promise<boolean> {
         params: item.params,
       })
       await loadData()
-      selectedConnId.value = `conn-${item.elementId}-${item.targetPageId}`
+      selectConnIds([`conn-${item.elementId}-${item.targetPageId}`])
       ElMessage.success(`已重做连线：「${item.label} ➔ ${item.toPageName || '目标画板'}」`)
       return true
     }
@@ -2887,18 +3896,29 @@ async function redoInteraction(): Promise<boolean> {
   return false
 }
 
-function selectConnection(conn: ConnectionItem) {
-  selectedConnId.value = conn.id
+function selectConnection(conn: ConnectionItem, event?: MouseEvent) {
+  if (event?.shiftKey) {
+    const next = new Set(selectedConnIds.value)
+    if (next.has(conn.id)) next.delete(conn.id)
+    else next.add(conn.id)
+    selectedConnIds.value = next
+  } else {
+    selectConnIds([conn.id])
+  }
   selectedElementId.value = conn.elementId || null
   selectedNodeId.value = conn.fromId
+  const count = selectedConnIds.value.size
   ElMessage.info({
-    message: `已选中连线：「${conn.label} ➔ ${conn.toPageName}」，按键盘 Backspace 键可直接删除`,
-    duration: 3000,
+    message: count > 1
+      ? `已选中 ${count} 条连线，按 Backspace 可一起删除`
+      : `已选中连线：「${conn.label} ➔ ${conn.toPageName}」，按 Backspace 可删除，拉框可以多选`,
+    duration: 2500,
   })
 }
 
 function isConnActive(conn: ConnectionItem): boolean {
-  if (selectedConnId.value === conn.id) return true
+  if (selectedConnIds.value.has(conn.id)) return true
+  if (selectedConnIds.value.size > 0) return false
   if (selectedElementId.value && conn.elementId === selectedElementId.value) return true
   if (selectedNodeId.value && (conn.fromId === selectedNodeId.value || conn.toId === selectedNodeId.value)) return true
   return false
@@ -2911,17 +3931,41 @@ function onInteractiveElementClick(b: any, el: Element) {
   // 检查该按钮是否已有连线；若已有连线，只聚焦该连线，其他连线隐藏
   const matchingConn = connections.value.find((c) => c.elementId === el.id)
   if (matchingConn) {
-    selectedConnId.value = matchingConn.id
+    selectConnIds([matchingConn.id])
   } else {
-    selectedConnId.value = null
+    selectedConnIds.value = new Set()
   }
 }
 
 function onInteractiveElementDblClick(b: any, el: Element) {
   onInteractiveElementClick(b, el)
   ElMessage.info({
-    message: `已选中「${el.label || el.type}」，拖拽右侧白色圆点手柄可直接连接至目标画板`,
+    message: `已选中「${el.label || el.type}」，把鼠标移到右侧蓝点，变成加号后按住拖到目标画板`,
     duration: 3000,
+  })
+}
+
+function startLiveHotspotDrag(event: MouseEvent, b: any) {
+  const hs = liveHotspot.value
+  if (!hs || hs.blockKey !== b.key) return
+  flowHandleArmed.value = true
+  const box = { x: hs.x, y: hs.y, w: hs.w, h: hs.h }
+  const matched = hs.uid
+    ? (pageElementsByDomUid(b.page, hs.uid))
+    : findElementForHotspot(b.page, box)
+  selectedNodeId.value = b.page.id
+  focusPageId.value = b.page.id
+  if (matched) selectedElementId.value = matched.id
+  startConnectionDrag(event, {
+    id: `hot-${hs.uid || 'spot'}`,
+    pageId: b.page.id,
+    pageName: b.page.name,
+    elementId: matched?.id || 0,
+    label: (hs.label || matched?.label || '组件').trim() || '组件',
+    x: b.x + hs.x + hs.w,
+    y: b.y + hs.y + hs.h / 2,
+    box,
+    domUid: hs.uid || undefined,
   })
 }
 
@@ -2933,12 +3977,9 @@ function startElementConnectionDrag(event: MouseEvent, b: any, el: Element) {
   selectedElementId.value = el.id
   focusPageId.value = b.page.id
 
-  const pageW = b.page.canvas_width || 375
-  // showDesign is always true on canvas, wireframe always starts after design column
-  const wireX = pageW + 16
   const elW = el.width || 60
   const elH = el.height || 30
-  const anchorX = b.x + wireX + el.x + elW / 2
+  const anchorX = b.x + el.x + elW
   const anchorY = b.y + el.y + elH / 2
 
   const anchor: AnchorItem = {
@@ -2965,24 +4006,17 @@ const activeDragLine = computed(() => {
     const targetB = blocks.value.find((b) => b.page.id === hoveredTargetBlockId.value)
     if (targetB) {
       // showDesign always true on workbench canvas, wireframe always starts after design column
-      const targetWireX = (targetB.page.canvas_width || 375) + 16
       const targetPageW = targetB.page.canvas_width || 375
-      if (x1 > targetB.x + targetWireX + targetPageW) {
-        x2 = targetB.x + targetWireX + targetPageW
+      if (x1 > targetB.x + targetPageW) {
+        x2 = targetB.x + targetPageW
       } else {
-        x2 = targetB.x + targetWireX
+        x2 = targetB.x
       }
       y2 = Math.max(targetB.y + 40, Math.min(targetB.y + targetB.h - 40, y1))
     }
   }
 
-  const dx = Math.abs(x2 - x1)
-  const isTargetLeft = x2 < x1
-  const cx1 = isTargetLeft ? x1 - Math.max(dx * 0.45, 60) : x1 + Math.max(dx * 0.45, 60)
-  const cy1 = y1
-  const cx2 = isTargetLeft ? x2 + Math.max(dx * 0.45, 60) : x2 - Math.max(dx * 0.45, 60)
-  const cy2 = y2
-  const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
+  const path = buildFlowPath(x1, y1, x2, y2).path
   return { path, x1, y1, x2, y2 }
 })
 
@@ -3016,11 +4050,10 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
       const pageW = b.page.canvas_width || 375
       const pageH = b.page.canvas_height || 812
       // showDesign always true, wireframe starts after design column
-      const wireX = pageW + 16
       const left = b.x - 40
-      const right = b.x + Math.max(b.w, wireX + pageW) + 40
+      const right = b.x + pageW + 40
       const top = b.y - 40
-      const bottom = b.y + Math.max(b.h, pageH) + 40
+      const bottom = b.y + pageH + 40
 
       if (cx >= left && cx <= right && cy >= top && cy <= bottom) {
         foundTargetId = b.page.id
@@ -3050,7 +4083,39 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
     if (!savedAnchor) return
 
     try {
-      const prevConn = connections.value.find((c) => c.elementId === savedAnchor.elementId)
+      let elementId = savedAnchor.elementId
+      if (!elementId && savedAnchor.box) {
+        const created = await projectApi.createElement(id, savedAnchor.pageId, {
+          type: 'button',
+          label: savedAnchor.label || '交互热区',
+          x: Math.round(savedAnchor.box.x),
+          y: Math.round(savedAnchor.box.y),
+          width: Math.max(16, Math.round(savedAnchor.box.w)),
+          height: Math.max(14, Math.round(savedAnchor.box.h)),
+        }) as { id?: number }
+        elementId = Number(created?.id) || 0
+      }
+      if (!elementId) {
+        ElMessage.warning('这个位置还不能连线，换一个组件再拖')
+        return
+      }
+      savedAnchor.elementId = elementId
+      const linkParams = JSON.stringify({
+        animation: 'push',
+        ...(savedAnchor.box
+          ? {
+              hit: {
+                x: Math.round(savedAnchor.box.x),
+                y: Math.round(savedAnchor.box.y),
+                w: Math.max(16, Math.round(savedAnchor.box.w)),
+                h: Math.max(14, Math.round(savedAnchor.box.h)),
+              },
+            }
+          : {}),
+        ...(savedAnchor.domUid ? { domUid: savedAnchor.domUid } : {}),
+      })
+
+      const prevConn = connections.value.find((c) => c.elementId === elementId)
       interactionUndoStack.value.push({
         type: 'connect',
         elementId: savedAnchor.elementId,
@@ -3059,7 +4124,7 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
         prevTargetPageId: prevConn?.toId || null,
         triggerType: 'click',
         actionType: 'navigate',
-        params: JSON.stringify({ animation: 'push' }),
+        params: linkParams,
         label: savedAnchor.label,
         fromPageName: savedAnchor.pageName,
         toPageName: getPageName(targetId),
@@ -3073,11 +4138,14 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
         targetPageId: targetId,
         triggerType: 'click',
         actionType: 'navigate',
-        params: JSON.stringify({ animation: 'push' }),
+        params: linkParams,
       })
+      if (savedAnchor.domUid) {
+        pageRefs.value[savedAnchor.pageId]?.stampElementNav?.(savedAnchor.domUid, String(targetId))
+      }
       await loadData()
       selectedNodeId.value = savedAnchor.pageId
-      selectedConnId.value = `conn-${savedAnchor.elementId}-${targetId}`
+      selectConnIds([`conn-${savedAnchor.elementId}-${targetId}`])
       ElMessage.success(`已连线：${savedAnchor.label} ➔ ${getPageName(targetId)} (按 Ctrl+Z 可撤销)`)
     } catch (err: any) {
       ElMessage.error(err?.message || '保存连线失败')
@@ -3102,8 +4170,7 @@ function startNodeConnectionDrag(event: MouseEvent, b: any) {
   const pageW = b.page.canvas_width || 375
   const pageH = b.page.canvas_height || 812
   // showDesign always true on workbench canvas
-  const wireX = pageW + 16
-  const anchorX = b.x + wireX + pageW
+  const anchorX = b.x + pageW
   const anchorY = b.y + pageH / 2
 
   const anchor: AnchorItem = {
@@ -3156,6 +4223,7 @@ async function confirmCreateInteraction() {
 
 async function removeConnection(conn: any) {
   try {
+    clearStampedNav(conn.params, conn.fromId)
     // 记录历史供 Ctrl+Z 撤销恢复
     interactionUndoStack.value.push({
       type: 'delete',
@@ -3187,7 +4255,7 @@ async function removeConnection(conn: any) {
         delete el.interaction
       }
     }
-    selectedConnId.value = null
+    selectedConnIds.value = new Set()
     await loadData()
     ElMessage.success('交互连线已删除 (按 Ctrl+Z 可随时撤销恢复)')
   } catch (err: any) {
@@ -3195,32 +4263,107 @@ async function removeConnection(conn: any) {
   }
 }
 
+async function removeConnections(conns: ConnectionItem[]) {
+  if (!conns.length) return
+  const snapshots: InteractionHistoryItem[] = conns.map((conn) => ({
+    type: 'delete',
+    elementId: conn.elementId,
+    pageId: conn.fromId,
+    targetPageId: conn.toId,
+    triggerType: conn.trigger || 'click',
+    actionType: conn.action || 'navigate',
+    params: conn.params || JSON.stringify({ animation: 'push' }),
+    label: conn.label || '组件',
+    fromPageName: conn.fromPageName || '源页面',
+    toPageName: conn.toPageName || '目标页面',
+  }))
+  interactionUndoStack.value.push({
+    type: 'delete-many',
+    pageId: snapshots[0].pageId,
+    triggerType: 'click',
+    actionType: 'navigate',
+    label: `${conns.length} 条连线`,
+    fromPageName: '',
+    items: snapshots,
+  })
+  interactionRedoStack.value = []
+  try {
+    for (const conn of conns) {
+      clearStampedNav(conn.params, conn.fromId)
+      if (conn.interactionId) {
+        await projectApi.deleteInteraction(id, conn.interactionId)
+      } else if (conn.elementId) {
+        await projectApi.saveInteraction(id, {
+          elementId: conn.elementId,
+          pageId: conn.fromId,
+          targetPageId: null,
+        })
+      }
+    }
+    selectedConnIds.value = new Set()
+    await loadData()
+    ElMessage.success(`已删除 ${conns.length} 条连线 (按 Ctrl+Z 可一起恢复)`)
+  } catch (err: any) {
+    ElMessage.error(err?.message || '删除交互失败')
+  }
+}
+
 let suppressBlockClick = false
 
-function onBlockDragStart(e: MouseEvent, b: { page: Page; x: number; y: number }) {
+function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
   if (e.button !== 0) return
   if ((e.target as HTMLElement).closest('.ann-panel, .el-button, input, textarea, select')) return
+  const frame = (e.currentTarget as HTMLElement | null)?.closest('.page-block') as HTMLElement | null
+  if (!frame) return
   e.stopPropagation()
-  isBlockDragging.value = true
   const startClientX = e.clientX
   const startClientY = e.clientY
   const startX = b.x
   const startY = b.y
+  const blockKey = b.key
   const pageId = b.page.id
   let moved = false
   let blockRafId: number | null = null
   let curNx = startX
   let curNy = startY
+  const hasDesignSibling = b.blockType === 'prototype' && blocks.value.some((item) => item.key === `design-${pageId}`)
+  const protoFollowsDesign = b.blockType === 'design' && !pageOverrides.value[`proto-${pageId}`]
+  const sibling = protoFollowsDesign
+    ? document.querySelector(`[data-block-key="proto-${pageId}"]`) as HTMLElement | null
+    : null
+
+  const paint = () => {
+    const dx = curNx - startX
+    const dy = curNy - startY
+    const shift = `translate3d(${dx}px, ${dy}px, 0)`
+    frame.style.transition = 'none'
+    frame.style.willChange = 'transform'
+    frame.style.transform = shift
+    if (sibling) {
+      sibling.style.transition = 'none'
+      sibling.style.willChange = 'transform'
+      sibling.style.transform = shift
+    }
+  }
+
+  const settle = (el: HTMLElement, x: number, y: number) => {
+    el.style.transition = 'none'
+    el.style.left = `${x}px`
+    el.style.top = `${y}px`
+    el.style.transform = ''
+    el.style.willChange = ''
+  }
 
   const onMove = (ev: MouseEvent) => {
     if (!moved && Math.abs(ev.clientX - startClientX) < 4 && Math.abs(ev.clientY - startClientY) < 4) return
+    if (!moved) isBlockDragging.value = true
     moved = true
     const k = view.value.k || 1
     curNx = startX + (ev.clientX - startClientX) / k
     curNy = startY + (ev.clientY - startClientY) / k
     if (blockRafId === null) {
       blockRafId = requestAnimationFrame(() => {
-        pageOverrides.value = { ...pageOverrides.value, [pageId]: { x: curNx, y: curNy } }
+        paint()
         blockRafId = null
       })
     }
@@ -3231,18 +4374,33 @@ function onBlockDragStart(e: MouseEvent, b: { page: Page; x: number; y: number }
     if (blockRafId !== null) {
       cancelAnimationFrame(blockRafId)
       blockRafId = null
-      pageOverrides.value = { ...pageOverrides.value, [pageId]: { x: curNx, y: curNy } }
     }
-    isBlockDragging.value = false
     if (!moved) return
     suppressBlockClick = true
     setTimeout(() => (suppressBlockClick = false), 0)
-    const ov = pageOverrides.value[pageId]
-    if (ov) {
-      projectApi.updatePagePosition(id, pageId, { canvasX: ov.x, canvasY: ov.y }).catch((e2: any) => {
+    settle(frame, curNx, curNy)
+    if (sibling) {
+      const sx = parseFloat(sibling.style.left) || startX
+      const sy = parseFloat(sibling.style.top) || startY
+      settle(sibling, sx + (curNx - startX), sy + (curNy - startY))
+    }
+    const pos = { x: curNx, y: curNy }
+    const patch: Record<string, { x: number; y: number }> = { [blockKey]: pos }
+    const persistPageOrigin = !hasDesignSibling
+    if (persistPageOrigin) patch[pageId] = pos
+    pageOverrides.value = { ...pageOverrides.value, ...patch }
+    isBlockDragging.value = false
+    if (persistPageOrigin) {
+      b.page.canvas_x = curNx
+      b.page.canvas_y = curNy
+      projectApi.updatePagePosition(id, pageId, { canvasX: curNx, canvasY: curNy }).catch((e2: any) => {
         ElMessage.error(`位置保存失败: ${e2.message || '网络错误'}`)
       })
     }
+    requestAnimationFrame(() => {
+      frame.style.transition = ''
+      if (sibling) sibling.style.transition = ''
+    })
   }
   window.addEventListener('mousemove', onMove, { passive: true })
   window.addEventListener('mouseup', onUp)
@@ -3273,11 +4431,18 @@ function viewportSize() {
 function focusPage(pageId: number) {
   const b = blocks.value.find((bb) => bb.page.id === pageId)
   if (!b) return
+  const switched = focusPageId.value !== pageId
   focusPageId.value = pageId
   selectedNodeId.value = pageId
   hoveredElementId.value = null
   hoveredAnnId.value = null
   selectedElementId.value = null
+  if (switched) {
+    activeSelectedElementInfo.value = null
+    selectedDomLayerUid.value = null
+    selectedDomLayerUids.value = []
+  }
+  showFrameFill(pageId)
   const { w, h } = viewportSize()
   const v = view.value
   const targetX = w / 2 - (b.x + b.w / 2) * v.k
@@ -3291,6 +4456,18 @@ function focusPage(pageId: number) {
 let dragRafId: number | null = null
 let pendingDragX = 0
 let pendingDragY = 0
+
+function startCanvasPan(e: MouseEvent) {
+  selectedElementId.value = null
+  selectedConnIds.value = new Set()
+  isDragging.value = true
+  dragStart = { x: e.clientX, y: e.clientY }
+  dragOrigin = { x: view.value.x, y: view.value.y }
+  pendingDragX = dragOrigin.x
+  pendingDragY = dragOrigin.y
+  window.addEventListener('mousemove', onWindowMouseMove, { passive: true })
+  window.addEventListener('mouseup', onWindowMouseUp)
+}
 
 function onWindowMouseMove(e: MouseEvent) {
   if (!isDragging.value) return
@@ -3323,9 +4500,124 @@ function onWindowMouseUp() {
   window.removeEventListener('mouseup', onWindowMouseUp)
 }
 
+function cubicAt(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, t: number) {
+  const u = 1 - t
+  return {
+    x: u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+    y: u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
+  }
+}
+
+function sampleConnectionPath(d: string): { x: number; y: number }[] {
+  const tokens = d.match(/[MLCS]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []
+  const pts: { x: number; y: number }[] = []
+  let i = 0
+  let cx = 0
+  let cy = 0
+  let lastCx = 0
+  let lastCy = 0
+  let cmd = ''
+  const read = () => Number(tokens[i++])
+  const steps = 10
+  while (i < tokens.length) {
+    if (/[MLCS]/i.test(tokens[i])) cmd = tokens[i++].toUpperCase()
+    if (cmd === 'M') {
+      cx = read()
+      cy = read()
+      lastCx = cx
+      lastCy = cy
+      pts.push({ x: cx, y: cy })
+    } else if (cmd === 'C') {
+      const x1 = read()
+      const y1 = read()
+      const x2 = read()
+      const y2 = read()
+      const x = read()
+      const y = read()
+      for (let s = 1; s <= steps; s++) pts.push(cubicAt(cx, cy, x1, y1, x2, y2, x, y, s / steps))
+      lastCx = x2
+      lastCy = y2
+      cx = x
+      cy = y
+    } else if (cmd === 'S') {
+      const x1 = 2 * cx - lastCx
+      const y1 = 2 * cy - lastCy
+      const x2 = read()
+      const y2 = read()
+      const x = read()
+      const y = read()
+      for (let s = 1; s <= steps; s++) pts.push(cubicAt(cx, cy, x1, y1, x2, y2, x, y, s / steps))
+      lastCx = x2
+      lastCy = y2
+      cx = x
+      cy = y
+    } else {
+      break
+    }
+  }
+  return pts
+}
+
+function pointInRect(p: { x: number; y: number }, r: { x: number; y: number; w: number; h: number }) {
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
+}
+
+function segmentsIntersect(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number) {
+  const cross = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) => (qx - px) * (ry - py) - (qy - py) * (rx - px)
+  const d1 = cross(cx, cy, dx, dy, ax, ay)
+  const d2 = cross(cx, cy, dx, dy, bx, by)
+  const d3 = cross(ax, ay, bx, by, cx, cy)
+  const d4 = cross(ax, ay, bx, by, dx, dy)
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+}
+
+function connectionHitsRect(path: string, r: { x: number; y: number; w: number; h: number }) {
+  if (r.w < 2 && r.h < 2) return false
+  const pts = sampleConnectionPath(path)
+  const edges: [number, number, number, number][] = [
+    [r.x, r.y, r.x + r.w, r.y],
+    [r.x + r.w, r.y, r.x + r.w, r.y + r.h],
+    [r.x + r.w, r.y + r.h, r.x, r.y + r.h],
+    [r.x, r.y + r.h, r.x, r.y],
+  ]
+  for (let i = 0; i < pts.length; i++) {
+    if (pointInRect(pts[i], r)) return true
+    if (i === 0) continue
+    const a = pts[i - 1]
+    const b = pts[i]
+    for (const edge of edges) {
+      if (segmentsIntersect(a.x, a.y, b.x, b.y, edge[0], edge[1], edge[2], edge[3])) return true
+    }
+  }
+  return false
+}
+
 function onMouseDown(e: MouseEvent) {
-  if (e.button !== 0) return
-  if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel, .figma-bottom-toolbar')) return
+  if (e.button !== 0 && e.button !== 1) return
+  if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel, .figma-bottom-toolbar, .draft-comment-container, .comment-pin-container, .interaction-svg-layer, .figma-conn-tag')) return
+
+  if (activeDrawTool.value === 'comment') {
+    e.preventDefault()
+    e.stopPropagation()
+    selectedThreadId.value = null
+    const rect = viewportRef.value?.getBoundingClientRect()
+    if (rect) {
+      const logicX = Math.round((e.clientX - rect.left - view.value.x) / view.value.k)
+      const logicY = Math.round((e.clientY - rect.top - view.value.y) / view.value.k)
+      draftComment.value = {
+        blockKey: 'canvas',
+        blockType: 'canvas',
+        pageId: 0,
+        x: logicX,
+        y: logicY,
+        text: '',
+      }
+      nextTick(() => {
+        draftInputRef.value?.focus()
+      })
+    }
+    return
+  }
 
   if (activeDrawTool.value === 'frame') {
     e.preventDefault()
@@ -3339,9 +4631,127 @@ function onMouseDown(e: MouseEvent) {
     return
   }
 
+  // 1. 抓手工具模式、空格键按住或中键：平移画布 (Pan)
+  if (activeDrawTool.value === 'hand' || isSpacePressed.value || e.button === 1) {
+    startCanvasPan(e)
+    return
+  }
+
+  // 2. 选择工具 (V) 下鼠标左键在空白画布拖拽：Figma 经典多选框选 (Marquee Selection)
+  if (activeDrawTool.value === 'select' && e.button === 0) {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = viewportRef.value?.getBoundingClientRect()
+    if (!rect) return
+    const logicX = (e.clientX - rect.left - view.value.x) / view.value.k
+    const logicY = (e.clientY - rect.top - view.value.y) / view.value.k
+
+    const boxingConnections = workbenchMode.value === 'interactive'
+    const connScope = boxingConnections ? [...visibleConnections.value] : []
+
+    if (!e.shiftKey) {
+      if (boxingConnections) {
+        selectedConnIds.value = new Set()
+      } else {
+        selectedBlockKeys.value = new Set()
+        selectedNodeId.value = null
+        selectedNodeKey.value = null
+        selectedElementId.value = null
+        selectedConnIds.value = new Set()
+      }
+    }
+
+    selectionMarquee.value = {
+      startX: logicX,
+      startY: logicY,
+      curX: logicX,
+      curY: logicY,
+      left: logicX,
+      top: logicY,
+      width: 0,
+      height: 0,
+    }
+
+    const initialSelected = new Set(selectedBlockKeys.value)
+    const initialConns = new Set(selectedConnIds.value)
+    let hasMoved = false
+
+    const onMarqueeMove = (ev: MouseEvent) => {
+      if (!selectionMarquee.value || !viewportRef.value) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      hasMoved = true
+      const vpRect = viewportRef.value.getBoundingClientRect()
+      const curLogicX = (ev.clientX - vpRect.left - view.value.x) / view.value.k
+      const curLogicY = (ev.clientY - vpRect.top - view.value.y) / view.value.k
+
+      const m = selectionMarquee.value
+      m.curX = curLogicX
+      m.curY = curLogicY
+      m.left = Math.min(m.startX, curLogicX)
+      m.top = Math.min(m.startY, curLogicY)
+      m.width = Math.abs(curLogicX - m.startX)
+      m.height = Math.abs(curLogicY - m.startY)
+
+      if (boxingConnections) {
+        const next = new Set(initialConns)
+        const box = { x: m.left, y: m.top, w: m.width, h: m.height }
+        for (const conn of connScope) {
+          if (connectionHitsRect(conn.path, box)) next.add(conn.id)
+        }
+        selectedConnIds.value = next
+        return
+      }
+
+      // 实时相交碰撞检测
+      const currentSelected = new Set(initialSelected)
+      blocks.value.forEach((b) => {
+        const bW = b.w || (b.page.canvas_width || 375)
+        const bH = b.h || (b.page.canvas_height || 812)
+        const r1 = { x: b.x, y: b.y, w: bW, h: bH }
+        const r2 = { x: m.left, y: m.top, w: m.width, h: m.height }
+        const isOverlap = !(r2.x > r1.x + r1.w ||
+                            r2.x + r2.w < r1.x ||
+                            r2.y > r1.y + r1.h ||
+                            r2.y + r2.h < r1.y)
+        if (isOverlap) {
+          currentSelected.add(b.key)
+        }
+      })
+      selectedBlockKeys.value = currentSelected
+    }
+
+    const onMarqueeUp = () => {
+      window.removeEventListener('mousemove', onMarqueeMove, { capture: true })
+      window.removeEventListener('mouseup', onMarqueeUp, { capture: true })
+      if (selectionMarquee.value) {
+        selectionMarquee.value = null
+        if (boxingConnections) {
+          if (hasMoved && selectedConnIds.value.size > 0) {
+            showToast(`已框选 ${selectedConnIds.value.size} 条连线，按 Backspace 可一起删除`)
+          }
+          return
+        }
+        if (selectedBlockKeys.value.size > 0) {
+          const firstKey = Array.from(selectedBlockKeys.value)[0]
+          const firstBlock = blocks.value.find((b) => b.key === firstKey)
+          if (firstBlock) {
+            selectedNodeId.value = firstBlock.pageId
+            selectedNodeKey.value = firstBlock.key
+          }
+        }
+      }
+    }
+
+    window.addEventListener('mousemove', onMarqueeMove, { capture: true })
+    window.addEventListener('mouseup', onMarqueeUp, { capture: true, once: true })
+    return
+  }
+
+  // 3. 兜底画布平移
   selectedElementId.value = null
-  selectedConnId.value = null
-  // 点击空白区域 → 取消选中，所有连线恢复显示
+  selectedConnIds.value = new Set()
+  selectedBlockKeys.value = new Set()
   selectedNodeId.value = null
   isDragging.value = true
   dragStart = { x: e.clientX, y: e.clientY }
@@ -3592,19 +5002,200 @@ function onLayerSelectElement(elementId: number) {
 
 function onLayerSelectFrame(pageId?: number) {
   selectedElementId.value = null
+  selectedDomLayerUid.value = null
+  selectedDomLayerUids.value = []
   if (pageId) focusPage(pageId)
+  postToFocusFrame({ type: 'wf-select-uids', uids: [] })
 }
 
 const activeSelectedElementInfo = ref<any>(null)
 
+/** 每页 DOM 图层（由 PageCanvas layers-changed 同步） */
+const pageDomLayers = ref<Record<number, { uid: string; name: string; kind?: string; hidden?: boolean; locked?: boolean; children?: any[] }[]>>({})
+const selectedDomLayerUid = ref<string | null>(null)
+const selectedDomLayerUids = ref<string[]>([])
+
+const currentFocusDomLayers = computed(() => {
+  const pid = focusPageId.value ?? currentFocusPage.value?.id
+  if (!pid) return [] as { uid: string; name: string }[]
+  return pageDomLayers.value[pid] || []
+})
+
+function onPrototypeFrameFocus(pageId: number, blockKey: string) {
+  const switched = focusPageId.value !== pageId
+  focusPageId.value = pageId
+  selectedNodeId.value = pageId
+  selectedNodeKey.value = blockKey
+  selectedBlockKeys.value = new Set([blockKey])
+  if (switched) {
+    activeSelectedElementInfo.value = null
+    selectedElementId.value = null
+    selectedDomLayerUid.value = null
+    selectedDomLayerUids.value = []
+  }
+  showFrameFill(pageId)
+  const iframe = iframeForPage(pageId)
+  iframe?.contentWindow?.postMessage({ type: 'wf-publish-layers' }, '*')
+}
+
+/** 点进画框内部时，父页面只能靠 iframe 获得焦点来知道点的是哪一张 */
+function onArtboardFocusIn(e: FocusEvent) {
+  const target = e.target as HTMLElement | null
+  if (!target || target.tagName !== 'IFRAME' || !target.classList.contains('html-frame')) return
+  const block = target.closest('.page-block') as HTMLElement | null
+  if (!block) return
+  const pageId = Number(block.getAttribute('data-page-id'))
+  const blockKey = block.getAttribute('data-block-key') || ''
+  if (!pageId) return
+  if (focusPageId.value === pageId && selectedNodeKey.value === blockKey) return
+  onPrototypeFrameFocus(pageId, blockKey)
+}
+
+function onLayersChanged(payload: { pageId: number; layers: { uid: string; name: string; kind?: string; hidden?: boolean; locked?: boolean; children?: any[] }[] }) {
+  if (!payload?.pageId) return
+  pageDomLayers.value = {
+    ...pageDomLayers.value,
+    [payload.pageId]: payload.layers || [],
+  }
+}
+
+function onDomSelectionChanged(pageId: number, uids: string[]) {
+  const pid = focusPageId.value ?? currentFocusPage.value?.id
+  if (pid && pageId !== pid) return
+  const list = Array.isArray(uids) ? uids.filter(Boolean) : []
+  selectedDomLayerUids.value = list
+  selectedDomLayerUid.value = list.length ? list[list.length - 1] : null
+}
+
+const layerMenu = ref<{ x: number; y: number } | null>(null)
+const layerMenuRef = ref<HTMLElement | null>(null)
+
+function findDomLayer(nodes: { uid: string; kind?: string; children?: any[] }[] | undefined, uid: string): { uid: string; kind?: string; children?: any[] } | null {
+  for (const node of nodes || []) {
+    if (node.uid === uid) return node
+    const hit = findDomLayer(node.children, uid)
+    if (hit) return hit
+  }
+  return null
+}
+
+const canUngroupSelection = computed(() =>
+  selectedDomLayerUids.value.some((uid) => findDomLayer(currentFocusDomLayers.value, uid)?.kind === 'group'),
+)
+
+function openLayerContextMenu(x: number, y: number) {
+  const menuW = 228
+  const menuH = 176
+  const left = Math.max(8, Math.min(x, window.innerWidth - menuW - 8))
+  const top = Math.max(8, Math.min(y, window.innerHeight - menuH - 8))
+  layerMenu.value = { x: left, y: top }
+}
+
+function closeLayerContextMenu() {
+  layerMenu.value = null
+}
+
+function onLayerMenuPointerDown(e: MouseEvent) {
+  const target = e.target as Node | null
+  if (target && layerMenuRef.value?.contains(target)) return
+  closeLayerContextMenu()
+}
+
+function onLayerMenuKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeLayerContextMenu()
+}
+
+watch(layerMenu, (open) => {
+  if (open) {
+    window.addEventListener('mousedown', onLayerMenuPointerDown, true)
+    window.addEventListener('keydown', onLayerMenuKey)
+  } else {
+    window.removeEventListener('mousedown', onLayerMenuPointerDown, true)
+    window.removeEventListener('keydown', onLayerMenuKey)
+  }
+})
+
+function runLayerMenu(action: 'copy' | 'front' | 'back' | 'group' | 'ungroup') {
+  closeLayerContextMenu()
+  if (action === 'copy') postToFocusFrame({ type: 'wf-copy' })
+  else if (action === 'front') postToFocusFrame({ type: 'wf-restack', edge: 'front' })
+  else if (action === 'back') postToFocusFrame({ type: 'wf-restack', edge: 'back' })
+  else if (action === 'group') postToFocusFrame({ type: 'wf-group' })
+  else postToFocusFrame({ type: 'wf-ungroup' })
+}
+
+function onSelectDomLayer(uid: string, uids: string[] = []) {
+  const pid = focusPageId.value ?? currentFocusPage.value?.id
+  if (!pid) return
+  const list = Array.isArray(uids) ? uids.filter(Boolean) : []
+  selectedDomLayerUids.value = list
+  selectedDomLayerUid.value = list.length ? list[list.length - 1] : null
+  focusPage(pid)
+  postToFocusFrame({ type: 'wf-select-uids', uids: list })
+}
+
+function postToFocusFrame(msg: Record<string, unknown>) {
+  const pid = focusPageId.value ?? currentFocusPage.value?.id
+  if (!pid) return
+  const iframe = (pageRefs.value[pid] as any)?.$el?.querySelector?.('iframe.html-frame') as HTMLIFrameElement | null
+  iframe?.contentWindow?.postMessage(msg, '*')
+}
+
+function postLayerFlag(uid: string, flag: 'hidden' | 'locked', on: boolean) {
+  const pid = focusPageId.value ?? currentFocusPage.value?.id
+  if (!pid || !uid) return
+  const iframe = (pageRefs.value[pid] as any)?.$el?.querySelector?.('iframe.html-frame') as HTMLIFrameElement | null
+  iframe?.contentWindow?.postMessage({ type: 'wf-layer-flag', uid, flag, on }, '*')
+}
+
+function onToggleLayerHidden(layer: { uid: string; hidden?: boolean }) {
+  postLayerFlag(layer.uid, 'hidden', !layer.hidden)
+}
+
+function onToggleLayerLocked(layer: { uid: string; locked?: boolean }) {
+  postLayerFlag(layer.uid, 'locked', !layer.locked)
+}
+
 function onElementSelected(pageId: number, info: any) {
   focusPageId.value = pageId
   activeSelectedElementInfo.value = info
+  selectedDomLayerUid.value = info?.layerUid || null
+}
+
+const frameFillColor = ref('')
+const frameFillByPage = ref<Record<number, string>>({})
+
+function iframeForPage(pageId: number): HTMLIFrameElement | null {
+  const key = selectedNodeKey.value
+  if (key) {
+    const block = document.querySelector(`.page-block[data-block-key="${key}"]`)
+    if (block && Number(block.getAttribute('data-page-id')) === pageId) {
+      const scoped = block.querySelector('iframe.html-frame') as HTMLIFrameElement | null
+      if (scoped) return scoped
+    }
+  }
+  return document.querySelector(`.page-block[data-page-id="${pageId}"] iframe.html-frame`) as HTMLIFrameElement | null
+}
+
+function showFrameFill(pageId: number) {
+  const cached = frameFillByPage.value[pageId]
+  if (cached) frameFillColor.value = cached
+  iframeForPage(pageId)?.contentWindow?.postMessage({ type: 'wf-query-frame-fill' }, '*')
+}
+
+function onFrameFill(pageId: number, color: string) {
+  if (!color) return
+  frameFillByPage.value = { ...frameFillByPage.value, [pageId]: color }
+  const pid = focusPageId.value || selectedNodeId.value
+  if (pid && pageId !== pid) return
+  frameFillColor.value = color
 }
 
 function onElementDeselected(pageId: number) {
   if (focusPageId.value === pageId) {
     activeSelectedElementInfo.value = null
+    selectedDomLayerUid.value = null
+    selectedDomLayerUids.value = []
   }
 }
 
@@ -3631,6 +5222,12 @@ function onInspectorUpdateStroke(stroke: { width: number; color: string; style: 
   }
 }
 
+function onInspectorUpdateEffects(payload: { effects: any[]; live?: boolean }) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateElementEffects?.(payload.effects || [], !!payload.live)
+  }
+}
+
 function onInspectorUpdateShadow(shadow: string) {
   if (currentFocusPage.value) {
     pageRefs.value[currentFocusPage.value.id]?.updateElementShadow?.(shadow)
@@ -3638,18 +5235,75 @@ function onInspectorUpdateShadow(shadow: string) {
 }
 
 function onInspectorUpdateDimension(payload: { key: 'width' | 'height'; val: number }) {
+  if (currentFocusPage.value) {
+    if (activeSelectedElementInfo.value) {
+      pageRefs.value[currentFocusPage.value.id]?.updateElementDimension?.(
+        payload.key,
+        payload.val,
+        activeSelectedElementInfo.value.layerUid,
+      )
+      activeSelectedElementInfo.value[payload.key] = payload.val
+    } else {
+      if (payload.key === 'width') currentFocusPage.value.canvas_width = payload.val
+      else currentFocusPage.value.canvas_height = payload.val
+      const pageId = currentFocusPage.value.id
+      const width = currentFocusPage.value.canvas_width || 375
+      const height = currentFocusPage.value.canvas_height || 812
+      projectApi
+        .updatePageSize(id, pageId, { width, height })
+        .catch((err: any) => {
+          ElMessage.error(`保存画板尺寸失败: ${err?.response?.data?.message || err?.message || '网络错误'}`)
+        })
+    }
+  }
   if (selectedElementObj.value) {
     selectedElementObj.value[payload.key] = payload.val
-  } else if (currentFocusPage.value) {
-    if (payload.key === 'width') currentFocusPage.value.canvas_width = payload.val
-    else currentFocusPage.value.canvas_height = payload.val
   }
 }
 
 function onInspectorUpdatePosition(payload: { key: 'x' | 'y'; val: number }) {
+  if (currentFocusPage.value) {
+    if (activeSelectedElementInfo.value) {
+      pageRefs.value[currentFocusPage.value.id]?.updateElementPosition?.(
+        payload.key,
+        payload.val,
+        activeSelectedElementInfo.value.layerUid,
+      )
+      activeSelectedElementInfo.value[payload.key] = payload.val
+    } else {
+      const page = currentFocusPage.value
+      const block = blocks.value.find((b) => b.key === selectedNodeKey.value)
+        || blocks.value.find((b) => b.pageId === page.id)
+      if (block) {
+        const nextX = payload.key === 'x' ? payload.val : block.x
+        const nextY = payload.key === 'y' ? payload.val : block.y
+        pageOverrides.value = { ...pageOverrides.value, [block.key]: { x: nextX, y: nextY } }
+        page.canvas_x = nextX
+        page.canvas_y = nextY
+        projectApi.updatePagePosition(id, page.id, { canvasX: nextX, canvasY: nextY }).catch((err: any) => {
+          ElMessage.error(`保存画板位置失败: ${err?.response?.data?.message || err?.message || '网络错误'}`)
+        })
+      }
+    }
+  }
   if (selectedElementObj.value) {
     selectedElementObj.value[payload.key] = payload.val
   }
+}
+
+function onInspectorUpdateFrameColor(color: string) {
+  const pageId = focusPageId.value || selectedNodeId.value || currentFocusPage.value?.id
+  if (!pageId) return
+  focusPageId.value = pageId
+  selectedNodeId.value = pageId
+  const iframe = iframeForPage(pageId)
+  if (iframe?.contentWindow) {
+    iframe.contentWindow.postMessage({ type: 'wf-frame-color', color }, '*')
+  } else {
+    pageRefs.value[pageId]?.updateFrameColor?.(color)
+  }
+  frameFillByPage.value = { ...frameFillByPage.value, [pageId]: color }
+  frameFillColor.value = color
 }
 
 function onInspectorUpdateColor(color: string) {
@@ -3715,6 +5369,161 @@ function onInspectorUpdateText(text: string) {
 function onInspectorSelectParent() {
   if (currentFocusPage.value) {
     pageRefs.value[currentFocusPage.value.id]?.selectParentContainer?.()
+  }
+}
+
+// ===== Figma 矢量编辑与绘制事件处理 =====
+function onEditVector(pageId: number, payload: any) {
+  let vData: VectorPathData | null = null
+  try {
+    vData = typeof payload.vectorData === 'string' ? JSON.parse(payload.vectorData) : payload.vectorData
+  } catch (err) {
+    console.error('Failed to parse vectorData', err)
+  }
+  if (!vData || !Array.isArray(vData.points)) {
+    showToast('无法解析此矢量图形数据')
+    return
+  }
+
+  // 补齐并净化手柄字段：避免缺失导致 undefined，只有真正没有手柄才为 null
+  const sanitizedPoints: VectorPoint[] = vData.points.map((p: any) => ({
+    id: p.id || ('vp_' + Math.random().toString(36).substring(2, 6)),
+    x: Number(p.x) || 0,
+    y: Number(p.y) || 0,
+    handleIn: (p.handleIn && (p.handleIn.x !== undefined || p.handleIn.y !== undefined))
+      ? { x: Number(p.handleIn.x) || 0, y: Number(p.handleIn.y) || 0 }
+      : null,
+    handleOut: (p.handleOut && (p.handleOut.x !== undefined || p.handleOut.y !== undefined))
+      ? { x: Number(p.handleOut.x) || 0, y: Number(p.handleOut.y) || 0 }
+      : null,
+    type: p.type || ((p.handleIn || p.handleOut) ? 'disconnected' : 'corner'),
+  }))
+
+  // 计算缩放比例：比例用图形的宽高样式，origW/origH 至少为 1
+  const origW = Math.max(1, Number(vData.origW) || Number(payload.width) || 1)
+  const origH = Math.max(1, Number(vData.origH) || Number(payload.height) || 1)
+  const curW = Math.max(1, Number(payload.width) || origW)
+  const curH = Math.max(1, Number(payload.height) || origH)
+  const scaleX = curW / origW
+  const scaleY = curH / origH
+
+  const scaledPoints = scalePointsAndHandles(sanitizedPoints, scaleX, scaleY)
+
+  // 设置编辑状态
+  activeVectorPageId.value = pageId
+  isEditingVector.value = true
+  editingVectorUid.value = payload.elementUid || ''
+  editingVectorLeft.value = payload.left || 0
+  editingVectorTop.value = payload.top || 0
+  editingVectorPath.value = {
+    ...vData,
+    origW: curW,
+    origH: curH,
+    points: scaledPoints,
+  }
+  isVectorClosed.value = !!vData.closed
+  activeVectorSubTool.value = 'move'
+  vectorHostKey.value = preferredVectorHostKey(pageId)
+  activeDrawTool.value = 'pen'
+
+  // 通知 iframe 隐藏原矢量图形（加 visibility: hidden，但不保存数据库）
+  if (editingVectorUid.value) {
+    pageRefs.value[pageId]?.hideVectorOriginal(editingVectorUid.value)
+  }
+  showToast('已进入矢量编辑模式，可直接拉动手柄或弯曲路径')
+}
+
+function onVectorCommit(results: any[]) {
+  if (!activeVectorPageId.value || results.length === 0) {
+    onVectorCancel()
+    return
+  }
+
+  const pid = activeVectorPageId.value
+  if (isEditingVector.value && editingVectorUid.value) {
+    // 替换原图形
+    pageRefs.value[pid]?.replaceVectorOriginal(editingVectorUid.value, results[0].html)
+    // 如果剪刀拆成了多个图形，把多出来的形状插入
+    if (results.length > 1) {
+      pageRefs.value[pid]?.insertVectorShapes(results.slice(1))
+    }
+    isEditingVector.value = false
+    editingVectorUid.value = ''
+    editingVectorPath.value = null
+    activeDrawTool.value = 'select'
+    activeVectorPageId.value = null
+    vectorHostKey.value = null
+    showToast('矢量图形修改已保存')
+  } else {
+    // 新绘制的图形
+    const keepDrawing = activeDrawTool.value === 'pencil'
+    pageRefs.value[pid]?.insertVectorShapes(results, undefined, !keepDrawing)
+    const drewOnDesign = vectorHostKey.value?.startsWith('design-')
+    if (keepDrawing) {
+      showToast(drewOnDesign ? '这一笔已放到右侧原型图，可继续画，按 Esc 退出' : '这一笔已保存，可继续画下一笔，按 Esc 退出')
+      return
+    }
+    activeDrawTool.value = 'select'
+    activeVectorPageId.value = null
+    vectorHostKey.value = null
+    showToast(drewOnDesign ? '图形已放到右侧原型图' : '已生成矢量图形并加入画板')
+  }
+}
+
+function onVectorCancel() {
+  const pid = activeVectorPageId.value
+  if (isEditingVector.value && editingVectorUid.value && pid) {
+    pageRefs.value[pid]?.restoreVectorOriginal(editingVectorUid.value)
+  }
+  const wasPencil = activeDrawTool.value === 'pencil'
+  isEditingVector.value = false
+  editingVectorUid.value = ''
+  editingVectorPath.value = null
+  activeDrawTool.value = 'select'
+  activeVectorPageId.value = null
+  vectorHostKey.value = null
+  showToast(wasPencil ? '已完成手绘并退出' : '已退出矢量编辑模式')
+}
+
+function onVectorToggleFill() {
+  const inst = Array.isArray(vectorOverlayRef.value) ? vectorOverlayRef.value[0] : vectorOverlayRef.value
+  inst?.toggleFill?.()
+}
+
+function onVectorDeleteOriginal() {
+  const pid = activeVectorPageId.value
+  if (isEditingVector.value && editingVectorUid.value && pid) {
+    pageRefs.value[pid]?.removeVectorOriginal(editingVectorUid.value)
+  }
+  isEditingVector.value = false
+  editingVectorUid.value = ''
+  editingVectorPath.value = null
+  activeDrawTool.value = 'select'
+  activeVectorPageId.value = null
+  vectorHostKey.value = null
+  showToast('已删除该矢量图形')
+}
+
+function onVectorToolbarDone() {
+  const inst = Array.isArray(vectorOverlayRef.value) ? vectorOverlayRef.value[0] : vectorOverlayRef.value
+  if (activeDrawTool.value === 'pencil' && !isEditingVector.value) {
+    if (inst?.hasActivePoints?.()) inst.commitPath?.()
+    showToast('这一笔已经保存，可以直接画下一笔。按 Esc 或点叉才退出铅笔')
+    return
+  }
+  if (inst && typeof inst.commitPath === 'function') {
+    inst.commitPath()
+  } else {
+    onVectorCancel()
+  }
+}
+
+function onVectorToolbarCancel() {
+  const inst = Array.isArray(vectorOverlayRef.value) ? vectorOverlayRef.value[0] : vectorOverlayRef.value
+  if (inst && typeof inst.cancelPath === 'function') {
+    inst.cancelPath()
+  } else {
+    onVectorCancel()
   }
 }
 
@@ -3989,6 +5798,12 @@ function clearSpotlightInIframe() {
 
 function onSimMessage(ev: MessageEvent) {
   if (!ev.data) return
+  if (ev.data.type === 'wf-tool-key' && ev.data.key === 'H') {
+    if (mode.value === 'preview') return
+    activeDrawTool.value = 'hand'
+    showToast('已切换至抓手拖拽 (H)：按住鼠标拖动画布')
+    return
+  }
   if (ev.data.type === 'wf-spotlight-rect' && ev.data.rect) {
     if (!selectedSimAnnId.value || !activeSimAnn.value) return
     if (ev.data.pageId && ev.data.pageId !== previewPageId.value) return
@@ -4219,6 +6034,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  window.removeEventListener('mousedown', onLayerMenuPointerDown, true)
+  window.removeEventListener('keydown', onLayerMenuKey)
   if (editStatusTimer) clearInterval(editStatusTimer)
   if (lastLockedPageId) {
     projectApi.lockPageEditing(id, lastLockedPageId, { clientId: clientId.value, active: false }).catch(() => {})
@@ -4239,7 +6056,21 @@ watch(
 )
 
 function onGlobalKeydown(e: KeyboardEvent) {
-  // 1. ESC key: exits draw mode, or cancels line selection, or exits preview
+  if (isVectorMode.value) {
+    // 矢量编辑模式下，由 VectorDrawOverlay 捕获拦截消费，避免画板被误删或工具状态错乱
+    if (['Escape', 'Enter', 'Delete', 'Backspace'].includes(e.key) || ['v', 'l', 'b', 'x', 'e'].includes(e.key.toLowerCase())) {
+      return
+    }
+  }
+
+  if (e.code === 'Space') {
+    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
+    if (activeTag !== 'input' && activeTag !== 'textarea' && !(document.activeElement as HTMLElement)?.isContentEditable) {
+      isSpacePressed.value = true
+    }
+  }
+
+  // 1. ESC：优先退出绘制工具；仅在已是选择工具时才清空画板多选
   if (e.key === 'Escape') {
     if (activeDrawTool.value !== 'select' || activeShapeDraw.value || activeFrameDraw.value) {
       e.preventDefault()
@@ -4249,8 +6080,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
       showToast('已取消绘制模式')
       return
     }
-    if (selectedConnId.value) {
-      selectedConnId.value = null
+    if (selectedBlockKeys.value.size > 0) {
+      clearSelection()
+      return
+    }
+    if (selectedConnIds.value.size > 0) {
+      selectedConnIds.value = new Set()
       return
     }
     if (mode.value === 'preview') {
@@ -4259,15 +6094,25 @@ function onGlobalKeydown(e: KeyboardEvent) {
     }
   }
 
-  // 2. 绘制工具快捷键监听 (V: 指针选择, R: 矩形方框, T: 文本落字, O: 圆形头像)
+  // 2. 绘制工具快捷键监听 (V: 指针选择, R: 矩形方框, T: 文本落字, O: 圆形, P: 钢笔)
   const activeTag = (document.activeElement?.tagName || '').toLowerCase()
   const isInput = activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable
+  if (!isInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && mode.value !== 'preview') {
+    e.preventDefault()
+    postToFocusFrame({ type: e.shiftKey ? 'wf-ungroup' : 'wf-group' })
+    return
+  }
   if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && mode.value !== 'preview') {
     const key = e.key.toUpperCase()
     if (key === 'V') {
       e.preventDefault()
       activeDrawTool.value = 'select'
       showToast('已切换至指针选择工具 (V)')
+      return
+    } else if (key === 'H') {
+      e.preventDefault()
+      activeDrawTool.value = 'hand'
+      showToast('已切换至抓手拖拽 (H)：按住鼠标拖动画布')
       return
     } else if (key === 'R') {
       e.preventDefault()
@@ -4294,34 +6139,74 @@ function onGlobalKeydown(e: KeyboardEvent) {
       activeDrawTool.value = 'circle'
       showToast('已切换至圆形绘制工具 (O)：点击画板任意位置放置')
       return
+    } else if (e.key === 'P' && e.shiftKey) {
+      e.preventDefault()
+      activeDrawTool.value = 'pencil' as ActiveToolType
+      showToast('已切换至铅笔工具 (Shift+P)：手绘涂鸦线条')
+      return
+    } else if (e.key.toLowerCase() === 'p' && !e.shiftKey) {
+      e.preventDefault()
+      activeDrawTool.value = 'pen' as ActiveToolType
+      showToast('已切换至钢笔工具 (P)：点击或拖拽绘制线条')
+      return
     }
   }
 
   // 3. Figma Prototype 连线删除快捷键 (Backspace / Delete)
-  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedConnId.value) {
-    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedConnIds.value.size > 0) {
+    const tag = (document.activeElement?.tagName || '').toLowerCase()
+    if (tag === 'input' || tag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
       return
     }
     e.preventDefault()
-    const targetConn = connections.value.find((c) => c.id === selectedConnId.value)
-    if (targetConn) {
-      removeConnection(targetConn)
-    }
+    const targets = connections.value.filter((c) => selectedConnIds.value.has(c.id))
+    if (targets.length === 1) removeConnection(targets[0])
+    else if (targets.length > 1) removeConnections(targets)
     return
   }
 
-  // 4. 画板整体删除快捷键 (Backspace / Delete)
-  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedNodeId.value && !selectedElementId.value) {
-    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+  // 4. 画板 / 元素删除快捷键 (Backspace / Delete)
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    const tag = (document.activeElement?.tagName || '').toLowerCase()
+    if (tag === 'input' || tag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
       return
     }
-    const targetPage = pages.value.find((p) => p.id === selectedNodeId.value)
-    if (targetPage) {
-      e.preventDefault()
-      confirmDeletePage(targetPage)
+
+    // iframe 内选中元素时：只删元素，绝不弹删画板
+    if (activeSelectedElementInfo.value) {
+      const pid = focusPageId.value ?? currentFocusPage.value?.id
+      if (pid) {
+        e.preventDefault()
+        pageRefs.value[pid]?.deleteSelectedElement?.()
+      }
       return
+    }
+
+    if (!selectedElementId.value) {
+      // 优先处理多选批量删除
+      if (selectedBlockKeys.value.size > 1) {
+        e.preventDefault()
+        confirmBatchDeleteBlocks()
+        return
+      }
+      // 单选画板删除
+      if (selectedBlockKeys.value.size === 1) {
+        const key = Array.from(selectedBlockKeys.value)[0]
+        const b = blocks.value.find((blk) => blk.key === key)
+        if (b) {
+          e.preventDefault()
+          confirmDeleteBlock(b)
+          return
+        }
+      }
+      if (selectedNodeId.value) {
+        const targetPage = pages.value.find((p) => p.id === selectedNodeId.value)
+        if (targetPage) {
+          e.preventDefault()
+          confirmDeletePage(targetPage)
+          return
+        }
+      }
     }
   }
 
@@ -4342,41 +6227,47 @@ function onGlobalKeydown(e: KeyboardEvent) {
     return
   }
 
-  // 3. 全局连线撤销与重做快捷键 (Ctrl+Z / Ctrl+Y / Cmd+Z / Cmd+Shift+Z)
+  // 3. 撤销 / 重做：有选中元素时只向焦点页发 wf-undo/redo；无选中时才走连线撤销栈；回退时也不广播全部 iframe
   const isZ = e.key === 'z' || e.key === 'Z'
   const isY = e.key === 'y' || e.key === 'Y'
   if ((e.ctrlKey || e.metaKey) && (isZ || isY)) {
-    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-    if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+    const tag = (document.activeElement?.tagName || '').toLowerCase()
+    if (tag === 'input' || tag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
       return
     }
 
-    if (isZ && !e.shiftKey) {
-      if (interactionUndoStack.value.length > 0) {
-        e.preventDefault()
-        undoInteraction()
-        return
-      }
-    } else if (isY || (isZ && e.shiftKey)) {
-      if (interactionRedoStack.value.length > 0) {
-        e.preventDefault()
-        redoInteraction()
-        return
-      }
+    const focusId = focusPageId.value ?? currentFocusPage.value?.id
+    const wantUndo = isZ && !e.shiftKey
+    const wantRedo = isY || (isZ && e.shiftKey)
+
+    // 选中了画面里的零件：只撤回这一页里的修改，不碰页面之间的连线
+    if (activeSelectedElementInfo.value && focusId) {
+      e.preventDefault()
+      postUndoRedoToFocusPage(focusId, wantUndo ? 'wf-undo' : 'wf-redo')
+      return
+    }
+
+    // 没选中零件时，优先撤回连线
+    if (wantUndo && interactionUndoStack.value.length > 0) {
+      e.preventDefault()
+      undoInteraction()
+      return
+    }
+    if (wantRedo && interactionRedoStack.value.length > 0) {
+      e.preventDefault()
+      redoInteraction()
+      return
+    }
+
+    // 没有连线可撤时，只撤回当前这一页，不要把别的画板一起撤掉
+    if (focusId && fineTune.value && mode.value === 'edit') {
+      e.preventDefault()
+      postUndoRedoToFocusPage(focusId, wantUndo ? 'wf-undo' : 'wf-redo')
+      return
     }
   }
 
-  // 4. Fine tune undo/redo in canvas edit mode
   if (!fineTune.value || mode.value === 'preview') return
-  if ((e.ctrlKey || e.metaKey) && isZ && !e.shiftKey) {
-    e.preventDefault()
-    const frames = document.querySelectorAll<HTMLIFrameElement>('iframe.html-frame')
-    frames.forEach((f) => f.contentWindow?.postMessage({ type: 'wf-undo' }, '*'))
-  } else if ((e.ctrlKey || e.metaKey) && (isY || (isZ && e.shiftKey))) {
-    e.preventDefault()
-    const frames = document.querySelectorAll<HTMLIFrameElement>('iframe.html-frame')
-    frames.forEach((f) => f.contentWindow?.postMessage({ type: 'wf-redo' }, '*'))
-  }
 
   // 5. 复制快捷键 (Ctrl+C / Cmd+C)
   const isC = e.key === 'c' || e.key === 'C'
@@ -4557,17 +6448,27 @@ function onGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onGlobalKeydown))
+function onGlobalKeyup(e: KeyboardEvent) {
+  if (e.code === 'Space') {
+    isSpacePressed.value = false
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('keyup', onGlobalKeyup)
+  window.addEventListener('focusin', onArtboardFocusIn, true)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('keyup', onGlobalKeyup)
+  window.removeEventListener('focusin', onArtboardFocusIn, true)
+})
 </script>
 
 <style scoped lang="scss">
-/* Canvas Viewport Dot Grid Background */
 .canvas-viewport {
-  background-color: #f8fafc;
-  background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px);
-  background-size: 24px 24px;
-  background-position: center;
+  background-color: #f5f5f5;
 }
 
 .canvas-content {
@@ -4582,11 +6483,6 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKeydown))
 
   &.is-dragging {
     pointer-events: none;
-
-    * {
-      pointer-events: none !important;
-      user-select: none !important;
-    }
   }
 }
 
@@ -4653,22 +6549,22 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKeydown))
 
 /* 业务说明联动：模拟器组件呼吸发光外圈 */
 .sim-breathing-ring {
-  border-color: #10b981;
+  border-color: #0d99ff;
   animation: simBreathing 1.8s ease-in-out infinite;
 }
 
 @keyframes simBreathing {
   0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.75), 0 0 12px rgba(16, 185, 129, 0.45);
-    border-color: rgba(52, 211, 153, 0.9);
+    box-shadow: 0 0 0 0 rgba(13, 153, 255, 0.75), 0 0 12px rgba(13, 153, 255, 0.45);
+    border-color: rgba(13, 153, 255, 0.9);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0), 0 0 24px rgba(16, 185, 129, 0.85);
-    border-color: #10b981;
+    box-shadow: 0 0 0 6px rgba(13, 153, 255, 0), 0 0 24px rgba(13, 153, 255, 0.85);
+    border-color: #0d99ff;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.75), 0 0 12px rgba(16, 185, 129, 0.45);
-    border-color: rgba(52, 211, 153, 0.9);
+    box-shadow: 0 0 0 0 rgba(13, 153, 255, 0.75), 0 0 12px rgba(13, 153, 255, 0.45);
+    border-color: rgba(13, 153, 255, 0.9);
   }
 }
 
