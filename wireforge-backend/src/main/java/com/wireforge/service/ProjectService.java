@@ -33,7 +33,11 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
+import com.wireforge.model.ProjectAnalysisStatus;
 
 @Slf4j
 @Service
@@ -50,6 +54,7 @@ public class ProjectService {
     private final AnalyzeService analyzeService;
     private final AppMapService appMapService;
     private final InteractionAutowireService interactionAutowireService;
+    private final ElementGroupService elementGroupService;
     private final com.wireforge.ai.HtmlRenderer htmlRenderer;
 
     /** 分析完成后是否自动跑 Playwright 交互验证（仅记录报告，不阻断） */
@@ -334,6 +339,97 @@ public class ProjectService {
     /** 正在分析中的项目（防止同项目并发分析互相锁等待） */
     private final java.util.Set<Long> analyzingProjects = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /** 项目分析实时进度状态映射表（以服务端为绝对权威事实，刷新/切屏不丢失） */
+    private final Map<Long, ProjectAnalysisStatus> projectAnalysisStatusMap = new ConcurrentHashMap<>();
+
+    /** 异步分析后台线程池 */
+    private final ExecutorService analysisExecutor = Executors.newFixedThreadPool(4);
+
+    /** 获取项目当前的 AI 分析状态与详细进度 */
+    public ProjectAnalysisStatus getAnalysisStatus(Long projectId) {
+        ProjectAnalysisStatus status = projectAnalysisStatusMap.get(projectId);
+        if (status == null) {
+            status = new ProjectAnalysisStatus();
+            status.setProjectId(projectId);
+            status.setAnalyzing(analyzingProjects.contains(projectId));
+            status.setFinished(false);
+            status.setStep(status.isAnalyzing() ? "正在分析中..." : "");
+            return status;
+        }
+        // 兜底校验：如果底层已释放锁定但状态未同步，强制闭合
+        if (status.isAnalyzing() && !analyzingProjects.contains(projectId)) {
+            status.setAnalyzing(false);
+            status.setFinished(true);
+        }
+        return status;
+    }
+
+    /** 安全更新项目分析进度 */
+    private void updateProgress(Long projectId, java.util.function.Consumer<ProjectAnalysisStatus> updater) {
+        ProjectAnalysisStatus status = projectAnalysisStatusMap.computeIfAbsent(projectId, id -> {
+            ProjectAnalysisStatus s = new ProjectAnalysisStatus();
+            s.setProjectId(id);
+            s.setAnalyzing(true);
+            s.setStartTime(System.currentTimeMillis());
+            return s;
+        });
+        updater.accept(status);
+        status.setUpdateTime(System.currentTimeMillis());
+    }
+
+    /**
+     * 启动异步后台 AI 原型分析（以服务端线程池运行，不受浏览器刷新中断影响）
+     */
+    public ProjectAnalysisStatus startAsyncAnalyze(Long projectId) {
+        getProject(projectId);
+        ProjectAnalysisStatus currentStatus = getAnalysisStatus(projectId);
+        if (currentStatus.isAnalyzing()) {
+            log.info("项目 {} 已在后台分析中，复用当前状态", projectId);
+            return currentStatus;
+        }
+
+        List<Page> pending = pageMapper.selectList(
+                Wrappers.<Page>lambdaQuery()
+                        .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getAnalyzed).or().eq(Page::getAnalyzed, 0))
+                        .orderByAsc(Page::getSortOrder));
+        if (pending.isEmpty()) {
+            log.info("项目 {} 所有页面均已生成线稿，无需重复生成", projectId);
+            ProjectAnalysisStatus done = new ProjectAnalysisStatus();
+            done.setProjectId(projectId);
+            done.setAnalyzing(false);
+            done.setFinished(true);
+            done.setStep("所有页面均已有原型线稿，无需重新生成");
+            projectAnalysisStatusMap.put(projectId, done);
+            return done;
+        }
+
+        ProjectAnalysisStatus initial = ProjectAnalysisStatus.builder()
+                .projectId(projectId)
+                .analyzing(true)
+                .current(0)
+                .total(pending.size())
+                .step("准备启动 AI 分析，共 " + pending.size() + " 个页面...")
+                .okCount(0)
+                .failCount(0)
+                .lastError(null)
+                .finished(false)
+                .startTime(System.currentTimeMillis())
+                .updateTime(System.currentTimeMillis())
+                .build();
+        projectAnalysisStatusMap.put(projectId, initial);
+
+        analysisExecutor.submit(() -> {
+            try {
+                analyzePages(projectId, pending);
+            } catch (Exception e) {
+                log.error("后台异步分析任务执行出现异常: {}", e.getMessage(), e);
+            }
+        });
+
+        return initial;
+    }
+
     /**
      * 对项目中尚未生成线稿的页面执行 AI 识别（已有线稿的页面不重新生成，节省调用成本）。
      * 全部页面已生成时返回空列表。
@@ -355,19 +451,46 @@ public class ProjectService {
     /**
      * 强制重新对指定单页执行 AI 深度识别（清空旧元素并重跑视觉大模型）
      */
-    public List<Map<String, Object>> reanalyzePage(Long projectId, Long pageId) {
+    public List<Map<String, Object>> reanalyzePage(Long projectId, Long pageId, boolean force) {
         getProject(projectId);
         Page page = pageMapper.selectById(pageId);
         if (page == null || !projectId.equals(page.getProjectId())) {
             throw new IllegalArgumentException("页面不存在: id=" + pageId);
         }
+        if (!force && unchangedSinceLastAnalyze(page)) {
+            log.info("页面 [{}] 设计稿未变，跳过重新识别（未调用模型）", page.getName());
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("page_id", page.getId());
+            item.put("page_name", page.getName());
+            item.put("status", "skipped");
+            return List.of(item);
+        }
+        updateProgress(projectId, p -> {
+            p.setAnalyzing(true);
+            p.setCurrent(1);
+            p.setTotal(1);
+            p.setCurrentPageName(page.getName());
+            p.setStep("正在重新深度识别「" + page.getName() + "」...");
+            p.setLastError(null);
+            p.setFinished(false);
+        });
         return analyzePages(projectId, List.of(page));
+    }
+
+    /** 上次识别成功、设计稿文件没换、元素还在，才算没变 */
+    private boolean unchangedSinceLastAnalyze(Page page) {
+        if (page.getAnalyzed() == null || page.getAnalyzed() != 1) return false;
+        if (page.getImageHash() == null || page.getImageHash().isBlank()) return false;
+        String current = analyzeService.currentImageFingerprint(page);
+        if (current == null || !current.equals(page.getImageHash())) return false;
+        Long count = elementMapper.selectCount(Wrappers.<Element>lambdaQuery().eq(Element::getPageId, page.getId()));
+        return count != null && count > 0;
     }
 
     /**
      * 强制重新对全项目所有页面执行 AI 深度识别
      */
-    public List<Map<String, Object>> reanalyzeAll(Long projectId) {
+    public List<Map<String, Object>> reanalyzeAll(Long projectId, boolean force) {
         getProject(projectId);
         List<Page> all = pageMapper.selectList(
                 Wrappers.<Page>lambdaQuery()
@@ -376,7 +499,22 @@ public class ProjectService {
         if (all.isEmpty()) {
             return Collections.emptyList();
         }
-        return analyzePages(projectId, all);
+        List<Page> todo = new ArrayList<>();
+        List<Map<String, Object>> skipped = new ArrayList<>();
+        for (Page p : all) {
+            if (!force && unchangedSinceLastAnalyze(p)) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("page_id", p.getId());
+                item.put("page_name", p.getName());
+                item.put("status", "skipped");
+                skipped.add(item);
+            } else {
+                todo.add(p);
+            }
+        }
+        List<Map<String, Object>> results = new ArrayList<>(skipped);
+        if (!todo.isEmpty()) results.addAll(analyzePages(projectId, todo));
+        return results;
     }
 
     /**
@@ -386,6 +524,14 @@ public class ProjectService {
         if (!analyzingProjects.add(projectId)) {
             throw new IllegalStateException("该项目正在分析中，请等待当前分析完成");
         }
+        updateProgress(projectId, p -> {
+            p.setAnalyzing(true);
+            p.setTotal(pagesToAnalyze.size());
+            p.setCurrent(0);
+            p.setFinished(false);
+            p.setLastError(null);
+        });
+
         try {
             List<Page> allPages = pageMapper.selectList(
                     Wrappers.<Page>lambdaQuery()
@@ -398,8 +544,23 @@ public class ProjectService {
             for (Page p : allPages) {
                 originalNameToId.put(p.getName(), p.getId());
             }
+
             List<Map<String, Object>> results = new ArrayList<>();
+            int pageIndex = 0;
+            int okCount = 0;
+            int failCount = 0;
+            int consecutiveFailCount = 0;
+            String fatalError = null;
+
             for (Page page : pagesToAnalyze) {
+                pageIndex++;
+                final int currentIdx = pageIndex;
+                updateProgress(projectId, p -> {
+                    p.setCurrent(currentIdx);
+                    p.setCurrentPageName(page.getName());
+                    p.setStep("正在分析「" + page.getName() + "」 (" + currentIdx + "/" + pagesToAnalyze.size() + ")");
+                });
+
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("page_id", page.getId());
                 item.put("page_name", page.getName());
@@ -407,36 +568,100 @@ public class ProjectService {
                     int count = analyzeService.analyzePage(page, pageNames);
                     item.put("status", "ok");
                     item.put("elements", count);
+                    okCount++;
+                    consecutiveFailCount = 0;
+                    final int currentOk = okCount;
+                    updateProgress(projectId, p -> p.setOkCount(currentOk));
                 } catch (Exception e) {
                     log.error("页面 [{}] 分析失败: {}", page.getName(), e.getMessage());
                     item.put("status", "error");
-                    item.put("error", e.getMessage());
+                    String errText = e.getMessage() != null ? e.getMessage() : "模型解析异常";
+                    item.put("error", errText);
+                    failCount++;
+                    consecutiveFailCount++;
+                    final int currentFail = failCount;
+                    updateProgress(projectId, p -> {
+                        p.setFailCount(currentFail);
+                        p.setLastError(errText);
+                    });
+
+                    // 快速熔断：如果上游大模型接口发生 502/网关超时/网络拒绝，且连续 2 页失败，立即安全中止后续排队，避免无效死等
+                    if (errText.contains("502") || errText.contains("Bad Gateway") || errText.contains("ConnectException") || errText.contains("Connection refused")) {
+                        if (consecutiveFailCount >= 2 || pagesToAnalyze.size() == 1) {
+                            fatalError = "AI 服务上游网关异常 (502 Bad Gateway)，已安全终止后续分析";
+                            log.error("触发快速熔断中断分析: {}", fatalError);
+                            break;
+                        }
+                    }
                 }
                 results.add(item);
             }
-            analyzeService.resolvePendingTargets(projectId, originalNameToId);
-            // 变体页面公共骨架像素级对齐（吸附同源状态页面的导航、立绘框、底栏坐标）
-            analyzeService.alignVariantPages(projectId);
-            // 自动布线全项目交互（为弹窗唤起、Tab 切换、返回及页面跳转建立稳定连线）
-            interactionAutowireService.autowireProjectInteractions(projectId);
-            // 交互补链完成后再构建 App Map（共享底栏依赖稳定的 target_page_id），
-            // 然后统一重渲染一遍，保证 data-nav / data-modal / 共享底栏都按最终数据生成。
-            appMapService.buildAppMap(projectId);
-            for (Page p : allPages) {
+
+            if (fatalError != null) {
+                final String fatalMsg = fatalError;
+                updateProgress(projectId, p -> p.setLastError(fatalMsg));
+            }
+
+            if (okCount > 0) {
+                updateProgress(projectId, p -> p.setStep("正在对齐变体页面公共骨架..."));
+                analyzeService.resolvePendingTargets(projectId, originalNameToId);
+                analyzeService.alignVariantPages(projectId);
+                for (Page aligned : allPages) {
+                    try {
+                        elementGroupService.groupPage(aligned);
+                    } catch (Exception e) {
+                        log.warn("页面 [{}] 对齐后分组失败: {}", aligned.getName(), e.getMessage());
+                    }
+                }
+
+                updateProgress(projectId, p -> p.setStep("正在执行 AI 拓扑智能连线..."));
+                interactionAutowireService.autowireProjectInteractions(projectId);
                 try {
-                    String html = analyzeService.renderTemplateHtml(p);
-                    pageMapper.update(null,
-                            Wrappers.<Page>lambdaUpdate()
-                                    .eq(Page::getId, p.getId())
-                                    .set(Page::getHtmlContent, html));
+                    interactionAutowireService.autowireUnresolvedWithAi(projectId);
                 } catch (Exception e) {
-                    log.warn("页面 [{}] 补链后重渲染失败: {}", p.getName(), e.getMessage());
+                    log.warn("阶段二增量语义智能连线异常（不影响基础连线）: {}", e.getMessage());
+                }
+
+                updateProgress(projectId, p -> p.setStep("正在构建 App Map 与重渲染页面..."));
+                appMapService.buildAppMap(projectId);
+                for (Page p : allPages) {
+                    if (p.getAnalyzed() == null || p.getAnalyzed() != 1) continue;
+                    try {
+                        String html = analyzeService.renderTemplateHtml(p);
+                        pageMapper.update(null,
+                                Wrappers.<Page>lambdaUpdate()
+                                        .eq(Page::getId, p.getId())
+                                        .set(Page::getHtmlContent, html));
+                    } catch (Exception e) {
+                        log.warn("页面 [{}] 补链后重渲染失败: {}", p.getName(), e.getMessage());
+                    }
+                }
+
+                if (pagesToAnalyze.size() > 1) {
+                    updateProgress(projectId, p -> p.setStep("正在验证全项目线稿连通性..."));
+                    verifyProject(projectId);
                 }
             }
-            verifyProject(projectId);
             return results;
+        } catch (Exception e) {
+            log.error("项目 [{}] 分析出现意外异常: {}", projectId, e.getMessage(), e);
+            updateProgress(projectId, p -> {
+                p.setLastError(e.getMessage());
+                p.setStep("分析异常中断: " + e.getMessage());
+            });
+            throw e;
         } finally {
             analyzingProjects.remove(projectId);
+            updateProgress(projectId, p -> {
+                p.setAnalyzing(false);
+                p.setFinished(true);
+                p.setUpdateTime(System.currentTimeMillis());
+                if (p.getLastError() != null && p.getOkCount() == 0) {
+                    p.setStep("分析异常中断: " + p.getLastError());
+                } else {
+                    p.setStep("分析完成: 成功 " + p.getOkCount() + " 页" + (p.getFailCount() > 0 ? "，失败 " + p.getFailCount() + " 页" : ""));
+                }
+            });
         }
     }
 
@@ -494,6 +719,8 @@ public class ProjectService {
             ev.put("y", e.getPositionY());
             ev.put("width", e.getWidth());
             ev.put("height", e.getHeight());
+            ev.put("group_key", e.getGroupKey() == null || e.getGroupKey().isBlank() ? null : e.getGroupKey());
+            ev.put("group_role", e.getGroupRole() == null || e.getGroupRole().isBlank() ? null : e.getGroupRole());
             List<Interaction> interactions = interactionsByElement.getOrDefault(e.getId(), List.of());
             if (!interactions.isEmpty()) {
                 Interaction first = interactions.get(0);
@@ -503,6 +730,7 @@ public class ProjectService {
                 iv.put("action", first.getActionType());
                 iv.put("target_page_id", first.getTargetPageId());
                 iv.put("params", first.getParams());
+                iv.put("source", first.getSource());
                 ev.put("interaction", iv);
             }
             elementList.add(ev);
@@ -912,6 +1140,23 @@ public class ProjectService {
         if (element == null) {
             throw new IllegalArgumentException("元素不存在: " + elementId);
         }
+        if (element.getGroupKey() != null && !element.getGroupKey().isBlank()
+                && "member".equals(element.getGroupRole())) {
+            Element anchor = elementMapper.selectOne(
+                    Wrappers.<Element>lambdaQuery()
+                            .eq(Element::getPageId, element.getPageId())
+                            .eq(Element::getGroupKey, element.getGroupKey())
+                            .eq(Element::getGroupRole, "anchor")
+                            .last("limit 1"));
+            if (anchor != null) {
+                interactionMapper.delete(Wrappers.<Interaction>lambdaQuery().eq(Interaction::getElementId, element.getId()));
+                element = anchor;
+                elementId = anchor.getId();
+            }
+        } else if (element.getGroupKey() == null || element.getGroupKey().isBlank()) {
+            element.setGroupRole("anchor");
+            elementMapper.updateById(element);
+        }
         Page elementPage = pageMapper.selectById(element.getPageId());
         if (elementPage == null || !projectId.equals(elementPage.getProjectId())) {
             throw new IllegalArgumentException("元素不属于该项目");
@@ -963,6 +1208,7 @@ public class ProjectService {
             interaction.setActionType(actionType);
             interaction.setTriggerType(triggerType);
             interaction.setParams(paramsStr);
+            interaction.setSource("user");
             interactionMapper.updateById(interaction);
             for (int i = 1; i < existingList.size(); i++) {
                 interactionMapper.deleteById(existingList.get(i).getId());
@@ -974,6 +1220,7 @@ public class ProjectService {
             interaction.setActionType(actionType);
             interaction.setTriggerType(triggerType);
             interaction.setParams(paramsStr);
+            interaction.setSource("user");
             interactionMapper.insert(interaction);
         }
         return interaction;
@@ -997,6 +1244,39 @@ public class ProjectService {
             }
         }
         interactionMapper.deleteById(interactionId);
+    }
+
+    /**
+     * 手动/按需触发：全项目交互自动布线（本地规则 + 阶段二纯文本增量语义推导）
+     */
+    public Map<String, Object> autowireProjectInteractionsWithAi(Long projectId) {
+        getProject(projectId);
+        int localCount = interactionAutowireService.autowireProjectInteractions(projectId);
+        int aiCount = interactionAutowireService.autowireUnresolvedWithAi(projectId);
+
+        // 重建 AppMap 并重新渲染整页 HTML
+        appMapService.buildAppMap(projectId);
+        List<Page> allPages = pageMapper.selectList(
+                Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
+        for (Page p : allPages) {
+            if (p.getAnalyzed() == null || p.getAnalyzed() != 1) continue;
+            try {
+                String html = analyzeService.renderTemplateHtml(p);
+                pageMapper.update(null,
+                        Wrappers.<Page>lambdaUpdate()
+                                .eq(Page::getId, p.getId())
+                                .set(Page::getHtmlContent, html));
+            } catch (Exception e) {
+                log.warn("页面 [{}] 拓扑智能连线后重渲染失败: {}", p.getName(), e.getMessage());
+            }
+        }
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("project_id", projectId);
+        res.put("local_wired", localCount);
+        res.put("ai_wired", aiCount);
+        res.put("total_wired", localCount + aiCount);
+        return res;
     }
 
     /**

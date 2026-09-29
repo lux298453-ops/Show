@@ -1,0 +1,301 @@
+<svg viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Soft Drop Shadow for Frame -->
+    <filter id="wf-frame-shadow" x="-15%" y="-15%" width="135%" height="135%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#0284c7" flood-opacity="0.14" />
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.08" />
+    </filter>
+
+    <!-- Gaussian Blurs -->
+    <filter id="wf-blur-xs" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.5" />
+    </filter>
+    <filter id="wf-blur-sm" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3.5" />
+    </filter>
+    <filter id="wf-blur-md" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" />
+    </filter>
+    <filter id="wf-blur-lg" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="16" />
+    </filter>
+
+    <!-- Mascot Jade Gradients: Richer Emerald with Translucent Depth -->
+    <radialGradient id="wf-mascot-grad" cx="48%" cy="45%" r="56%">
+      <stop offset="0%" stop-color="#34D399" />
+      <stop offset="28%" stop-color="#10B981" />
+      <stop offset="62%" stop-color="#059669" />
+      <stop offset="88%" stop-color="#047857" />
+      <stop offset="100%" stop-color="#064E3B" />
+    </radialGradient>
+
+    <!-- Mascot Inner Luminous Chartreuse Core (Water Head / 水头) -->
+    <radialGradient id="wf-mascot-core" cx="50%" cy="56%" r="48%">
+      <stop offset="0%" stop-color="#BEF264" stop-opacity="0.85" />
+      <stop offset="35%" stop-color="#86EFAC" stop-opacity="0.55" />
+      <stop offset="70%" stop-color="#34D399" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#10B981" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Amber Crystal Eye - Left -->
+    <radialGradient id="wf-eye-l" cx="36%" cy="34%" r="64%">
+      <stop offset="0%" stop-color="#FEF9C3" />
+      <stop offset="20%" stop-color="#FDE047" />
+      <stop offset="45%" stop-color="#F59E0B" />
+      <stop offset="75%" stop-color="#D97706" />
+      <stop offset="92%" stop-color="#B45309" />
+      <stop offset="100%" stop-color="#78350F" />
+    </radialGradient>
+
+    <!-- Amber Crystal Eye - Right -->
+    <radialGradient id="wf-eye-r" cx="36%" cy="34%" r="64%">
+      <stop offset="0%" stop-color="#FEF9C3" />
+      <stop offset="20%" stop-color="#FDE047" />
+      <stop offset="45%" stop-color="#F59E0B" />
+      <stop offset="75%" stop-color="#D97706" />
+      <stop offset="92%" stop-color="#B45309" />
+      <stop offset="100%" stop-color="#78350F" />
+    </radialGradient>
+
+    <!-- Frame Icy Sky-Blue Jade Gradient (晴水天青) -->
+    <linearGradient id="wf-frame-base" x1="15%" y1="10%" x2="85%" y2="90%">
+      <stop offset="0%" stop-color="#E2F5F8" />
+      <stop offset="20%" stop-color="#C5EBF1" />
+      <stop offset="50%" stop-color="#A2DBE6" />
+      <stop offset="80%" stop-color="#7EC8D8" />
+      <stop offset="100%" stop-color="#64B9CB" />
+    </linearGradient>
+
+    <!-- Frame Translucent 3D Bevel Overlay -->
+    <radialGradient id="wf-frame-bevel" cx="28%" cy="24%" r="76%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.5" />
+      <stop offset="35%" stop-color="#D0F0F6" stop-opacity="0.2" />
+      <stop offset="75%" stop-color="#55AAB8" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#266D7C" stop-opacity="0.32" />
+    </radialGradient>
+
+    <!-- Ruby Gem Radial Gradient -->
+    <radialGradient id="wf-ruby-grad" cx="34%" cy="30%" r="66%">
+      <stop offset="0%" stop-color="#FFE4E6" />
+      <stop offset="18%" stop-color="#FB7185" />
+      <stop offset="45%" stop-color="#E11D48" />
+      <stop offset="75%" stop-color="#9F1239" />
+      <stop offset="94%" stop-color="#67061E" />
+      <stop offset="100%" stop-color="#4C0519" />
+    </radialGradient>
+
+    <!-- Clip Path for Inside the Frame (to confine cloudy textures) -->
+    <clipPath id="wf-frame-clip">
+      <path fill-rule="evenodd" clip-rule="evenodd"
+        d="
+          M 160 76
+          H 352
+          C 400 76, 436 112, 436 160
+          V 352
+          C 436 400, 400 436, 352 436
+          H 160
+          C 112 436, 76 400, 76 352
+          V 160
+          C 76 112, 112 76, 160 76
+          Z
+
+          M 194 148
+          H 318
+          C 334 148, 346 160, 346 176
+          C 346 194, 356 206, 366 216
+          V 318
+          C 366 342, 344 364, 320 364
+          H 194
+          C 170 364, 148 342, 148 318
+          V 194
+          C 148 170, 170 148, 194 148
+          Z
+        "
+      />
+    </clipPath>
+  </defs>
+
+  <!-- ==================== 1. MASCOT (PEEKING JELLY SPRITE) ==================== -->
+  <g id="wf-mascot" transform="rotate(-4.2 258 304)">
+    <!-- Mascot Ambient Depth Shadow -->
+    <rect x="156" y="206" width="204" height="196" rx="60" ry="60" fill="#034d40" opacity="0.25" filter="url(#wf-blur-lg)" />
+
+    <!-- Mascot Main Body -->
+    <rect x="158" y="204" width="200" height="192" rx="58" ry="58" fill="url(#wf-mascot-grad)" />
+
+    <!-- Mascot Internal Luminous Chartreuse Core (Juicy Jelly Glow) -->
+    <circle cx="258" cy="324" r="74" fill="url(#wf-mascot-core)" />
+
+    <!-- Mascot Bottom Rim Translucent Bounce Light -->
+    <path d="M 186 374 Q 258 396 330 374" stroke="#6EE7B7" stroke-width="8" stroke-linecap="round" opacity="0.4" filter="url(#wf-blur-sm)" />
+
+    <!-- Mascot Top Specular Glare (Glassy 3D Curved Light Reflection) -->
+    <path d="M 186 242 C 196 222, 224 212, 276 216" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" opacity="0.68" filter="url(#wf-blur-xs)" />
+    <path d="M 192 238 C 200 223, 224 215, 268 218" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity="0.9" />
+
+    <!-- Mascot Top-Right Subtle Gloss Glare -->
+    <path d="M 314 222 C 330 228, 344 240, 350 254" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" opacity="0.45" />
+
+    <!-- ========== AMBER EYES ========== -->
+    <!-- Left Eye -->
+    <g id="wf-left-eye">
+      <!-- Amber Eye Socket Ring -->
+      <circle cx="214" cy="308" r="27" stroke="#78350F" stroke-width="2.5" fill="none" opacity="0.4" />
+      <circle cx="214" cy="308" r="25.5" fill="#451A03" opacity="0.2" />
+      <!-- Amber Sphere -->
+      <circle cx="214" cy="308" r="24.5" fill="url(#wf-eye-l)" />
+      <!-- Bottom Rim Warm Glow -->
+      <path d="M 203 322 A 18 18 0 0 0 227 319" stroke="#FEF08A" stroke-width="2.2" stroke-linecap="round" opacity="0.8" />
+      <!-- Main Specular Bubble Highlight -->
+      <ellipse cx="206" cy="300" rx="6.5" ry="4.5" transform="rotate(-30 206 300)" fill="#FFFFFF" opacity="0.95" />
+      <circle cx="214" cy="296" r="2.2" fill="#FFFFFF" opacity="0.85" />
+      <!-- Adorable Star Sparkle at Bottom -->
+      <path d="M 224 312 Q 224 318 229 318 Q 224 318 224 324 Q 224 318 219 318 Q 224 318 224 312 Z" fill="#FFFFFF" opacity="0.98" />
+      <!-- Tiny Sparkle Dot -->
+      <circle cx="201" cy="318" r="1.6" fill="#FFFFFF" opacity="0.95" />
+    </g>
+
+    <!-- Right Eye -->
+    <g id="wf-right-eye">
+      <!-- Amber Eye Socket Ring -->
+      <circle cx="298" cy="294" r="27" stroke="#78350F" stroke-width="2.5" fill="none" opacity="0.4" />
+      <circle cx="298" cy="294" r="25.5" fill="#451A03" opacity="0.2" />
+      <!-- Amber Sphere -->
+      <circle cx="298" cy="294" r="24.5" fill="url(#wf-eye-r)" />
+      <!-- Bottom Rim Warm Glow -->
+      <path d="M 288 309 A 18 18 0 0 0 312 303" stroke="#FEF08A" stroke-width="2.2" stroke-linecap="round" opacity="0.8" />
+      <!-- Main Specular Bubble Highlight -->
+      <ellipse cx="291" cy="286" rx="6.5" ry="4.5" transform="rotate(-25 291 286)" fill="#FFFFFF" opacity="0.95" />
+      <circle cx="298" cy="282" r="2.2" fill="#FFFFFF" opacity="0.85" />
+      <!-- Adorable Star Sparkle at Top-Right -->
+      <path d="M 308 278 Q 308 284 314 284 Q 308 284 308 290 Q 308 284 302 284 Q 308 284 308 278 Z" fill="#FFFFFF" opacity="0.98" />
+      <!-- Tiny Sparkle Dot -->
+      <circle cx="313" cy="298" r="1.6" fill="#FFFFFF" opacity="0.95" />
+    </g>
+  </g>
+
+  <!-- ==================== 2. ICY SKY-BLUE JADE FRAME ==================== -->
+  <g id="wf-jade-frame">
+    <!-- Frame Main Body with EvenOdd Hollow Cutout & Ruby Socket -->
+    <path fill-rule="evenodd" clip-rule="evenodd"
+      d="
+        M 160 76
+        H 352
+        C 400 76, 436 112, 436 160
+        V 352
+        C 436 400, 400 436, 352 436
+        H 160
+        C 112 436, 76 400, 76 352
+        V 160
+        C 76 112, 112 76, 160 76
+        Z
+
+        M 194 148
+        H 318
+        C 334 148, 346 160, 346 176
+        C 346 194, 356 206, 366 216
+        V 318
+        C 366 342, 344 364, 320 364
+        H 194
+        C 170 364, 148 342, 148 318
+        V 194
+        C 148 170, 170 148, 194 148
+        Z
+      "
+      fill="url(#wf-frame-base)"
+      filter="url(#wf-frame-shadow)"
+    />
+
+    <!-- Frame 3D Bevel & Radial Volume -->
+    <path fill-rule="evenodd" clip-rule="evenodd"
+      d="
+        M 160 76
+        H 352
+        C 400 76, 436 112, 436 160
+        V 352
+        C 436 400, 400 436, 352 436
+        H 160
+        C 112 436, 76 400, 76 352
+        V 160
+        C 76 112, 112 76, 160 76
+        Z
+
+        M 194 148
+        H 318
+        C 334 148, 346 160, 346 176
+        C 346 194, 356 206, 366 216
+        V 318
+        C 366 342, 344 364, 320 364
+        H 194
+        C 170 364, 148 342, 148 318
+        V 194
+        C 148 170, 170 148, 194 148
+        Z
+      "
+      fill="url(#wf-frame-bevel)"
+    />
+
+    <!-- Translucent Cloudy Jade Flocculence (棉絮纹理 - 真实的冰种翡翠质感) -->
+    <g clip-path="url(#wf-frame-clip)" opacity="0.38" filter="url(#wf-blur-md)">
+      <!-- Soft White Jade Clouds -->
+      <path d="M 90 200 C 110 240, 130 290, 105 340 C 95 290, 105 240, 90 200 Z" fill="#FFFFFF" />
+      <path d="M 120 180 Q 140 250 118 320 Q 130 250 120 180 Z" fill="#E0F7FA" />
+      <path d="M 170 110 Q 240 96 320 114 Q 240 124 170 110 Z" fill="#FFFFFF" />
+      <path d="M 378 230 Q 410 290 388 350 Q 380 290 378 230 Z" fill="#FFFFFF" />
+      <path d="M 150 405 C 220 395, 300 395, 370 405 C 330 420, 190 420, 150 405 Z" fill="#FFFFFF" />
+    </g>
+
+    <!-- Tubular 3D Cushion Specular Highlights (Top & Left Bars) -->
+    <!-- Top Bar Main Highlight -->
+    <path d="M 158 106 C 215 97, 295 97, 340 106" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" opacity="0.48" filter="url(#wf-blur-sm)" />
+    <path d="M 164 104 C 218 98, 292 98, 334 104" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" opacity="0.85" />
+
+    <!-- Left Bar Main Highlight -->
+    <path d="M 106 158 C 97 215, 97 295, 106 340" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" opacity="0.48" filter="url(#wf-blur-sm)" />
+    <path d="M 104 164 C 98 218, 98 292, 104 334" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" opacity="0.85" />
+
+    <!-- Outer Perimeter Top-Left Bevel Reflection -->
+    <path d="M 160 78 C 114 78, 78 114, 78 160" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.7" fill="none" />
+
+    <!-- Outer Perimeter Bottom-Right Translucent Edge -->
+    <path d="M 160 434 H 352 C 398 434, 434 398, 434 352" stroke="#E2F5F8" stroke-width="2.5" stroke-linecap="round" opacity="0.4" fill="none" />
+
+    <!-- Inner Window Bevel Highlight Stroke -->
+    <path
+      d="
+        M 194 150
+        H 318
+        C 333 150, 344 161, 344 176
+        C 344 193, 354 204, 364 214
+        V 318
+        C 364 340, 343 362, 320 362
+        H 194
+        C 172 362, 150 340, 150 318
+        V 194
+        C 150 172, 172 150, 194 150
+        Z
+      "
+      stroke="#FFFFFF"
+      stroke-width="2.2"
+      fill="none"
+      opacity="0.45"
+    />
+  </g>
+
+  <!-- ==================== 3. RUBY GEM SPHERE ==================== -->
+  <g id="wf-ruby-gem">
+    <!-- Ruby Ambient Occlusion into Jade Socket -->
+    <ellipse cx="379" cy="139" rx="31" ry="29" fill="#0C4A5E" opacity="0.45" filter="url(#wf-blur-sm)" />
+
+    <!-- Ruby Main Sphere -->
+    <circle cx="378" cy="132" r="28.5" fill="url(#wf-ruby-grad)" />
+
+    <!-- Ruby Bottom Translucent Rose Bounce Glow -->
+    <path d="M 365 149 A 22 22 0 0 0 396 137" stroke="#FDA4AF" stroke-width="3.5" stroke-linecap="round" opacity="0.6" />
+
+    <!-- Ruby Glossy Primary Specular Highlight -->
+    <ellipse cx="369" cy="121" rx="8" ry="6" transform="rotate(-35 369 121)" fill="#FFFFFF" opacity="0.96" />
+    <!-- Ruby Secondary Pin-Point Twinkle -->
+    <circle cx="378" cy="115" r="2.2" fill="#FFFFFF" opacity="0.88" />
+  </g>
+</svg>

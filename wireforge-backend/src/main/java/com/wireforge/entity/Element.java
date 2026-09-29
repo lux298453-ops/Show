@@ -24,6 +24,10 @@ public class Element {
     private Double width;
     private Double height;
     private String style;
+    /** 同一页里同一次点击的共用编号。空表示不属于任何可点击组。 */
+    private String groupKey;
+    /** anchor=这一组的代表；member=组内其余部分；空=不属于可点击组。 */
+    private String groupRole;
     private String createdBy;
     private LocalDateTime createdAt;
 }

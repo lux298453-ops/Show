@@ -59,6 +59,7 @@
             :class="isRowSelected(row.layer.uid) ? 'is-selected bg-[#0D99FF] text-white' : 'hover:bg-[#f5f5f5]'"
             :style="{ paddingLeft: (16 + row.depth * 18) + 'px', paddingRight: '8px' }"
             :draggable="renamingUid !== row.layer.uid"
+            @mousedown="onLayerRowMouseDown(row.layer.uid, $event)"
             @click="onLayerRowClick(row.layer.uid, $event)"
             @contextmenu="onLayerContextMenu(row.layer.uid, $event)"
             @dragstart="onLayerDragStart($event, row.layer.uid)"
@@ -258,6 +259,7 @@ const renameInputRef = ref<HTMLInputElement | null>(null)
 const draggingUid = ref<string | null>(null)
 const dropHint = ref<{ uid: string; place: 'before' | 'after' } | null>(null)
 const anchorUid = ref<string | null>(null)
+let suppressLayerClick = false
 
 const selectedUidSet = computed(() => {
   const list = props.selectedLayerUids
@@ -273,17 +275,28 @@ watch(
   () => props.selectedLayerUids,
   (uids) => {
     const list = uids || []
-    if (!list.length) {
-      anchorUid.value = null
-      return
-    }
-    if (!anchorUid.value || !list.includes(anchorUid.value)) {
-      anchorUid.value = list[list.length - 1]
-    }
+    if (!list.length) anchorUid.value = null
   },
 )
 
+function onLayerRowMouseDown(uid: string, e: MouseEvent) {
+  if (e.button !== 0) return
+  if (!e.shiftKey && !e.ctrlKey && !e.metaKey) return
+  e.preventDefault()
+  e.stopPropagation()
+  onLayerRowClick(uid, e)
+  suppressLayerClick = true
+  const stopClick = (ev: MouseEvent) => {
+    ev.preventDefault()
+    ev.stopPropagation()
+    window.removeEventListener('click', stopClick, true)
+    suppressLayerClick = false
+  }
+  window.addEventListener('click', stopClick, true)
+}
+
 function onLayerRowClick(uid: string, e: MouseEvent) {
+  if (suppressLayerClick) return
   const rows = visibleDomRows.value.map((row) => row.layer.uid)
   let next: string[]
   if (e.shiftKey) {

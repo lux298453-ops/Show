@@ -452,19 +452,25 @@
       </div>
     </div>
 
-    <!-- 7. 媒体素材 (Media - 仅当选中图片元素时呈现) -->
+    <!-- 7. 媒体素材：图片，以及可以铺图的方框 -->
     <div v-if="elementInfo?.isImage" class="p-3 border-b border-slate-100">
       <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">图片素材 (Media)</div>
-      <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200/80 rounded-lg p-2">
-        <div class="w-10 h-10 rounded-md border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center">
+        <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200/80 rounded-lg p-2">
+        <button
+          type="button"
+          class="w-10 h-10 rounded-md border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
+          title="更换图片素材"
+          @click="emit('replace-asset')"
+        >
           <img
-            v-if="elementInfo.imgSrc"
+            v-if="elementInfo.imgSrc && !mediaPreviewBroken"
             :src="elementInfo.imgSrc"
             class="w-full h-full object-cover"
-            alt="素材预览"
+            alt=""
+            @error="mediaPreviewBroken = true"
           />
           <ImageIcon v-else class="w-5 h-5 text-slate-400" />
-        </div>
+        </button>
         <div class="flex-1 min-w-0">
           <button
             type="button"
@@ -472,9 +478,9 @@
             @click="emit('replace-asset')"
           >
             <ImageIcon class="w-3.5 h-3.5" />
-            <span>替换图片素材...</span>
+            <span>{{ elementInfo?.imgSrc ? '替换图片素材...' : '从素材库填充图片...' }}</span>
           </button>
-          <p class="text-[10px] text-slate-400 mt-1 truncate">双击画布图片也可直接替换</p>
+          <p class="text-[10px] text-slate-400 mt-1 truncate">矩形、圆、椭圆和图片都可以从素材库填入</p>
         </div>
       </div>
     </div>
@@ -515,10 +521,62 @@
         </div>
       </div>
 
-      <!-- 字号调节 -->
-      <div class="flex items-center justify-between gap-2">
-        <span class="text-slate-500 text-[11px]">字号大小</span>
-        <div class="flex items-center gap-1 bg-slate-50 border border-slate-200/80 rounded-lg p-1">
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <span class="text-[10px] text-slate-500 shrink-0">文字颜色</span>
+        <div class="flex items-center gap-1.5 min-w-0">
+          <label
+            class="w-5 h-5 rounded border border-slate-300 relative overflow-hidden shrink-0"
+            :class="hasSelection ? 'cursor-pointer' : 'cursor-default'"
+            :style="{ backgroundColor: textColor }"
+          >
+            <input
+              type="color"
+              :value="textColor"
+              class="absolute -top-2 -left-2 w-10 h-10 opacity-0"
+              :class="hasSelection ? 'cursor-pointer' : 'pointer-events-none'"
+              :disabled="!hasSelection"
+              @input="onTextColorInput($event, true)"
+              @change="onTextColorInput($event, false)"
+            />
+          </label>
+          <span class="font-mono text-[11px] text-slate-700 font-semibold uppercase">{{ textColor }}</span>
+          <button
+            v-for="c in ['#0f172a', '#64748b', '#0284c7', '#ef4444']"
+            :key="c"
+            type="button"
+            class="w-3.5 h-3.5 rounded-xs border border-black/10 cursor-pointer"
+            :style="{ backgroundColor: c }"
+            :disabled="!hasSelection"
+            @click="onTextColor(c, false)"
+          />
+        </div>
+      </div>
+
+      <div class="text-[10px] text-slate-500 mb-1">字体</div>
+      <select
+        class="w-full h-7 mb-2 bg-slate-50 border border-slate-200/80 rounded-md px-2 text-[11px] text-slate-700 outline-none focus:border-[#0D99FF] focus:bg-white"
+        :value="fontId"
+        :disabled="!hasSelection"
+        @change="onFontFamily"
+      >
+        <option v-if="fontId === 'custom'" value="custom">当前字体</option>
+        <option v-for="font in fontOptions" :key="font.id" :value="font.id" :style="{ fontFamily: font.family }">
+          {{ font.label }}
+        </option>
+      </select>
+
+      <div class="flex items-center gap-1.5 mb-2">
+        <select
+          class="min-w-0 flex-1 h-7 bg-slate-50 border border-slate-200/80 rounded-md px-2 text-[11px] text-slate-700 outline-none focus:border-[#0D99FF] focus:bg-white"
+          :value="String(fontWeight)"
+          :disabled="!hasSelection"
+          @change="onFontWeight"
+        >
+          <option v-for="item in weightOptions" :key="item.value" :value="String(item.value)">
+            {{ item.label }}
+          </option>
+        </select>
+        <div class="flex items-center h-7 bg-slate-50 border border-slate-200/80 rounded-md px-1 shrink-0">
           <button
             type="button"
             class="w-5 h-5 rounded hover:bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs cursor-pointer"
@@ -528,9 +586,16 @@
           >
             −
           </button>
-          <span class="w-8 text-center font-mono text-[11px] font-semibold text-slate-700">
-            {{ currentFontSize }}px
-          </span>
+          <input
+            type="number"
+            min="8"
+            max="200"
+            class="w-9 bg-transparent text-center font-mono text-[11px] font-semibold text-slate-700 outline-none [appearance:textfield]"
+            :value="currentFontSize"
+            :disabled="!hasSelection"
+            title="字号"
+            @change="onFontSizeInput"
+          />
           <button
             type="button"
             class="w-5 h-5 rounded hover:bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs cursor-pointer"
@@ -539,6 +604,55 @@
             @click="stepFontSize(2)"
           >
             +
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="w-7 h-7 rounded-md border text-[11px] font-bold cursor-pointer"
+            :class="fontWeight >= 600 ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100'"
+            title="加粗"
+            :disabled="!hasSelection"
+            @click="toggleBold"
+          >
+            B
+          </button>
+          <button
+            type="button"
+            class="w-7 h-7 rounded-md border text-[11px] italic font-serif cursor-pointer"
+            :class="italicOn ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100'"
+            title="斜体"
+            :disabled="!hasSelection"
+            @click="toggleItalic"
+          >
+            I
+          </button>
+          <button
+            type="button"
+            class="w-7 h-7 rounded-md border text-[11px] underline cursor-pointer"
+            :class="underlineOn ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100'"
+            title="下划线"
+            :disabled="!hasSelection"
+            @click="toggleUnderline"
+          >
+            U
+          </button>
+        </div>
+        <div class="flex items-center gap-0.5 bg-slate-50 border border-slate-200/80 rounded-md p-0.5">
+          <button
+            v-for="item in alignOptions"
+            :key="item.value"
+            type="button"
+            class="w-7 h-6 rounded flex items-center justify-center cursor-pointer"
+            :class="textAlign === item.value ? 'bg-white shadow-xs text-[#0D99FF]' : 'text-slate-500 hover:text-slate-800'"
+            :title="item.label"
+            :disabled="!hasSelection"
+            @click="setTextAlign(item.value)"
+          >
+            <component :is="item.icon" class="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -592,6 +706,9 @@ import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
   AlignEndHorizontal,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
   Minimize2,
   Image as ImageIcon,
   Edit3,
@@ -633,6 +750,12 @@ const props = defineProps<{
     inlineFilter?: string
     backgroundColor?: string
     fontSize?: number
+    fontFamily?: string
+    fontWeight?: number
+    fontStyle?: string
+    textAlign?: string
+    underline?: boolean
+    textColor?: string
     isImage?: boolean
     imgSrc?: string
     hasText?: boolean
@@ -648,6 +771,7 @@ const emit = defineEmits<{
   (e: 'update-color', color: string): void
   (e: 'update-frame-color', color: string): void
   (e: 'update-font-size', delta: number): void
+  (e: 'update-text-style', payload: { key: string; value: string; live?: boolean }): void
   (e: 'align-selection', type: 'left' | 'center-h' | 'right' | 'top' | 'center-v' | 'bottom'): void
   (e: 'update-radius', radius: number): void
   (e: 'update-stroke', stroke: { width: number; color: string; style: string }): void
@@ -702,8 +826,79 @@ const fillInputRef = ref<HTMLInputElement | null>(null)
 const fillInputKey = computed(() =>
   hasSelection.value ? `el-${props.elementInfo?.layerUid || props.selectedElement?.id || 'on'}` : `frame-${props.currentPage?.id || 0}`,
 )
-// 字号
+// 字号与字体
 const currentFontSize = ref(14)
+const fontId = ref('system')
+const fontWeight = ref(400)
+const italicOn = ref(false)
+const underlineOn = ref(false)
+const textAlign = ref<'left' | 'center' | 'right'>('left')
+const textColor = ref('#0f172a')
+const mediaPreviewBroken = ref(false)
+watch(
+  () => props.elementInfo?.imgSrc,
+  () => {
+    mediaPreviewBroken.value = false
+  },
+)
+
+const fontOptions = [
+  { id: 'system', label: '系统默认', family: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif' },
+  { id: 'yahei', label: '微软雅黑', family: '"Microsoft YaHei", "PingFang SC", sans-serif' },
+  { id: 'pingfang', label: '苹方', family: '"PingFang SC", "Microsoft YaHei", sans-serif' },
+  { id: 'hei', label: '黑体', family: 'SimHei, "Heiti SC", "Microsoft YaHei", sans-serif' },
+  { id: 'song', label: '宋体', family: 'SimSun, "Songti SC", serif' },
+  { id: 'kai', label: '楷体', family: 'KaiTi, "Kaiti SC", serif' },
+  { id: 'fang', label: '仿宋', family: 'FangSong, "STFangsong", serif' },
+  { id: 'arial', label: 'Arial', family: 'Arial, "Helvetica Neue", sans-serif' },
+  { id: 'georgia', label: 'Georgia', family: 'Georgia, "Times New Roman", serif' },
+  { id: 'mono', label: '等宽', family: 'Consolas, "Courier New", monospace' },
+]
+
+const weightOptions = [
+  { value: 300, label: '细体' },
+  { value: 400, label: '常规' },
+  { value: 500, label: '中等' },
+  { value: 600, label: '半粗' },
+  { value: 700, label: '加粗' },
+  { value: 800, label: '特粗' },
+]
+
+const alignOptions = [
+  { value: 'left' as const, label: '左对齐', icon: AlignLeft },
+  { value: 'center' as const, label: '居中', icon: AlignCenter },
+  { value: 'right' as const, label: '右对齐', icon: AlignRight },
+]
+
+const fontTokenToId: Record<string, string> = {
+  '-apple-system': 'system',
+  'segoe ui': 'system',
+  'microsoft yahei': 'yahei',
+  'pingfang sc': 'pingfang',
+  simhei: 'hei',
+  'heiti sc': 'hei',
+  simsun: 'song',
+  'songti sc': 'song',
+  kaiti: 'kai',
+  'kaiti sc': 'kai',
+  fangsong: 'fang',
+  stfangsong: 'fang',
+  arial: 'arial',
+  'helvetica neue': 'arial',
+  georgia: 'georgia',
+  consolas: 'mono',
+  'courier new': 'mono',
+}
+
+function matchFontId(family: string) {
+  const first = family.split(',')[0].replace(/["']/g, '').trim().toLowerCase()
+  return fontTokenToId[first] || 'custom'
+}
+
+function snapWeight(weight: number) {
+  const values = weightOptions.map((item) => item.value)
+  return values.reduce((best, value) => (Math.abs(value - weight) < Math.abs(best - weight) ? value : best), 400)
+}
 // 圆角
 const currentRadius = ref(0)
 // 描边
@@ -746,6 +941,17 @@ watch(
     if (info.borderWidth !== undefined) strokeWidth.value = info.borderWidth
     if (info.borderColor) strokeColor.value = info.borderColor
     if (info.fontSize !== undefined) currentFontSize.value = info.fontSize
+    if (info.fontFamily) fontId.value = matchFontId(info.fontFamily)
+    if (info.fontWeight) fontWeight.value = snapWeight(info.fontWeight)
+    if (info.fontStyle) italicOn.value = info.fontStyle === 'italic'
+    if (info.underline !== undefined) underlineOn.value = info.underline
+    if (info.textAlign === 'center' || info.textAlign === 'right' || info.textAlign === 'left') {
+      textAlign.value = info.textAlign
+    }
+    if (info.textColor) {
+      const hex = info.textColor.startsWith('#') ? info.textColor : rgbToHex(info.textColor)
+      if (/^#[0-9a-fA-F]{6}$/.test(hex)) textColor.value = hex
+    }
     if (info.backgroundColor && info.backgroundColor !== 'transparent' && info.backgroundColor !== 'rgba(0, 0, 0, 0)') {
       currentFillColor.value = rgbToHex(info.backgroundColor)
     }
@@ -921,7 +1127,7 @@ const isTextElement = computed(() => {
 
 function onDimensionChange(key: 'width' | 'height', e: Event) {
   if (!canEditGeometry.value) return
-  const val = Math.max(10, parseInt((e.target as HTMLInputElement).value) || 0)
+  const val = Math.max(1, parseInt((e.target as HTMLInputElement).value) || 1)
   emit('update-dimension', { key, val })
 }
 
@@ -952,10 +1158,67 @@ function applyPresetColor(color: string) {
   paintFill(color)
 }
 
-function stepFontSize(delta: number) {
+function emitTextStyle(key: string, value: string, live = false) {
   if (!hasSelection.value) return
-  currentFontSize.value = Math.max(10, Math.min(60, currentFontSize.value + delta))
-  emit('update-font-size', delta)
+  emit('update-text-style', { key, value, live })
+}
+
+function onTextColor(color: string, live = false) {
+  textColor.value = color
+  emitTextStyle('color', color, live)
+}
+
+function onTextColorInput(e: Event, live: boolean) {
+  onTextColor((e.target as HTMLInputElement).value, live)
+}
+
+function onFontFamily(e: Event) {
+  const id = (e.target as HTMLSelectElement).value
+  const font = fontOptions.find((item) => item.id === id)
+  if (!font) return
+  fontId.value = font.id
+  emitTextStyle('fontFamily', font.family)
+}
+
+function onFontWeight(e: Event) {
+  const weight = snapWeight(parseInt((e.target as HTMLSelectElement).value, 10) || 400)
+  fontWeight.value = weight
+  emitTextStyle('fontWeight', String(weight))
+}
+
+function commitFontSize(raw: number) {
+  const size = Math.max(8, Math.min(200, raw || currentFontSize.value))
+  currentFontSize.value = size
+  emitTextStyle('fontSize', String(size))
+}
+
+function onFontSizeInput(e: Event) {
+  commitFontSize(parseInt((e.target as HTMLInputElement).value, 10))
+}
+
+function stepFontSize(delta: number) {
+  commitFontSize(currentFontSize.value + delta)
+}
+
+function toggleBold() {
+  const next = fontWeight.value >= 600 ? 400 : 700
+  fontWeight.value = next
+  emitTextStyle('fontWeight', String(next))
+}
+
+function toggleItalic() {
+  italicOn.value = !italicOn.value
+  emitTextStyle('fontStyle', italicOn.value ? 'italic' : 'normal')
+}
+
+function toggleUnderline() {
+  underlineOn.value = !underlineOn.value
+  emitTextStyle('textDecoration', underlineOn.value ? 'underline' : 'none')
+}
+
+function setTextAlign(align: 'left' | 'center' | 'right') {
+  textAlign.value = align
+  emitTextStyle('textAlign', align)
 }
 </script>
 
@@ -966,5 +1229,10 @@ function stepFontSize(delta: number) {
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 4px;
+}
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 </style>

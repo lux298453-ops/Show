@@ -32,9 +32,15 @@ public class DatabaseMigrationConfig {
             addColumnIfNotExists(stmt, "page", "sort_order", "INT DEFAULT 0 COMMENT '页面排序'");
             addColumnIfNotExists(stmt, "page", "analyzed", "TINYINT DEFAULT 0 COMMENT '0=未分析 1=已分析'");
             addColumnIfNotExists(stmt, "page", "html_content", "LONGTEXT COMMENT 'AI生成的HTML'");
+            addColumnIfNotExists(stmt, "page", "layout_norm", "TINYINT DEFAULT 1 COMMENT '1=渲染时组内排版 0=用原始方框'");
+            addColumnIfNotExists(stmt, "page", "image_hash", "VARCHAR(64) COMMENT '上次识别时设计稿指纹'");
 
             // 组件表扩展字段
             addColumnIfNotExists(stmt, "element", "asset_id", "VARCHAR(50) COMMENT '素材库 ID'");
+            addColumnIfNotExists(stmt, "element", "group_key", "VARCHAR(64) COMMENT '同一次点击的共用编号'");
+            addColumnIfNotExists(stmt, "element", "group_role", "VARCHAR(16) COMMENT 'anchor 或 member'");
+
+            addColumnIfNotExists(stmt, "interaction", "source", "VARCHAR(16) COMMENT 'ai / autowire / user'");
 
             // 项目表扩展字段
             addColumnIfNotExists(stmt, "project", "app_map", "TEXT COMMENT 'App Map 全局定义'");

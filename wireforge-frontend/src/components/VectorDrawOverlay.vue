@@ -19,7 +19,7 @@ import {
 const props = withDefaults(
   defineProps<{
     activeTool: 'pen' | 'pencil'
-    activeSubTool: 'move' | 'lasso' | 'paint' | 'bend' | 'cut' | 'erase'
+    activeSubTool: 'pen' | 'move' | 'lasso' | 'paint' | 'bend' | 'cut' | 'erase'
     scale?: number
     artboardW: number
     artboardH: number
@@ -48,7 +48,7 @@ const emit = defineEmits<{
   }[]): void
   (e: 'cancel'): void
   (e: 'delete-original'): void
-  (e: 'update:activeSubTool', tool: 'move' | 'lasso' | 'paint' | 'bend' | 'cut' | 'erase'): void
+  (e: 'update:activeSubTool', tool: 'pen' | 'move' | 'lasso' | 'paint' | 'bend' | 'cut' | 'erase'): void
   (e: 'update:isClosed', closed: boolean): void
   (e: 'toast', msg: string): void
 }>()

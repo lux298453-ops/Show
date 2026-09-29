@@ -10,6 +10,7 @@ import com.wireforge.entity.Project;
 import com.wireforge.service.AnalyzeService;
 import com.wireforge.service.InteractionAutowireService;
 import com.wireforge.service.ProjectService;
+import com.wireforge.model.ProjectAnalysisStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -54,22 +55,30 @@ public class ProjectController {
         return Result.ok(projectService.scanDesigns(id));
     }
 
-    /** 对未分析页面执行 AI 识别 */
+    /** 启动 AI 原型分析（后台异步执行，前端轮询 analysis-status） */
     @PostMapping("/{id}/analyze")
-    public Result<List<Map<String, Object>>> analyze(@PathVariable Long id) {
-        return Result.ok(projectService.analyzeProject(id));
+    public Result<ProjectAnalysisStatus> analyze(@PathVariable Long id) {
+        return Result.ok(projectService.startAsyncAnalyze(id));
     }
 
-    /** 强制重新对指定单页执行 AI 深度识别 */
+    /** 查询项目当前 AI 分析进度与状态（以服务端为准，刷新网页不丢失） */
+    @GetMapping("/{id}/analysis-status")
+    public Result<ProjectAnalysisStatus> getAnalysisStatus(@PathVariable Long id) {
+        return Result.ok(projectService.getAnalysisStatus(id));
+    }
+
+    /** 重新对指定单页执行 AI 识别；设计稿没换时跳过，force=true 时照样重跑 */
     @PostMapping("/{id}/pages/{pageId}/reanalyze")
-    public Result<List<Map<String, Object>>> reanalyzePage(@PathVariable Long id, @PathVariable Long pageId) {
-        return Result.ok(projectService.reanalyzePage(id, pageId));
+    public Result<List<Map<String, Object>>> reanalyzePage(@PathVariable Long id, @PathVariable Long pageId,
+                                                           @RequestParam(defaultValue = "false") boolean force) {
+        return Result.ok(projectService.reanalyzePage(id, pageId, force));
     }
 
-    /** 强制重新对全项目所有页面执行 AI 深度识别 */
+    /** 重新对全项目页面执行 AI 识别；设计稿没换的页跳过，force=true 时全部重跑 */
     @PostMapping("/{id}/reanalyze-all")
-    public Result<List<Map<String, Object>>> reanalyzeAll(@PathVariable Long id) {
-        return Result.ok(projectService.reanalyzeAll(id));
+    public Result<List<Map<String, Object>>> reanalyzeAll(@PathVariable Long id,
+                                                          @RequestParam(defaultValue = "false") boolean force) {
+        return Result.ok(projectService.reanalyzeAll(id, force));
     }
 
     /** 重建 App Map（共享底栏）并重渲染全部页面 + 交互验证（不调用 AI） */
@@ -82,6 +91,12 @@ public class ProjectController {
     @PostMapping("/{id}/verify")
     public Result<List<com.wireforge.ai.HtmlRenderer.CheckResult>> verify(@PathVariable Long id) {
         return Result.ok(projectService.verifyProject(id));
+    }
+
+    /** 按现有元素重算点击分组和连线，不重跑视觉模型 */
+    @PostMapping("/{id}/regroup")
+    public Result<Integer> regroup(@PathVariable Long id) {
+        return Result.ok(analyzeService.regroupProject(id));
     }
 
     /** 轻量交互提取：仅让 AI 补答"哪个元素→跳哪"并落库（不重跑元素识别），返回交互条数 */
@@ -183,6 +198,12 @@ public class ProjectController {
     @PostMapping("/{id}/autowire-interactions")
     public Result<Integer> autowireInteractions(@PathVariable Long id) {
         return Result.ok(interactionAutowireService.autowireProjectInteractions(id));
+    }
+
+    /** 手动触发全局交互拓扑自动布线（含阶段二 AI 语义增量推导） */
+    @PostMapping("/{id}/autowire-ai")
+    public Result<Map<String, Object>> autowireInteractionsWithAi(@PathVariable Long id) {
+        return Result.ok(projectService.autowireProjectInteractionsWithAi(id));
     }
 
     /**
@@ -292,4 +313,4 @@ public class ProjectController {
         projectService.deleteCommentThread(id, threadId);
         return Result.ok(null);
     }
-}
+}

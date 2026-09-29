@@ -21,6 +21,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -156,7 +157,99 @@ public class AssetService {
             m.put("url", getAssetUrl(meta.assetId()));
             list.add(m);
         }
+        for (UserAsset user : scanUserAssets()) {
+            list.add(toUserAssetMap(user));
+        }
         return list;
+    }
+
+    /**
+     * 把用户上传的图片存进设计稿目录的 assets/{分类}/，立刻出现在素材库列表里。
+     */
+    public Map<String, Object> saveUploadedAsset(String category, String originalFilename, byte[] bytes) throws IOException {
+        if (bytes == null || bytes.length == 0) {
+            throw new IllegalArgumentException("请选择一张图片");
+        }
+        if (bytes.length > 8 * 1024 * 1024) {
+            throw new IllegalArgumentException("图片不能超过 8MB");
+        }
+        if (designsDir.isBlank()) {
+            throw new IOException("未配置素材保存目录");
+        }
+        String folder = UPLOAD_FOLDERS.contains(category) ? category : "uploads";
+        String fileName = safeUploadName(originalFilename);
+        Path assetsRoot = Paths.get(designsDir).resolve("assets").toAbsolutePath().normalize();
+        Path dir = assetsRoot.resolve(folder).normalize();
+        if (!dir.startsWith(assetsRoot)) {
+            throw new IOException("保存路径无效");
+        }
+        Files.createDirectories(dir);
+        Path target = uniquePath(dir, fileName).toAbsolutePath().normalize();
+        Files.write(target, bytes);
+        for (UserAsset user : scanUserAssets()) {
+            if (user.path().toAbsolutePath().normalize().equals(target)) {
+                return toUserAssetMap(user);
+            }
+        }
+        throw new IOException("图片已保存，但没能放进素材库");
+    }
+
+    private Map<String, Object> toUserAssetMap(UserAsset user) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("assetId", user.assetId());
+        m.put("category", categoryOfUserAsset(user));
+        m.put("fileName", user.path().getFileName().toString());
+        m.put("name", user.name());
+        m.put("description", user.name());
+        m.put("uploaded", true);
+        m.put("url", "/api/assets/" + user.assetId());
+        return m;
+    }
+
+    /** 按保存时所在的子目录归类；对不上已知分类的都算「我的上传」 */
+    private String categoryOfUserAsset(UserAsset user) {
+        if (designsDir.isBlank()) return "uploads";
+        Path assetsRoot = Paths.get(designsDir).resolve("assets").toAbsolutePath().normalize();
+        Path parent = user.path().getParent();
+        if (parent == null) return "uploads";
+        try {
+            Path rel = assetsRoot.relativize(parent.toAbsolutePath().normalize());
+            if (rel.getNameCount() < 1) return "uploads";
+            String folder = rel.getName(0).toString().toLowerCase();
+            if (UPLOAD_FOLDERS.contains(folder)) return folder;
+        } catch (IllegalArgumentException ignored) {
+            return "uploads";
+        }
+        return "uploads";
+    }
+
+    private static String safeUploadName(String original) {
+        String raw = original == null ? "" : Paths.get(original).getFileName().toString();
+        int dot = raw.lastIndexOf('.');
+        String ext = dot >= 0 ? raw.substring(dot).toLowerCase() : "";
+        if (!USER_ASSET_EXTS.contains(ext)) {
+            throw new IllegalArgumentException("只支持 png、jpg、webp、gif、svg 图片");
+        }
+        String base = dot > 0 ? raw.substring(0, dot) : "image";
+        base = base.toLowerCase().replaceAll("[^\\p{L}\\p{N}]+", "-");
+        while (base.startsWith("-")) base = base.substring(1);
+        while (base.endsWith("-") && base.length() > 1) base = base.substring(0, base.length() - 1);
+        if (base.isEmpty()) base = "image";
+        if (base.length() > 40) base = base.substring(0, 40);
+        return base + ext;
+    }
+
+    private static Path uniquePath(Path dir, String fileName) {
+        Path target = dir.resolve(fileName);
+        if (!Files.exists(target)) return target;
+        int dot = fileName.lastIndexOf('.');
+        String base = dot > 0 ? fileName.substring(0, dot) : fileName;
+        String ext = dot > 0 ? fileName.substring(dot) : "";
+        for (int n = 2; n < 100; n++) {
+            Path next = dir.resolve(base + "-" + n + ext);
+            if (!Files.exists(next)) return next;
+        }
+        return dir.resolve(base + "-" + System.currentTimeMillis() + ext);
     }
 
     /** 返回素材分类（用于 /api/assets/categories） */
@@ -200,6 +293,9 @@ public class AssetService {
     public record UserAsset(String assetId, String name, Path path, String group) {}
 
     private static final List<String> USER_ASSET_EXTS = List.of(".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif");
+    /** 上传时允许写入的子目录，和素材库分类一一对应 */
+    private static final Set<String> UPLOAD_FOLDERS = Set.of(
+            "avatars", "products", "icons", "backgrounds", "effects", "uploads");
 
     /**
      * 扫描指定素材根目录下的用户素材（含子目录，目录名并入 id 防止重名）。

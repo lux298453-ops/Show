@@ -11,10 +11,14 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,10 +54,27 @@ public class AssetController {
                 .body(resource);
     }
 
-    /** 全部素材列表 */
+    /** 全部素材列表（内置素材 + 用户上传） */
     @GetMapping("/list")
     public Result<List<Map<String, Object>>> list() {
         return Result.ok(assetService.getAssetList());
+    }
+
+    /** 上传一张图片进素材库。category 为空或 all 时归到「我的上传」 */
+    @PostMapping("/upload")
+    public Result<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
+                                               @RequestParam(value = "category", defaultValue = "uploads") String category) {
+        if (file == null || file.isEmpty()) {
+            return Result.fail("请选择一张图片");
+        }
+        try {
+            return Result.ok(assetService.saveUploadedAsset(category, file.getOriginalFilename(), file.getBytes()));
+        } catch (IllegalArgumentException e) {
+            return Result.fail(e.getMessage());
+        } catch (IOException e) {
+            log.warn("[素材库] 上传失败: {}", e.getMessage());
+            return Result.fail("图片没能保存，请稍后再试");
+        }
     }
 
     /** 素材分类 */

@@ -49,8 +49,8 @@ wireforge:
     model: ${AI_MODEL:gpt-5.5}
     # 整页 HTML 生成专用模型（留空=用上面的 model）；HTML 直出对代码能力要求高，建议配中转站里最强的模型
     html-model: ${AI_HTML_MODEL:}
-    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:32768}
-    timeout-seconds: ${AI_TIMEOUT_SECONDS:150}
+    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:16000}
+    timeout-seconds: ${AI_TIMEOUT_SECONDS:300}
     # 回修闭环：生成 HTML 后用无头 Chromium 渲染截图，对比原稿纠错（需先 playwright install chromium）
     repair: ${WIREFORGE_AI_REPAIR:true}
     repair-rounds: ${WIREFORGE_AI_REPAIR_ROUNDS:1}

@@ -215,36 +215,40 @@
     <!-- 素材库替换弹窗 -->
     <el-dialog
       v-model="showAssetPicker"
-      title="素材库替换图片/头像"
-      width="560px"
+      title="素材库"
+      width="640px"
       append-to-body
       :close-on-click-modal="true"
       class="wf-asset-dialog"
     >
       <div class="space-y-3 select-none">
-        <!-- 分类切换 -->
-        <div class="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
+        <div class="flex flex-wrap gap-1.5">
           <button
             v-for="c in assetCategories"
             :key="c.id"
-            class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer"
-            :class="activeAssetCat === c.id ? 'bg-white text-blue-600 shadow-2xs border border-slate-200/80' : 'text-slate-500 hover:text-slate-800'"
+            class="px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer"
+            :class="activeAssetCat === c.id ? 'bg-white text-blue-600 shadow-2xs border border-slate-200/80' : 'bg-slate-100 text-slate-500 hover:text-slate-800'"
             @click="activeAssetCat = c.id"
           >
             {{ c.name }}
           </button>
         </div>
 
-        <!-- 素材缩略图网格 -->
-        <div class="grid grid-cols-4 gap-3 max-h-[360px] overflow-y-auto p-1 custom-scrollbar">
+        <div v-if="assetLoadError" class="flex items-center justify-center min-h-[180px] text-sm text-slate-400">
+          {{ assetLoadError }}
+        </div>
+        <div v-else-if="filteredAssets.length === 0" class="flex items-center justify-center min-h-[180px] px-6 text-center text-sm text-slate-400">
+          {{ emptyAssetText }}
+        </div>
+        <div v-else class="grid grid-cols-4 gap-3 max-h-[360px] overflow-y-auto p-1 custom-scrollbar">
           <div
             v-for="a in filteredAssets"
             :key="a.id"
             class="group relative border border-slate-200/90 rounded-xl p-2.5 flex flex-col items-center gap-1.5 hover:border-blue-500 hover:shadow-md cursor-pointer transition-all bg-white hover:bg-blue-50/20"
             @click="selectAsset(a)"
           >
-            <div class="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center border border-slate-200/70 shrink-0">
-              <img :src="a.url" class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+            <div class="w-16 h-16 rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center border border-slate-200/70 shrink-0 p-1">
+              <img :src="a.url" :alt="a.name" class="max-w-full max-h-full object-contain" />
             </div>
             <span class="text-[11px] font-semibold text-slate-700 truncate max-w-[90px]" :title="a.name">{{ a.name }}</span>
             <span class="text-[9px] text-blue-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">点击替换</span>
@@ -252,14 +256,30 @@
         </div>
       </div>
       <template #footer>
-        <div class="flex justify-between items-center text-xs text-slate-400">
-          <span>点击上方任意图片即可直接替换选中元素并自动落库保存</span>
-          <button
-            class="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
-            @click="showAssetPicker = false"
-          >
-            取消
-          </button>
+        <div class="flex justify-between items-center gap-3 text-xs text-slate-400">
+          <span>点图片即可替换选中的图片。上传会进到「{{ uploadTargetName }}」。</span>
+          <div class="flex items-center gap-2 shrink-0">
+            <input
+              ref="assetFileInput"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg"
+              class="hidden"
+              @change="onUploadAssetFile"
+            />
+            <button
+              class="px-3 py-1.5 text-xs font-semibold text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors cursor-pointer disabled:opacity-60"
+              :disabled="assetUploading"
+              @click="assetFileInput?.click()"
+            >
+              {{ assetUploading ? '上传中…' : '上传图片' }}
+            </button>
+            <button
+              class="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              @click="showAssetPicker = false"
+            >
+              取消
+            </button>
+          </div>
         </div>
       </template>
     </el-dialog>
@@ -268,6 +288,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { FileText, ChevronDown, ChevronRight, GripVertical, Pencil, Lock, Image as ImageIcon } from 'lucide-vue-next'
 import { getFileUrl } from '../api/http'
 import { projectApi } from '../api/project'
@@ -340,7 +361,7 @@ const emit = defineEmits<{
   (e: 'elementDeselected'): void
   (e: 'frameFill', color: string): void
   (e: 'selectionChanged', uids: string[]): void
-  (e: 'contextMenu', pos: { x: number; y: number }): void
+  (e: 'contextMenu', pos: { x: number; y: number; localX?: number; localY?: number; pageId?: number }): void
   (e: 'layers-changed', payload: { pageId: number; layers: Array<{ uid: string; name: string; kind?: string; hidden?: boolean; locked?: boolean; children?: unknown[] }> }): void
   (e: 'frameFocus'): void
   (e: 'editVector', payload: any): void
@@ -487,7 +508,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     *{max-width:100%}
     /* 文字渲染最优化：无论 AI 生成字号多少，统一保持清晰锐利的文字渲染，
        解决 iframe 内 scale 缩放后文字发虚/模糊的问题 */
-    html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+    html{-webkit-font-smoothing:auto;-moz-osx-font-smoothing:auto;text-rendering:geometricPrecision}
+    svg{shape-rendering:geometricPrecision}
     img,svg{max-width:100%}
     button,[data-nav],a,nav,.tab,.tabs,[class*="btn"],[class*="button"],[class*="tab"]{white-space:nowrap}
     /* 弹窗/对话框说明文字：仅允许段落内自然换行、行高舒适，不做任何宽度覆盖
@@ -915,6 +937,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     .wf-handle:hover {
       background: #0D99FF;
     }
+    #wf-transform-box { overflow: visible; max-width: none; }
     #wf-dim-badge {
       position: absolute;
       background: #0D99FF;
@@ -929,6 +952,10 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       box-shadow: 0 2px 6px rgba(13,153,255,0.35);
       line-height: 1.2;
       z-index: 1000000;
+      max-width: none;
+      width: max-content;
+      overflow: visible;
+    }
   </style>
   <script data-wf-inject>
   (function(){
@@ -936,6 +963,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     var PAGE_ID = ${JSON.stringify(props.page?.id ?? 0)};
     var selectedEl = null;
     var selectedEls = [];
+    var selectionAnchor = null;
     var resizing = null;
     var drag = null;
     var marquee = null;
@@ -1108,10 +1136,32 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       return 'rect';
     }
 
+    function oneLine(s){
+      var src = String(s || '');
+      var out = '';
+      var pending = false;
+      for(var i = 0; i < src.length; i++){
+        var code = src.charCodeAt(i);
+        var ws = code === 32 || code === 9 || code === 10 || code === 13 || code === 160;
+        if(ws){
+          if(out && !pending) pending = true;
+        }else{
+          if(pending) out += ' ';
+          out += src.charAt(i);
+          pending = false;
+        }
+      }
+      return out;
+    }
+
     function layerShortName(el){
       try{
-        var txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-        if(txt) return txt.slice(0, 12);
+        var txt = oneLine(el.innerText || el.textContent || '');
+        if(txt) return txt.slice(0, 24);
+      }catch(e){}
+      try{
+        var alt = el.getAttribute && (el.getAttribute('alt') || el.getAttribute('aria-label') || '');
+        if(alt && String(alt).trim()) return String(alt).trim().slice(0, 24);
       }catch(e){}
       if(el.classList && el.classList.length){
         for(var i = 0; i < el.classList.length; i++){
@@ -1147,30 +1197,140 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     function layerDisplayName(el, kind){
       var named = '';
       try { named = el.getAttribute && el.getAttribute('data-wf-name') || ''; } catch(e) { named = ''; }
-      if(named) return String(named).replace(/\s+/g, ' ').trim().slice(0, 24);
+      if(named) return oneLine(String(named)).slice(0, 24);
       if(kind === 'group') return '分组';
       return layerShortName(el);
+    }
+
+    function isTransparentColor(color){
+      if(!color) return true;
+      var c = String(color).split(' ').join('').split(String.fromCharCode(10)).join('').split(String.fromCharCode(9)).join('').toLowerCase();
+      return c === 'transparent' || c === 'rgba(0,0,0,0)' || c === 'rgba(0,0,0,0)';
+    }
+
+    /** 只负责 flex 排布、自己没有底色和阴影的包裹层。不单独占一条图层。 */
+    function isLayoutShell(el){
+      if(!el || !el.tagName) return false;
+      var tag = String(el.tagName || '').toUpperCase();
+      if(tag !== 'DIV' && tag !== 'SPAN') return false;
+      if(el.getAttribute && (el.getAttribute('data-wf-group') === '1' || el.getAttribute('data-wf-component') === '1')) return false;
+      if(!el.children || !el.children.length) return false;
+      var cls = '';
+      try { cls = typeof el.className === 'string' ? el.className : ''; } catch(e) { cls = ''; }
+      if(/\bwf-(card|btn|box|avatar|shape|text|nav|modal|inserted-component|group|profile-header)\b/.test(cls)) return false;
+      try{
+        var cs = window.getComputedStyle(el);
+        var bg = cs.backgroundColor || '';
+        var transparent = isTransparentColor(bg);
+        var noImage = !cs.backgroundImage || cs.backgroundImage === 'none';
+        var shadow = cs.boxShadow && cs.boxShadow !== 'none';
+        if(!transparent || !noImage || shadow) return false;
+      }catch(e){
+        return false;
+      }
+      return true;
+    }
+
+    function isLayerPiece(el){
+      if(isChromeNode(el) || isLayoutShell(el)) return false;
+      var tag = String(el.tagName || '').toUpperCase();
+      if(/^(IMG|SVG|BUTTON|INPUT|TEXTAREA|SELECT|H1|H2|H3|H4|H5|H6|P|A|LABEL)$/.test(tag)) return true;
+      var text = '';
+      try { text = oneLine(el.innerText || el.textContent || ''); } catch(e) { text = ''; }
+      if((!el.children || !el.children.length) && text) return true;
+      var w = el.offsetWidth || 0;
+      var h = el.offsetHeight || 0;
+      return w >= 8 && h >= 8;
+    }
+
+    /** 跳过纯排布包裹，按从后往前收集真正能点中的元素。 */
+    function layerChildNodes(el){
+      var out = [];
+      if(!el || !el.children) return out;
+      for(var i = el.children.length - 1; i >= 0; i--){
+        var c = el.children[i];
+        if(isChromeNode(c)) continue;
+        var cTag = String(c.tagName || '').toUpperCase();
+        if(cTag === 'BR') continue;
+        if(isLayoutShell(c)){
+          var nested = layerChildNodes(c);
+          for(var k = 0; k < nested.length; k++) out.push(nested[k]);
+        }else if(isLayerPiece(c)){
+          out.push(c);
+        }
+      }
+      return out;
+    }
+
+    function isComponentRoot(el){
+      if(!el || !el.getAttribute) return false;
+      if(el.getAttribute('data-wf-component') === '1') return true;
+      return !!(el.classList && el.classList.contains('wf-inserted-component'));
+    }
+
+    /** 组件根节点自己的底色、描边、圆角或阴影，才是那一块方框。 */
+    function hasOwnBox(el){
+      try{
+        var cs = window.getComputedStyle(el);
+        if(!isTransparentColor(cs.backgroundColor || '')) return true;
+        if(cs.backgroundImage && cs.backgroundImage !== 'none') return true;
+        if(cs.boxShadow && cs.boxShadow !== 'none') return true;
+        var bw = parseFloat(cs.borderTopWidth) || parseFloat(cs.borderRightWidth) || parseFloat(cs.borderBottomWidth) || parseFloat(cs.borderLeftWidth) || 0;
+        if(bw > 0) return true;
+        if((parseFloat(cs.borderTopLeftRadius) || 0) > 0) return true;
+      }catch(e){}
+      return false;
+    }
+
+    function boxLayerKind(el){
+      var w = el.offsetWidth || 0;
+      var h = el.offsetHeight || 0;
+      var radius = 0;
+      try { radius = parseFloat(window.getComputedStyle(el).borderTopLeftRadius) || 0; } catch(e) {}
+      if(w > 0 && h > 0 && Math.abs(w - h) <= 2 && radius >= Math.min(w, h) / 2 - 1) return 'ellipse';
+      return 'rect';
+    }
+
+    function isBoxLayerUid(uid){
+      var raw = String(uid || '');
+      return raw.length > 5 && raw.slice(raw.length - 5) === '::box';
+    }
+
+    function layerDom(uid){
+      var raw = String(uid || '');
+      if(isBoxLayerUid(raw)) raw = raw.slice(0, raw.length - 5);
+      raw = raw.replace(/"/g, '');
+      if(!raw) return null;
+      try { return document.querySelector('[data-wf-uid="' + raw + '"]'); } catch(err) { return null; }
     }
 
     function serializeLayer(el, depth){
       var uid = ensureUid(el);
       var isGroup = !!(el.getAttribute && el.getAttribute('data-wf-group') === '1');
+      var isComponent = isComponentRoot(el);
       var kind = isGroup ? 'group' : layerKind(el);
       var children = [];
-      // 只有用户主动建的分组才展开子图层。方框、卡片内部的文字和图片仍算这一层自己，不当成组。
-      if(isGroup && depth < 8 && el.children){
-        for(var i = el.children.length - 1; i >= 0; i--){
-          var c = el.children[i];
-          if(isChromeNode(c)) continue;
-          var cTag = String(c.tagName || '').toUpperCase();
-          if(cTag === 'BR') continue;
-          children.push(serializeLayer(c, depth + 1));
+      if((isGroup || isComponent) && depth < 8){
+        var nodes = layerChildNodes(el);
+        for(var i = 0; i < nodes.length; i++){
+          children.push(serializeLayer(nodes[i], depth + 1));
+        }
+        if(isComponent && hasOwnBox(el)){
+          children.push({
+            uid: uid + '::box',
+            name: boxLayerKind(el) === 'ellipse' ? '圆形' : '方框',
+            kind: boxLayerKind(el),
+            hidden: false,
+            locked: false,
+            children: []
+          });
         }
       }
       return {
         uid: uid,
         name: layerDisplayName(el, kind),
         kind: kind,
+        ungroupable: isGroup || (isComponent && children.length > 0),
         hidden: el.getAttribute('data-wf-hidden') === '1' || (el.classList && el.classList.contains('wf-layer-hidden')),
         locked: el.getAttribute('data-wf-locked') === '1',
         children: children
@@ -1179,6 +1339,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     function publishLayers(){
       try{
+        normalizeInsertedComponents();
         var layers = [];
         var kids = document.body ? document.body.children : [];
         for(var i = kids.length - 1; i >= 0; i--){
@@ -1331,6 +1492,552 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       showToast('已创建副本 (Ctrl+D)');
     }
 
+    // ===== Figma 级扩展：复制为 (Copy as) & 样式属性格式刷 & 粘贴替换 =====
+    function copyTextFallback(text){
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch(e){}
+    }
+
+    function copyAsSvg(){
+      var el = selectedEl;
+      if(selectedEls && selectedEls.length > 0){
+        el = selectedEls[selectedEls.length - 1];
+      }
+      if(!el || el === document.body || el === document.documentElement){
+        showToast('请先选中要复制的矢量图形');
+        return;
+      }
+      var svgNode = null;
+      var tag = (el.tagName || '').toLowerCase();
+      if(tag === 'svg'){
+        svgNode = el;
+      } else if(el.classList && el.classList.contains('wf-vector-shape')){
+        svgNode = el.querySelector('svg') || el;
+      } else {
+        var svgs = el.querySelectorAll('svg');
+        if(svgs.length === 1 && el.children.length === 1 && !el.innerText.trim()){
+          svgNode = svgs[0];
+        }
+      }
+
+      if(!svgNode || (svgNode.tagName || '').toLowerCase() !== 'svg'){
+        showToast('当前选中的是普通 HTML 组件，非矢量图形，无法导出为矢量 SVG');
+        return;
+      }
+
+      try {
+        var clone = svgNode.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.removeAttribute('data-wf-uid');
+        if(!clone.getAttribute('xmlns')){
+          clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        }
+        var r = svgNode.getBoundingClientRect();
+        if(!clone.getAttribute('viewBox')){
+          var w = Math.round(r.width || 100);
+          var h = Math.round(r.height || 100);
+          clone.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+        }
+        var serializer = new XMLSerializer();
+        var svgStr = serializer.serializeToString(clone);
+
+        copyTextFallback(svgStr);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(svgStr).catch(function(){});
+        }
+
+        try {
+          if (window.parent) {
+            window.parent.postMessage({
+              type: 'wf-clipboard-write-text',
+              text: svgStr,
+              toast: '已复制矢量 SVG 源码 (可直接粘贴至 Figma / Illustrator)'
+            }, '*');
+          }
+        } catch(e){}
+
+        showToast('已复制矢量 SVG 源码 (可直接粘贴至 Figma / Illustrator)');
+      } catch(err){
+        console.error('Copy SVG error:', err);
+        showToast('复制 SVG 失败: ' + err.message);
+      }
+    }
+
+    function copyAsCode(format){
+      var el = selectedEl;
+      if(selectedEls && selectedEls.length > 0){
+        el = selectedEls[selectedEls.length - 1];
+      }
+      if(!el || el === document.body || el === document.documentElement){
+        showToast('请先选中要复制的元素');
+        return;
+      }
+
+      if(format === 'css'){
+        try {
+          var cs = window.getComputedStyle(el);
+          var lines = [];
+          lines.push('/* WireForge 视觉样式导出 */');
+          lines.push('.custom-element {');
+          if(cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+            lines.push('  background-color: ' + cs.backgroundColor + ';');
+          }
+          if(cs.backgroundImage && cs.backgroundImage !== 'none') {
+            lines.push('  background-image: ' + cs.backgroundImage + ';');
+          }
+          if(cs.color) lines.push('  color: ' + cs.color + ';');
+          if(cs.fontSize) lines.push('  font-size: ' + cs.fontSize + ';');
+          if(cs.fontWeight && cs.fontWeight !== '400') lines.push('  font-weight: ' + cs.fontWeight + ';');
+          if(cs.lineHeight && cs.lineHeight !== 'normal') lines.push('  line-height: ' + cs.lineHeight + ';');
+          if(cs.textAlign && cs.textAlign !== 'start') lines.push('  text-align: ' + cs.textAlign + ';');
+          if(cs.borderTopWidth && parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none') {
+            lines.push('  border: ' + cs.borderTopWidth + ' ' + cs.borderTopStyle + ' ' + cs.borderTopColor + ';');
+          }
+          if(cs.borderRadius && parseFloat(cs.borderRadius) > 0) {
+            lines.push('  border-radius: ' + cs.borderRadius + ';');
+          }
+          if(cs.boxShadow && cs.boxShadow !== 'none') {
+            lines.push('  box-shadow: ' + cs.boxShadow + ';');
+          }
+          if(cs.opacity && cs.opacity !== '1') {
+            lines.push('  opacity: ' + cs.opacity + ';');
+          }
+          lines.push('}');
+          var cssText = lines.join('\\n');
+
+          copyTextFallback(cssText);
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(cssText).catch(function(){});
+          }
+
+          try {
+            if (window.parent) {
+              window.parent.postMessage({
+                type: 'wf-clipboard-write-text',
+                text: cssText,
+                toast: '已复制精简 CSS 样式规则'
+              }, '*');
+            }
+          } catch(e){}
+
+          showToast('已复制精简 CSS 样式规则');
+        } catch(err){
+          showToast('复制 CSS 失败: ' + err.message);
+        }
+        return;
+      }
+
+      // format === 'html'
+      try {
+        var clone = el.cloneNode(true);
+        function cleanNode(node){
+          if(node.removeAttribute){
+            node.removeAttribute('id');
+            node.removeAttribute('data-wf-uid');
+            node.removeAttribute('data-wf-editing-text');
+            node.removeAttribute('contenteditable');
+            node.removeAttribute('tabindex');
+            if(node.style){
+              node.style.outline = '';
+              node.style.outlineOffset = '';
+            }
+          }
+          var kids = node.children || [];
+          for(var k = 0; k < kids.length; k++){
+            cleanNode(kids[k]);
+          }
+        }
+        cleanNode(clone);
+        var rawHtml = clone.outerHTML || '';
+
+        var note = '';
+        if(rawHtml.indexOf('/api/assets/') !== -1 || rawHtml.indexOf('localhost') !== -1 || rawHtml.indexOf('/assets/') !== -1){
+          note = '<!-- 提示：素材图片引用了 WireForge 本地服务路径，迁移至独立工程请替换为实际静态资源地址 -->\\n';
+        }
+        var cleanHtml = note + rawHtml;
+
+        copyTextFallback(cleanHtml);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(cleanHtml).catch(function(){});
+        }
+
+        try {
+          if (window.parent) {
+            window.parent.postMessage({
+              type: 'wf-clipboard-write-text',
+              text: cleanHtml,
+              toast: '已复制干净 HTML 代码 (含素材路径提示)'
+            }, '*');
+          }
+        } catch(e){}
+
+        showToast('已复制干净 HTML 代码 (含素材路径提示)');
+      } catch(err){
+        showToast('复制 HTML 失败: ' + err.message);
+      }
+    }
+
+    function renderElementToPngData(requestId){
+      var el = selectedEl;
+      if(selectedEls && selectedEls.length > 0){
+        el = selectedEls[selectedEls.length - 1];
+      }
+      if(!el || el === document.body || el === document.documentElement){
+        showToast('请先选中要导出的元素');
+        return;
+      }
+
+      var rect = el.getBoundingClientRect();
+      var w = Math.round(rect.width);
+      var h = Math.round(rect.height);
+      if(w < 2 || h < 2){
+        showToast('选中元素尺寸过小，无法导出 PNG');
+        return;
+      }
+
+      // 情况 1: 如果选中的本身就是 <img> 标签
+      if(el.tagName && el.tagName.toUpperCase() === 'IMG' && el.naturalWidth > 0){
+        try {
+          var imgCanvas = document.createElement('canvas');
+          var s = 2;
+          imgCanvas.width = el.naturalWidth * s;
+          imgCanvas.height = el.naturalHeight * s;
+          var imgCtx = imgCanvas.getContext('2d');
+          imgCtx.scale(s, s);
+          imgCtx.drawImage(el, 0, 0, el.naturalWidth, el.naturalHeight);
+          var imgDataUrl = imgCanvas.toDataURL('image/png');
+          if(window.parent){
+            window.parent.postMessage({
+              type: 'wf-png-data-ready',
+              requestId: requestId,
+              dataUrl: imgDataUrl,
+              width: el.naturalWidth,
+              height: el.naturalHeight
+            }, '*');
+          }
+          return;
+        } catch(imgDirectErr){}
+      }
+
+      // 情况 2: 如果选中的是原生 SVG 或矢量图形
+      var isDirectSvg = (el.tagName && el.tagName.toLowerCase() === 'svg') || (el.classList && el.classList.contains('wf-vector-shape'));
+
+      try {
+        var svgXml = '';
+        if(isDirectSvg){
+          var targetSvg = (el.tagName && el.tagName.toLowerCase() === 'svg') ? el : (el.querySelector('svg') || el);
+          var sClone = targetSvg.cloneNode(true);
+          sClone.removeAttribute('id');
+          sClone.removeAttribute('data-wf-uid');
+          if(!sClone.getAttribute('xmlns')) sClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+          sClone.setAttribute('width', '' + w);
+          sClone.setAttribute('height', '' + h);
+          if(!sClone.getAttribute('viewBox')) sClone.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+          svgXml = new XMLSerializer().serializeToString(sClone);
+        } else {
+          var clone = el.cloneNode(true);
+          function inlineStyles(src, tgt){
+            if(!src || !tgt || !src.style) return;
+            var cs = window.getComputedStyle(src);
+            var propList = [
+              'background', 'background-color', 'background-image', 'background-size', 'background-position', 'background-repeat',
+              'color', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'text-align',
+              'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
+              'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius',
+              'box-shadow', 'opacity', 'display', 'flex-direction', 'align-items', 'justify-content', 'gap',
+              'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+              'box-sizing', 'overflow'
+            ];
+            for(var i = 0; i < propList.length; i++){
+              var p = propList[i];
+              var v = cs.getPropertyValue(p);
+              if(v) tgt.style.setProperty(p, v);
+            }
+            tgt.style.outline = '';
+            tgt.style.outlineOffset = '';
+            tgt.style.position = 'relative';
+            tgt.style.left = '0px';
+            tgt.style.top = '0px';
+            tgt.style.margin = '0px';
+            tgt.style.width = src.offsetWidth + 'px';
+            tgt.style.height = src.offsetHeight + 'px';
+
+            var sKids = src.children || [];
+            var tKids = tgt.children || [];
+            for(var j = 0; j < sKids.length; j++){
+              if(tKids[j]) inlineStyles(sKids[j], tKids[j]);
+            }
+          }
+          inlineStyles(el, clone);
+
+          // 将子级已有图片内联为 Base64，杜绝 SVG 跨源/安全沙箱加载拦截
+          var srcImgs = el.querySelectorAll ? el.querySelectorAll('img') : [];
+          var cloneImgs = clone.querySelectorAll ? clone.querySelectorAll('img') : [];
+          for(var mi = 0; mi < srcImgs.length; mi++){
+            var si = srcImgs[mi];
+            var ci = cloneImgs[mi];
+            if(si && ci && si.naturalWidth > 0 && si.naturalHeight > 0){
+              try {
+                var ic = document.createElement('canvas');
+                ic.width = si.naturalWidth;
+                ic.height = si.naturalHeight;
+                var ictx = ic.getContext('2d');
+                ictx.drawImage(si, 0, 0);
+                ci.src = ic.toDataURL('image/png');
+              } catch(e){}
+            }
+          }
+
+          var serializer = new XMLSerializer();
+          var htmlContent = serializer.serializeToString(clone);
+
+          svgXml = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">' +
+            '<foreignObject width="100%" height="100%">' +
+            '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + w + 'px;height:' + h + 'px;box-sizing:border-box;">' +
+            htmlContent +
+            '</div>' +
+            '</foreignObject>' +
+            '</svg>';
+        }
+
+        // 使用 data URI 替代 Blob URL，解决 Chromium 绘制 foreignObject 到 Canvas 导致 origin-clean=false 的安全拦截
+        var dataUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgXml);
+        var img = new Image();
+        img.crossOrigin = 'anonymous';
+
+        img.onload = function(){
+          try {
+            var canvas = document.createElement('canvas');
+            var scale = 2; // 2x 高清导出
+            canvas.width = w * scale;
+            canvas.height = h * scale;
+            var ctx = canvas.getContext('2d');
+            ctx.scale(scale, scale);
+            ctx.drawImage(img, 0, 0, w, h);
+
+            var pngDataUrl = canvas.toDataURL('image/png');
+            if(window.parent){
+              window.parent.postMessage({
+                type: 'wf-png-data-ready',
+                requestId: requestId,
+                dataUrl: pngDataUrl,
+                width: w,
+                height: h
+              }, '*');
+            }
+          } catch(canvasErr){
+            console.error('Canvas export error:', canvasErr);
+            var isTainted = String(canvasErr).indexOf('tainted') !== -1 || String(canvasErr).indexOf('SecurityError') !== -1;
+            var msg = isTainted ? '导出 PNG 失败：组件包含跨域受限资源，无法写入画布' : ('导出 PNG 失败: ' + canvasErr.message);
+            showToast(msg);
+            if(window.parent){
+              window.parent.postMessage({ type: 'wf-png-data-failed', requestId: requestId, error: msg }, '*');
+            }
+          }
+        };
+
+        img.onerror = function(){
+          var msg = '导出 PNG 失败：渲染外层样式或跨域字体资源受阻';
+          showToast(msg);
+          if(window.parent){
+            window.parent.postMessage({ type: 'wf-png-data-failed', requestId: requestId, error: msg }, '*');
+          }
+        };
+
+        img.src = dataUri;
+      } catch(err){
+        console.error('Render PNG error:', err);
+        showToast('导出 PNG 异常: ' + err.message);
+      }
+    }
+
+    var copiedVisualProps = null;
+
+    function copyElementProperties(){
+      var source = selectedEl;
+      if(selectedEls && selectedEls.length > 0){
+        source = selectedEls[selectedEls.length - 1]; // 多选时取最后点中的一个
+      }
+      if(!source || source === document.body){
+        showToast('请先选中元素以复制样式属性');
+        return;
+      }
+
+      var cs = window.getComputedStyle(source);
+      var p = {
+        backgroundColor: cs.backgroundColor,
+        backgroundImage: cs.backgroundImage !== 'none' ? cs.backgroundImage : '',
+        color: cs.color,
+        fontSize: cs.fontSize,
+        fontWeight: cs.fontWeight,
+        fontFamily: cs.fontFamily,
+        textAlign: cs.textAlign,
+        lineHeight: cs.lineHeight,
+        borderTopColor: cs.borderTopColor,
+        borderTopWidth: cs.borderTopWidth,
+        borderTopStyle: cs.borderTopStyle,
+        borderRadius: cs.borderRadius,
+        boxShadow: cs.boxShadow !== 'none' ? cs.boxShadow : '',
+        opacity: cs.opacity,
+        fill: source.getAttribute ? source.getAttribute('fill') : null,
+        stroke: source.getAttribute ? source.getAttribute('stroke') : null,
+        strokeWidth: source.getAttribute ? source.getAttribute('stroke-width') : null
+      };
+
+      copiedVisualProps = p;
+      try {
+        if(window.parent){
+          window.parent.__wfCopiedProps = p;
+          window.parent.postMessage({ type: 'wf-props-copied' }, '*');
+        }
+        localStorage.setItem('wf_copied_props', JSON.stringify(p));
+      } catch(e){}
+
+      showToast('已复制样式属性 (Ctrl+Alt+C)');
+    }
+
+    function pasteElementProperties(){
+      var p = copiedVisualProps;
+      if(!p){
+        try {
+          if(window.parent && window.parent.__wfCopiedProps) p = window.parent.__wfCopiedProps;
+        } catch(e){}
+      }
+      if(!p){
+        try {
+          var saved = localStorage.getItem('wf_copied_props');
+          if(saved) p = JSON.parse(saved);
+        } catch(e){}
+      }
+      if(!p){
+        showToast('未复制任何样式属性，请先按 Ctrl+Alt+C 复制');
+        return;
+      }
+
+      var targets = selectedEls && selectedEls.length > 0 ? selectedEls : (selectedEl ? [selectedEl] : []);
+      if(!targets.length){
+        showToast('请先选中要应用样式的目标元素');
+        return;
+      }
+
+      pushSnapshot();
+      var appliedCount = 0;
+
+      for(var i = 0; i < targets.length; i++){
+        var el = targets[i];
+        if(!el || el === document.body) continue;
+
+        var tag = el.tagName ? el.tagName.toLowerCase() : '';
+        var isSvg = tag === 'svg' || tag === 'path' || (el.classList && el.classList.contains('wf-vector-shape'));
+
+        // 1. 基础外观（不改 width, height, left, top, position）
+        if(p.backgroundColor && p.backgroundColor !== 'transparent' && p.backgroundColor !== 'rgba(0, 0, 0, 0)'){
+          el.style.backgroundColor = p.backgroundColor;
+        }
+        if(p.backgroundImage){
+          el.style.backgroundImage = p.backgroundImage;
+        }
+        if(p.borderTopStyle && p.borderTopStyle !== 'none' && parseFloat(p.borderTopWidth) > 0){
+          el.style.borderStyle = p.borderTopStyle;
+          el.style.borderWidth = p.borderTopWidth;
+          el.style.borderColor = p.borderTopColor;
+        }
+        if(p.borderRadius && parseFloat(p.borderRadius) > 0){
+          el.style.borderRadius = p.borderRadius;
+        }
+        if(p.boxShadow){
+          el.style.boxShadow = p.boxShadow;
+        }
+        if(p.opacity && p.opacity !== '1'){
+          el.style.opacity = p.opacity;
+        }
+
+        // 2. 文字属性：仅当非纯 svg/path/img 时套用
+        if(tag !== 'svg' && tag !== 'path' && tag !== 'img'){
+          if(p.color) el.style.color = p.color;
+          if(p.fontSize) el.style.fontSize = p.fontSize;
+          if(p.fontWeight) el.style.fontWeight = p.fontWeight;
+          if(p.fontFamily) el.style.fontFamily = p.fontFamily;
+          if(p.textAlign) el.style.textAlign = p.textAlign;
+          if(p.lineHeight && p.lineHeight !== 'normal') el.style.lineHeight = p.lineHeight;
+        }
+
+        // 3. SVG 矢量属性
+        if(isSvg){
+          var svgPath = tag === 'path' ? el : el.querySelector('path');
+          if(p.fill){
+            if(svgPath) svgPath.setAttribute('fill', p.fill);
+            else el.setAttribute('fill', p.fill);
+          }
+          if(p.stroke){
+            if(svgPath) svgPath.setAttribute('stroke', p.stroke);
+            else el.setAttribute('stroke', p.stroke);
+          }
+          if(p.strokeWidth){
+            if(svgPath) svgPath.setAttribute('stroke-width', p.strokeWidth);
+            else el.setAttribute('stroke-width', p.strokeWidth);
+          }
+        }
+
+        appliedCount++;
+      }
+
+      if(selectedEls.length > 1) updateMultiTransformBox();
+      else if(selectedEl) updateTransformBox(selectedEl);
+      scheduleSave();
+      showToast('已将样式属性应用到 ' + appliedCount + ' 个元素 (Ctrl+Alt+V)');
+    }
+
+    function pasteReplaceElement(){
+      var data = getCopiedData();
+      if(!data || !data.html){
+        showToast('剪贴板为空，请先复制组件');
+        return;
+      }
+      if(!selectedEl || selectedEl === document.body || !selectedEl.parentNode){
+        showToast('请先选中一个要被替换的目标组件');
+        return;
+      }
+      pushSnapshot();
+
+      var targetL = selectedEl.style.left || (selectedEl.offsetLeft + 'px');
+      var targetT = selectedEl.style.top || (selectedEl.offsetTop + 'px');
+      var targetW = selectedEl.style.width || (selectedEl.offsetWidth + 'px');
+      var targetH = selectedEl.style.height || (selectedEl.offsetHeight + 'px');
+      var targetZ = selectedEl.style.zIndex || '10';
+
+      var temp = document.createElement('div');
+      temp.innerHTML = data.html.trim();
+      var newEl = temp.firstElementChild || temp;
+      if(newEl.id && !newEl.id.startsWith('wf-modal-')){
+        newEl.id = newEl.id + '-replace-' + Date.now();
+      }
+
+      newEl.style.position = 'absolute';
+      newEl.style.left = targetL;
+      newEl.style.top = targetT;
+      newEl.style.width = targetW;
+      newEl.style.height = targetH;
+      newEl.style.zIndex = targetZ;
+
+      selectedEl.parentNode.replaceChild(newEl, selectedEl);
+      selectElement(newEl, true);
+      publishLayers();
+      scheduleSave();
+      showToast('已用复制组件替换目标 (保留原位置和尺寸)');
+    }
+
     function outline(el, on){
       if(!el || el === document.body || el === document.documentElement) return;
       if(on){
@@ -1474,14 +2181,47 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       return '#' + r + g + b;
     }
 
-    function applyColor(target, colorVal){
-      pushSnapshot();
+    function paintGlyph(node, colorVal){
+      if(!node || !node.getAttribute) return;
+      var tag = node.tagName ? String(node.tagName).toLowerCase() : '';
+      var fill = node.getAttribute('fill');
+      var stroke = node.getAttribute('stroke');
+      if(fill && fill !== 'none' && fill !== 'transparent'){
+        node.setAttribute('fill', colorVal);
+        if(node.style) node.style.fill = colorVal;
+      }
+      if(stroke && stroke !== 'none' && stroke !== 'transparent'){
+        node.setAttribute('stroke', colorVal);
+        if(node.style) node.style.stroke = colorVal;
+      }
+      if(tag === 'svg'){
+        if(node.style) node.style.color = colorVal;
+        if(!fill || fill === 'currentColor'){
+          node.setAttribute('fill', colorVal);
+          if(node.style) node.style.fill = colorVal;
+        }
+        var kids = node.querySelectorAll ? node.querySelectorAll('path,rect,circle,ellipse,polygon,polyline,line') : [];
+        for(var gi = 0; gi < kids.length; gi++) paintGlyph(kids[gi], colorVal);
+      }
+    }
+
+    function paintIcons(root, colorVal){
+      if(!root) return;
+      var tag = root.tagName ? String(root.tagName).toLowerCase() : '';
+      if(tag === 'svg') paintGlyph(root, colorVal);
+      var svgs = root.querySelectorAll ? root.querySelectorAll('svg') : [];
+      for(var i = 0; i < svgs.length; i++) paintGlyph(svgs[i], colorVal);
+    }
+
+    function applyColor(target, colorVal, silent){
+      if(!silent) pushSnapshot();
       var isVector = target && (
         target.tagName.toLowerCase() === 'svg' ||
         (target.classList && target.classList.contains('wf-vector-shape')) ||
         (target.hasAttribute && target.hasAttribute('data-wf-vector'))
       );
       if(isVector){
+        paintIcons(target, colorVal);
         var paths = target.tagName.toLowerCase() === 'path' ? [target] : target.querySelectorAll('path');
         for(var pi = 0; pi < paths.length; pi++){
           paths[pi].setAttribute('fill', colorVal);
@@ -1497,8 +2237,10 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         }
         target.style.background = 'none';
         target.style.backgroundColor = 'transparent';
-        scheduleSave();
-        showToast('颜色已修改并保存');
+        if(!silent){
+          scheduleSave();
+          showToast('颜色已修改并保存');
+        }
         return;
       }
 
@@ -1527,7 +2269,13 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           target.classList.contains('wf-search-box') ||
           target.classList.contains('wf-inserted-component')
         );
-        if(hasBg || isContainerLike || target.tagName === 'BUTTON'){
+        var isIconRow = target.classList && (target.classList.contains('wf-status-bar') || target.classList.contains('wf-nav'));
+        if(isIconRow){
+          target.style.color = colorVal;
+          var rowText = target.querySelectorAll ? target.querySelectorAll('h1,h2,h3,h4,h5,h6,p,span,div,label,button,.wf-text') : [];
+          for(var ri = 0; ri < rowText.length; ri++) rowText[ri].style.color = colorVal;
+          paintIcons(target, colorVal);
+        } else if(hasBg || isContainerLike || target.tagName === 'BUTTON'){
           target.style.background = colorVal;
         } else {
           target.style.color = colorVal;
@@ -1535,10 +2283,13 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           for(var si = 0; si < textSubs.length; si++){
             textSubs[si].style.color = colorVal;
           }
+          paintIcons(target, colorVal);
         }
       }
-      scheduleSave();
-      showToast('颜色已修改并保存');
+      if(!silent){
+        scheduleSave();
+        showToast('颜色已修改并保存');
+      }
     }
 
     function trimNum(n){
@@ -1619,6 +2370,41 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       scheduleSave();
     }
 
+    function layoutHandles(box, w, h){
+      var handles = box.querySelectorAll('.wf-handle');
+      var onlyFrame = w < 56 || h < 36;
+      for(var i = 0; i < handles.length; i++){
+        var dir = handles[i].getAttribute('data-dir') || '';
+        var hide = onlyFrame;
+        if(!hide && w < 72 && (dir === 'n' || dir === 's')) hide = true;
+        if(!hide && h < 48 && (dir === 'e' || dir === 'w')) hide = true;
+        handles[i].style.display = hide ? 'none' : 'block';
+      }
+    }
+
+    function placeDimBadge(dim, w, h, above){
+      var size = 10;
+      if(w < 120) size = Math.max(7, Math.min(10, Math.round(w / 7)));
+      dim.style.fontSize = size + 'px';
+      dim.style.lineHeight = '1.2';
+      dim.style.padding = size <= 8 ? '1px 3px' : '2px 6px';
+      dim.style.left = '50%';
+      dim.style.right = 'auto';
+      dim.style.transform = 'translateX(-50%)';
+      dim.style.whiteSpace = 'nowrap';
+      dim.style.maxWidth = 'none';
+      dim.style.width = 'max-content';
+      dim.style.overflow = 'visible';
+      var gap = size + 6;
+      if(above){
+        dim.style.bottom = 'auto';
+        dim.style.top = '-' + gap + 'px';
+      } else {
+        dim.style.top = 'auto';
+        dim.style.bottom = '-' + gap + 'px';
+      }
+    }
+
     function updateTransformBox(target){
       if(!target || !target.isConnected){
         deselect();
@@ -1636,20 +2422,15 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
       box.style.left = l + 'px';
       box.style.top = t + 'px';
-      box.style.width = Math.max(12, w) + 'px';
-      box.style.height = Math.max(12, h) + 'px';
+      box.style.width = Math.max(1, w) + 'px';
+      box.style.height = Math.max(1, h) + 'px';
       box.style.display = 'block';
+      layoutHandles(box, w, h);
 
       var dim = document.getElementById('wf-dim-badge');
       if(dim){
         dim.textContent = Math.round(w) + ' × ' + Math.round(h);
-        if(t < 38){
-          dim.style.bottom = 'auto';
-          dim.style.top = '-24px';
-        } else {
-          dim.style.bottom = '-24px';
-          dim.style.top = 'auto';
-        }
+        placeDimBadge(dim, w, h, t < 38);
       }
     }
 
@@ -1686,24 +2467,28 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       var h = maxB - minT;
       box.style.left = minL + 'px';
       box.style.top = minT + 'px';
-      box.style.width = Math.max(12, w) + 'px';
-      box.style.height = Math.max(12, h) + 'px';
+      box.style.width = Math.max(1, w) + 'px';
+      box.style.height = Math.max(1, h) + 'px';
       box.style.display = 'block';
+      layoutHandles(box, w, h);
 
       var dim = document.getElementById('wf-dim-badge');
       if(dim){
-        dim.textContent = '已选中 ' + selectedEls.length + ' 个元素 (' + Math.round(w) + ' × ' + Math.round(h) + ')';
-        if(minT < 38){
-          dim.style.bottom = 'auto';
-          dim.style.top = '-24px';
-        } else {
-          dim.style.bottom = '-24px';
-          dim.style.top = 'auto';
-        }
+        dim.textContent = Math.round(w) + ' × ' + Math.round(h);
+        placeDimBadge(dim, w, h, minT < 38);
       }
     }
 
-    function setMultiSelection(elements){
+    var pendingLayerUid = '';
+
+    function layerUidFor(el){
+      var uid = ensureUid(el);
+      if(pendingLayerUid && isBoxLayerUid(pendingLayerUid) && pendingLayerUid.slice(0, pendingLayerUid.length - 5) === uid) return pendingLayerUid;
+      return uid;
+    }
+
+    function setMultiSelection(elements, asLayerUid){
+      pendingLayerUid = asLayerUid ? String(asLayerUid) : '';
       for(var i = 0; i < selectedEls.length; i++){
         try { selectedEls[i].classList.remove('wf-multi-selected'); } catch(e){}
       }
@@ -1732,9 +2517,65 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     function publishSelection(){
       var uids = [];
       for(var i = 0; i < selectedEls.length; i++){
-        if(selectedEls[i] && selectedEls[i].isConnected) uids.push(ensureUid(selectedEls[i]));
+        if(selectedEls[i] && selectedEls[i].isConnected) uids.push(layerUidFor(selectedEls[i]));
       }
       try { window.parent.postMessage({ type: 'wf-selection', uids: uids }, '*'); } catch(e) {}
+    }
+
+    function flatLayerElements(){
+      var out = [];
+      function walk(el){
+        if(!el || isChromeNode(el)) return;
+        if(isLayoutShell(el)){
+          var shells = layerChildNodes(el);
+          for(var s = 0; s < shells.length; s++) walk(shells[s]);
+          return;
+        }
+        if(!listableChild(el) && !isLayerPiece(el)) return;
+        out.push(el);
+        var nodes = layerChildNodes(el);
+        for(var n = 0; n < nodes.length; n++) walk(nodes[n]);
+      }
+      var kids = document.body ? document.body.children : [];
+      for(var i = kids.length - 1; i >= 0; i--){
+        if(listableChild(kids[i])) walk(kids[i]);
+      }
+      return out;
+    }
+
+    function locateInOrder(order, el){
+      var cur = el;
+      while(cur && cur !== document.body && cur !== document.documentElement){
+        var idx = order.indexOf(cur);
+        if(idx >= 0) return idx;
+        cur = cur.parentElement;
+      }
+      return -1;
+    }
+
+    function hitLayerPiece(node){
+      var el = node && node.nodeType === 1 ? node : (node && node.parentElement);
+      while(el && el !== document.body && el !== document.documentElement){
+        if(!isChromeNode(el) && !isLayoutShell(el) && (isLayerPiece(el) || listableChild(el))) return el;
+        el = el.parentElement;
+      }
+      return null;
+    }
+
+    function selectShiftRange(targetEl){
+      if(!targetEl) return;
+      var order = flatLayerElements();
+      var anchor = selectionAnchor && selectionAnchor.isConnected ? selectionAnchor : targetEl;
+      var a = locateInOrder(order, anchor);
+      var b = locateInOrder(order, targetEl);
+      if(a < 0 || b < 0){
+        setMultiSelection([targetEl]);
+        return;
+      }
+      var lo = Math.min(a, b);
+      var hi = Math.max(a, b);
+      setMultiSelection(order.slice(lo, hi + 1));
+      showToast('已连选 ' + (hi - lo + 1) + ' 个元素');
     }
 
     function toggleMultiSelect(el){
@@ -1783,20 +2624,71 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     function pickInsideGroup(node, group){
       if(!node || !group || node === group) return null;
-      var leaf = node.closest ? node.closest('button, img, svg, input, textarea, select, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-shape, .wf-btn, .wf-text, .wf-avatar, .wf-box, .wf-card') : null;
-      if(leaf && leaf !== group && group.contains(leaf)) return leaf;
-      var walk = node;
-      while(walk.parentElement && walk.parentElement !== group) walk = walk.parentElement;
-      if(walk && walk !== group && group.contains(walk)) return walk;
+      var cur = node.nodeType === 1 ? node : node.parentElement;
+      while(cur && cur !== group && cur !== document.body){
+        if(!isLayoutShell(cur) && isLayerPiece(cur)) return cur;
+        cur = cur.parentElement;
+      }
       return null;
     }
 
-    function markInsertedAsGroup(el){
+    function markInsertedComponent(el, name){
       if(!el || !el.setAttribute) return;
-      el.classList.add('wf-group', 'wf-el');
-      var count = document.querySelectorAll('[data-wf-group="1"]').length + 1;
-      el.setAttribute('data-wf-group', '1');
-      if(!el.getAttribute('data-wf-name')) el.setAttribute('data-wf-name', '分组 ' + count);
+      el.classList.add('wf-el', 'wf-inserted-component');
+      el.classList.remove('wf-group');
+      el.removeAttribute('data-wf-group');
+      el.setAttribute('data-wf-component', '1');
+      var current = oneLine(el.getAttribute('data-wf-name') || '');
+      var explicit = name ? oneLine(String(name)) : '';
+      if(explicit && (!current || isAutoGroupName(current))){
+        el.setAttribute('data-wf-name', explicit.slice(0, 24));
+        return;
+      }
+      if(!isAutoGroupName(current)) return;
+      var title = el.querySelector ? el.querySelector('h1,h2,h3,h4,h5,h6') : null;
+      var next = title ? oneLine(title.textContent || '') : '';
+      if(next) el.setAttribute('data-wf-name', next.slice(0, 24));
+      else el.removeAttribute('data-wf-name');
+    }
+
+    function isAutoGroupName(s){
+      s = oneLine(s);
+      if(s.indexOf('分组') !== 0) return false;
+      var digits = '';
+      for(var i = 2; i < s.length; i++){
+        var ch = s.charAt(i);
+        if(ch === ' ') continue;
+        if(ch < '0' || ch > '9') return false;
+        digits += ch;
+      }
+      return digits.length > 0;
+    }
+
+    function normalizeInsertedComponents(){
+      var changed = false;
+      var shapes = document.querySelectorAll('.wf-shape.wf-inserted-component, .wf-shape[data-wf-component="1"]');
+      for(var s = 0; s < shapes.length; s++){
+        var shape = shapes[s];
+        shape.classList.remove('wf-inserted-component');
+        shape.removeAttribute('data-wf-component');
+        if(oneLine(shape.getAttribute('data-wf-name') || '') === '组件') shape.removeAttribute('data-wf-name');
+        changed = true;
+      }
+      if(changed) scheduleSave();
+      var list = document.querySelectorAll('.wf-inserted-component, [data-wf-group="1"].wf-card, [data-wf-group="1"].wf-inserted-component');
+      for(var i = 0; i < list.length; i++){
+        var el = list[i];
+        if(el.classList && el.classList.contains('wf-shape')) continue;
+        if(el.classList && (el.classList.contains('wf-inserted-component') || el.classList.contains('wf-card'))){
+          if(el.getAttribute('data-wf-group') === '1' || el.classList.contains('wf-inserted-component')){
+            markInsertedComponent(el);
+          }
+        }
+      }
+    }
+
+    function markInsertedAsGroup(el){
+      markInsertedComponent(el);
     }
 
     function resolveTargetElement(t, e){
@@ -1864,13 +2756,36 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       return wrap || t;
     }
 
+    function readCssUrl(value){
+      if(!value) return '';
+      var s = String(value);
+      var start = s.indexOf('url(');
+      if(start < 0) return s;
+      s = s.slice(start + 4);
+      var end = s.lastIndexOf(')');
+      if(end >= 0) s = s.slice(0, end);
+      while(s.charAt(0) === ' ') s = s.slice(1);
+      while(s.length && s.charAt(s.length - 1) === ' ') s = s.slice(0, -1);
+      var q = s.charAt(0);
+      if((q === '"' || q === "'") && s.charAt(s.length - 1) === q) s = s.slice(1, -1);
+      return s;
+    }
+
     function notifySelectedElementInfo(el){
       if(!el || el === document.body || el === document.documentElement) return;
       try {
         var cs = window.getComputedStyle(el);
         var rect = el.getBoundingClientRect();
-        var isImg = el.tagName === 'IMG' || !!(el.style && el.style.backgroundImage && el.style.backgroundImage.indexOf('url(') !== -1);
-        var imgSrc = el.tagName === 'IMG' ? el.src : (el.style.backgroundImage ? el.style.backgroundImage.replace(/^url\(["']?|["']?\)$/g, '') : '');
+        var isShapeFill = el.classList && (
+          el.classList.contains('wf-shape-rect') ||
+          el.classList.contains('wf-shape-circle') ||
+          el.classList.contains('wf-shape-ellipse') ||
+          el.classList.contains('wf-box') ||
+          el.classList.contains('wf-shape-card')
+        );
+        var isBoxLayer = !!(pendingLayerUid && isBoxLayerUid(pendingLayerUid));
+        var isImg = el.tagName === 'IMG' || !!(el.style && el.style.backgroundImage && el.style.backgroundImage.indexOf('url(') !== -1) || isShapeFill || isBoxLayer;
+        var imgSrc = el.tagName === 'IMG' ? (el.getAttribute('src') || el.src || '') : readCssUrl(el.style.backgroundImage || '');
         var isPureShape = el.classList && (el.classList.contains('wf-shape-rect') || el.classList.contains('wf-shape-circle') || el.classList.contains('wf-shape-line'));
         var tText = findTextTarget(el);
         var hasText = tText !== null && !isPureShape;
@@ -1896,6 +2811,14 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         }
 
         var clsStr = typeof el.className === 'string' ? el.className : (el.getAttribute('class') || '');
+        var textCs = hasText && tText ? window.getComputedStyle(tText) : cs;
+        var rawWeight = textCs.fontWeight || '400';
+        var fontWeightNum = parseInt(rawWeight, 10);
+        if(!fontWeightNum) fontWeightNum = rawWeight === 'bold' ? 700 : 400;
+        var deco = textCs.textDecorationLine || textCs.textDecoration || '';
+        var align = textCs.textAlign || 'left';
+        if(align === 'start') align = 'left';
+        if(align === 'end') align = 'right';
 
         window.parent.postMessage({
           type: 'wf-element-selected',
@@ -1915,19 +2838,25 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
             inlineShadow: (el.style && el.style.boxShadow) || '',
             inlineFilter: (el.style && el.style.filter) || '',
             backgroundColor: bgColor,
-            fontSize: parseInt(cs.fontSize) || 14,
+            fontSize: parseInt(textCs.fontSize) || 14,
+            fontFamily: textCs.fontFamily || '',
+            fontWeight: fontWeightNum,
+            fontStyle: textCs.fontStyle === 'italic' || textCs.fontStyle === 'oblique' ? 'italic' : 'normal',
+            textAlign: align === 'center' || align === 'right' ? align : 'left',
+            underline: String(deco).indexOf('underline') >= 0,
+            textColor: rgbToHex(textCs.color || '') || '#0f172a',
             isImage: isImg,
             imgSrc: imgSrc,
             hasText: hasText,
             textContent: textContent,
             hasParentContainer: hasParentContainer,
-            layerUid: ensureUid(el)
+            layerUid: layerUidFor(el)
           }
         }, '*');
       } catch(e) {}
     }
 
-    function selectElement(el, forceDirect, isMultiToggle){
+    function selectElement(el, forceDirect, isMultiToggle, asLayerUid){
       if(!el || el === document || el === document.body || el === document.documentElement){
         deselect();
         return;
@@ -1953,7 +2882,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
 
       ensureUid(targetEl);
-      setMultiSelection([targetEl]);
+      setMultiSelection([targetEl], asLayerUid);
     }
     window.__wf_selectElement = selectElement;
     window.__wf_getSelectedEl = function(){ return selectedEl; };
@@ -1997,6 +2926,62 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         return box;
       }
       return t;
+    }
+
+    function applyTextStyle(el, key, value){
+      var node = findTextTarget(el) || el;
+      if(!node || !node.style) return false;
+      if(key === 'fontSize'){
+        var n = parseInt(value, 10);
+        if(!(n >= 8)) return false;
+        if(n > 200) n = 200;
+        node.style.fontSize = n + 'px';
+        return true;
+      }
+      if(key === 'fontWeight'){
+        var w = parseInt(value, 10);
+        if(!(w >= 100)) return false;
+        if(w > 900) w = 900;
+        node.style.fontWeight = String(w);
+        return true;
+      }
+      if(key === 'fontStyle'){
+        node.style.fontStyle = value === 'italic' ? 'italic' : 'normal';
+        return true;
+      }
+      if(key === 'textDecoration'){
+        node.style.textDecoration = value === 'underline' ? 'underline' : 'none';
+        return true;
+      }
+      if(key === 'textAlign'){
+        var align = 'left';
+        if(value === 'center' || value === 'right') align = value;
+        node.style.textAlign = align;
+        return true;
+      }
+      if(key === 'fontFamily'){
+        var family = String(value || '');
+        if(!family || family.length > 180) return false;
+        node.style.fontFamily = family;
+        return true;
+      }
+      if(key === 'color'){
+        var paint = String(value || '');
+        if(paint.charAt(0) !== '#' || (paint.length !== 4 && paint.length !== 7)) return false;
+        node.style.color = paint;
+        if(String(node.tagName || '').toUpperCase() === 'SVG'){
+          var iconNodes = node.querySelectorAll('path,line,polyline,circle,rect,polygon,ellipse');
+          for(var ii = 0; ii < iconNodes.length; ii++){
+            var iconNode = iconNodes[ii];
+            var iconStroke = iconNode.getAttribute('stroke');
+            var iconFill = iconNode.getAttribute('fill');
+            if(iconStroke && iconStroke !== 'none') iconNode.setAttribute('stroke', paint);
+            if(iconFill && iconFill !== 'none' && iconFill !== 'transparent') iconNode.setAttribute('fill', paint);
+          }
+        }
+        return true;
+      }
+      return false;
     }
 
     function startTextEdit(target){
@@ -2064,6 +3049,20 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
       t.addEventListener('blur', onTextBlur);
       t.addEventListener('keydown', onTextKey);
+    }
+
+    function collectStyleTargets(d){
+      var list = [];
+      if(d && Array.isArray(d.uids)){
+        for(var i = 0; i < d.uids.length; i++){
+          var el = layerDom(String(d.uids[i] || ''));
+          if(el && list.indexOf(el) < 0) list.push(el);
+        }
+      }
+      if(!list.length){
+        list = (selectedEls && selectedEls.length) ? selectedEls.slice() : (selectedEl ? [selectedEl] : []);
+      }
+      return list;
     }
 
     function resolveEditTarget(d){
@@ -2181,38 +3180,51 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     function ungroupSelection(){
       var g = selectedEl;
-      if(!g || !g.getAttribute || g.getAttribute('data-wf-group') !== '1'){
-        showToast('请先选中一个分组，再按 Ctrl+Shift+G 解组');
+      var isGroup = !!(g && g.getAttribute && g.getAttribute('data-wf-group') === '1');
+      var isComponent = !!(g && isComponentRoot(g));
+      if(!g || (!isGroup && !isComponent)){
+        showToast('请先选中一个分组或组件，再按 Ctrl+Shift+G 解组');
         return;
       }
       if(isLayerLocked(g)){
-        showToast('分组已锁定，先解锁再解组');
+        showToast('已锁定，先解锁再解组');
+        return;
+      }
+      var kids = [];
+      for(var i = 0; i < g.children.length; i++){
+        if(!isChromeNode(g.children[i])) kids.push(g.children[i]);
+      }
+      if(!kids.length){
+        showToast('这个组件里面没有可以拆开的元素');
         return;
       }
       pushSnapshot();
       var parent = g.parentNode;
       var gl = parseFloat(g.style.left) || 0;
       var gt = parseFloat(g.style.top) || 0;
-      var kids = [];
-      for(var i = 0; i < g.children.length; i++) kids.push(g.children[i]);
+      var gRect = g.getBoundingClientRect();
       for(var k = 0; k < kids.length; k++){
         var c = kids[k];
-        if(isChromeNode(c)) continue;
-        var cl = parseFloat(c.style.left) || 0;
-        var ct = parseFloat(c.style.top) || 0;
+        var cRect = c.getBoundingClientRect();
         c.style.position = 'absolute';
-        c.style.left = Math.round(gl + cl) + 'px';
-        c.style.top = Math.round(gt + ct) + 'px';
+        c.style.margin = '0';
+        c.style.left = Math.round(gl + (cRect.left - gRect.left)) + 'px';
+        c.style.top = Math.round(gt + (cRect.top - gRect.top)) + 'px';
+        if(!c.style.width) c.style.width = Math.max(1, Math.round(cRect.width)) + 'px';
+        if(!c.style.height) c.style.height = Math.max(1, Math.round(cRect.height)) + 'px';
+        c.style.maxWidth = 'none';
+        c.style.boxSizing = 'border-box';
         parent.insertBefore(c, g);
       }
       deselect();
       if(g.parentNode) g.parentNode.removeChild(g);
       scheduleSave();
       publishLayers();
-      showToast('已解散分组');
+      showToast(isComponent ? '已拆开组件' : '已解散分组');
     }
 
     function renameLayer(uid, name){
+      if(isBoxLayerUid(uid)) return;
       var safeUid = String(uid || '').replace(/"/g, '');
       var el = null;
       try { el = document.querySelector('[data-wf-uid="' + safeUid + '"]'); } catch(err) {}
@@ -2226,6 +3238,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     }
 
     function reorderLayer(uid, targetUid, place){
+      if(isBoxLayerUid(uid) || isBoxLayerUid(targetUid)) return;
       var safeUid = String(uid || '').replace(/"/g, '');
       var safeTarget = String(targetUid || '').replace(/"/g, '');
       if(!safeUid || !safeTarget || safeUid === safeTarget) return;
@@ -2561,7 +3574,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         scheduleSave();
         return;
       }
-      if(d.uid && d.type !== 'wf-select-uid') resolveEditTarget(d);
+      if(d.uid && d.type !== 'wf-select-uid' && d.type !== 'wf-color' && d.type !== 'wf-font-size' && d.type !== 'wf-text-style') resolveEditTarget(d);
       if(d.type === 'wf-interactive'){
         if(d.on){
           deselect();
@@ -2588,6 +3601,18 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         pasteElement(d.x, d.y);
       }else if(d.type === 'wf-duplicate'){
         if(selectedEl) duplicateElement(selectedEl);
+      }else if(d.type === 'wf-copy-as-svg'){
+        copyAsSvg();
+      }else if(d.type === 'wf-copy-as-code'){
+        copyAsCode(d.format);
+      }else if(d.type === 'wf-request-png-data'){
+        renderElementToPngData(d.requestId);
+      }else if(d.type === 'wf-copy-properties'){
+        copyElementProperties();
+      }else if(d.type === 'wf-paste-properties'){
+        pasteElementProperties();
+      }else if(d.type === 'wf-paste-replace'){
+        pasteReplaceElement();
       }else if(d.type === 'wf-select'){
         if(d.selector){
           var selTarget = document.querySelector(d.selector);
@@ -2610,9 +3635,9 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           }
           if(selectedEls.length === 1){
             var oneEl = selectedEls[0];
-            var parent = oneEl.offsetParent || document.body;
-            var pW = parent.clientWidth || document.body.clientWidth || 375;
-            var pH = parent.clientHeight || document.body.clientHeight || 812;
+            var boxParent = oneEl.offsetParent || document.body;
+            var pW = boxParent.clientWidth || document.body.clientWidth || 375;
+            var pH = boxParent.clientHeight || document.body.clientHeight || 812;
             var eW = oneEl.offsetWidth || 100;
             var eH = oneEl.offsetHeight || 40;
             if(alignType === 'left'){
@@ -2700,7 +3725,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
               selectedEl.style.top = Math.round(curStyleT + diff) + 'px';
             }
           } else if(d.key === 'width'){
-            var targetW = Math.max(10, d.val);
+            var targetW = Math.max(1, d.val);
             selectedEl.style.width = targetW + 'px';
             selectedEl.style.maxWidth = 'none';
             selectedEl.style.flex = 'none';
@@ -2709,7 +3734,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
               selectedEl.style.height = targetW + 'px';
             }
           } else if(d.key === 'height'){
-            var targetH = Math.max(10, d.val);
+            var targetH = Math.max(1, d.val);
             selectedEl.style.height = targetH + 'px';
             selectedEl.style.maxHeight = 'none';
             selectedEl.style.flex = 'none';
@@ -2816,22 +3841,57 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }else if(d.type === 'wf-query-frame-fill'){
         publishFrameFill();
       }else if(d.type === 'wf-color'){
-        if(selectedEl){
-          applyColor(selectedEl, d.color);
+        var colorTargets = [];
+        if(Array.isArray(d.uids)){
+          for(var ui = 0; ui < d.uids.length; ui++){
+            var colorEl = layerDom(String(d.uids[ui] || ''));
+            if(colorEl && colorTargets.indexOf(colorEl) < 0) colorTargets.push(colorEl);
+          }
+        }
+        if(!colorTargets.length){
+          colorTargets = (selectedEls && selectedEls.length) ? selectedEls.slice() : (selectedEl ? [selectedEl] : []);
+        }
+        if(colorTargets.length){
+          pushSnapshot();
+          for(var cti = 0; cti < colorTargets.length; cti++){
+            applyColor(colorTargets[cti], d.color, true);
+          }
+          if(selectedEl) notifySelectedElementInfo(selectedEl);
+          scheduleSave();
+          showToast(colorTargets.length > 1 ? ('已填充 ' + colorTargets.length + ' 个元素') : '颜色已修改并保存');
         }
       }else if(d.type === 'wf-font-size'){
-        if(selectedEl){
-          var tText = findTextTarget(selectedEl) || selectedEl;
-          var curFs = parseInt(window.getComputedStyle(tText).fontSize) || 14;
-          var nextFs = Math.max(10, Math.min(60, curFs + d.delta));
+        var fontTargets = collectStyleTargets(d);
+        if(fontTargets.length){
           pushSnapshot();
-          tText.style.fontSize = nextFs + 'px';
-          var textNodes = selectedEl.querySelectorAll ? selectedEl.querySelectorAll(tText.tagName) : [];
-          for(var ti = 0; ti < textNodes.length; ti++){
-            if(textNodes[ti].tagName === tText.tagName) textNodes[ti].style.fontSize = nextFs + 'px';
+          for(var fi = 0; fi < fontTargets.length; fi++){
+            var fEl = fontTargets[fi];
+            var fText = findTextTarget(fEl) || fEl;
+            var curFs = parseInt(window.getComputedStyle(fText).fontSize) || 14;
+            var nextFs = curFs + (d.delta || 0);
+            if(nextFs < 8) nextFs = 8;
+            if(nextFs > 200) nextFs = 200;
+            applyTextStyle(fEl, 'fontSize', nextFs);
           }
-          updateTransformBox(selectedEl);
+          if(selectedEls.length > 1) updateMultiTransformBox();
+          else if(selectedEl) updateTransformBox(selectedEl);
+          if(selectedEl) notifySelectedElementInfo(selectedEl);
           scheduleSave();
+        }
+      }else if(d.type === 'wf-text-style'){
+        var styleTargets = collectStyleTargets(d);
+        if(styleTargets.length){
+          if(!d.live) pushSnapshot();
+          var styleChanged = false;
+          for(var sti = 0; sti < styleTargets.length; sti++){
+            if(applyTextStyle(styleTargets[sti], d.key, d.value)) styleChanged = true;
+          }
+          if(styleChanged){
+            if(selectedEls.length > 1) updateMultiTransformBox();
+            else if(selectedEl) updateTransformBox(selectedEl);
+            if(selectedEl) notifySelectedElementInfo(selectedEl);
+            if(!d.live) scheduleSave();
+          }
         }
       }else if(d.type === 'wf-start-text-edit'){
         if(selectedEl) startTextEdit(selectedEl);
@@ -2875,8 +3935,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           var prev = document.querySelectorAll('.wf-current-asset-target');
           for(var pi = 0; pi < prev.length; pi++) prev[pi].classList.remove('wf-current-asset-target');
           selectedEl.classList.add('wf-current-asset-target');
-          var src = selectedEl.tagName === 'IMG' ? selectedEl.src : (selectedEl.style && selectedEl.style.backgroundImage ? selectedEl.style.backgroundImage.replace(/^url\(["']?|["']?\)$/g, '') : '');
-          parent.postMessage({ type: 'wf-pick-asset', src: src }, '*');
+          var src = selectedEl.tagName === 'IMG' ? (selectedEl.getAttribute('src') || selectedEl.src || '') : readCssUrl(selectedEl.style && selectedEl.style.backgroundImage);
+          window.parent.postMessage({ type: 'wf-pick-asset', src: src }, '*');
         }
       }
       else if(d.type === 'wf-export'){ doExport(); }
@@ -2887,9 +3947,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           var r = th / hh;
           document.body.style.transformOrigin = 'top center';
           document.body.style.transform = 'scale(' + r + ')';
-          /* 缩放后强制开启字体子像素渲染，防止 transform 导致文字发虚 */
-          document.body.style.webkitFontSmoothing = 'antialiased';
-          document.body.style.backfaceVisibility = 'hidden';
+          document.body.style.webkitFontSmoothing = 'auto';
           parent.postMessage({ type: 'wf-size', h: th }, '*');
         }
       }else if(d.type === 'wf-replace-asset'){
@@ -2902,11 +3960,14 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
             cur.style.backgroundImage = 'url(' + d.src + ')';
             cur.style.backgroundSize = 'cover';
             cur.style.backgroundPosition = 'center';
+            cur.style.backgroundRepeat = 'no-repeat';
+            cur.style.overflow = 'hidden';
           }
           cur.classList.remove('wf-current-asset-target');
           scheduleSave();
           if(selectedEl) updateTransformBox(selectedEl);
-          showToast('素材图片替换成功并落库');
+          notifySelectedElementInfo(cur);
+          showToast('素材图片已填入方框');
         }
       }else if(d.type === 'wf-insert-html'){
         if(d.html){
@@ -2921,7 +3982,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           var isModal = newChild.classList && (newChild.classList.contains('wf-modal') || newChild.classList.contains('wf-bottom-sheet'));
           if(!isModal){
             newChild.classList.add('wf-el', 'wf-inserted-component');
-            markInsertedAsGroup(newChild);
+            markInsertedComponent(newChild, d.name);
             newChild.style.position = 'absolute';
             newChild.style.left = targetX + 'px';
             newChild.style.top = targetY + 'px';
@@ -2961,22 +4022,19 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
             }, 60);
           }
           scheduleSave();
-          showToast(isModal ? '组件已添加' : '组件已成组：单击移动整组，双击再选里面的单个元素');
+          showToast(isModal ? '组件已添加' : '组件已添加。单击移动整块，双击再选里面的元素');
         }
       }else if(d.type === 'wf-select-uid'){
         if(d.uid){
-          var uidTarget = document.querySelector('[data-wf-uid="' + d.uid + '"]');
-          if(uidTarget) selectElement(uidTarget, true, !!d.multi);
+          var uidTarget = layerDom(d.uid);
+          if(uidTarget) selectElement(uidTarget, true, !!d.multi, isBoxLayerUid(d.uid) ? String(d.uid) : '');
         }
       }else if(d.type === 'wf-select-uids'){
         var want = Array.isArray(d.uids) ? d.uids : [];
         var picked = [];
         for(var si = 0; si < want.length; si++){
-          var safePick = String(want[si] || '').replace(/"/g, '');
-          if(!safePick) continue;
-          var pickedEl = null;
-          try { pickedEl = document.querySelector('[data-wf-uid="' + safePick + '"]'); } catch(err) {}
-          if(pickedEl) picked.push(pickedEl);
+          var pickedEl = layerDom(want[si]);
+          if(pickedEl && picked.indexOf(pickedEl) < 0) picked.push(pickedEl);
         }
         setMultiSelection(picked);
       }else if(d.type === 'wf-group'){
@@ -3155,11 +4213,13 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       var t = e.target;
       if(!t || t === document.body || t === document.documentElement) return;
 
-      // 分组里双击：选中光标下的那个元素，方便单独挪动。再双击同一个元素才进入改字。
+      // 分组或拖入的组件：双击选中光标下的那个元素。再双击同一个元素才进入改字。
       var groupHit = outermostGroup(t);
-      if(groupHit){
-        var inner = pickInsideGroup(t, groupHit);
-        if(inner && inner !== groupHit && selectedEl !== inner){
+      var compHit = t.closest ? t.closest('[data-wf-component="1"], .wf-inserted-component') : null;
+      var host = groupHit || compHit;
+      if(host){
+        var inner = pickInsideGroup(t, host);
+        if(inner && inner !== host && selectedEl !== inner){
           e.preventDefault();
           e.stopPropagation();
           selectElement(inner, true, false);
@@ -3286,7 +4346,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       var isModal = newEl.classList && (newEl.classList.contains('wf-modal') || newEl.classList.contains('wf-bottom-sheet'));
       if(!isModal){
         newEl.classList.add('wf-el', 'wf-inserted-component');
-        markInsertedAsGroup(newEl);
+        markInsertedComponent(newEl);
         newEl.style.position = 'absolute';
         newEl.style.left = targetX + 'px';
         newEl.style.top = targetY + 'px';
@@ -3302,8 +4362,58 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       selectElement(newEl);
       publishLayers();
       scheduleSave();
-      showToast(isModal ? '组件已添加' : '组件已成组：单击移动整组，双击再选里面的单个元素');
+      showToast(isModal ? '组件已添加' : '组件已添加。单击移动整块，双击再选里面的元素');
     }, true);
+
+    function pxNum(v){
+      if(!v || typeof v !== 'string' || v.indexOf('px') < 0) return null;
+      var n = parseFloat(v);
+      return isNaN(n) ? null : n;
+    }
+
+    function snapshotInners(root){
+      var out = [];
+      if(!root || !root.querySelectorAll) return out;
+      var nodes = root.querySelectorAll('*');
+      for(var i = 0; i < nodes.length; i++){
+        var n = nodes[i];
+        var st = n.style;
+        if(!st) continue;
+        var item = {
+          el: n,
+          w: pxNum(st.width),
+          h: pxNum(st.height),
+          l: pxNum(st.left),
+          t: pxNum(st.top),
+          r: pxNum(st.right),
+          b: pxNum(st.bottom),
+          fs: pxNum(st.fontSize),
+          br: pxNum(st.borderRadius)
+        };
+        if(item.w != null || item.h != null || item.l != null || item.t != null || item.r != null || item.b != null || item.fs != null || item.br != null){
+          out.push(item);
+        }
+      }
+      return out;
+    }
+
+    function applyInners(list, sx, sy){
+      if(!list || !list.length || !(sx > 0) || !(sy > 0)) return;
+      var s = Math.min(sx, sy);
+      for(var i = 0; i < list.length; i++){
+        var it = list[i];
+        var node = it.el;
+        if(!node || !node.style) continue;
+        if(it.w != null) node.style.width = Math.max(1, Math.round(it.w * sx)) + 'px';
+        if(it.h != null) node.style.height = Math.max(1, Math.round(it.h * sy)) + 'px';
+        if(it.l != null) node.style.left = Math.round(it.l * sx) + 'px';
+        if(it.r != null) node.style.right = Math.round(it.r * sx) + 'px';
+        if(it.t != null) node.style.top = Math.round(it.t * sy) + 'px';
+        if(it.b != null) node.style.bottom = Math.round(it.b * sy) + 'px';
+        if(it.fs != null) node.style.fontSize = Math.max(1, Math.round(it.fs * s)) + 'px';
+        if(it.br != null) node.style.borderRadius = Math.max(0, Math.round(it.br * s)) + 'px';
+      }
+    }
 
     // 鼠标按下：拖动8点把手缩放、拖动元素位移、Alt/Shift快捷删除、单选元素
     document.addEventListener('mousedown', function(e){
@@ -3362,7 +4472,10 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
               relL: (p.left - minL) / boxW,
               relT: (p.top - minT) / boxH,
               relW: p.w / boxW,
-              relH: p.h / boxH
+              relH: p.h / boxH,
+              initW: p.w,
+              initH: p.h,
+              inners: snapshotInners(p.el)
             });
           }
           resizing = {
@@ -3389,7 +4502,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           initH: rect.height,
           initLeft: rect.left + scrollX,
           initTop: rect.top + scrollY,
-          el: selectedEl
+          el: selectedEl,
+          inners: snapshotInners(selectedEl)
         };
         return;
       }
@@ -3409,6 +4523,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
 
       if(e.button !== 0) return;
+      try { window.parent.postMessage({ type: 'wf-canvas-mousedown' }, '*'); } catch(err){}
 
       var t = e.target;
       var isArtboardBg = !t || t === document || t === document.body || t === document.documentElement ||
@@ -3456,18 +4571,18 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         parent.postMessage({ type: 'wf-request-edit' }, '*');
       }
 
-      var isMulti = !!(e.ctrlKey || e.metaKey || e.shiftKey);
-      var moveEl = resolveTargetElement(t, e) || t;
-      if(isLayerLocked(moveEl)) return;
+      var piece = hitLayerPiece(t);
+      var moveEl = resolveTargetElement(t, e) || piece || t;
+      if(isLayerLocked(moveEl) && isLayerLocked(piece || moveEl)) return;
 
-      if(isMulti){
+      if(e.shiftKey && !e.ctrlKey && !e.metaKey){
+        selectShiftRange(piece || moveEl);
+      } else if(e.ctrlKey || e.metaKey){
         selectElement(moveEl, true, true);
-      } else {
-        if(selectedEls.length > 1 && selectedEls.includes(moveEl)){
-          // 用户点击多选中的某个元素进行整体拖拽：保留当前多选集合
-        } else {
-          selectElement(moveEl, true, false);
-        }
+        selectionAnchor = piece || selectedEl || moveEl;
+      } else if(!(selectedEls.length > 1 && selectedEls.includes(moveEl))){
+        selectElement(moveEl, true, false);
+        selectionAnchor = piece || moveEl;
       }
 
       // 准备拖动位移：无论单选还是多选，收集 selectedEls 里的所有元素初始坐标
@@ -3510,21 +4625,28 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     }, true);
 
     document.addEventListener('contextmenu', function(e){
-      if(!EDIT) return;
       e.preventDefault();
       e.stopPropagation();
       var t = e.target;
       var hit = t ? (resolveTargetElement(t, e) || null) : null;
       if(hit && hit !== document.body && hit !== document.documentElement && !isLayerLocked(hit)){
+        if(!EDIT){
+          EDIT = true;
+          document.body.classList.add('wf-edit-mode');
+          try { parent.postMessage({ type: 'wf-request-edit' }, '*'); } catch(err){}
+        }
         var already = selectedEls.indexOf(hit) !== -1;
         if(!already) selectElement(hit, true, false);
       }
-      if(!selectedEls || !selectedEls.length) return;
+      var scrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
       try {
         window.parent.postMessage({
           type: 'wf-context-menu',
           x: e.clientX,
-          y: e.clientY
+          y: e.clientY,
+          localX: Math.round(e.clientX + scrollX),
+          localY: Math.round(e.clientY + scrollY)
         }, '*');
       } catch(err) {}
     }, true);
@@ -3565,6 +4687,9 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
             rit.el.style.height = Math.round(nh) + 'px';
             rit.el.style.maxWidth = 'none';
             rit.el.style.boxSizing = 'border-box';
+            var sx = rit.initW > 0 ? nw / rit.initW : 1;
+            var sy = rit.initH > 0 ? nh / rit.initH : 1;
+            applyInners(rit.inners, sx, sy);
           }
           updateMultiTransformBox();
           return;
@@ -3602,6 +4727,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         resizing.el.style.height = Math.round(h) + 'px';
         resizing.el.style.maxWidth = 'none';
         resizing.el.style.boxSizing = 'border-box';
+        applyInners(resizing.inners, resizing.initW > 0 ? w / resizing.initW : 1, resizing.initH > 0 ? h / resizing.initH : 1);
 
         var rPos = resizing.el.style.position || (window.getComputedStyle ? window.getComputedStyle(resizing.el).position : '');
         if(resizing.dir.indexOf('w') !== -1){
@@ -3783,8 +4909,38 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       var isV = e.key === 'v' || e.key === 'V';
       var isD = e.key === 'd' || e.key === 'D';
 
+      // Ctrl+Shift+C: 复制为 PNG
+      if((e.ctrlKey || e.metaKey) && isC && e.shiftKey && !e.altKey){
+        if(selectedEl && selectedEl !== document.body){
+          e.preventDefault();
+          e.stopPropagation();
+          renderElementToPngData('shortcut_' + Date.now());
+          return;
+        }
+      }
+
+      // Ctrl+Alt+C: 复制样式属性
+      if((e.ctrlKey || e.metaKey) && isC && e.altKey && !e.shiftKey){
+        if(selectedEl && selectedEl !== document.body){
+          e.preventDefault();
+          e.stopPropagation();
+          copyElementProperties();
+          return;
+        }
+      }
+
+      // Ctrl+Alt+V: 粘贴样式属性
+      if((e.ctrlKey || e.metaKey) && isV && e.altKey && !e.shiftKey){
+        if((selectedEls && selectedEls.length > 0) || (selectedEl && selectedEl !== document.body)){
+          e.preventDefault();
+          e.stopPropagation();
+          pasteElementProperties();
+          return;
+        }
+      }
+
       // 复制元素 (Ctrl+C / ⌘C)
-      if((e.ctrlKey || e.metaKey) && isC && !e.shiftKey){
+      if((e.ctrlKey || e.metaKey) && isC && !e.shiftKey && !e.altKey){
         if(selectedEl && selectedEl !== document.body){
           e.preventDefault();
           e.stopPropagation();
@@ -3794,7 +4950,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
 
       // 粘贴元素 (Ctrl+V / ⌘V)
-      if((e.ctrlKey || e.metaKey) && isV && !e.shiftKey){
+      if((e.ctrlKey || e.metaKey) && isV && !e.shiftKey && !e.altKey){
         var data = getCopiedData();
         if(data && data.html){
           e.preventDefault();
@@ -3871,24 +5027,14 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           e.preventDefault();
           var curSize = parseInt(window.getComputedStyle(tText).fontSize, 10) || 14;
           var delta = e.key === ']' ? 2 : -2;
-          var newSize = Math.max(10, Math.min(60, curSize + delta));
+          var newSize = curSize + delta;
+          if(newSize < 8) newSize = 8;
+          if(newSize > 200) newSize = 200;
           pushSnapshot();
-          tText.style.fontSize = newSize + 'px';
-          var textNodes = selectedEl.querySelectorAll ? selectedEl.querySelectorAll(tText.tagName) : [];
-          for(var ti = 0; ti < textNodes.length; ti++){
-            if(textNodes[ti].tagName === tText.tagName) textNodes[ti].style.fontSize = newSize + 'px';
-          }
+          applyTextStyle(selectedEl, 'fontSize', newSize);
           updateTransformBox(selectedEl);
+          notifySelectedElementInfo(selectedEl);
           scheduleSave();
-          try {
-            window.parent.postMessage({
-              type: 'wf-element-selected',
-              info: {
-                tagName: selectedEl.tagName.toLowerCase(),
-                fontSize: newSize
-              }
-            }, '*');
-          } catch(err){}
           showToast('已调整字号: ' + newSize + 'px');
           return;
         }
@@ -3913,56 +5059,103 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 // ===== 素材库选择与拖拽插入 =====
 const showAssetPicker = ref(false)
 const activeAssetCat = ref('all')
+const assetUploading = ref(false)
+const assetLoadError = ref('')
+const assetFileInput = ref<HTMLInputElement | null>(null)
 interface AssetItem {
   id: string
   name: string
   category: string
   url: string
+  uploaded?: boolean
 }
 const assetList = ref<AssetItem[]>([])
 
-const defaultFallbackAssets: AssetItem[] = [
-  { id: 'avatar-01', name: '商务头像 1', category: 'avatar', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' },
-  { id: 'avatar-02', name: '职场头像 2', category: 'avatar', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' },
-  { id: 'avatar-03', name: '极简头像 3', category: 'avatar', url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80' },
-  { id: 'avatar-04', name: '萌宠头像 4', category: 'avatar', url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80' },
-  { id: 'banner-01', name: '科技质感背景', category: 'background', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=80' },
-  { id: 'banner-02', name: '暖色渐变背景', category: 'background', url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&auto=format&fit=crop&q=80' },
-  { id: 'prod-01', name: '数码产品展示', category: 'product', url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=300&auto=format&fit=crop&q=80' },
-  { id: 'prod-02', name: '潮流生活鞋靴', category: 'product', url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=300&auto=format&fit=crop&q=80' },
-]
-
 const assetCategories = [
-  { id: 'all', name: '全部素材' },
-  { id: 'avatar', name: '人物头像' },
-  { id: 'product', name: '商品展示' },
-  { id: 'background', name: '背景纹理' },
+  { id: 'all', name: '全部' },
+  { id: 'avatars', name: '人物头像' },
+  { id: 'products', name: '商品' },
+  { id: 'icons', name: '图标' },
+  { id: 'backgrounds', name: '背景' },
+  { id: 'effects', name: '特效' },
+  { id: 'uploads', name: '我的上传' },
 ]
 
-async function openAssetPicker() {
-  showAssetPicker.value = true
-  try {
-    const res = await projectApi.getAssets()
-    if (Array.isArray(res) && res.length > 0) {
-      assetList.value = res.map((a: any) => ({
-        id: a.id || a.assetId,
-        name: a.name || a.id,
-        category: a.category || 'other',
-        url: a.url || `/api/assets/${a.id || a.assetId}`,
-      }))
-    } else {
-      assetList.value = defaultFallbackAssets
-    }
-  } catch {
-    assetList.value = defaultFallbackAssets
+function normalizeAssetCategory(raw: string) {
+  if (raw === 'avatar') return 'avatars'
+  if (raw === 'product' || raw === 'image') return 'products'
+  if (raw === 'icon') return 'icons'
+  if (raw === 'background') return 'backgrounds'
+  if (raw === 'effect') return 'effects'
+  return raw || 'uploads'
+}
+
+function mapAsset(a: any): AssetItem {
+  const id = String(a?.assetId || a?.id || '')
+  const fileName = String(a?.name || a?.fileName || id || '图片')
+  const base = fileName.replace(/\.[a-z0-9]+$/i, '')
+  return {
+    id,
+    name: base || id || '图片',
+    category: normalizeAssetCategory(String(a?.category || '')),
+    url: a?.url || (id ? `/api/assets/${id}` : ''),
+    uploaded: !!a?.uploaded,
   }
 }
 
+async function loadAssetLibrary() {
+  assetLoadError.value = ''
+  try {
+    const res = await projectApi.getAssets()
+    assetList.value = Array.isArray(res) ? res.map(mapAsset).filter((a) => a.id && a.url) : []
+    if (!assetList.value.length) assetLoadError.value = '素材库是空的'
+  } catch {
+    assetList.value = []
+    assetLoadError.value = '素材库暂时打不开，请确认后端已启动'
+  }
+}
+
+async function openAssetPicker() {
+  showAssetPicker.value = true
+  await loadAssetLibrary()
+}
+
 const filteredAssets = computed(() => {
-  const list = assetList.value.length ? assetList.value : defaultFallbackAssets
+  const list = assetList.value
   if (activeAssetCat.value === 'all') return list
+  if (activeAssetCat.value === 'uploads') return list.filter((a) => a.uploaded)
   return list.filter((a) => a.category === activeAssetCat.value)
 })
+
+const uploadTargetName = computed(() => {
+  if (activeAssetCat.value === 'all' || activeAssetCat.value === 'uploads') return '我的上传'
+  return assetCategories.find((c) => c.id === activeAssetCat.value)?.name || '我的上传'
+})
+
+const emptyAssetText = computed(() => {
+  if (activeAssetCat.value === 'uploads') return '还没有上传过图片。点右下角「上传图片」就能加进来。'
+  return '这个分类里还没有图片。'
+})
+
+async function onUploadAssetFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const category = activeAssetCat.value === 'all' ? 'uploads' : activeAssetCat.value
+  assetUploading.value = true
+  try {
+    await projectApi.uploadAsset(file, category)
+    await loadAssetLibrary()
+    activeAssetCat.value = category
+    const placed = assetCategories.find((c) => c.id === category)?.name || '我的上传'
+    ElMessage.success('已放进「' + placed + '」')
+  } catch (err: any) {
+    ElMessage.error(err?.message || '上传失败')
+  } finally {
+    assetUploading.value = false
+  }
+}
 
 function selectAsset(asset: AssetItem) {
   htmlFrameRef.value?.contentWindow?.postMessage({
@@ -4019,6 +5212,20 @@ function onSlotDrop(e: DragEvent) {
   }
 }
 
+function unwrapAssetUrl(value: string) {
+  let s = value.trim()
+  const start = s.indexOf('url(')
+  if (start >= 0) {
+    s = s.slice(start + 4)
+    const end = s.lastIndexOf(')')
+    if (end >= 0) s = s.slice(0, end)
+    s = s.trim()
+    const q = s.charAt(0)
+    if ((q === '"' || q === "'") && s.charAt(s.length - 1) === q) s = s.slice(1, -1)
+  }
+  return s
+}
+
 function onIframeMessage(e: MessageEvent) {
   // 关键：只处理当前组件 iframe 自己发出的消息。iframe 的 postMessage 会广播给
   // 父窗口所有监听器，若不校验来源，A 页微调保存会污染所有页面的 HTML（全变同一页）。
@@ -4049,8 +5256,10 @@ function onIframeMessage(e: MessageEvent) {
   } else if (d.type === 'wf-request-edit') {
     emit('requestEdit')
   } else if (d.type === 'wf-element-selected') {
-    focusedLayerUid.value = (d as any).info?.layerUid || ''
-    emit('elementSelected', (d as any).info)
+    const info = { ...((d as any).info || {}) }
+    if (info.imgSrc) info.imgSrc = unwrapAssetUrl(String(info.imgSrc))
+    focusedLayerUid.value = info.layerUid || ''
+    emit('elementSelected', info)
   } else if (d.type === 'wf-element-deselected') {
     focusedLayerUid.value = ''
     emit('elementDeselected')
@@ -4062,13 +5271,18 @@ function onIframeMessage(e: MessageEvent) {
   } else if (d.type === 'wf-context-menu') {
     const frame = htmlFrameRef.value
     const rect = frame?.getBoundingClientRect()
-    const localX = Number((d as any).x) || 0
-    const localY = Number((d as any).y) || 0
+    const clientX = Number((d as any).x) || 0
+    const clientY = Number((d as any).y) || 0
+    const localX = Number((d as any).localX) || clientX
+    const localY = Number((d as any).localY) || clientY
     const scaleX = frame && frame.clientWidth ? (rect?.width || 0) / frame.clientWidth : 1
     const scaleY = frame && frame.clientHeight ? (rect?.height || 0) / frame.clientHeight : 1
     emit('contextMenu', {
-      x: (rect?.left || 0) + localX * scaleX,
-      y: (rect?.top || 0) + localY * scaleY,
+      x: (rect?.left || 0) + clientX * scaleX,
+      y: (rect?.top || 0) + clientY * scaleY,
+      localX,
+      localY,
+      pageId: props.page?.id,
     })
   } else if (d.type === 'wf-hotspot') {
     const box = d as any
@@ -4526,7 +5740,7 @@ function cancelEdit() {
   editingAnnId.value = null
 }
 
-function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = false, fitInside = false) {
+function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = false, fitInside = false, name = '') {
   if (!html) return
   htmlFrameRef.value?.contentWindow?.postMessage({
     type: 'wf-insert-html',
@@ -4535,6 +5749,7 @@ function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = f
     dropY,
     autoEditText,
     fitInside,
+    name,
   }, '*')
 }
 
@@ -4548,6 +5763,30 @@ function pasteCopiedElement(x?: number, y?: number) {
 
 function duplicateSelectedElement() {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-duplicate' }, '*')
+}
+
+function copyAsSvg() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-copy-as-svg' }, '*')
+}
+
+function copyAsCode(format: 'html' | 'css') {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-copy-as-code', format }, '*')
+}
+
+function requestPngData(requestId: string) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-request-png-data', requestId }, '*')
+}
+
+function copyProperties() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-copy-properties' }, '*')
+}
+
+function pasteProperties() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-paste-properties' }, '*')
+}
+
+function pasteReplace() {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-paste-replace' }, '*')
 }
 
 function alignSelectedElement(alignType: string) {
@@ -4575,16 +5814,20 @@ function updateElementShadow(shadow: string) {
   postToFrame({ type: 'wf-shadow', shadow })
 }
 
-function updateElementColor(color: string) {
-  postToFrame({ type: 'wf-color', color })
+function updateElementColor(color: string, uids: string[] = []) {
+  postToFrame({ type: 'wf-color', color, uids })
 }
 
 function updateFrameColor(color: string) {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-frame-color', color }, '*')
 }
 
-function updateElementFontSize(delta: number) {
-  postToFrame({ type: 'wf-font-size', delta })
+function updateElementFontSize(delta: number, uids: string[] = []) {
+  postToFrame({ type: 'wf-font-size', delta, uids })
+}
+
+function updateTextStyle(key: string, value: string, live = false, uids: string[] = []) {
+  postToFrame({ type: 'wf-text-style', key, value, live, uids })
 }
 
 function startTextEdit() {
@@ -4657,6 +5900,7 @@ defineExpose({
   updateElementColor,
   updateFrameColor,
   updateElementFontSize,
+  updateTextStyle,
   updateElementPosition,
   updateElementDimension,
   selectLayerByUid,
@@ -4670,6 +5914,12 @@ defineExpose({
   replaceVectorOriginal,
   insertVectorShapes,
   stampElementNav,
+  copyAsSvg,
+  copyAsCode,
+  requestPngData,
+  copyProperties,
+  pasteProperties,
+  pasteReplace,
 })
 </script>
 
@@ -4716,10 +5966,6 @@ defineExpose({
     background: #fff;
     border-radius: 14px;
     box-shadow: 0 10px 34px rgba(0, 0, 0, 0.35);
-    /* 防止 GPU 合成层导致文字渲染模糊：将 iframe 固定在整像素边界 */
-    transform: translateZ(0);
-    -webkit-font-smoothing: subpixel-antialiased;
-    image-rendering: -webkit-optimize-contrast;
   }
 
   /* ===== 整页/组件视图切换 ===== */

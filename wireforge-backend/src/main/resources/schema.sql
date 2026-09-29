@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS `page` (
   `canvas_y`         DOUBLE COMMENT '区块在无限画布上的位置（NULL=自动布局）',
   `sort_order`       INT          DEFAULT 0,
   `analyzed`         TINYINT      DEFAULT 0 COMMENT '0=未AI分析 1=已分析',
+  `layout_norm`      TINYINT      DEFAULT 1 COMMENT '1=渲染时组内排版 0=用原始方框',
+  `image_hash`       VARCHAR(64)  COMMENT '上次识别时设计稿指纹',
   `html_content`     LONGTEXT COMMENT 'AI 生成的完整 HTML/CSS 页面（Stitch 式整页直出，NULL=未生成）',
   `created_at`       DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_project` (`project_id`)
@@ -34,6 +36,8 @@ CREATE TABLE IF NOT EXISTS `element` (
   `width`       DOUBLE DEFAULT 0,
   `height`      DOUBLE DEFAULT 0,
   `style`       TEXT COMMENT 'JSON 扩展样式',
+  `group_key`   VARCHAR(64) COMMENT '同一次点击的共用编号',
+  `group_role`  VARCHAR(16) COMMENT 'anchor 或 member',
   `created_by`  VARCHAR(20) DEFAULT 'ai',
   `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_page` (`page_id`)
@@ -66,6 +70,7 @@ CREATE TABLE IF NOT EXISTS `interaction` (
   `action_type`    VARCHAR(30),
   `target_page_id` BIGINT,
   `params`         TEXT COMMENT 'JSON 扩展参数（动画/弹窗定位等）',
+  `source`         VARCHAR(16) COMMENT 'ai / autowire / user',
   KEY `idx_element` (`element_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 

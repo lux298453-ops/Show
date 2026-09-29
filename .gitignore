@@ -37,7 +37,10 @@ wireforge-frontend/.env.local
 wireforge-backend/target/
 wireforge-backend/*.jar
 wireforge-backend/*.log
+wireforge-backend/*.png
 wireforge-backend/$
+scratch/
+wireforge-frontend/render_screenshots.js
 
 # Database dumps (keep init.sql)
 wireforge_dev_backup.sql

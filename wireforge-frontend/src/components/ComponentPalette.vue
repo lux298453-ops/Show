@@ -61,7 +61,7 @@
           <div
             v-for="item in cat.items"
             :key="item.id"
-            class="palette-item group relative bg-slate-50/70 hover:bg-white border border-slate-200/80 hover:border-[#0D99FF] rounded-xl h-18 shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing flex items-center justify-center overflow-hidden p-2"
+            class="palette-item group relative bg-white border border-slate-200 hover:border-[#0D99FF] rounded-xl shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing flex flex-col items-stretch overflow-hidden px-2 py-2"
             draggable="true"
             :title="item.name"
             @dragstart="onDragStart($event, item)"
@@ -78,9 +78,11 @@
               <Plus class="w-3 h-3" />
             </button>
 
-            <!-- Visual Preview (Pure preview without explanatory labels) -->
-            <div class="w-full h-full flex items-center justify-center pointer-events-none overflow-hidden">
-              <div v-html="item.previewHtml" class="scale-100 transform-origin-center"></div>
+            <div class="palette-preview w-full h-14 bg-slate-50 rounded-lg border border-slate-200/80 flex items-center justify-center overflow-hidden pointer-events-none">
+              <div v-html="item.previewHtml" class="palette-sketch"></div>
+            </div>
+            <div class="mt-1.5 px-0.5 text-[11px] leading-4 font-semibold text-slate-900 text-center truncate">
+              {{ item.name }}
             </div>
           </div>
         </div>
@@ -180,5 +182,17 @@ function onDragEnd(event: DragEvent) {
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+.palette-sketch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+.palette-sketch :deep(svg) {
+  shape-rendering: geometricPrecision;
+}
+.palette-sketch :deep(img) {
+  image-rendering: auto;
 }
 </style>

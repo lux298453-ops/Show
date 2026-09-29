@@ -2,12 +2,14 @@
   <div class="min-h-screen bg-[#f8fafc] flex flex-col text-slate-800 selection:bg-emerald-500 selection:text-white">
     <!-- ===== Global Figma-Style Header ===== -->
     <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-6 py-2.5 transition-all shadow-2xs">
-      <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      <div class="w-full flex items-center justify-between gap-4">
         <!-- Logo and Brand -->
-        <div class="flex items-center gap-2.5">
-          <div class="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-xs tracking-wider shadow-xs">
-            W
-          </div>
+        <div class="flex items-center gap-2.5 select-none">
+          <img
+            src="/favicon.svg"
+            alt="WireForge Logo"
+            class="w-7 h-7 rounded-lg object-contain shadow-2xs hover:scale-105 transition-transform shrink-0"
+          />
           <span class="text-sm font-bold text-slate-900 tracking-tight">WireForge</span>
         </div>
 
@@ -31,7 +33,7 @@
 
     <!-- ===== Secondary Toolbar (Title, Search, View Switcher) ===== -->
     <div class="border-b border-slate-200/70 bg-white/70 px-6 py-3">
-      <div class="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      <div class="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
         <!-- Title and Count -->
         <div class="flex items-center gap-2.5">
           <h1 class="text-sm font-bold text-slate-900 tracking-tight">原型项目库</h1>

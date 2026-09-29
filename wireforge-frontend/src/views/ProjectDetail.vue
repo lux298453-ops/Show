@@ -13,6 +13,14 @@
             <ArrowLeft class="w-4 h-4" />
           </button>
 
+          <img
+            src="/favicon.svg"
+            alt="WireForge"
+            class="w-6 h-6 rounded-md object-contain cursor-pointer hover:scale-105 transition-transform shrink-0"
+            @click="router.push('/')"
+            title="返回 WireForge 首页"
+          />
+
           <div class="flex items-center gap-1.5 text-xs text-slate-400">
             <span class="hover:text-slate-600 cursor-pointer transition-colors" @click="router.push('/')">我的项目</span>
             <span>/</span>
@@ -48,7 +56,7 @@
             @click="analyze"
           >
             <Sparkles class="w-3.5 h-3.5 text-emerald-600" :class="{ 'animate-spin': analyzing }" />
-            <span>{{ analyzing ? 'AI 解析中...' : 'AI 生成原型' }}</span>
+            <span>{{ analyzing ? (analyzeProgressText || 'AI 解析中...') : 'AI 生成原型' }}</span>
           </button>
 
           <!-- Primary CTA: Open Interactive Canvas -->
@@ -394,6 +402,7 @@ const pages = ref<PageCard[]>([])
 const loading = ref(true)
 const scanning = ref(false)
 const analyzing = ref(false)
+const analyzeProgressText = ref('')
 const entering = ref(false)
 const DEFAULT_DESIGNS_DIR = 'D:/idea/Project/html版本/html不是很好版/designs'
 const designsDir = ref(DEFAULT_DESIGNS_DIR)
@@ -479,8 +488,8 @@ async function enterCanvas() {
   router.push(`/projects/${id}/prototype`)
 }
 
-async function load() {
-  loading.value = true
+async function load(silent = false) {
+  if (!silent) loading.value = true
   try {
     const proto = await projectApi.prototype(id)
     project.value = proto.project
@@ -492,7 +501,7 @@ async function load() {
   } catch (e: any) {
     ElMessage.error(e.message || '加载失败')
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -509,27 +518,86 @@ async function scan() {
   }
 }
 
-async function analyze() {
-  analyzing.value = true
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function pollAnalysisStatus() {
   try {
-    const results = await projectApi.analyze(id)
-    if (results.length === 0) {
-      ElMessage.info('所有页面都已有线稿，无需生成')
-      return
+    const status = await projectApi.getAnalysisStatus(id)
+    if (status.analyzing) {
+      sessionStorage.setItem('wf_analyzing_proj_' + id, '1')
+      analyzing.value = true
+      analyzeProgressText.value = status.step || `正在分析 (${status.current}/${status.total})...`
+      startPolling()
+    } else {
+      const wasTracking = analyzing.value || sessionStorage.getItem('wf_analyzing_proj_' + id) === '1'
+      sessionStorage.removeItem('wf_analyzing_proj_' + id)
+      stopPolling()
+      analyzing.value = false
+      analyzeProgressText.value = ''
+
+      if (wasTracking) {
+        if (status.lastError) {
+          ElMessage.error(`分析中断：${status.lastError}`)
+        } else if (status.okCount > 0) {
+          ElMessage.success(`分析完成：成功 ${status.okCount} 页${status.failCount > 0 ? `，失败 ${status.failCount} 页` : ''}`)
+        } else if (status.step && status.step.includes('完成')) {
+          ElMessage.success(status.step)
+        }
+        await load(true)
+      }
     }
-    const ok = results.filter((r) => r.status === 'ok').length
-    const fail = results.filter((r) => r.status === 'error')
-    ElMessage.success(`分析完成：成功 ${ok} 页`)
-    fail.forEach((r) => ElMessage.warning(`页面 [${r.page_name}] 失败：${r.error}`))
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '分析失败')
-  } finally {
+  } catch (err: any) {
+    console.error('查询项目分析状态异常:', err)
+    if (analyzing.value) {
+      sessionStorage.removeItem('wf_analyzing_proj_' + id)
+      stopPolling()
+      analyzing.value = false
+      analyzeProgressText.value = ''
+      ElMessage.error('无法连接到后端分析服务，已恢复按钮状态')
+    }
+  }
+}
+
+function startPolling() {
+  if (!pollTimer) {
+    pollTimer = setInterval(pollAnalysisStatus, 1200)
+  }
+}
+
+async function analyze() {
+  if (analyzing.value) return
+  const pending = pages.value.filter((p: any) => !p.analyzed || p.elements === 0)
+  if (pending.length === 0) {
+    ElMessage.info('所有页面都已有原型线稿，无需生成')
+    return
+  }
+
+  analyzing.value = true
+  analyzeProgressText.value = '准备启动 AI 分析...'
+  sessionStorage.setItem('wf_analyzing_proj_' + id, '1')
+  try {
+    const status = await projectApi.startAnalyze(id)
+    if (status.step) {
+      analyzeProgressText.value = status.step
+    }
+    startPolling()
+  } catch (err: any) {
+    sessionStorage.removeItem('wf_analyzing_proj_' + id)
     analyzing.value = false
+    analyzeProgressText.value = ''
+    ElMessage.error(err?.response?.data?.message || err?.message || '启动分析失败')
   }
 }
 
 onBeforeUnmount(() => {
+  stopPolling()
   thumbObservers.forEach((ro) => ro.disconnect())
   thumbObservers.clear()
 })
@@ -546,5 +614,7 @@ onMounted(async () => {
     /* ignore */
   }
   await load()
+  // 页面加载或刷新时，第一件事向后端核对真实分析状态：只要后端还在跑，立即进入持续 Loading 态并恢复进度显示与轮询！
+  await pollAnalysisStatus()
 })
 </script>

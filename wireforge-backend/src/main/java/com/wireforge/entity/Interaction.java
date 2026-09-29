@@ -15,4 +15,6 @@ public class Interaction {
     private String actionType;
     private Long targetPageId;
     private String params;
+    /** ai=识别时写下，autowire=自动布线，user=人手动保存。空视为可被自动规则整理的旧数据。 */
+    private String source;
 }

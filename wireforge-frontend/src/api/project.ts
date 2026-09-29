@@ -1,13 +1,30 @@
 import http from './http'
 import type { Project, Prototype, Page, CommentThread, CommentReply } from '../types'
 
+export interface AnalysisStatus {
+  projectId: number
+  analyzing: boolean
+  current: number
+  total: number
+  currentPageName?: string
+  step?: string
+  okCount: number
+  failCount: number
+  lastError?: string | null
+  finished: boolean
+  startTime?: number
+  updateTime?: number
+}
+
 export const projectApi = {
   list: () => http.get<any, Project[]>('/projects'),
   create: (name: string, description?: string) => http.post<any, Project>('/projects', { name, description }),
   remove: (id: number) => http.delete<any, void>(`/projects/${id}`),
   get: (id: number) => http.get<any, Project>(`/projects/${id}`),
   scan: (id: number) => http.post<any, unknown[]>(`/projects/${id}/scan`),
-  analyze: (id: number) => http.post<any, { page_id: number; page_name: string; status: string; elements?: number; error?: string }[]>(`/projects/${id}/analyze`),
+  analyze: (id: number) => http.post<any, AnalysisStatus>(`/projects/${id}/analyze`),
+  startAnalyze: (id: number) => http.post<any, AnalysisStatus>(`/projects/${id}/analyze`),
+  getAnalysisStatus: (id: number) => http.get<any, AnalysisStatus>(`/projects/${id}/analysis-status`),
   reanalyzePage: (id: number, pageId: number) =>
     http.post<any, { page_id: number; page_name: string; status: string; elements?: number; error?: string }[]>(
       `/projects/${id}/pages/${pageId}/reanalyze`,
@@ -69,6 +86,9 @@ export const projectApi = {
       params?: string | null
     },
   ) => http.post<any, any>(`/projects/${id}/interactions`, body),
+  /** 阶段二：增量语义智能连线（AI 拓扑推导） */
+  autowireInteractionsWithAi: (id: number) =>
+    http.post<any, { project_id: number; local_wired: number; ai_wired: number; total_wired: number }>(`/projects/${id}/autowire-ai`),
   /** 删除交互连线 */
   deleteInteraction: (id: number, interactionId: number) =>
     http.delete<any, void>(`/projects/${id}/interactions/${interactionId}`),
@@ -91,6 +111,13 @@ export const projectApi = {
   deletePage: (id: number, pageId: number) => http.delete<any, void>(`/projects/${id}/pages/${pageId}`),
   /** 获取素材库列表 */
   getAssets: () => http.get<any, any[]>('/assets/list'),
+  /** 上传一张图片进素材库，category 为 avatars/products/icons/backgrounds/effects/uploads */
+  uploadAsset: (file: File, category: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('category', category)
+    return http.post<any, any>('/assets/upload', form)
+  },
 
   // ==========================================
   // Figma 评论系统
@@ -104,4 +131,4 @@ export const projectApi = {
     http.put<any, CommentThread>(`/projects/${id}/comments/${threadId}/resolve`, body || {}),
   deleteCommentThread: (id: number, threadId: number) =>
     http.delete<any, void>(`/projects/${id}/comments/${threadId}`),
-}
+}

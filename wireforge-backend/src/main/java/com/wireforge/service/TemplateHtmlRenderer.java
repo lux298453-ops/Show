@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -32,6 +33,26 @@ public class TemplateHtmlRenderer {
 
     private final DesignColorSampler sampler;
     private final ObjectMapper objectMapper;
+
+    @org.springframework.beans.factory.annotation.Value("${wireforge.designs-dir:designs}")
+    private String designsDir;
+
+    public String toFileUrl(String absolutePath) {
+        if (absolutePath == null || absolutePath.isBlank()) return "";
+        try {
+            Path designs = Paths.get(designsDir == null || designsDir.isBlank() ? "designs" : designsDir).toAbsolutePath().normalize();
+            Path file = Paths.get(absolutePath).toAbsolutePath().normalize();
+            if (file.startsWith(designs)) {
+                String relative = designs.relativize(file).toString().replace('\\', '/');
+                return "/files/" + relative;
+            }
+        } catch (Exception ignored) {
+        }
+        String normalized = absolutePath.replace('\\', '/');
+        int idx = normalized.lastIndexOf('/');
+        String filename = idx >= 0 ? normalized.substring(idx + 1) : normalized;
+        return "/files/" + filename;
+    }
 
     /**
      * 弹窗内容提示词：命中这些词的 text 元素视为"弹窗结果/提示文案"，
@@ -583,8 +604,10 @@ public class TemplateHtmlRenderer {
     /** 渲染一个页面的所有元素（坐标直出），供主体与浮层复用 */
     private String renderBody(Page bp, List<Element> elements, Map<Long, List<Interaction>> intersByEl,
                               Map<Long, String> pageNameById, int canvasW, int canvasH) {
-        // 0) 确定性整洁化：同行同款卡片归一化尺寸（消除 AI bbox 抖动导致的参差与互相压盖）
-        normalizeCardRows(elements);
+        boolean layoutOn = bp.getLayoutNorm() == null || bp.getLayoutNorm() != 0;
+        if (layoutOn) {
+            LayoutNormalizer.apply(elements, canvasW, canvasH);
+        }
 
         // 0.2) 场景简化：复杂插画/宠物/房间背景会被 AI 拆成几十个堆叠装饰块造成视觉混乱，
         //      贪心非重叠坍缩——保留最大背景框与不重叠的装饰，丢弃堆叠杂物（仅内存，不入库）
@@ -795,23 +818,86 @@ public class TemplateHtmlRenderer {
         // 并将下方出货槽规整对齐，渲染为扭蛋机高保真内胆。
         boolean isGashaponPage = bpBg.contains("1.png") || bpNm.contains("扭蛋");
         if (isGashaponPage) {
+            // 1. 彻底剔除误将扭蛋机机身大外壳识别为 image 的元素，防止生成多余的 [ 立绘 / 场景 ] 占位框
+            renderList.removeIf(e -> "image".equals(e.getType())
+                    && (e.getLabel() == null || e.getLabel().isBlank() || e.getLabel().contains("扭蛋机") || e.getLabel().contains("立绘") || e.getLabel().contains("场景"))
+                    && nz(e.getWidth()) >= 160 && nz(e.getHeight()) >= 160);
+
+            // 2. 规整并保护 12 张角色卡片外框 container，赋予专属 label "扭蛋卡片"，防止被 pruneRedundantContainers 误删
+            for (Element e : renderList) {
+                if ("container".equals(e.getType())) {
+                    double ey = nz(e.getPositionY());
+                    double ew = nz(e.getWidth());
+                    double eh = nz(e.getHeight());
+                    if (ey >= 195 && ey <= 530 && ew <= 65 && eh <= 85) {
+                        e.setLabel("扭蛋卡片");
+                    }
+                }
+            }
+
             for (Element e : renderList) {
                 if ("container".equals(e.getType())) {
                     String l = e.getLabel() == null ? "" : e.getLabel();
-                    if (l.contains("底板") || (nz(e.getPositionY()) >= 160 && nz(e.getPositionY()) <= 190 && nz(e.getWidth()) <= 220)) {
+                    if (l.contains("卡槽") || l.contains("底板") || l.contains("橱窗") || l.contains("奖品")
+                            || (nz(e.getPositionY()) >= 90 && nz(e.getPositionY()) <= 220 && nz(e.getWidth()) <= 220 && nz(e.getHeight()) >= 150)) {
                         e.setPositionX(44.0);
                         e.setPositionY(188.0);
                         e.setWidth(195.0);
                         e.setHeight(348.0);
                         e.setLabel("扭蛋机卡牌橱窗");
                     }
-                    if (l.contains("出货") || (nz(e.getPositionY()) >= 550 && nz(e.getPositionY()) <= 590 && nz(e.getWidth()) <= 220)) {
+                    if (l.contains("出货") || (nz(e.getPositionY()) >= 530 && nz(e.getPositionY()) <= 600 && nz(e.getWidth()) <= 220)) {
                         e.setPositionX(44.0);
                         e.setPositionY(565.0);
                         e.setWidth(195.0);
                         e.setHeight(58.0);
                         e.setLabel("扭蛋机出货槽");
                     }
+                }
+            }
+
+            // 3. 扭蛋卡片内部头像与文案规整防压字：
+            // AI 标定时将 12 张卡片内头像 image 的 height 框大为 53px（伸展至 y≈265），
+            // 直接越过文本顶边 y≈258，导致头像的底边虚线穿透在角色名字（"阿宝"、"圣彩儿"等）中间。
+            // 规整卡片内头像高度为 43px，确保底边虚线在 y=254.5 处停住，与下方角色名留出 3.5px 安全间距；
+            // 底部 3 张已获角色头像同样高度收缩至 46px，确保底边虚线不压盖文字。
+            for (Element e : renderList) {
+                if ("image".equals(e.getType())) {
+                    double ey = nz(e.getPositionY());
+                    double ex = nz(e.getPositionX());
+                    double ew = nz(e.getWidth());
+                    if (ex >= 50 && ex <= 235 && ey >= 200 && ey <= 520 && ew <= 55) {
+                        e.setHeight(43.0);
+                    }
+                    if (ey >= 660 && ey <= 750 && ew <= 65) {
+                        e.setHeight(46.0);
+                    }
+                }
+                if ("text".equals(e.getType())) {
+                    double ey = nz(e.getPositionY());
+                    double ex = nz(e.getPositionX());
+                    if (ex >= 50 && ex <= 235 && ey >= 200 && ey <= 520) {
+                        if (nz(e.getHeight()) < 14.0) {
+                            e.setHeight(14.0);
+                        }
+                    }
+                    if (ey >= 710 && ey <= 750 && ex >= 80 && ex <= 280) {
+                        if (nz(e.getHeight()) < 14.0) {
+                            e.setHeight(14.0);
+                        }
+                    }
+                }
+            }
+
+            // 顶部播报公告条 (恭喜XXX) 与操作按钮规格规整，避免被压扁为 20px
+            for (Element e : renderList) {
+                if (e.getLabel() != null && e.getLabel().contains("恭喜")) {
+                    if (nz(e.getHeight()) < 30) e.setHeight(32.0);
+                    if (nz(e.getPositionY()) < 80) e.setPositionY(120.0);
+                }
+                if ("container".equals(e.getType()) && (e.getLabel() != null && e.getLabel().contains("公告"))) {
+                    if (nz(e.getHeight()) < 32) e.setHeight(35.0);
+                    if (nz(e.getPositionY()) < 80) e.setPositionY(118.0);
                 }
             }
 
@@ -846,7 +932,6 @@ public class TemplateHtmlRenderer {
             // 保护右侧控制栏文字（立绘配图文字"等你来抽"、"再抽9次"等）不向左侵入橱窗
             for (Element e : renderList) {
                 if ("text".equals(e.getType()) && nz(e.getPositionX()) >= 250 && nz(e.getPositionY()) >= 300 && nz(e.getPositionY()) <= 400) {
-                    if (nz(e.getPositionX()) < 260.0) e.setPositionX(260.0);
                     if (nz(e.getWidth()) > 85.0) e.setWidth(85.0);
                 }
             }
@@ -1197,9 +1282,17 @@ public class TemplateHtmlRenderer {
             }
         }
 
-        // 0.4.9) 全局底部导航栏（Bottom TabBar）自适应等分与规整自愈：
-        // 彻底解决写死4等分坐标导致3等分页面（如《耀宝首页》仅有【家园】【收集】【我的】3个图标）中间图标严重偏右的问题。
-        // 算法：自动统计当前页面实际存在的底栏Tab项顺序与总数N，按 canvasW/N 动态计算每一项的严格中心坐标。
+        // 已经按点击分组排过的底栏，不再用写死的词表重排一遍。
+        // 没有分组的旧页面仍走原来的词表等分，避免没点「重算」时底栏散开。
+        boolean hasNavGroups = false;
+        for (Element navEl : renderList) {
+            String navKey = navEl.getGroupKey() == null ? "" : navEl.getGroupKey();
+            if (navKey.contains("-tab-")) {
+                hasNavGroups = true;
+                break;
+            }
+        }
+        if (!hasNavGroups) {
         List<String> tabOrder = new ArrayList<>();
         List<Element> bottomTabItems = renderList.stream()
                 .filter(e -> nz(e.getPositionY()) >= 650.0)
@@ -1247,6 +1340,7 @@ public class TemplateHtmlRenderer {
                 e.setWidth((double) canvasW);
                 e.setHeight((double) (canvasH - 760));
             }
+        }
         }
 
         // 0.4.10) 更换耀宝页（组 524323）专属排版自愈：
@@ -1486,48 +1580,7 @@ public class TemplateHtmlRenderer {
                     }))
                     .orElse(null);
             if (mainModal != null) {
-                // 1. 高度自适应全包裹（严格限制于弹窗横向与纵向有效范围内，杜绝底部底栏或悬浮关闭钮将白卡强行拉长至底端）
-                double modalL = nz(mainModal.getPositionX());
-                double modalR = modalL + nz(mainModal.getWidth());
-                double modalY = nz(mainModal.getPositionY());
-                double maxY = renderList.stream()
-                        .filter(e -> e != mainModal && !"background".equals(e.getType()))
-                        .filter(e -> {
-                            double ey = nz(e.getPositionY());
-                            if (ey >= 720) return false; // 排除底部状态栏/导航栏
-                            // 排除弹窗下方独立悬浮的关闭图标/关闭按钮（浮在暗色蒙层上）
-                            String elbl = e.getLabel() == null ? "" : e.getLabel();
-                            if (ey > modalY + 280 && ("关闭".equals(elbl) || "close".equalsIgnoreCase(elbl) || "×".equals(elbl) || "X".equalsIgnoreCase(elbl))) {
-                                return false;
-                            }
-                            if (ey < modalY - 10 || ey > modalY + 500) return false;
-                            double ex = nz(e.getPositionX());
-                            double ew = nz(e.getWidth());
-                            return (ex + ew >= modalL - 10) && (ex <= modalR + 10);
-                        })
-                        .mapToDouble(e -> nz(e.getPositionY()) + nz(e.getHeight()))
-                        .max().orElse(nz(mainModal.getPositionY()) + nz(mainModal.getHeight()));
-                if (maxY > nz(mainModal.getPositionY()) + nz(mainModal.getHeight())) {
-                    mainModal.setHeight(maxY + 24 - nz(mainModal.getPositionY()));
-                }
-
-                // 2. 弹窗主卡片与内部元素绝对水平居中校准（防止左偏8px等不对称观感）
-                if (nz(mainModal.getWidth()) > 240 && nz(mainModal.getWidth()) < canvasW) {
-                    double centeredX = Math.round((canvasW - nz(mainModal.getWidth())) / 2.0);
-                    double shiftX = centeredX - nz(mainModal.getPositionX());
-                    if (Math.abs(shiftX) >= 2) {
-                        mainModal.setPositionX(centeredX);
-                        for (Element el : renderList) {
-                            if (el != mainModal && !"background".equals(el.getType())
-                                    && nz(el.getPositionY()) >= nz(mainModal.getPositionY()) - 10
-                                    && nz(el.getPositionY()) <= nz(mainModal.getPositionY()) + nz(mainModal.getHeight()) + 10) {
-                                el.setPositionX(nz(el.getPositionX()) + shiftX);
-                            }
-                        }
-                    }
-                }
-
-                // 3. 弹窗内部子元素（尤其是横线 divider、文本、卡槽）右边界安全内收：
+                // 弹窗内部子元素（尤其是横线 divider、文本、卡槽）右边界安全内收：
                 // 严格确保内部元素右边缘不超过弹窗卡片右边界（保留至少 14px 安全内边距），杜绝横线穿透/突出弹窗
                 double modalLeft = nz(mainModal.getPositionX());
                 double modalRight = modalLeft + nz(mainModal.getWidth());
@@ -1550,22 +1603,12 @@ public class TemplateHtmlRenderer {
         }
 
         // 0.5.2) 任务奖励弹窗（首页_每日任务@3x）：
-        // 内部的白色任务列表卡片（y=423, h=354）高度不足，导致第 6 项（"解锁 1 个装扮"）文本掉出，
-        // 卡片底部边缘线条与文本重叠穿胸。
-        // 自愈：根据所有任务子元素的最大下边缘自动延展白卡高度至 y=815，留出 16px 呼吸边距，彻底包裹全部任务文本。
         boolean isTaskRewardPage = (bp != null && bp.getName() != null && (bp.getName().contains("任务奖励") || bp.getName().contains("每日任务")))
                 || (bpBg.contains("每日任务"));
         if (isTaskRewardPage) {
             for (Element c : renderList) {
                 if (("container".equals(c.getType()) || "list".equals(c.getType()))
                         && ("任务列表卡片".equals(c.getLabel()) || (nz(c.getPositionY()) >= 410 && nz(c.getPositionY()) <= 440))) {
-                    double cy0 = nz(c.getPositionY());
-                    double innerMaxY = renderList.stream()
-                            .filter(child -> child != c && !"background".equals(child.getType())
-                                    && nz(child.getPositionY()) >= cy0 && nz(child.getPositionY()) <= 800)
-                            .mapToDouble(child -> nz(child.getPositionY()) + nz(child.getHeight()))
-                            .max().orElse(cy0 + 354.0);
-                    c.setHeight(Math.max(nz(c.getHeight()), innerMaxY + 16.0 - cy0));
                     c.setLabel("任务列表白卡");
                 }
             }
@@ -1576,6 +1619,11 @@ public class TemplateHtmlRenderer {
         if (!isModalPage) {
             renderList.addAll(detectGapArt(bp, renderList, canvasW, canvasH, pageBg));
         }
+
+        // 0.7) 图片/头像与下方文本相交重叠自愈（全局卡片防压字）：
+        // 若 image/avatar 的底边穿透了位于其下方的文本标题（常见于角色卡牌、道具图鉴、头像昵称组合），
+        // 自动将图片高度收缩至文字顶边上方 3.5px，杜绝虚线框底边横穿字形。
+        preventImageTextCollision(renderList);
 
         // 1) 采样颜色
         Map<Long, double[]> boxes = new LinkedHashMap<>();
@@ -1737,6 +1785,61 @@ public class TemplateHtmlRenderer {
                 if (newW >= cw * 0.45) {
                     cur.setWidth(newW);
                     cw = newW;
+                }
+            }
+        }
+    }
+
+    /**
+     * 消除图片/头像虚线框与下方标题/文字的相交重叠（卡片防压字）：
+     * 在 UI 卡片或网格中，AI 常将头像/配图的 bounding box 框大到覆盖底部的名称文本，
+     * 导致图片的底边虚线（border: 1px dashed）直接横穿文字字形中间。
+     * 检测规则：
+     * 当 image/avatar 与下方 text 横向重叠、且 image 的底边伸入或穿过 text 时，
+     * 自动收缩 image 的高度至 text.top - 3.5px，确保虚线框在文字上方安全停住，留出清晰呼吸间距。
+     */
+    private static void preventImageTextCollision(List<Element> elements) {
+        List<Element> images = elements.stream()
+                .filter(e -> "image".equals(e.getType()) || "avatar".equals(e.getType()))
+                .toList();
+        List<Element> texts = elements.stream()
+                .filter(e -> "text".equals(e.getType()) && e.getLabel() != null && !e.getLabel().isBlank())
+                .toList();
+
+        for (Element img : images) {
+            double ix0 = nz(img.getPositionX()), ix1 = ix0 + nz(img.getWidth());
+            double iy0 = nz(img.getPositionY()), iy1 = iy0 + nz(img.getHeight());
+            double iw = nz(img.getWidth()), ih = nz(img.getHeight());
+
+            Element targetText = null;
+            double minOverlapDist = Double.MAX_VALUE;
+
+            for (Element txt : texts) {
+                double tx0 = nz(txt.getPositionX()), tx1 = tx0 + nz(txt.getWidth());
+                double ty0 = nz(txt.getPositionY()), ty1 = ty0 + nz(txt.getHeight());
+
+                double tcx = tx0 + nz(txt.getWidth()) / 2.0;
+                boolean hMatch = (tx0 < ix1 && tx1 > ix0) || (tcx >= ix0 - 4 && tcx <= ix1 + 4);
+                if (!hMatch) continue;
+
+                // 文字在图片靠下位置（不是在图片上方），且图片底边伸入或穿透了文字
+                if (ty0 > iy0 + 12 && ty0 <= iy1 + 8 && iy1 >= ty0 - 1.0) {
+                    double dist = ty0 - iy0;
+                    if (dist < minOverlapDist) {
+                        minOverlapDist = dist;
+                        targetText = txt;
+                    }
+                }
+            }
+
+            if (targetText != null) {
+                double ty0 = nz(targetText.getPositionY());
+                double safeH = ty0 - iy0 - 3.5;
+                if (safeH >= 16.0 && safeH < ih) {
+                    img.setHeight(safeH);
+                }
+                if (nz(targetText.getHeight()) < 14.0) {
+                    targetText.setHeight(14.0);
                 }
             }
         }
@@ -2071,12 +2174,12 @@ public class TemplateHtmlRenderer {
 
         String pos = String.format("left:%.0fpx;top:%.0fpx;width:%.0fpx;height:%.0fpx;",
                 nz(e.getPositionX()), nz(e.getPositionY()), nz(e.getWidth()), nz(e.getHeight()));
-        String attr = interactionAttrs(intersByEl == null ? null : intersByEl.get(e.getId()), pageNameById);
+        String attr = elementAttrs(e, intersByEl, pageNameById);
 
         switch (type) {
             case "text": {
                 int effectiveBgLum = effectiveBackgroundLuminance(e, containers, pageBg);
-                return el(pos + textStyle(e, fill, ink, effectiveBgLum), "wf-t", "", textInner(e));
+                return el(pos + textStyle(e, fill, ink, effectiveBgLum), "wf-t", attr, textInner(e));
             }
             case "button": {
                 boolean isSkeleton = page.getName() != null && (page.getName().contains("骨架") || page.getName().contains("加载"));
@@ -2209,54 +2312,42 @@ public class TemplateHtmlRenderer {
                     return el(pos + "background:#D1D5DB;border-radius:9999px;box-sizing:border-box;", "wf-sheet-handle", attr, "");
                 }
                 boolean onLight = effectiveBackgroundLuminance(e, containers, pageBg) >= 160;
-                double minDim = Math.min(nz(e.getWidth()), nz(e.getHeight()));
+                double elW = nz(e.getWidth());
+                double elH = nz(e.getHeight());
+                double minDim = Math.min(elW, elH);
                 int rad = Math.max(4, Math.min(8, (int)(minDim * 0.28)));
+                String svg = getIconSvg(label, onLight, minDim);
+                if (svg != null) {
+                    return el(pos + "display:flex;align-items:center;justify-content:center;", "wf-ic", attr, svg);
+                }
                 int glyphPct = minDim <= 26 ? 48 : 36;
                 String glyphColor = onLight ? "rgba(107,114,128,0.55)" : "rgba(255,255,255,0.75)";
                 String glyph = "<i class='wf-ic-glyph' style='width:" + glyphPct + "%;height:" + glyphPct + "%;background:" + glyphColor + ";border-radius:2px;display:inline-block;'></i>";
                 return el(pos + boxStyle(fill, onLight, rad), "wf-ic", attr, glyph);
             }
-            case "avatar":
-                int avFs = clamp((int)(Math.min(nz(e.getWidth()), nz(e.getHeight())) * 0.52), 12, 28);
-                return el(pos + "background:rgba(255,255,255,0.85);border:1.5px solid rgba(255,255,255,0.95);"
-                        + "border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,0.08), 0 3px 10px rgba(0,0,0,0.12);"
-                        + "display:flex;align-items:center;justify-content:center;overflow:hidden;", "wf-img wf-avatar", attr,
-                        "<span style='font-size:" + avFs + "px;'>👤</span>");
+            case "avatar": {
+                double elW = nz(e.getWidth());
+                double elH = nz(e.getHeight());
+                int sz = (int) Math.max(14, Math.min(32, Math.min(elW, elH) * 0.55));
+                String inner = String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='#9CA3AF' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>", sz, sz);
+                return el(pos + "background:#F3F4F6;border:1.5px solid #E5E7EB;border-radius:50%;"
+                        + "display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);box-sizing:border-box;",
+                        "wf-img wf-avatar", attr, inner);
+            }
             case "background":
                 // 全屏底图/大背景层：纯视觉衬底，绝不加任何"立绘/场景占位"文字，避免污染功能设置、网络提示等纯文字页面
                 return "";
             case "image":
             case "banner": {
-                boolean isSkeleton = page.getName() != null && (page.getName().contains("骨架") || page.getName().contains("加载"));
-                // 骨架页上半部分的壁纸/场景卡片：
-                if (isSkeleton && nz(e.getPositionY()) >= 50 && nz(e.getPositionY()) <= 350) {
-                    String title = nz(e.getPositionX()) < 150 ? "锁屏壁纸" : "桌面组件";
-                    String inner = "<span style='color:#9CA3AF;font-size:12px;font-weight:600;'>[ " + title + " ]</span>";
-                    return el(pos + "background:#FFFFFF;border-radius:16px;border:1px solid #E5E7EB;box-shadow:0 4px 14px rgba(0,0,0,0.05);display:flex;align-items:center;justify-content:center;box-sizing:border-box;",
-                            "wf-img wf-wallpaper-card", attr, inner);
-                }
-
-                if (page.getName() != null && page.getName().contains("宝箱")) {
-                    if (nz(e.getPositionY()) <= 260 && nz(e.getPositionX()) <= 80) {
-                        String inner = "<span style='color:rgba(107,68,35,0.85);font-size:11px;font-weight:bold;'>[ 挂件立绘 ]</span>";
-                        return el(pos + "background:rgba(255,255,255,0.85);border:1.5px dashed rgba(201,155,107,0.75);"
-                                + "border-radius:16px;box-shadow:0 3px 10px rgba(0,0,0,0.1);display:flex;align-items:center;justify-content:center;box-sizing:border-box;",
-                                "wf-img wf-pendant-art", attr, inner);
-                    }
-                    if (nz(e.getPositionY()) >= 320 && nz(e.getPositionY()) <= 410) {
-                        String inner = "<span style='color:#F59E0B;font-size:12px;font-weight:bold;'>\uD83D\uDC8E 钻石奖励</span>";
-                        return el(pos + "background:radial-gradient(circle, rgba(255,251,235,0.95) 0%, rgba(254,243,199,0.5) 100%);"
-                                + "border-radius:14px;border:1px solid rgba(252,211,77,0.6);display:flex;align-items:center;justify-content:center;box-sizing:border-box;box-shadow:0 2px 8px rgba(245,158,11,0.15);",
-                                "wf-img wf-reward-icon", attr, inner);
-                    }
-                }
-
-                double canvasArea = canvasW * (double) (page.getCanvasHeight() == null ? 812 : page.getCanvasHeight());
-                double area = nz(e.getWidth()) * nz(e.getHeight());
+                double elW = nz(e.getWidth());
+                double elH = nz(e.getHeight());
+                double totalH = page.getCanvasHeight() == null ? 812 : page.getCanvasHeight();
+                double canvasArea = canvasW * totalH;
+                double area = elW * elH;
                 double areaRatio = area / Math.max(1, canvasArea);
 
                 // 全屏或近全屏背景大图（面积 >= 55% 画布）：属于场景底衬，绝不生成占位大字
-                if (areaRatio >= 0.55 || (nz(e.getWidth()) >= canvasW * 0.88 && nz(e.getHeight()) >= 500)) {
+                if (areaRatio >= 0.55 || (elW >= canvasW * 0.88 && elH >= 500)) {
                     return "";
                 }
 
@@ -2265,20 +2356,25 @@ public class TemplateHtmlRenderer {
                 boolean isToolPage = pName.contains("设置") || pName.contains("异常") || pName.contains("提示")
                         || pName.contains("说明") || pName.contains("规则") || pName.contains("我的")
                         || pName.contains("关于") || pName.contains("记录") || pName.contains("加载") || pName.contains("骨架");
+                boolean isGashapon = pName.contains("扭蛋") || (page.getBackgroundImage() != null && page.getBackgroundImage().contains("1.png"));
 
-                // 真正的主视觉立绘/大场景插画（面积介于 8% ~ 55% 之间，且不在工具页面）：才显示占位框
-                boolean isHeroArt = !isToolPage && areaRatio >= 0.08 && nz(e.getWidth()) >= 120 && nz(e.getHeight()) >= 120;
+                // 真正的主视觉立绘/大场景插画（面积介于 8% ~ 55% 之间，且不在工具页面或扭蛋机页面）：才显示占位框
+                boolean isHeroArt = !isToolPage && !isGashapon && areaRatio >= 0.08 && elW >= 120 && elH >= 120;
                 if (isHeroArt) {
-                    String placeholderText = label.isBlank() ? "立绘 / 场景占位" : label;
+                    String placeholderText = label.isBlank() ? "立绘 / 场景" : label;
                     String inner = "<span style='color:rgba(107,68,35,0.85);font-size:13px;font-weight:bold;text-align:center;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>[ " + esc(placeholderText) + " ]</span>";
                     return el(pos + "background:rgba(255,255,255,0.28);border:2px dashed rgba(176,141,110,0.65);"
                             + "border-radius:18px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;",
                             "wf-img wf-hero-art", attr, inner);
                 } else {
                     // 小尺寸图片/道具槽位/设置项配图：严格按照原始坐标渲染规整线框，不加干扰性大字
-                    String r = nz(e.getWidth()) > 80 ? "10px;" : "6px;";
-                    return el(pos + "background:rgba(255,255,255,0.65);border:1px dashed rgba(201,155,107,0.55);"
-                            + "border-radius:" + r + "box-sizing:border-box;", "wf-img", attr, "");
+                    String r = elW > 80 ? "10px" : "6px";
+                    String inner = "";
+                    if (!label.isBlank() && elW >= 40 && elH >= 24) {
+                        inner = "<span style='font-size:11px;color:#9CA3AF;padding:0 4px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;'>" + esc(label) + "</span>";
+                    }
+                    return el(pos + "background:#F9FAFB;border:1px dashed #D1D5DB;border-radius:" + r + ";display:flex;align-items:center;justify-content:center;box-sizing:border-box;",
+                            "wf-img", attr, inner);
                 }
             }
             case "navbar": {
@@ -2327,6 +2423,9 @@ public class TemplateHtmlRenderer {
                 if ("扭蛋机卡牌橱窗".equals(label)) {
                     return el(pos + "background:rgba(255,255,255,0.45);border-radius:18px;border:2px solid rgba(255,255,255,0.85);box-shadow:inset 0 2px 10px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);box-sizing:border-box;", "wf-card wf-window-panel", attr, "");
                 }
+                if ("扭蛋卡片".equals(label)) {
+                    return el(pos + "background:#FFFFFF;border-radius:8px;border:1px solid rgba(0,0,0,0.08);box-shadow:0 1px 3px rgba(0,0,0,0.04);box-sizing:border-box;", "wf-card wf-card-slot", attr, "");
+                }
                 if ("扭蛋机出货槽".equals(label)) {
                     return el(pos + "background:rgba(215,108,138,0.22);border-radius:14px;border:1.5px solid rgba(215,108,138,0.35);box-shadow:inset 0 3px 8px rgba(0,0,0,0.1);box-sizing:border-box;", "wf-card wf-slot-panel", attr, "");
                 }
@@ -2367,7 +2466,8 @@ public class TemplateHtmlRenderer {
                 }
                 // 容器 label 是功能类别（"卡片""弹窗"等说明信息），不属于画面文字，
                 // 一律不上画布——说明内容走 annotation（右侧说明框），避免视觉干扰。
-                return el(pos + "background:rgba(255,255,255,0.92);border-radius:16px;"
+                int rad = (nz(e.getWidth()) <= 70 || nz(e.getHeight()) <= 90) ? 8 : 16;
+                return el(pos + "background:rgba(255,255,255,0.92);border-radius:" + rad + "px;"
                         + "box-shadow:0 4px 16px -2px rgba(0,0,0,0.06), 0 2px 6px -1px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.85);"
                         + "border:1px solid rgba(0,0,0,0.05);box-sizing:border-box;",
                         "wf-card", attr, "");
@@ -2509,6 +2609,58 @@ public class TemplateHtmlRenderer {
                 String glyphDef = "<i class='wf-ic-glyph' style='width:36%;height:36%;background:" + glyphColorDef + ";border-radius:2px;display:inline-block;'></i>";
                 return el(pos + boxStyle(fill, onLightDef), "wf-ic", attr, glyphDef);
         }
+    }
+
+    /** 常用 UI 图标的规范轻量矢量渲染，避免用设计稿位图切片导致锯齿或截断 */
+    private String getIconSvg(String label, boolean onLight, double minDim) {
+        if (label == null || label.isBlank()) return null;
+        String l = label.trim().toLowerCase();
+        int sz = (int) Math.max(12, Math.min(24, minDim * 0.7));
+        String stroke = onLight ? "#374151" : "#F3F4F6";
+
+        if (l.contains("返回") || l.contains("back") || l.equals("左") || l.contains("arrow-left")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m15 18-6-6 6-6'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("关闭") || l.contains("close") || l.equals("x") || l.equals("✕") || l.equals("×")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 6 6 18'/><path d='m6 6 12 12'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("搜索") || l.contains("search")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("设置") || l.contains("setting")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("更多") || l.contains("more") || l.contains("菜单")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='1.5'/><circle cx='19' cy='12' r='1.5'/><circle cx='5' cy='12' r='1.5'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("分享") || l.contains("share")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8'/><polyline points='16 6 12 2 8 6'/><line x1='12' y1='2' x2='12' y2='15'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("通知") || l.contains("铃铛") || l.contains("消息") || l.contains("bell")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("刷新") || l.contains("refresh")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/><path d='M3 3v5h5'/><path d='M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16'/><path d='M16 21h5v-5'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("加") || l.contains("添加") || l.contains("add") || l.equals("+")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h14'/><path d='M12 5v14'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("心") || l.contains("收藏") || l.contains("like") || l.contains("heart")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("星") || l.contains("star")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("主页") || l.contains("首页") || l.contains("home")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/><polyline points='9 22 9 12 15 12 15 22'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("商城") || l.contains("商店") || l.contains("购物车") || l.contains("cart") || l.contains("shop")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='21' r='1'/><circle cx='19' cy='21' r='1'/><path d='M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12'/></svg>", sz, sz, stroke);
+        }
+        if (l.contains("用户") || l.contains("我的") || l.contains("个人") || l.contains("user") || l.contains("profile")) {
+            return String.format("<svg viewBox='0 0 24 24' width='%d' height='%d' fill='none' stroke='%s' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>", sz, sz, stroke);
+        }
+        return null;
     }
 
     /* ================= 样式细节 ================= */
@@ -2870,6 +3022,21 @@ public class TemplateHtmlRenderer {
     }
 
     /* ================= 交互属性 ================= */
+
+    /** 一组只给 anchor 打跳转；member 只带组编号，点击时再找到代表。 */
+    private String elementAttrs(Element e, Map<Long, List<Interaction>> intersByEl, Map<Long, String> pageNameById) {
+        StringBuilder sb = new StringBuilder();
+        String key = e.getGroupKey() == null ? "" : e.getGroupKey().trim();
+        if (!key.isEmpty()) {
+            sb.append(" data-group-key=\"").append(esc(key)).append("\"");
+            String role = e.getGroupRole() == null ? "" : e.getGroupRole().trim();
+            if (!role.isEmpty()) sb.append(" data-group-role=\"").append(esc(role)).append("\"");
+        }
+        if (!"member".equals(e.getGroupRole())) {
+            sb.append(interactionAttrs(intersByEl == null ? null : intersByEl.get(e.getId()), pageNameById));
+        }
+        return sb.toString();
+    }
 
     private String interactionAttrs(List<Interaction> inters, Map<Long, String> pageNameById) {
         if (inters == null || inters.isEmpty()) return "";

@@ -48,7 +48,9 @@ public class AnalyzeService {
     private final HtmlRenderer htmlRenderer;
     private final TemplateHtmlRenderer templateHtmlRenderer;
     private final InteractionAutowireService interactionAutowireService;
+    private final ElementGroupService elementGroupService;
     private final com.wireforge.mapper.ProjectMapper projectMapper;
+    private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     /** 是否开启"渲染→截图→对比原稿→回修"闭环（默认开；Chromium 不可用时自动跳过） */
     @org.springframework.beans.factory.annotation.Value("${wireforge.ai.repair:true}")
@@ -63,8 +65,8 @@ public class AnalyzeService {
 
     /**
      * 分析单张设计稿页面。返回识别到的元素数量。
+     * 关键架构：AI 调用、读图、解析与整页 HTML 绘制均在事务外部进行，仅将入库操作包入毫秒级短事务。
      */
-    @Transactional
     public int analyzePage(Page page, List<String> allPageNames) {
         // 注意：先完成耗时的 AI 调用，再清理/写库，避免事务长时间持有行锁（并发分析会锁等待超时）
         JsonNode root;
@@ -97,31 +99,30 @@ public class AnalyzeService {
                 throw new IllegalStateException("读取设计稿失败: " + e.getMessage(), e);
             }
 
-            try {
-                var img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(imageBytes));
-                if (img != null) {
-                    imgW = img.getWidth();
-                    imgH = img.getHeight();
-                }
-            } catch (IOException e) {
-                log.warn("读取设计稿尺寸失败，坐标将不做缩放: {}", e.getMessage());
-            }
+            AiClient.PreparedImage prep = AiClient.prepareImage(imageBytes, mime);
+            imgW = prep.width();
+            imgH = prep.height();
+            byte[] sentBytes = prep.bytes();
+            String sentMime = prep.mime();
 
             String userPrompt = WireframePrompt.buildUserPrompt(allPageNames, imgW, imgH);
-            String raw = aiClient.generateWithImage(
-                    WireframePrompt.buildSystemPrompt(),
-                    userPrompt, mime, imageBytes);
-            root = parseJson(raw);
+            AiClient.setUsageLabel("识别「" + page.getName() + "」");
+            try {
+                String raw = aiClient.generateWithImage(
+                        WireframePrompt.buildSystemPrompt(),
+                        userPrompt, sentMime, sentBytes);
+                root = parseJson(raw);
+            } finally {
+                AiClient.setUsageLabel(null);
+            }
+            page.setImageHash(fingerprint(imageBytes));
         }
-
-        clearPageData(page.getId());
 
         JsonNode pageNameNode = root.path("page_name");
         String aiName = (pageNameNode != null && !pageNameNode.isMissingNode()) ? pageNameNode.asText("") : "";
         String resolvedName = PageNameResolver.resolve(page.getBackgroundImage(), root.path("elements"), aiName);
-        page.setName(resolvedName);
 
-        // 画布按设计稿宽高比设置（宽固定 375），元素坐标从原图像素等比缩放到画布
+        // 画布按设计稿宽高比设置（宽固定 375），元素坐标从预处理图像素等比缩放到画布
         double scaleX = 1;
         double scaleY = 1;
         if (imgW > 0 && imgH > 0) {
@@ -133,13 +134,29 @@ public class AnalyzeService {
             scaleY = canvasH / (double) imgH;
         }
 
-        page.setAnalyzed(1);
-        pageMapper.updateById(page);
+        // 短事务：清空旧元素、更新页面元信息、批量保存元素、记录分组（耗时毫秒级，不占用连接池）
+        final double finalScaleX = scaleX;
+        final double finalScaleY = scaleY;
+        final JsonNode finalRoot = root;
+        final String finalResolvedName = resolvedName;
+        Integer savedCount = transactionTemplate.execute(status -> {
+            clearPageData(page.getId());
+            page.setName(finalResolvedName);
+            page.setAnalyzed(1);
+            pageMapper.updateById(page);
 
-        int count = saveElements(page, root.path("elements"), scaleX, scaleY);
-        log.info("页面 [{}] 分析完成: {} 个元素", page.getName(), count);
+            int elCount = saveElements(page, finalRoot.path("elements"), finalScaleX, finalScaleY);
+            try {
+                elementGroupService.groupPage(page);
+            } catch (Exception e) {
+                log.warn("页面 [{}] 点击分组失败: {}", page.getName(), e.getMessage());
+            }
+            return elCount;
+        });
+        int count = savedCount == null ? 0 : savedCount;
+        log.info("页面 [{}] 分析数据入库完成: {} 个元素", page.getName(), count);
 
-        // 确定性整页渲染（零 AI）：颜色采样 + 坐标直出，替代原"AI 直出 HTML + 截图回修"链路
+        // 确定性整页渲染（零 AI，置于事务外部）：内部会重算全项目连线，避免长时间占住数据库连接
         if (!mock) {
             try {
                 String html = renderTemplateHtml(page);
@@ -158,11 +175,6 @@ public class AnalyzeService {
      * 读取整个项目的页面包（供弹窗浮层注入），采样设计稿真实颜色后坐标直出。不调用任何模型。
      */
     public String renderTemplateHtml(Page page) {
-        try {
-            interactionAutowireService.autowireProjectInteractions(page.getProjectId());
-        } catch (Exception e) {
-            log.warn("项目 {} 交互自动布线异常: {}", page.getProjectId(), e.getMessage());
-        }
         List<Page> pages = pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
                         .eq(Page::getProjectId, page.getProjectId()));
@@ -195,6 +207,32 @@ public class AnalyzeService {
             }
         }
         return templateHtmlRenderer.render(page, bundles, nameById, page.getName(), appMap);
+    }
+
+    /**
+     * 按现有元素重算点击分组和自动连线，不重跑视觉模型。人手动保存的线保留。
+     */
+    @Transactional
+    public int regroupProject(long projectId) {
+        List<Page> pages = pageMapper.selectList(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
+                        .eq(Page::getProjectId, projectId));
+        int groups = 0;
+        for (Page page : pages) {
+            groups += elementGroupService.groupPage(page);
+        }
+        for (Page page : pages) {
+            try {
+                String html = renderTemplateHtml(page);
+                pageMapper.update(null,
+                        com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
+                                .eq(Page::getId, page.getId())
+                                .set(Page::getHtmlContent, html));
+            } catch (Exception e) {
+                log.warn("页面 [{}] 重算后渲染失败: {}", page.getName(), e.getMessage());
+            }
+        }
+        return groups;
     }
 
     /**
@@ -396,6 +434,31 @@ public class AnalyzeService {
             }
         }
         return current;
+    }
+
+    /** 设计稿文件内容的指纹，用来判断图有没有换过 */
+    static String fingerprint(byte[] bytes) {
+        if (bytes == null) return null;
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes);
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return null;
+        }
+    }
+
+    /** 读当前设计稿文件算指纹；文件不在时返回 null */
+    public String currentImageFingerprint(Page page) {
+        if (page == null || page.getBackgroundImage() == null || page.getBackgroundImage().isBlank()) return null;
+        try {
+            Path p = Path.of(page.getBackgroundImage());
+            if (!Files.exists(p)) return null;
+            return fingerprint(Files.readAllBytes(p));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String guessMime(String filename) {
@@ -780,9 +843,14 @@ public class AnalyzeService {
                         page.getCanvasWidth() == null ? 375 : page.getCanvasWidth(),
                         page.getCanvasHeight() == null ? 812 : page.getCanvasHeight(),
                         pageNames, list.toString());
-                String raw = aiClient.generateWithImage(
-                        WireframePrompt.INTERACTION_SYSTEM_PROMPT, userPrompt, mime, imageBytes);
-                root = parseJson(raw);
+                AiClient.setUsageLabel("补交互「" + page.getName() + "」");
+                try {
+                    String raw = aiClient.generateWithImage(
+                            WireframePrompt.INTERACTION_SYSTEM_PROMPT, userPrompt, mime, imageBytes);
+                    root = parseJson(raw);
+                } finally {
+                    AiClient.setUsageLabel(null);
+                }
             } catch (Exception e) {
                 log.warn("页面 [{}] 交互提取失败（跳过）: {}", page.getName(), e.getMessage());
                 continue;
@@ -809,6 +877,7 @@ public class AnalyzeService {
                 it.setElementId(elId);
                 it.setTriggerType("click");
                 it.setActionType(action);
+                it.setSource("ai");
                 if (needsTarget) {
                     Long targetPageId = pageIdByName.get(target);
                     if (targetPageId != null) {
@@ -828,22 +897,41 @@ public class AnalyzeService {
             return 0;
         }
 
-        // 清掉项目旧交互后插入新交互（重复执行幂等）
+        // 清掉自动生成的旧交互，人手动保存的线留下。补完后再按组收成一条。
         List<Element> projectElements = elementMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
                         .in(Element::getPageId, pages.stream().map(Page::getId).toList()));
         if (!projectElements.isEmpty()) {
+            List<Long> projectElIds = projectElements.stream().map(Element::getId).toList();
             interactionMapper.delete(
                     com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
-                            .in(Interaction::getElementId,
-                                    projectElements.stream().map(Element::getId).toList()));
+                            .in(Interaction::getElementId, projectElIds)
+                            .and(w -> w.isNull(Interaction::getSource).or().ne(Interaction::getSource, "user")));
         }
+        java.util.Set<Long> userWired = new java.util.HashSet<>();
+        if (!projectElements.isEmpty()) {
+            interactionMapper.selectList(
+                    com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
+                            .in(Interaction::getElementId, projectElements.stream().map(Element::getId).toList())
+                            .eq(Interaction::getSource, "user"))
+                    .forEach(i -> userWired.add(i.getElementId()));
+        }
+        int inserted = 0;
         for (Interaction it : toInsert) {
+            if (userWired.contains(it.getElementId())) continue;
             interactionMapper.insert(it);
+            inserted++;
+        }
+        for (Page page : pages) {
+            try {
+                elementGroupService.groupPage(page);
+            } catch (Exception e) {
+                log.warn("页面 [{}] 补交互后分组失败: {}", page.getName(), e.getMessage());
+            }
         }
         resolvePendingTargets(projectId, null);
-        log.info("项目 {} 交互提取完成：{} 条", projectId, toInsert.size());
-        return toInsert.size();
+        log.info("项目 {} 交互提取完成：{} 条", projectId, inserted);
+        return inserted;
     }
 
     /** 交互动作归一化：映射到渲染器支持的四种动作，未知动作返回 null（直接丢弃） */
@@ -918,59 +1006,23 @@ public class AnalyzeService {
 
             JsonNode bbox = node.path("bbox");
             if (bbox.isArray() && bbox.size() >= 4) {
-                double rawX1 = bbox.get(0).asDouble();
-                double rawY1 = bbox.get(1).asDouble();
-                double rawV2 = bbox.get(2).asDouble();
-                double rawV3 = bbox.get(3).asDouble();
+                double rawX = bbox.get(0).asDouble();
+                double rawY = bbox.get(1).asDouble();
+                double rawW = bbox.get(2).asDouble();
+                double rawH = bbox.get(3).asDouble();
 
-                // 智能坐标格式识别：判断大模型给出的是 [x, y, w, h] 还是 [x1, y1, x2, y2]
-                double rawW, rawH;
-                boolean isX2Y2 = false;
-                if (rawV2 > rawX1 && rawV3 > rawY1) {
-                    // 当 (x1 + v2) 越界或 (y1 + v3) 严重超出，或者 (v3 - y1) 为合理高度时
-                    if ((rawX1 * scaleX + rawV2 * scaleX > canvasW + 10 && rawV2 * scaleX <= canvasW + 10)
-                            || (rawY1 * scaleY + rawV3 * scaleY > canvasH + 10 && rawV3 * scaleY <= canvasH + 10)
-                            || (rawY1 * scaleY > 100 && (rawV3 - rawY1) > 0 && (rawV3 - rawY1) < rawV3 * 0.75)) {
-                        isX2Y2 = true;
-                    }
-                }
-
-                if (isX2Y2) {
-                    rawW = rawV2 - rawX1;
-                    rawH = rawV3 - rawY1;
-                } else {
-                    rawW = rawV2;
-                    rawH = rawV3;
-                }
-
-                double x = rawX1 * scaleX;
-                double y = rawY1 * scaleY;
+                // 严格按 [x, y, 宽, 高] 解析，杜绝猜测判定导致的畸变与拉伸
+                double x = rawX * scaleX;
+                double y = rawY * scaleY;
                 double w = rawW * scaleX;
                 double h = rawH * scaleY;
+
                 x = Math.max(0, Math.min(x, canvasW - 4));
                 y = Math.max(0, Math.min(y, canvasH - 4));
-                w = Math.max(4, Math.min(w, canvasW - x));
-                h = Math.max(4, Math.min(h, canvasH - y));
-
-                // 尺寸异常保护网：防止 AI 把 Y2 误填成 height 导致出现穿透多层的巨型按钮/角标/卡片
-                String normType = element.getType() == null ? "" : element.getType();
-                if ("button".equals(normType) && h > 60) {
-                    h = Math.min(38.0, h);
-                } else if ("badge".equals(normType) && h > 45) {
-                    h = Math.min(22.0, h);
-                } else if ("icon".equals(normType) && h > 80 && w <= 80) {
-                    h = w;
-                } else if ("text".equals(normType) && h > 80 && element.getLabel() != null && element.getLabel().length() <= 20) {
-                    h = Math.min(24.0, h);
-                } else if ("container".equals(normType) && w <= 115 && h > 150) {
-                    String lbl = element.getLabel() == null ? "" : element.getLabel();
-                    boolean isDockOrSidebar = lbl.contains("菜单") || lbl.contains("栏") || lbl.contains("侧边") || lbl.contains("悬浮") || lbl.contains("导航");
-                    if (!isDockOrSidebar) {
-                        h = Math.min(135.0, h);
-                    }
-                } else if ("image".equals(normType) && w <= 115 && h > 130) {
-                    h = Math.min(105.0, h);
-                }
+                if (w < 4) w = Math.min(4, Math.max(0, canvasW - x));
+                if (h < 4) h = Math.min(4, Math.max(0, canvasH - y));
+                w = Math.min(w, Math.max(0, canvasW - x));
+                h = Math.min(h, Math.max(0, canvasH - y));
 
                 element.setPositionX(x);
                 element.setPositionY(y);
@@ -999,6 +1051,7 @@ public class AnalyzeService {
                         interaction.setParams("{\"target_name\":\"" + target + "\"}");
                         log.debug("交互目标 [{}] 暂未匹配，待补链", target);
                     }
+                    interaction.setSource("ai");
                     interactionMapper.insert(interaction);
                 }
             }
@@ -1025,7 +1078,7 @@ public class AnalyzeService {
     }
 
     /**
-     * 从模型输出中提取 JSON（兼容带 Markdown 代码块或前后废话的输出）。
+     * 从模型输出中提取 JSON（兼容带 Markdown 代码块、前后废话以及 Token 截断未闭合的输出）。
      */
     public JsonNode parseJson(String raw) {
         if (raw == null || raw.isBlank()) {
@@ -1037,12 +1090,80 @@ public class AnalyzeService {
             candidate = candidate.replaceAll("^```[a-zA-Z]*\\s*", "").replaceAll("```\\s*$", "").trim();
         }
         int start = candidate.indexOf('{');
-        int end = candidate.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            candidate = candidate.substring(start, end + 1);
+        if (start < 0) {
+            throw new IllegalStateException("AI 输出不包含有效的 JSON 对象");
         }
+        int end = candidate.lastIndexOf('}');
+        String jsonCandidate = (end > start) ? candidate.substring(start, end + 1) : candidate.substring(start);
+
+        // 1. 先尝试直接解析完整 JSON
         try {
-            return objectMapper.readTree(candidate);
+            return objectMapper.readTree(jsonCandidate);
+        } catch (Exception e) {
+            log.warn("AI 输出 JSON 解析异常，尝试进行截断安全修复: {}", e.getMessage());
+        }
+
+        // 2. 截断容错：从 elements 数组中截到最后一个已经完整的元素对象（以 } 闭合），丢弃末尾半截残缺元素，再补齐 ]}
+        try {
+            int elemIdx = candidate.indexOf("\"elements\"");
+            if (elemIdx >= 0) {
+                int arrStart = candidate.indexOf('[', elemIdx);
+                if (arrStart > elemIdx) {
+                    int lastCompleteObjEnd = -1;
+                    int depth = 0;
+                    boolean inStr = false;
+                    boolean escape = false;
+
+                    for (int i = arrStart + 1; i < candidate.length(); i++) {
+                        char c = candidate.charAt(i);
+                        if (escape) {
+                            escape = false;
+                            continue;
+                        }
+                        if (c == '\\' && inStr) {
+                            escape = true;
+                            continue;
+                        }
+                        if (c == '"') {
+                            inStr = !inStr;
+                            continue;
+                        }
+                        if (!inStr) {
+                            if (c == '{') {
+                                depth++;
+                            } else if (c == '}') {
+                                depth--;
+                                if (depth == 0) {
+                                    // 记录最后一个完整 element 对象的结束位置
+                                    lastCompleteObjEnd = i;
+                                }
+                            } else if (c == ']' && depth == 0) {
+                                lastCompleteObjEnd = i - 1;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (lastCompleteObjEnd > 0) {
+                        String repaired = candidate.substring(start, lastCompleteObjEnd + 1).trim();
+                        if (!repaired.endsWith("]")) {
+                            repaired += "\n  ]\n}";
+                        } else if (!repaired.endsWith("}")) {
+                            repaired += "\n}";
+                        }
+                        JsonNode node = objectMapper.readTree(repaired);
+                        log.info("AI 截断 JSON 容错修复成功，保留提取到 {} 个完整元素", node.path("elements").size());
+                        return node;
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("截断修复解析仍然失败: {}", ex.getMessage());
+        }
+
+        // 3. 最终尝试原样解析报错
+        try {
+            return objectMapper.readTree(jsonCandidate);
         } catch (Exception e) {
             throw new IllegalStateException("AI 输出不是合法 JSON: " + e.getMessage(), e);
         }

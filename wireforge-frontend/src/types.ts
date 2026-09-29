@@ -12,6 +12,7 @@ export interface Interaction {
   action: string
   target_page_id?: number | null
   params?: string | null
+  source?: string | null
 }
 
 export interface Element {
@@ -24,6 +25,10 @@ export interface Element {
   style?: string | null
   /** 素材库 ID（avatar-03 / product-01 / icon-home / bg-01 / effect-glow 等），有则优先用素材图渲染 */
   asset_id?: string | null
+  /** 同一次点击的共用编号。空表示不属于可点击组。 */
+  group_key?: string | null
+  /** anchor 是这一组的代表，member 是组里的其余部分 */
+  group_role?: string | null
   x: number
   y: number
   width: number
@@ -89,4 +94,4 @@ export interface CommentThread {
   createdAt: string
   replies: CommentReply[]
   pageName?: string
-}
+}

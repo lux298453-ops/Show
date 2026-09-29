@@ -22,6 +22,10 @@ public class Page {
     private Double canvasY;
     private Integer sortOrder;
     private Integer analyzed;
+    /** 1 或空=渲染时按组排版；0=这一页仍用原始方框 */
+    private Integer layoutNorm;
+    /** 上次识别成功时设计稿文件的指纹；图没换时批量重新识别会跳过 */
+    private String imageHash;
     /** Stitch 式整页直出：AI 生成的完整 HTML/CSS 页面（高保真视图，null=未生成） */
     private String htmlContent;
     private LocalDateTime createdAt;

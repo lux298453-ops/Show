@@ -15,6 +15,11 @@
         <div class="h-4 w-[1px] bg-slate-200"></div>
 
         <div class="flex items-center gap-2">
+          <img
+            src="/favicon.svg"
+            alt="WireForge"
+            class="w-5 h-5 rounded-md object-contain shrink-0"
+          />
           <span class="text-xs font-bold text-slate-900 tracking-tight truncate max-w-[180px] sm:max-w-xs">
             {{ proto?.project.name || '原型画板' }}
           </span>
@@ -108,24 +113,15 @@
               <span class="text-[11px] text-slate-400 tabular-nums">已选 {{ regenChecked.size }} 页</span>
             </div>
 
-            <div class="flex items-center gap-1.5">
+            <div class="flex items-center">
               <button
-                class="wf-tap flex-1 inline-flex items-center justify-center gap-1 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer shadow-2xs"
-                :disabled="regenChecked.size === 0 || regeneratingIds.size > 0 || isReanalyzing"
-                title="基于已有元素与跳转拓扑快速同步并刷新原型（毫秒级，不消耗 AI Token）"
-                @click="onRegenerateChecked"
-              >
-                <RotateCw class="w-3 h-3 text-slate-500" :class="{ 'animate-spin': regeneratingIds.size > 0 }" />
-                <span>原型交互刷新</span>
-              </button>
-              <button
-                class="wf-tap flex-1 inline-flex items-center justify-center gap-1 py-1 text-[11px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200/60 rounded-lg transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer shadow-2xs"
+                class="wf-tap w-full inline-flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200/60 rounded-lg transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer shadow-2xs"
                 :disabled="regenChecked.size === 0 || isReanalyzing || regeneratingIds.size > 0"
                 title="调用视觉大模型重新提取页面组件与识别元素（耗时约10-20秒）"
                 @click="onReanalyzeChecked"
               >
-                <Sparkles class="w-3 h-3 text-teal-600" :class="{ 'animate-spin': isReanalyzing }" />
-                <span>AI 重新识别</span>
+                <Sparkles class="w-3.5 h-3.5 text-teal-600" :class="{ 'animate-spin': isReanalyzing }" />
+                <span>AI 重新识别选定页面</span>
               </button>
             </div>
           </div>
@@ -308,7 +304,7 @@
 
         <div
           class="canvas-content absolute top-0 left-0"
-          :class="{ 'is-animating': !isAnyDragging && animating, 'is-dragging': isAnyDragging }"
+          :class="{ 'is-animating': !isAnyDragging && animating, 'is-dragging': isAnyDragging, 'is-moving': isLayerBoosted }"
           :style="contentStyle"
         >
 
@@ -337,6 +333,7 @@
               <div
                 class="block-label absolute -top-9 left-0 inline-flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-md border border-slate-200/85 rounded-xl shadow-xs text-xs font-bold text-slate-800 hover:border-emerald-300 hover:text-emerald-600 hover:shadow-md transition-all cursor-default"
                 @mousedown.stop="onBlockDragStart($event, b)"
+                @contextmenu.prevent.stop="openLayerContextMenu($event.clientX, $event.clientY, undefined, undefined, b.page.id)"
               >
                 <input
                   v-if="b.page.html_content"
@@ -392,7 +389,7 @@
                   v-if="b.page.html_content"
                   class="wf-tap p-1 rounded-md text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 transition-colors cursor-pointer"
                   :class="{ 'animate-spin pointer-events-none': regeneratingIds.has(b.page.id) }"
-                  title="刷新本页原型交互"
+                  title="同步重绘本页渲染（本地 0 消耗）"
                   @click.stop="onRegenerateHtml(b.page.id)"
                   @mousedown.stop
                 >
@@ -443,7 +440,7 @@
                 @element-deselected="onElementDeselected(b.page.id)"
                 @frame-fill="onFrameFill(b.page.id, $event)"
                 @selection-changed="onDomSelectionChanged(b.page.id, $event)"
-                @context-menu="openLayerContextMenu($event.x, $event.y)"
+                @context-menu="openLayerContextMenu($event.x, $event.y, $event.localX, $event.localY, b.page.id)"
                 @layers-changed="onLayersChanged"
                 :proto-hotspot="workbenchMode === 'interactive' && b.blockType === 'prototype'"
                 @frame-focus="onPrototypeFrameFocus(b.page.id, b.key)"
@@ -1023,7 +1020,7 @@
 
         <template v-else>
           <!-- 0. Right Sidebar Topmost: Mode Switcher [ Design | Prototype ] -->
-          <div class="px-2.5 py-2 border-b border-slate-100 bg-slate-50/90 flex items-center justify-between shrink-0">
+          <div class="px-2.5 py-2 border-b border-slate-100 bg-slate-50/90 flex flex-col gap-1.5 shrink-0">
           <div class="flex items-center gap-1 w-full bg-slate-200/80 p-1 rounded-xl">
             <button
               class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all cursor-pointer text-center flex items-center justify-center gap-1"
@@ -1044,6 +1041,16 @@
               <span>Prototype</span>
             </button>
           </div>
+          <button
+            v-if="workbenchMode === 'interactive'"
+            class="wf-tap w-full py-1.5 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+            :disabled="isAutowiringAi"
+            title="执行阶段二：基于本地规则与轻量纯文本大模型增量推导所有页面的未决跳转交互"
+            @click="triggerAutowireAi"
+          >
+            <span v-if="isAutowiringAi" class="animate-spin text-xs">⏳</span>
+            <span>{{ isAutowiringAi ? 'AI 拓扑推导中...' : 'AI 拓扑智能连线' }}</span>
+          </button>
         </div>
 
         <!-- 1. Right Sidebar: Canvas Zoom Controls -->
@@ -1127,6 +1134,7 @@
           @update-color="onInspectorUpdateColor"
           @update-frame-color="onInspectorUpdateFrameColor"
           @update-font-size="onInspectorUpdateFontSize"
+          @update-text-style="onInspectorUpdateTextStyle"
           @align-selection="onInspectorAlign"
           @update-radius="onInspectorUpdateRadius"
           @update-stroke="onInspectorUpdateStroke"
@@ -1591,26 +1599,208 @@
       <div
         v-if="layerMenu"
         ref="layerMenuRef"
-        class="wf-layer-menu fixed z-[80] min-w-[220px] py-1 rounded-lg bg-[#2c2c2c] text-white shadow-[0_8px_24px_rgba(0,0,0,0.28)] border border-white/10 select-none"
+        class="wf-layer-menu fixed z-[80] w-[220px] p-1 rounded-lg bg-[#2c2c2c] text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] border border-white/10 select-none text-[12px] font-sans"
         :style="{ left: layerMenu.x + 'px', top: layerMenu.y + 'px' }"
         @mousedown.stop
         @contextmenu.prevent
       >
-        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="!selectedDomLayerUids.length" @click="runLayerMenu('copy')">
-          <span>复制</span><span class="text-[11px] text-white/60">Ctrl+C</span>
+        <!-- 1. 复制 (Copy) -->
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
+          @click="runLayerMenu('copy')"
+        >
+          <span>复制</span>
+          <span class="text-[11px] text-white/50">Ctrl+C</span>
         </button>
-        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="!selectedDomLayerUids.length" @click="runLayerMenu('front')">
-          <span>置于顶层</span><span class="text-[11px] text-white/60">]</span>
+
+        <!-- 2. 粘贴至此处 (Paste here) -->
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasCopiedElement"
+          @click="runLayerMenu('paste-here')"
+        >
+          <span>粘贴至此处</span>
         </button>
-        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="!selectedDomLayerUids.length" @click="runLayerMenu('back')">
-          <span>置于底层</span><span class="text-[11px] text-white/60">[</span>
+
+        <!-- 3. 粘贴替换 (Paste to replace) - 仅在复制了1个且当前选中了1个时可用 -->
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!canPasteReplace"
+          @click="runLayerMenu('paste-replace')"
+        >
+          <span>粘贴替换</span>
         </button>
+
+        <!-- 4. 复制为 / 粘贴为 (Copy / Paste as) -->
+        <div
+          class="relative w-full"
+          @mouseenter="openSubmenu('copy_paste_as')"
+          @mouseleave="scheduleCloseSubmenu"
+        >
+          <div
+            class="w-full h-7 px-2.5 flex items-center justify-between rounded transition-colors cursor-pointer select-none"
+            :class="activeSubmenu === 'copy_paste_as' ? 'bg-[#0D99FF] text-white' : 'text-white/90 hover:bg-[#0D99FF] hover:text-white'"
+          >
+            <span>复制为 / 粘贴为</span>
+            <svg class="w-3.5 h-3.5 fill-current opacity-70" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z" clip-rule="evenodd" />
+            </svg>
+          </div>
+
+          <!-- 子菜单 1: 复制为 / 粘贴为 -->
+          <div
+            v-if="activeSubmenu === 'copy_paste_as'"
+            class="absolute z-[90] w-[200px] p-1 rounded-lg bg-[#2c2c2c] text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] border border-white/10"
+            :class="[
+              submenuFlipX ? 'right-[calc(100%+4px)]' : 'left-[calc(100%+4px)]',
+              submenuFlipY ? 'bottom-0' : 'top-0'
+            ]"
+            @mouseenter="cancelCloseSubmenu"
+            @mouseleave="scheduleCloseSubmenu"
+          >
+            <!-- 复制为代码 (Copy as code) > 二级子菜单 -->
+            <div
+              class="relative w-full"
+              @mouseenter="openCodeSubmenu"
+              @mouseleave="scheduleCloseCodeSubmenu"
+            >
+              <div
+                class="w-full h-7 px-2.5 flex items-center justify-between rounded transition-colors cursor-pointer select-none"
+                :class="[
+                  !hasSelectedDomElements ? 'opacity-40 cursor-not-allowed' : (activeCodeSubmenu ? 'bg-[#0D99FF] text-white' : 'text-white/90 hover:bg-[#0D99FF] hover:text-white')
+                ]"
+              >
+                <span>复制为代码</span>
+                <svg class="w-3.5 h-3.5 fill-current opacity-70" viewBox="0 0 16 16">
+                  <path fill-rule="evenodd" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z" clip-rule="evenodd" />
+                </svg>
+              </div>
+
+              <!-- 子菜单 2: HTML / CSS -->
+              <div
+                v-if="activeCodeSubmenu && hasSelectedDomElements"
+                class="absolute z-[100] w-[140px] p-1 rounded-lg bg-[#2c2c2c] text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] border border-white/10"
+                :class="[
+                  codeSubmenuFlipX ? 'right-[calc(100%+4px)]' : 'left-[calc(100%+4px)]',
+                  codeSubmenuFlipY ? 'bottom-0' : 'top-0'
+                ]"
+                @mouseenter="cancelCloseCodeSubmenu"
+                @mouseleave="scheduleCloseCodeSubmenu"
+              >
+                <button
+                  type="button"
+                  class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors"
+                  @click="runLayerMenu('copy-html')"
+                >
+                  <span>HTML</span>
+                </button>
+                <button
+                  type="button"
+                  class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors"
+                  @click="runLayerMenu('copy-css')"
+                >
+                  <span>CSS</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 复制为 SVG -->
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              :disabled="!hasSelectedDomElements"
+              @click="runLayerMenu('copy-svg')"
+            >
+              <span>复制为 SVG</span>
+            </button>
+
+            <!-- 复制为 PNG -->
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              :disabled="!hasSelectedDomElements"
+              @click="runLayerMenu('copy-png')"
+            >
+              <span>复制为 PNG</span>
+              <span class="text-[11px] text-white/50">Ctrl+Shift+C</span>
+            </button>
+
+            <div class="my-1 h-px bg-white/10"></div>
+
+            <!-- 复制样式属性 -->
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              :disabled="!hasSelectedDomElements"
+              @click="runLayerMenu('copy-properties')"
+            >
+              <span>复制样式属性</span>
+              <span class="text-[11px] text-white/50">Ctrl+Alt+C</span>
+            </button>
+
+            <!-- 粘贴样式属性 -->
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              :disabled="!canPasteProperties"
+              @click="runLayerMenu('paste-properties')"
+            >
+              <span>粘贴样式属性</span>
+              <span class="text-[11px] text-white/50">Ctrl+Alt+V</span>
+            </button>
+          </div>
+        </div>
+
         <div class="my-1 h-px bg-white/15"></div>
-        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="selectedDomLayerUids.length < 2" @click="runLayerMenu('group')">
-          <span>分组</span><span class="text-[11px] text-white/60">Ctrl+G</span>
+
+        <!-- 5. 置于顶层 -->
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
+          @click="runLayerMenu('front')"
+        >
+          <span>置于顶层</span>
+          <span class="text-[11px] text-white/50">]</span>
         </button>
-        <button type="button" class="w-full h-8 px-3 flex items-center justify-between gap-6 text-[12px] text-left hover:bg-[#0D99FF] disabled:opacity-40 disabled:hover:bg-transparent" :disabled="!canUngroupSelection" @click="runLayerMenu('ungroup')">
-          <span>解组</span><span class="text-[11px] text-white/60">Ctrl+Shift+G</span>
+
+        <!-- 6. 置于底层 -->
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
+          @click="runLayerMenu('back')"
+        >
+          <span>置于底层</span>
+          <span class="text-[11px] text-white/50">[</span>
+        </button>
+
+        <div class="my-1 h-px bg-white/15"></div>
+
+        <!-- 7. 分组 -->
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="selectedDomLayerUids.length < 2"
+          @click="runLayerMenu('group')"
+        >
+          <span>分组</span>
+          <span class="text-[11px] text-white/50">Ctrl+G</span>
+        </button>
+
+        <!-- 8. 解组 -->
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!canUngroupSelection"
+          @click="runLayerMenu('ungroup')"
+        >
+          <span>解组</span>
+          <span class="text-[11px] text-white/50">Ctrl+Shift+G</span>
         </button>
       </div>
     </Teleport>
@@ -2280,7 +2470,7 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   // 1. 优先通过 PageCanvas 实例向运行中的 iframe 注入并自动触发持久化
   const inst = pageRefs.value[pageId]
   if (inst && typeof (inst as any).insertComponent === 'function') {
-    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY, autoEditText, fitInside)
+    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY, autoEditText, fitInside, itemName)
     showToast(`已将「${itemName}」添加至「${page.name}」(${dropX}, ${dropY})`)
     return
   }
@@ -2893,9 +3083,9 @@ async function onRegenerateHtml(pageId: number) {
     const html = await projectApi.regenerateHtml(id, pageId)
     const page = proto.value?.pages.find((p) => p.id === pageId)
     if (page) page.html_content = html
-    showToast(`页面「${page?.name || pageId}」原型交互已刷新`)
+    showToast(`页面「${page?.name || pageId}」画板渲染已同步`)
   } catch (e: any) {
-    showToast(`刷新失败: ${e?.message || '未知错误'}`)
+    showToast(`同步失败: ${e?.message || '未知错误'}`)
   } finally {
     regeneratingIds.value.delete(pageId)
     regenChecked.value.delete(pageId)
@@ -2906,7 +3096,7 @@ async function onRegenerateHtml(pageId: number) {
 async function onRegenerateChecked() {
   const targets = pages.value.filter((p) => p.html_content && regenChecked.value.has(p.id)).map((p) => p.id)
   if (!targets.length) {
-    showToast('请先勾选要刷新的页面')
+    showToast('请先勾选要同步的页面')
     return
   }
   let ok = 0
@@ -2914,7 +3104,7 @@ async function onRegenerateChecked() {
     await onRegenerateHtml(pageId)
     ok++
   }
-  showToast(`已刷新 ${ok} 个页面的原型交互`)
+  showToast(`已同步 ${ok} 个画板的整页渲染`)
 }
 
 const isReanalyzing = ref(false)
@@ -2939,6 +3129,25 @@ async function loadData() {
     }
   } catch (e: any) {
     ElMessage.error(e.message || '加载失败')
+  }
+}
+
+const isAutowiringAi = ref(false)
+
+async function triggerAutowireAi() {
+  if (isAutowiringAi.value) return
+  isAutowiringAi.value = true
+  try {
+    showToast('正在执行阶段二：AI 增量拓扑语义连线...')
+    const res = await projectApi.autowireInteractionsWithAi(id)
+    const local = res?.local_wired ?? 0
+    const ai = res?.ai_wired ?? 0
+    showToast(`拓扑智能连线完成！规则连线: ${local} 条，AI 语义推导: ${ai} 条`)
+    await loadData()
+  } catch (err: any) {
+    showToast('拓扑智能连线失败: ' + (err.message || '未知错误'))
+  } finally {
+    isAutowiringAi.value = false
   }
 }
 
@@ -3119,6 +3328,9 @@ const isDragging = ref(false)
 const isBlockDragging = ref(false)
 const isAnyDragging = computed(() => isDragging.value || isBlockDragging.value)
 const animating = ref(false)
+const isWheelZooming = ref(false)
+const isLayerBoosted = computed(() => isAnyDragging.value || animating.value || isWheelZooming.value)
+let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null
 let dragStart = { x: 0, y: 0 }
 let dragOrigin = { x: 0, y: 0 }
 let animTimer: ReturnType<typeof setTimeout> | null = null
@@ -4416,7 +4628,7 @@ function onBlockClickCapture(e: MouseEvent) {
 const contentStyle = computed(() => {
   const v = view.value
   return {
-    transform: `translate3d(${v.x}px, ${v.y}px, 0) scale(${v.k})`,
+    transform: `translate(${v.x}px, ${v.y}px) scale(${v.k})`,
   }
 })
 
@@ -4769,6 +4981,12 @@ let lastWheelX = 0
 let lastWheelY = 0
 
 function onWheel(e: WheelEvent) {
+  isWheelZooming.value = true
+  if (wheelIdleTimer) clearTimeout(wheelIdleTimer)
+  wheelIdleTimer = setTimeout(() => {
+    isWheelZooming.value = false
+    wheelIdleTimer = null
+  }, 180)
   const factor = Math.exp(-e.deltaY * 0.0012)
   accumulatedDeltaFactor *= factor
   lastWheelX = e.clientX
@@ -5067,32 +5285,123 @@ function onDomSelectionChanged(pageId: number, uids: string[]) {
   selectedDomLayerUid.value = list.length ? list[list.length - 1] : null
 }
 
-const layerMenu = ref<{ x: number; y: number } | null>(null)
+const layerMenu = ref<{
+  x: number
+  y: number
+  localX?: number
+  localY?: number
+  pageId?: number
+} | null>(null)
 const layerMenuRef = ref<HTMLElement | null>(null)
 
-function findDomLayer(nodes: { uid: string; kind?: string; children?: any[] }[] | undefined, uid: string): { uid: string; kind?: string; children?: any[] } | null {
-  for (const node of nodes || []) {
-    if (node.uid === uid) return node
-    const hit = findDomLayer(node.children, uid)
-    if (hit) return hit
-  }
-  return null
-}
+const activeSubmenu = ref<'copy_paste_as' | null>(null)
+const activeCodeSubmenu = ref<boolean>(false)
+let submenuCloseTimer: any = null
+let codeSubmenuCloseTimer: any = null
 
-const canUngroupSelection = computed(() =>
-  selectedDomLayerUids.value.some((uid) => findDomLayer(currentFocusDomLayers.value, uid)?.kind === 'group'),
+const hasCopiedElement = ref(
+  typeof window !== 'undefined' &&
+    (!!(window as any).__wfCopiedElement || !!localStorage.getItem('wf_clipboard_element'))
+)
+const hasCopiedProps = ref(
+  typeof window !== 'undefined' &&
+    (!!(window as any).__wfCopiedProps || !!localStorage.getItem('wf_copied_props'))
 )
 
-function openLayerContextMenu(x: number, y: number) {
-  const menuW = 228
-  const menuH = 176
+const hasSelectedDomElements = computed(() => selectedDomLayerUids.value.length > 0)
+const canPasteReplace = computed(() => selectedDomLayerUids.value.length === 1 && hasCopiedElement.value)
+const canPasteProperties = computed(() => selectedDomLayerUids.value.length >= 1 && hasCopiedProps.value)
+
+const submenuFlipX = computed(() => {
+  if (!layerMenu.value) return false
+  return layerMenu.value.x + 220 + 200 > window.innerWidth
+})
+const submenuFlipY = computed(() => {
+  if (!layerMenu.value) return false
+  return layerMenu.value.y + 240 > window.innerHeight
+})
+const codeSubmenuFlipX = computed(() => {
+  if (!layerMenu.value) return false
+  const subX = submenuFlipX.value ? layerMenu.value.x - 200 : layerMenu.value.x + 220
+  return subX + 200 + 140 > window.innerWidth
+})
+const codeSubmenuFlipY = computed(() => {
+  if (!layerMenu.value) return false
+  return layerMenu.value.y + 120 > window.innerHeight
+})
+
+function openSubmenu(menu: 'copy_paste_as') {
+  if (submenuCloseTimer) {
+    clearTimeout(submenuCloseTimer)
+    submenuCloseTimer = null
+  }
+  activeSubmenu.value = menu
+}
+
+function scheduleCloseSubmenu() {
+  if (submenuCloseTimer) clearTimeout(submenuCloseTimer)
+  submenuCloseTimer = setTimeout(() => {
+    activeSubmenu.value = null
+    activeCodeSubmenu.value = false
+  }, 160)
+}
+
+function cancelCloseSubmenu() {
+  if (submenuCloseTimer) {
+    clearTimeout(submenuCloseTimer)
+    submenuCloseTimer = null
+  }
+}
+
+function openCodeSubmenu() {
+  if (codeSubmenuCloseTimer) {
+    clearTimeout(codeSubmenuCloseTimer)
+    codeSubmenuCloseTimer = null
+  }
+  activeCodeSubmenu.value = true
+}
+
+function scheduleCloseCodeSubmenu() {
+  if (codeSubmenuCloseTimer) clearTimeout(codeSubmenuCloseTimer)
+  codeSubmenuCloseTimer = setTimeout(() => {
+    activeCodeSubmenu.value = false
+  }, 160)
+}
+
+function cancelCloseCodeSubmenu() {
+  if (codeSubmenuCloseTimer) {
+    clearTimeout(codeSubmenuCloseTimer)
+    codeSubmenuCloseTimer = null
+  }
+}
+
+function openLayerContextMenu(x: number, y: number, localX?: number, localY?: number, pageId?: number) {
+  if (pageId) {
+    focusPageId.value = pageId
+    selectedNodeId.value = pageId
+    showFrameFill(pageId)
+  }
+  const menuW = 220
+  const menuH = 290
   const left = Math.max(8, Math.min(x, window.innerWidth - menuW - 8))
   const top = Math.max(8, Math.min(y, window.innerHeight - menuH - 8))
-  layerMenu.value = { x: left, y: top }
+  layerMenu.value = { x: left, y: top, localX, localY, pageId }
+  activeSubmenu.value = null
+  activeCodeSubmenu.value = false
 }
 
 function closeLayerContextMenu() {
   layerMenu.value = null
+  activeSubmenu.value = null
+  activeCodeSubmenu.value = false
+  if (submenuCloseTimer) {
+    clearTimeout(submenuCloseTimer)
+    submenuCloseTimer = null
+  }
+  if (codeSubmenuCloseTimer) {
+    clearTimeout(codeSubmenuCloseTimer)
+    codeSubmenuCloseTimer = null
+  }
 }
 
 function onLayerMenuPointerDown(e: MouseEvent) {
@@ -5115,14 +5424,53 @@ watch(layerMenu, (open) => {
   }
 })
 
-function runLayerMenu(action: 'copy' | 'front' | 'back' | 'group' | 'ungroup') {
+function runLayerMenu(action: string) {
+  const currentMenu = layerMenu.value
   closeLayerContextMenu()
-  if (action === 'copy') postToFocusFrame({ type: 'wf-copy' })
-  else if (action === 'front') postToFocusFrame({ type: 'wf-restack', edge: 'front' })
-  else if (action === 'back') postToFocusFrame({ type: 'wf-restack', edge: 'back' })
-  else if (action === 'group') postToFocusFrame({ type: 'wf-group' })
-  else postToFocusFrame({ type: 'wf-ungroup' })
+  if (action === 'copy') {
+    postToFocusFrame({ type: 'wf-copy' })
+  } else if (action === 'paste-here') {
+    postToFocusFrame({ type: 'wf-paste', x: currentMenu?.localX, y: currentMenu?.localY })
+  } else if (action === 'paste-replace') {
+    postToFocusFrame({ type: 'wf-paste-replace' })
+  } else if (action === 'copy-svg') {
+    postToFocusFrame({ type: 'wf-copy-as-svg' })
+  } else if (action === 'copy-png') {
+    postToFocusFrame({ type: 'wf-request-png-data', requestId: 'menu_' + Date.now() })
+  } else if (action === 'copy-html') {
+    postToFocusFrame({ type: 'wf-copy-as-code', format: 'html' })
+  } else if (action === 'copy-css') {
+    postToFocusFrame({ type: 'wf-copy-as-code', format: 'css' })
+  } else if (action === 'copy-properties') {
+    postToFocusFrame({ type: 'wf-copy-properties' })
+  } else if (action === 'paste-properties') {
+    postToFocusFrame({ type: 'wf-paste-properties' })
+  } else if (action === 'front') {
+    postToFocusFrame({ type: 'wf-restack', edge: 'front' })
+  } else if (action === 'back') {
+    postToFocusFrame({ type: 'wf-restack', edge: 'back' })
+  } else if (action === 'group') {
+    postToFocusFrame({ type: 'wf-group' })
+  } else if (action === 'ungroup') {
+    postToFocusFrame({ type: 'wf-ungroup' })
+  }
 }
+
+function findDomLayer(nodes: { uid: string; kind?: string; ungroupable?: boolean; children?: any[] }[] | undefined, uid: string): { uid: string; kind?: string; ungroupable?: boolean; children?: any[] } | null {
+  for (const node of nodes || []) {
+    if (node.uid === uid) return node
+    const hit = findDomLayer(node.children, uid)
+    if (hit) return hit
+  }
+  return null
+}
+
+const canUngroupSelection = computed(() =>
+  selectedDomLayerUids.value.some((uid) => {
+    const node = findDomLayer(currentFocusDomLayers.value, uid)
+    return !!node && (node.kind === 'group' || node.ungroupable === true)
+  }),
+)
 
 function onSelectDomLayer(uid: string, uids: string[] = []) {
   const pid = focusPageId.value ?? currentFocusPage.value?.id
@@ -5130,7 +5478,9 @@ function onSelectDomLayer(uid: string, uids: string[] = []) {
   const list = Array.isArray(uids) ? uids.filter(Boolean) : []
   selectedDomLayerUids.value = list
   selectedDomLayerUid.value = list.length ? list[list.length - 1] : null
-  focusPage(pid)
+  focusPageId.value = pid
+  selectedNodeId.value = pid
+  showFrameFill(pid)
   postToFocusFrame({ type: 'wf-select-uids', uids: list })
 }
 
@@ -5308,7 +5658,7 @@ function onInspectorUpdateFrameColor(color: string) {
 
 function onInspectorUpdateColor(color: string) {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.updateElementColor?.(color)
+    pageRefs.value[currentFocusPage.value.id]?.updateElementColor?.(color, selectedDomLayerUids.value.slice())
   }
   if (selectedElementObj.value) {
     try {
@@ -5323,7 +5673,13 @@ function onInspectorUpdateColor(color: string) {
 
 function onInspectorUpdateFontSize(delta: number) {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.updateElementFontSize?.(delta)
+    pageRefs.value[currentFocusPage.value.id]?.updateElementFontSize?.(delta, selectedDomLayerUids.value.slice())
+  }
+}
+
+function onInspectorUpdateTextStyle(payload: { key: string; value: string; live?: boolean }) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateTextStyle?.(payload.key, payload.value, !!payload.live, selectedDomLayerUids.value.slice())
   }
 }
 
@@ -5796,8 +6152,75 @@ function clearSpotlightInIframe() {
   })
 }
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(',')
+  const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png'
+  const bstr = atob(parts[1])
+  let n = bstr.length
+  const u8arr = new Uint8Array(n)
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n)
+  }
+  return new Blob([u8arr], { type: mime })
+}
+
+function copyTextToClipboard(text: string): boolean {
+  let ok = false
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {})
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    ta.style.top = '-9999px'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+  } catch (e) {
+    ok = false
+  }
+  return ok
+}
+
+async function writePngDataUrlToClipboard(dataUrl: string) {
+  try {
+    const blob = dataUrlToBlob(dataUrl)
+    if (navigator.clipboard && (window as any).ClipboardItem) {
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blob }),
+      ])
+      ElMessage.success('已复制高清 2x PNG 到剪贴板 (可直接粘贴至聊天软件或 Figma)')
+      return
+    }
+  } catch (err: any) {
+    console.warn('Direct clipboard write failed, falling back to download:', err)
+  }
+
+  // 兜底策略：当浏览器因非用户瞬时手势而拦截剪贴板写图片时，自动触发高清 PNG 文件下载，确保用户随时拿到图片
+  try {
+    const a = document.createElement('a')
+    a.href = dataUrl
+    a.download = `wireforge-element-${Date.now()}.png`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    ElMessage.success('已自动导出并下载高清 2x PNG 图片 (浏览器限制写入系统剪贴板)')
+  } catch (e: any) {
+    ElMessage.error('导出 PNG 失败：' + (e?.message || '未知异常'))
+  }
+}
+
 function onSimMessage(ev: MessageEvent) {
   if (!ev.data) return
+  if (ev.data.type === 'wf-canvas-mousedown') {
+    closeLayerContextMenu()
+    return
+  }
   if (ev.data.type === 'wf-tool-key' && ev.data.key === 'H') {
     if (mode.value === 'preview') return
     activeDrawTool.value = 'hand'
@@ -5813,6 +6236,22 @@ function onSimMessage(ev: MessageEvent) {
   if (ev.data.type === 'wf-element-copied' && ev.data.data) {
     ;(window as any).__wfCopiedElement = ev.data.data
     ;(window as any).__wfLastCopyType = 'element'
+    hasCopiedElement.value = true
+  }
+  if (ev.data.type === 'wf-props-copied') {
+    hasCopiedProps.value = true
+  }
+  if (ev.data.type === 'wf-clipboard-write-text' && typeof ev.data.text === 'string') {
+    copyTextToClipboard(ev.data.text)
+    if (ev.data.toast) {
+      ElMessage.success(ev.data.toast)
+    }
+  }
+  if (ev.data.type === 'wf-png-data-ready' && ev.data.dataUrl) {
+    writePngDataUrlToClipboard(ev.data.dataUrl)
+  }
+  if (ev.data.type === 'wf-png-data-failed') {
+    ElMessage.error(ev.data.error || '导出 PNG 失败')
   }
 }
 
@@ -6097,6 +6536,21 @@ function onGlobalKeydown(e: KeyboardEvent) {
   // 2. 绘制工具快捷键监听 (V: 指针选择, R: 矩形方框, T: 文本落字, O: 圆形, P: 钢笔)
   const activeTag = (document.activeElement?.tagName || '').toLowerCase()
   const isInput = activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable
+  if (!isInput && (e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && e.shiftKey && !e.altKey && mode.value !== 'preview') {
+    e.preventDefault()
+    postToFocusFrame({ type: 'wf-request-png-data', requestId: 'top_' + Date.now() })
+    return
+  }
+  if (!isInput && (e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && e.altKey && !e.shiftKey && mode.value !== 'preview') {
+    e.preventDefault()
+    postToFocusFrame({ type: 'wf-copy-properties' })
+    return
+  }
+  if (!isInput && (e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V') && e.altKey && !e.shiftKey && mode.value !== 'preview') {
+    e.preventDefault()
+    postToFocusFrame({ type: 'wf-paste-properties' })
+    return
+  }
   if (!isInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && mode.value !== 'preview') {
     e.preventDefault()
     postToFocusFrame({ type: e.shiftKey ? 'wf-ungroup' : 'wf-group' })
@@ -6463,6 +6917,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
   window.removeEventListener('keyup', onGlobalKeyup)
   window.removeEventListener('focusin', onArtboardFocusIn, true)
+  if (wheelIdleTimer) clearTimeout(wheelIdleTimer)
 })
 </script>
 
@@ -6473,9 +6928,10 @@ onUnmounted(() => {
 
 .canvas-content {
   transform-origin: 0 0;
-  will-change: transform;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+
+  &.is-moving {
+    will-change: transform;
+  }
 
   &.is-animating {
     transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.35, 1);

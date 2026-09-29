@@ -24,7 +24,7 @@ public final class WireframePrompt {
                   "label": "元素上的真实文本（无文本则为空字符串）",
                   "bbox": [x, y, width, height],
                   "interaction": { "trigger": "click", "action": "navigate|back|popup|tab_switch", "target": "目标页面名" },
-                  "description": "该元素的功能说明（一句话中文，用于原型标注）"
+                  "description": "只有带 interaction 的元素才写，15 字以内说明点了做什么；其余元素省略该字段"
                 }
               ]
             }
@@ -46,12 +46,13 @@ public final class WireframePrompt {
                标题文案一律交给内部 text 子元素，禁止容器与子元素写同一句文案。
                页面中部/主体位置的大幅人物立绘、角色原画、壁纸插画——即使被底部操作卡片或提示框局部遮挡——
                也必须整体识别为一个 image 元素（bbox 必须涵盖整个立绘在画布上的完整空间范围，严禁只框可见的半截残影）。
+               【特别禁忌】：严禁将整个机器外壳、活动设备机身（如扭蛋机外壳、游戏机框架）、或者内部包含大量按钮/卡片/文本的复合操作底板识别为 image！设备外壳与操作面板只能识别为 container 或作为全屏背景，绝不是 image（image 仅用于纯插画、立绘人物或商品道具），防止在内部控件后方生成冲突的幽灵占位框。
             3. 类型务求精确：搜索框用 search、星级用 rating、开关用 switch、进度条用 progress、
                徽标用 badge、分隔线用 divider、页内选项卡用 tabs；拿不准才用 container/other。
             4. label 必须是设计稿上真实可见的文字原样照抄（含数字标点）。特别注意：
-               - 设计稿上没有可见文字的元素（按钮、卡片、区块、图片、图标底座等），label 一律为空字符串，
-                 功能/类别说明写进 description；禁止把"结果展示槽""奖品展示区""扭蛋机主体"这类功能性称呼
-                 写进 label——那是说明信息，不是画面文字，画上画布会造成视觉干扰。
+               - 设计稿上没有可见文字的元素（按钮、卡片、区块、图片、图标底座等），label 一律为空字符串；
+                 禁止把"结果展示槽""奖品展示区""扭蛋机主体"这类功能性称呼写进 label——那是说明信息，
+                 不是画面文字，画上画布会造成视觉干扰。
                - 图标类元素 label 写它的含义（如"返回""关闭""更多""铃铛通知"），引擎不会把它画出来
                - 页内选项卡（tabs）label 把各选项用 / 分隔，如"全部/进行中/已完成"
             5. interaction 只允许四种动作（trigger 固定为 click）：
@@ -62,10 +63,11 @@ public final class WireframePrompt {
                  都标为 {"action":"back"}（无需 target）。
                - "tab_switch"：同一页面内的选项卡切换（tabs 元素）。
                  无交互的元素省略 interaction 或填 null。输入框不要标任何交互。
-            6. 底部标签栏的每一个标签页作为独立元素输出：图标输出为 icon 元素（bbox 圈住该格），
-               对应文字如有则用 text 元素；每个能确定目标页的标签在其 icon 元素上挂 navigate。
-               不要把整个底部标签栏合并成一个 navbar。navbar 仅用于顶部导航栏，其 label 只填写设计稿中实际出现的页面标题文本（如【商城】）；若设计稿顶部无明确标题，则 label 设为空字符串，严禁输出【导航栏】字样。
-            7. 每个主要元素都要写一句中文 description（面向产品评审人员说明功能/玩法）。
+            6. 底部导航按一项输出一项。每一项可以同时有图标和文字，不要求把它们的像素对齐。
+               能确定目标页时，只在这一项的图标上挂 navigate；没有图标就挂在文字上。
+               不要把整个底部栏合并成一个元素。navbar 仍只用于顶部导航栏。
+               容器用自己的方框包住里面的文字即可，不要另给一套父子编号。
+            7. description 只给带 interaction 的元素写，15 字以内；没有交互的元素不要输出 description。
             8. 禁止重复表达：同一块视觉只允许一种元素，不要把同一个按钮/文本输出两次。
                特别注意：带有文字/图标的按钮整体输出为一个 button 元素即可，其上的完整文案（如【x1兑换】、【开始游戏】）
                直接作为 button 的 label；禁止把按钮内部的文字片段（如 "x1"）或内部小图标再次拆成独立的 badge/text/icon 输出，
@@ -327,7 +329,7 @@ public final class WireframePrompt {
         sb.append("\n请确保：\n");
         sb.append("1. page_name 使用根据页面内容推断的简洁中文语义名称（如：首页、任务列表页），不要照抄上面的文件名。\n");
         sb.append("2. interaction.target 只能引用上面列表中的页面名（原样照抄），不要编造，无法判断目标页时省略 target。\n");
-        sb.append("3. 标注说明（description）要具体描述功能用途，方便评审时理解。\n");
+        sb.append("3. 只给带 interaction 的元素写 description，15 字以内；其余元素不写。\n");
         return sb.toString();
     }
 
