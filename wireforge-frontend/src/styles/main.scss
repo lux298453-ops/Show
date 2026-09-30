@@ -1,3 +1,5 @@
+@use './editor-ui';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -6,11 +8,11 @@
   --wf-primary: #0d99ff;
   --wf-primary-hover: #0b7ed4;
   --wf-primary-light: #e5f4ff;
-  --wf-border: #e5e5e5;
+  --wf-border: #e2e8f0;
   --wf-surface: #ffffff;
-  --wf-bg: #f5f5f5;
-  --wf-text-main: #000000;
-  --wf-text-muted: #333333;
+  --wf-bg: #f6f8fb;
+  --wf-text-main: #1e293b;
+  --wf-text-muted: #64748b;
 
   /* Element Plus 主色与 Figma 蓝对齐；成功、警告仍用原来的语义色 */
   --el-color-primary: #0d99ff;
@@ -24,9 +26,9 @@
   --el-color-warning: #f59e0b;
   --el-color-danger: #ef4444;
   --el-color-info: #333333;
-  --el-text-color-primary: #000000;
-  --el-text-color-regular: #1a1a1a;
-  --el-text-color-secondary: #333333;
+  --el-text-color-primary: #1e293b;
+  --el-text-color-regular: #334155;
+  --el-text-color-secondary: #64748b;
   --el-text-color-placeholder: #8a8a8a;
   
   --el-border-radius-base: 8px;
@@ -81,7 +83,7 @@ html.dark {
     background: rgba(44, 44, 44, 0.95) !important;
     border-color: #383838 !important;
     color: #ffffff !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45) !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2) !important;
 
     &:hover {
       border-color: #0d99ff !important;
@@ -166,7 +168,7 @@ html.dark {
   .vector-sub-toolbar {
     background-color: rgba(44, 44, 44, 0.95) !important;
     border-color: #383838 !important;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
     color: #ffffff !important;
 
     button:not(.bg-\[\#0D99FF\]):not(.bg-emerald-600) {
@@ -277,7 +279,7 @@ button {
 }
 
 .el-dialog {
-  border-radius: 16px !important;
+  border-radius: 10px !important;
   overflow: hidden;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
 }
@@ -285,7 +287,7 @@ button {
 .el-dialog__header {
   margin-right: 0 !important;
   padding: 20px 24px !important;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--wf-border);
 }
 
 .el-dialog__body {
@@ -294,8 +296,8 @@ button {
 
 .el-dialog__footer {
   padding: 16px 24px !important;
-  border-top: 1px solid #f1f5f9;
-  background-color: #f8fafc;
+  border-top: 1px solid var(--wf-border);
+  background-color: var(--wf-bg);
 }
 
 /* ===== Design System 2.0 Utility Enhancements ===== */
@@ -342,7 +344,19 @@ button {
 /* 界面图标按像素描边。画板连线、钢笔路径不套这条，避免折线变锯齿。 */
 svg.lucide,
 svg.wf-ui-icon {
-  shape-rendering: crispEdges;
+  shape-rendering: geometricPrecision;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--wf-primary);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-tap, .wf-card-surface, button {
+    transition: none;
+  }
 }
 
 /* ===== Figma 经典青色热区脉冲发光与波纹 ===== */

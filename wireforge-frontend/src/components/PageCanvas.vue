@@ -354,6 +354,8 @@ const emit = defineEmits<{
   (e: 'navigate', pageName: string, uids?: string[], pos?: { x?: number; y?: number; uid?: string }): void
   (e: 'back'): void
   (e: 'saveHtml', payload: { pageId: number; html: string }): void
+  (e: 'saveDirty', pageId: number): void
+  (e: 'savePreparationFailed', pageId: number): void
   (e: 'lockedClick'): void
   (e: 'missClick', pos?: { x: number; y: number; uids?: string[] }): void
   (e: 'requestEdit'): void
@@ -2130,9 +2132,9 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           }
         }
         parent.postMessage({ type: 'wf-save', html: '<!DOCTYPE html>\\n' + clone.outerHTML }, '*');
-      }catch(e){}
+      }catch(e){ parent.postMessage({ type: 'wf-save-preparation-failed' }, '*'); }
     }
-    function scheduleSave(){ clearTimeout(st); st = setTimeout(doExport, 500); }
+    function scheduleSave(){ parent.postMessage({ type: 'wf-save-dirty' }, '*'); clearTimeout(st); st = setTimeout(doExport, 500); }
 
     function getTransformBox(){
       var b = document.getElementById('wf-transform-box');
@@ -2817,11 +2819,19 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           el.classList.contains('wf-shape-circle') ||
           el.classList.contains('wf-shape-ellipse') ||
           el.classList.contains('wf-box') ||
-          el.classList.contains('wf-shape-card')
+          el.classList.contains('wf-container') ||
+          el.classList.contains('wf-card') ||
+          el.classList.contains('wf-image-placeholder') ||
+          el.classList.contains('wf-avatar') ||
+          el.classList.contains('wf-shape') ||
+          el.classList.contains('wf-shape-card') ||
+          el.tagName === 'DIV' || el.tagName === 'SECTION' || el.tagName === 'FIGURE'
         );
+        var childImg = el.tagName === 'IMG' ? el : (el.querySelector ? el.querySelector('img') : null);
         var isBoxLayer = !!(pendingLayerUid && isBoxLayerUid(pendingLayerUid));
-        var isImg = el.tagName === 'IMG' || !!(el.style && el.style.backgroundImage && el.style.backgroundImage.indexOf('url(') !== -1) || isShapeFill || isBoxLayer;
-        var imgSrc = el.tagName === 'IMG' ? (el.getAttribute('src') || el.src || '') : readCssUrl(el.style.backgroundImage || '');
+        var bgUrl = readCssUrl(el.style && el.style.backgroundImage ? el.style.backgroundImage : '');
+        var isImg = el.tagName === 'IMG' || !!bgUrl || !!childImg || isShapeFill || isBoxLayer;
+        var imgSrc = el.tagName === 'IMG' ? (el.getAttribute('src') || el.src || '') : (bgUrl || (childImg ? (childImg.getAttribute('src') || childImg.src || '') : ''));
         var isPureShape = el.classList && (el.classList.contains('wf-shape-rect') || el.classList.contains('wf-shape-circle') || el.classList.contains('wf-shape-line'));
         var tText = findTextTarget(el);
         var hasText = tText !== null && !isPureShape;
@@ -2837,6 +2847,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         var bgColor = cs.backgroundColor || 'transparent';
         var bWidth = parseInt(cs.borderTopWidth) || 0;
         var bColor = cs.borderTopColor || '#cbd5e1';
+        var opVal = parseFloat(cs.opacity);
+        var opacityNum = isNaN(opVal) ? 100 : Math.round(opVal * 100);
         if(isVector && pathEl){
           var pFill = pathEl.getAttribute('fill') || (window.getComputedStyle(pathEl).fill);
           if(pFill && pFill !== 'none') bgColor = pFill;
@@ -2869,6 +2881,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
             borderWidth: bWidth,
             borderColor: bColor,
             borderStyle: cs.borderTopStyle || 'solid',
+            opacity: opacityNum,
             boxShadow: cs.boxShadow || 'none',
             effects: el.getAttribute('data-wf-effects') || '',
             inlineShadow: (el.style && el.style.boxShadow) || '',
@@ -3831,6 +3844,17 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           updateTransformBox(selectedEl);
           scheduleSave();
         }
+      }else if(d.type === 'wf-opacity'){
+        if(selectedEl){
+          if(!d.live) pushSnapshot();
+          var op = typeof d.opacity === 'number' ? Math.max(0, Math.min(100, d.opacity)) / 100 : parseFloat(d.opacity);
+          if(isNaN(op)) op = 1;
+          selectedEl.style.opacity = op >= 1 ? '' : String(op);
+          if(!d.live){
+            scheduleSave();
+            notifySelectedElementInfo(selectedEl);
+          }
+        }
       }else if(d.type === 'wf-stroke'){
         if(selectedEl){
           pushSnapshot();
@@ -4011,8 +4035,15 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         if(selectedEl){
           var prev = document.querySelectorAll('.wf-current-asset-target');
           for(var pi = 0; pi < prev.length; pi++) prev[pi].classList.remove('wf-current-asset-target');
-          selectedEl.classList.add('wf-current-asset-target');
-          var src = selectedEl.tagName === 'IMG' ? (selectedEl.getAttribute('src') || selectedEl.src || '') : readCssUrl(selectedEl.style && selectedEl.style.backgroundImage);
+          var targetToFill = selectedEl;
+          if(selectedEl.tagName !== 'IMG'){
+            var childImg = selectedEl.querySelector ? selectedEl.querySelector('img') : null;
+            if(childImg && !(selectedEl.style && selectedEl.style.backgroundImage)) {
+              targetToFill = childImg;
+            }
+          }
+          targetToFill.classList.add('wf-current-asset-target');
+          var src = targetToFill.tagName === 'IMG' ? (targetToFill.getAttribute('src') || targetToFill.src || '') : readCssUrl(targetToFill.style && targetToFill.style.backgroundImage);
           window.parent.postMessage({ type: 'wf-pick-asset', src: src }, '*');
         }
       }
@@ -4029,16 +4060,22 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         }
       }else if(d.type === 'wf-replace-asset'){
         var cur = document.querySelector('.wf-current-asset-target');
+        if(!cur && selectedEl) cur = selectedEl;
         if(cur && d.src){
           pushSnapshot();
           if(cur.tagName === 'IMG'){
             cur.src = d.src;
           } else {
-            cur.style.backgroundImage = 'url(' + d.src + ')';
-            cur.style.backgroundSize = 'cover';
-            cur.style.backgroundPosition = 'center';
-            cur.style.backgroundRepeat = 'no-repeat';
-            cur.style.overflow = 'hidden';
+            var innerImg = cur.querySelector ? cur.querySelector('img') : null;
+            if(innerImg && !(cur.style && cur.style.backgroundImage)){
+              innerImg.src = d.src;
+            } else {
+              cur.style.backgroundImage = 'url(' + d.src + ')';
+              cur.style.backgroundSize = 'cover';
+              cur.style.backgroundPosition = 'center';
+              cur.style.backgroundRepeat = 'no-repeat';
+              cur.style.overflow = 'hidden';
+            }
           }
           cur.classList.remove('wf-current-asset-target');
           scheduleSave();
@@ -4355,10 +4392,15 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       // 双击直接穿透选中具体的叶子元素
       selectElement(t, true);
 
-      // 如果双击的是图片，唤起替换素材
-      if(t.tagName === 'IMG' || (t.style && t.style.backgroundImage)){
-        t.classList.add('wf-current-asset-target');
-        parent.postMessage({ type: 'wf-pick-asset' }, '*');
+      // 如果双击的是图片或可铺图的方框/占位框/头像，唤起替换素材
+      var isAssetBox = t.tagName === 'IMG' || !!(t.style && t.style.backgroundImage) || (t.classList && (t.classList.contains('wf-box') || t.classList.contains('wf-image-placeholder') || t.classList.contains('wf-avatar'))) || (t.hasAttribute && t.hasAttribute('data-wf-asset'));
+      if(isAssetBox){
+        var prev = document.querySelectorAll('.wf-current-asset-target');
+        for(var pi = 0; pi < prev.length; pi++) prev[pi].classList.remove('wf-current-asset-target');
+        var targetEl = t.tagName === 'IMG' ? t : ((t.querySelector && t.querySelector('img')) || t);
+        targetEl.classList.add('wf-current-asset-target');
+        var curSrc = targetEl.tagName === 'IMG' ? (targetEl.getAttribute('src') || targetEl.src || '') : readCssUrl(targetEl.style && targetEl.style.backgroundImage);
+        parent.postMessage({ type: 'wf-pick-asset', src: curSrc }, '*');
         showToast('已唤起图片素材库，请选择新图片');
         return;
       }
@@ -5328,6 +5370,10 @@ function onIframeMessage(e: MessageEvent) {
       y: Number((d as any).y) || 0,
       uids: Array.isArray(rawUids) ? rawUids.map(String) : [],
     })
+  } else if (d.type === 'wf-save-dirty') {
+    emit('saveDirty', props.page.id)
+  } else if (d.type === 'wf-save-preparation-failed') {
+    emit('savePreparationFailed', props.page.id)
   } else if (d.type === 'wf-save' && typeof d.html === 'string' && d.html.length > 50) {
     isInternalSaving = true
     clearTimeout(saveResetTimer)
@@ -5884,6 +5930,10 @@ function updateElementRadius(radius: number) {
   postToFrame({ type: 'wf-radius', radius })
 }
 
+function updateElementOpacity(opacity: number, live = false) {
+  postToFrame({ type: 'wf-opacity', opacity, live })
+}
+
 function updateElementStroke(stroke: { width: number; color: string; style: string }) {
   postToFrame({ type: 'wf-stroke', ...stroke })
 }
@@ -5976,6 +6026,7 @@ defineExpose({
   deleteSelectedElement,
   alignSelectedElement,
   updateElementRadius,
+  updateElementOpacity,
   updateElementStroke,
   updateElementEffects,
   updateElementShadow,

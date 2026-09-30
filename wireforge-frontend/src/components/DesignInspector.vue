@@ -1,7 +1,7 @@
 <template>
   <div class="design-inspector-panel flex-1 flex flex-col h-full bg-white dark:bg-[#1e1e1e] select-none text-xs overflow-y-auto custom-scrollbar">
     <!-- 1. 顶部当前选中对象标识 & 6大对齐工具 -->
-    <div class="border-b border-slate-100 bg-slate-50/60 shrink-0">
+    <div class="border-b border-slate-200 dark:border-[#383838] bg-slate-50/60 dark:bg-[#252525] shrink-0">
       <!-- 对象标识行 -->
       <div class="px-3 py-2 flex items-center justify-between gap-1">
         <div class="flex items-center gap-1.5 min-w-0 flex-1">
@@ -9,8 +9,8 @@
             :is="hasSelection ? Box : Hash"
             class="w-3.5 h-3.5 text-slate-500 shrink-0"
           />
-          <span class="font-bold text-slate-800 truncate text-[11px]">
-            {{ hasSelection ? (elementInfo?.tagName || selectedElement?.label || selectedElement?.type || t('selectedElement')) : (currentPage?.name || t('noSelectedFrame')) }}
+          <span class="font-medium text-slate-800 dark:text-slate-100 truncate text-xs">
+            {{ hasSelection ? selectedObjectName : (currentPage?.name || t('noSelectedFrame')) }}
           </span>
         </div>
         <div class="flex items-center gap-1 shrink-0">
@@ -25,13 +25,13 @@
             <span>{{ t('selectParent') }}</span>
           </button>
           <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-[#383838] text-slate-600 dark:text-slate-300 font-mono">
-            {{ hasSelection ? 'Element' : 'Frame' }}
+            {{ hasSelection ? t('elementType') : t('frameType') }}
           </span>
         </div>
       </div>
 
       <!-- 6 大 Figma 一键对齐工具栏 -->
-      <div class="px-2.5 py-1.5 border-t border-slate-200/60 dark:border-[#383838] bg-white dark:bg-[#252525] flex items-center justify-between gap-1">
+      <div v-if="hasSelection" class="px-2.5 py-1.5 border-t border-slate-200/60 dark:border-[#383838] bg-white dark:bg-[#252525] flex items-center justify-between gap-1">
         <button
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
@@ -91,7 +91,8 @@
     </div>
 
     <!-- 2. 几何尺寸与坐标 (Transform) -->
-    <div class="p-3 border-b border-slate-100">
+    <p v-if="!canEditGeometry" class="p-4 text-sm leading-relaxed text-slate-500 dark:text-slate-400">{{ t('selectObjectHint') }}</p>
+    <div v-if="canEditGeometry" class="p-3 border-b border-slate-100 dark:border-[#383838]">
       <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{{ t('layout') }}</div>
       <div class="grid grid-cols-2 gap-2">
         <!-- X 坐标 -->
@@ -157,8 +158,71 @@
       </div>
     </div>
 
-    <!-- 3. 圆角调节 (Corner Radius) -->
+    <!-- 3. 不透明度调节 (Opacity) -->
     <div
+      v-if="hasSelection"
+      class="p-3 border-b border-slate-100 dark:border-[#383838]"
+      :class="{ 'opacity-40 pointer-events-none': !hasSelection }"
+    >
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{{ t('opacity') }}</div>
+        <span class="font-mono text-[10px] text-slate-500 dark:text-slate-400 font-semibold">{{ currentOpacity }}%</span>
+      </div>
+      <div class="space-y-2">
+        <!-- 数值输入与滑块 -->
+        <div class="grid grid-cols-4 gap-1.5 items-center">
+          <!-- 输入框：与下方第1个按钮同宽 (col-span-1)、同高 (h-6)、同圆角 (rounded) 严格垂直对齐 -->
+          <div class="col-span-1 h-6 !min-h-[24px] !max-h-6 flex items-center justify-center bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded focus-within:border-[#0D99FF] focus-within:bg-white dark:focus-within:bg-[#1e1e1e] transition-colors px-1 box-border overflow-hidden">
+            <input
+              type="number"
+              min="0"
+              max="100"
+              :value="currentOpacity"
+              class="w-7 h-full py-0 leading-none bg-transparent text-[11px] font-mono outline-none text-right pr-0.5 text-slate-700 dark:text-slate-100 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              :disabled="!hasSelection"
+              @input="onOpacityInput($event, true)"
+              @change="onOpacityInput($event, false)"
+              @keydown.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <span class="text-[10px] text-slate-400 font-mono shrink-0 select-none leading-none">%</span>
+          </div>
+
+          <!-- 范围滑块 (Slider)：横跨右侧3列，两端与下方的80%~20%按钮完美贴合 -->
+          <div class="col-span-3 flex items-center px-1">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              :value="currentOpacity"
+              class="w-full h-1.5 bg-slate-200 dark:bg-[#383838] rounded-lg appearance-none cursor-pointer accent-[#0D99FF]"
+              :disabled="!hasSelection"
+              @input="onOpacityInput($event, true)"
+              @change="onOpacityInput($event, false)"
+            />
+          </div>
+        </div>
+
+        <!-- 常用快捷档位胶囊按钮: 100%, 80%, 50%, 20% -->
+        <div class="grid grid-cols-4 gap-1.5">
+          <button
+            v-for="op in [100, 80, 50, 20]"
+            :key="op"
+            type="button"
+            class="h-6 flex items-center justify-center rounded text-[10px] font-mono transition-colors cursor-pointer text-center"
+            :class="currentOpacity === op ? 'bg-blue-600 dark:bg-[#0D99FF] text-white font-bold shadow-xs' : 'bg-slate-100 dark:bg-[#383838] hover:bg-slate-200 dark:hover:bg-[#444444] text-slate-600 dark:text-slate-300'"
+            :disabled="!hasSelection"
+            @click="applyOpacity(op)"
+          >
+            {{ op }}%
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. 圆角调节 (Corner Radius) -->
+    <div
+      v-if="hasSelection"
       class="p-3 border-b border-slate-100 dark:border-[#383838]"
       :class="{ 'opacity-60 pointer-events-none': isVectorShape, 'opacity-40 pointer-events-none': !hasSelection && !isVectorShape }"
     >
@@ -216,6 +280,7 @@
 
     <!-- 4. 描边与边框 (Stroke / Border) -->
     <div
+      v-if="hasSelection"
       class="p-3 border-b border-slate-100 dark:border-[#383838]"
       :class="{ 'opacity-40 pointer-events-none': !hasSelection }"
     >
@@ -261,6 +326,7 @@
 
     <!-- 5. 效果 (Effects)：外阴影、内阴影、模糊，参数跟 Figma 一样可调 -->
     <div
+      v-if="hasSelection"
       class="p-3 border-b border-slate-100"
       :class="{ 'opacity-40 pointer-events-none': !hasSelection }"
     >
@@ -312,7 +378,7 @@
 
     <Teleport to="body">
       <div
-        v-if="showAddMenu"
+        v-if="showAddMenu && hasSelection"
         class="wf-effect-menu fixed z-[80] w-48 rounded-lg bg-slate-900 text-white shadow-2xl py-1"
         :style="{ left: addMenuPos.left + 'px', top: addMenuPos.top + 'px' }"
       >
@@ -328,8 +394,8 @@
         </button>
       </div>
       <div
-        v-if="openEffect"
-        class="wf-effect-pop fixed z-[80] w-[248px] rounded-xl bg-white border border-slate-200 shadow-2xl p-3"
+        v-if="openEffect && hasSelection"
+        class="wf-effect-pop fixed z-[80] w-[248px] rounded-lg bg-white dark:bg-[#252525] border border-slate-200 dark:border-[#444444] shadow-lg p-3"
         :style="{ left: popPos.left + 'px', top: popPos.top + 'px' }"
       >
         <div class="flex items-center gap-1.5 mb-3">
@@ -407,11 +473,25 @@
 
     <!-- 6. 填充与色彩 (Fill)。没选中元素时，颜色铺在当前画框上。 -->
     <div
+      v-if="canFill"
       class="p-3 border-b border-slate-100 dark:border-[#383838]"
       :class="{ 'opacity-40 pointer-events-none': !canFill }"
     >
-      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-        {{ hasSelection ? t('fillColor') : t('frameFillColor') }}
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          {{ hasSelection ? t('fillColor') : t('frameFillColor') }}
+        </div>
+        <!-- 快速打开素材库图片填充 -->
+        <button
+          v-if="hasSelection && !isVectorShape"
+          type="button"
+          class="text-[10px] text-[#0D99FF] hover:text-blue-700 dark:text-[#38bdf8] dark:hover:text-blue-300 font-medium flex items-center gap-1 cursor-pointer transition-colors"
+          :title="elementInfo?.imgSrc ? '从素材库替换图片' : '从素材库选择图片填入方框'"
+          @click="emit('replace-asset')"
+        >
+          <ImageIcon class="w-3 h-3" />
+          <span>{{ elementInfo?.imgSrc ? '替换素材图片' : '素材图片填充' }}</span>
+        </button>
       </div>
       <div class="flex items-center justify-between gap-2 bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-lg p-1.5">
         <div class="flex items-center gap-2">
@@ -452,19 +532,28 @@
       </div>
     </div>
 
-    <!-- 7. 媒体素材：图片，以及可以铺图的方框 -->
-    <div v-if="elementInfo?.isImage" class="p-3 border-b border-slate-100">
-      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{{ t('mediaAsset') }}</div>
-        <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200/80 rounded-lg p-2">
+    <!-- 7. 媒体素材：图片，以及可以铺图的方框/卡片/占位框 -->
+    <div v-if="isMediaElement" class="p-3 border-b border-slate-100 dark:border-[#383838]">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{{ t('mediaAsset') }}</div>
+        <span v-if="mediaPreviewSrc" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+          已设图片
+        </span>
+        <span v-else class="text-[10px] text-slate-400">
+          可填入素材图片
+        </span>
+      </div>
+      <div class="flex items-center gap-2.5 bg-slate-50 dark:bg-[#252525] border border-slate-200/80 dark:border-[#383838] rounded-lg p-2">
         <button
           type="button"
-          class="w-10 h-10 rounded-md border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
-          :title="t('replaceImage')"
+          class="w-10 h-10 rounded-md border border-slate-200 dark:border-[#484848] bg-white dark:bg-[#1e1e1e] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer hover:border-[#0D99FF] transition-colors"
+          :title="mediaPreviewSrc ? t('replaceImage') : t('fillFromMedia')"
           @click="emit('replace-asset')"
         >
           <img
-            v-if="elementInfo.imgSrc && !mediaPreviewBroken"
-            :src="elementInfo.imgSrc"
+            v-if="mediaPreviewSrc && !mediaPreviewBroken"
+            :src="mediaPreviewSrc"
             class="w-full h-full object-cover"
             alt=""
             @error="mediaPreviewBroken = true"
@@ -474,13 +563,13 @@
         <div class="flex-1 min-w-0">
           <button
             type="button"
-            class="w-full py-1.5 px-2 bg-[#0D99FF] hover:bg-blue-600 text-white rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
+            class="w-full py-1.5 px-2 bg-[#0D99FF] hover:bg-blue-600 text-white rounded-md text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
             @click="emit('replace-asset')"
           >
             <ImageIcon class="w-3.5 h-3.5" />
-            <span>{{ elementInfo?.imgSrc ? t('replaceImage') : t('fillFromMedia') }}</span>
+            <span>{{ mediaPreviewSrc ? t('replaceImage') : t('fillFromMedia') }}</span>
           </button>
-          <p class="text-[10px] text-slate-400 mt-1 truncate">{{ t('mediaTip') }}</p>
+          <p class="text-[10px] text-slate-400 dark:text-slate-400 mt-1 truncate">{{ t('mediaTip') }}</p>
         </div>
       </div>
     </div>
@@ -659,9 +748,19 @@
     </div>
 
     <!-- 9. 快速操作 (Actions) -->
-    <div class="p-3">
+    <p v-if="!hasSelection && currentPage" class="p-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{{ t('framePropertiesHint') }}</p>
+    <div v-if="hasSelection" class="p-3">
       <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{{ t('quickActions') }}</div>
       <div class="flex flex-col gap-1.5">
+        <button
+          v-if="hasSelection && !isVectorShape"
+          type="button"
+          class="w-full py-1.5 px-2 bg-slate-50 dark:bg-[#383838] hover:bg-blue-50 dark:hover:bg-[#1e3a5f]/40 hover:text-[#0D99FF] dark:hover:text-[#38bdf8] border border-slate-200/80 dark:border-[#484848] hover:border-blue-200 dark:hover:border-[#0D99FF]/40 rounded-lg text-slate-700 dark:text-slate-200 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          @click="emit('replace-asset')"
+        >
+          <ImageIcon class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+          <span>{{ mediaPreviewSrc ? t('replaceImage') : t('fillFromMedia') }}</span>
+        </button>
         <button
           v-if="elementInfo?.hasParentContainer"
           type="button"
@@ -716,6 +815,7 @@ import {
   X,
   Eye,
   EyeOff,
+  Blend,
 } from 'lucide-vue-next'
 import type { Page, Element } from '../types'
 import {
@@ -745,6 +845,7 @@ const props = defineProps<{
     borderWidth?: number
     borderColor?: string
     borderStyle?: string
+    opacity?: number
     boxShadow?: string
     effects?: string
     inlineShadow?: string
@@ -775,6 +876,7 @@ const emit = defineEmits<{
   (e: 'update-text-style', payload: { key: string; value: string; live?: boolean }): void
   (e: 'align-selection', type: 'left' | 'center-h' | 'right' | 'top' | 'center-v' | 'bottom'): void
   (e: 'update-radius', radius: number): void
+  (e: 'update-opacity', payload: { opacity: number; live?: boolean }): void
   (e: 'update-stroke', stroke: { width: number; color: string; style: string }): void
   (e: 'update-effects', payload: { effects: WfEffect[]; live: boolean }): void
   (e: 'duplicate-selection'): void
@@ -786,12 +888,48 @@ const emit = defineEmits<{
 }>()
 
 const hasSelection = computed(() => !!props.selectedElement || !!props.elementInfo)
+const selectedObjectName = computed(() => {
+  const content = props.elementInfo?.textContent?.replace(/\s+/g, ' ').trim()
+  if (content) return content.slice(0, 80)
+  const label = props.selectedElement?.label?.trim()
+  if (label && !/^(div|span|p|img|image|svg|path|rect|circle|text|button|input|a|section|container)$/i.test(label)) return label
+  return t('selectedElement')
+})
 const canFill = computed(() => hasSelection.value || !!props.currentPage)
 const isVectorShape = computed(() => {
   const tag = (props.elementInfo?.tagName || '').toLowerCase()
   const cls = props.elementInfo?.className || ''
   const selectedType = props.selectedElement?.type || ''
   return tag === 'svg' || cls.includes('wf-vector-shape') || selectedType === 'svg' || selectedType === 'vector'
+})
+const isMediaElement = computed(() => {
+  if (!hasSelection.value) return false
+  if (isVectorShape.value) return false
+  if (props.elementInfo?.isImage) return true
+  if (props.elementInfo?.imgSrc) return true
+  const tag = (props.elementInfo?.tagName || '').toLowerCase()
+  if (tag === 'img') return true
+  const selType = (props.selectedElement?.type || '').toLowerCase()
+  if (
+    selType.includes('image') ||
+    selType.includes('img') ||
+    selType.includes('avatar') ||
+    selType.includes('box') ||
+    selType.includes('card') ||
+    selType.includes('container') ||
+    selType.includes('rect') ||
+    selType.includes('circle')
+  ) {
+    return true
+  }
+  const cls = props.elementInfo?.className || ''
+  if (/wf-(box|card|container|image-placeholder|avatar|shape)/.test(cls)) {
+    return true
+  }
+  if (tag === 'div' || tag === 'section' || tag === 'article' || tag === 'figure') {
+    return true
+  }
+  return false
 })
 /** 有选中元素时编辑元素；仅选中画板时也可编辑画板 X/Y/W/H */
 const canEditGeometry = computed(() => hasSelection.value || !!props.currentPage)
@@ -835,6 +973,11 @@ const italicOn = ref(false)
 const underlineOn = ref(false)
 const textAlign = ref<'left' | 'center' | 'right'>('left')
 const textColor = ref('#0f172a')
+// CSS gradient fills are not image URLs; keep them out of the preview request.
+const mediaPreviewSrc = computed(() => {
+  const source = props.elementInfo?.imgSrc?.trim() || ''
+  return /^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(source) ? '' : source
+})
 const mediaPreviewBroken = ref(false)
 watch(
   () => props.elementInfo?.imgSrc,
@@ -900,6 +1043,8 @@ function snapWeight(weight: number) {
   const values = weightOptions.map((item) => item.value)
   return values.reduce((best, value) => (Math.abs(value - weight) < Math.abs(best - weight) ? value : best), 400)
 }
+// 不透明度 (Opacity, 0-100)
+const currentOpacity = ref(100)
 // 圆角
 const currentRadius = ref(0)
 // 描边
@@ -933,11 +1078,14 @@ watch(
   (info) => {
     if (!info) {
       currentTextVal.value = ''
+      currentOpacity.value = 100
       currentRadius.value = 0
       strokeWidth.value = 0
       if (props.frameFill) currentFillColor.value = rgbToHex(props.frameFill)
       return
     }
+    if (info.opacity !== undefined) currentOpacity.value = info.opacity
+    else currentOpacity.value = 100
     if (info.borderRadius !== undefined) currentRadius.value = info.borderRadius
     if (info.borderWidth !== undefined) strokeWidth.value = info.borderWidth
     if (info.borderColor) strokeColor.value = info.borderColor
@@ -985,6 +1133,22 @@ function rgbToHex(rgbStr: string): string {
   const g = parseInt(match[1]).toString(16).padStart(2, '0')
   const b = parseInt(match[2]).toString(16).padStart(2, '0')
   return `#${r}${g}${b}`
+}
+
+function onOpacityInput(e: Event, live = false) {
+  if (!hasSelection.value) return
+  let v = parseInt((e.target as HTMLInputElement).value, 10)
+  if (isNaN(v)) v = 100
+  v = Math.max(0, Math.min(100, v))
+  currentOpacity.value = v
+  emit('update-opacity', { opacity: v, live })
+}
+
+function applyOpacity(val: number) {
+  if (!hasSelection.value) return
+  const clamped = Math.max(0, Math.min(100, val))
+  currentOpacity.value = clamped
+  emit('update-opacity', { opacity: clamped, live: false })
 }
 
 function onRadiusChange(e: Event) {
@@ -1224,6 +1388,42 @@ function setTextAlign(align: 'left' | 'center' | 'right') {
 </script>
 
 <style scoped>
+.design-inspector-panel .uppercase.tracking-wider {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #64748b;
+}
+.design-inspector-panel input,
+.design-inspector-panel select {
+  font-size: 12px;
+}
+:global(.dark .design-inspector-panel .border-slate-100) {
+  border-color: #383838;
+}
+:global(.dark .design-inspector-panel .text-slate-800),
+:global(.dark .design-inspector-panel .text-slate-700) {
+  color: #e2e8f0;
+}
+:global(.dark .design-inspector-panel .text-slate-600),
+:global(.dark .design-inspector-panel .uppercase.tracking-wider) {
+  color: #94a3b8;
+}
+:global(.dark .design-inspector-panel .bg-slate-50) {
+  background-color: #252525;
+}
+:global(.dark .wf-effect-pop .text-slate-800),
+:global(.dark .wf-effect-pop .text-slate-700) {
+  color: #e2e8f0;
+}
+:global(.dark .wf-effect-pop .bg-slate-100) {
+  background-color: #383838;
+}
+.design-inspector-panel button:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }

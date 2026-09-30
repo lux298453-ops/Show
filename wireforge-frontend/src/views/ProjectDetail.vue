@@ -1,8 +1,8 @@
 <template>
-  <div class="min-h-screen bg-[#f8fafc] dark:bg-[#1e1e1e] flex flex-col text-slate-800 dark:text-slate-100 selection:bg-emerald-500 selection:text-white transition-colors duration-200">
+  <div class="project-detail min-h-screen bg-[#f8fafc] dark:bg-[#1e1e1e] flex flex-col text-slate-800 dark:text-slate-100 selection:bg-blue-500 selection:text-white transition-colors duration-200">
     <!-- ===== Minimalist Figma-Style Top Navigation (Full-width, no edge margins) ===== -->
-    <header class="sticky top-0 z-30 bg-white/95 dark:bg-[#2c2c2c] backdrop-blur-md border-b border-slate-200/80 dark:border-[#383838] px-6 py-2.5 transition-all shadow-2xs dark:shadow-md dark:shadow-black/50">
-      <div class="w-full flex items-center justify-between gap-4">
+    <header class="sticky top-0 z-30 bg-white/95 dark:bg-[#2c2c2c] backdrop-blur-md border-b border-slate-200/80 dark:border-[#383838] px-6 py-3 transition-colors">
+      <div class="w-full flex flex-wrap items-center justify-between gap-3">
         <!-- Breadcrumbs & Project Identity -->
         <div class="flex items-center gap-2.5 min-w-0">
           <button
@@ -26,7 +26,7 @@
             <span>/</span>
           </div>
 
-          <h1 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight truncate max-w-xs sm:max-w-md">
+          <h1 class="text-lg font-semibold text-slate-900 dark:text-white tracking-tight truncate max-w-xs sm:max-w-md">
             {{ project?.name || t('projectDetail') }}
           </h1>
 
@@ -39,8 +39,8 @@
         <div class="flex items-center gap-2.5 shrink-0">
           <!-- Secondary: Scan local directory -->
           <button
-            class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-[#383838] hover:bg-slate-50 dark:hover:bg-[#444444] active:bg-slate-100 dark:active:bg-[#333333] border border-slate-200/80 dark:border-[#484848] rounded-lg shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
-            :disabled="scanning"
+            class="wf-tap inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-[#383838] hover:bg-slate-50 dark:hover:bg-[#444444] border border-slate-200 dark:border-[#484848] rounded-md transition-colors disabled:opacity-50 cursor-pointer"
+            :disabled="scanning || loading || !!loadError"
             :title="t('scanDesigns')"
             @click="scan"
           >
@@ -50,24 +50,24 @@
 
           <!-- Secondary/AI: AI Analyze Wireframe -->
           <button
-            class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 hover:bg-emerald-100/80 dark:hover:bg-emerald-900/60 active:bg-emerald-100 border border-emerald-200/80 dark:border-emerald-600/50 rounded-lg transition-all disabled:opacity-50 cursor-pointer shadow-2xs"
-            :disabled="analyzing || pages.length === 0"
+            class="wf-tap inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-[#383838] hover:bg-slate-50 dark:hover:bg-[#444444] border border-slate-200 dark:border-[#484848] rounded-md transition-colors disabled:opacity-50 cursor-pointer"
+            :disabled="analyzing || loading || !!loadError || pages.length === 0"
             :title="t('aiGenerate')"
             @click="analyze"
           >
-            <Sparkles class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" :class="{ 'animate-spin': analyzing }" />
+            <Sparkles class="w-4 h-4 text-slate-500 dark:text-slate-300" :class="{ 'animate-spin': analyzing }" />
             <span>{{ analyzing ? (analyzeProgressText || t('aiGenerating')) : t('aiGenerate') }}</span>
           </button>
 
           <!-- Primary CTA: Open Interactive Canvas -->
           <button
-            class="wf-tap inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white dark:text-[#38bdf8] bg-[#0d99ff] hover:bg-[#0b87e0] active:bg-[#0972bd] dark:bg-[#0d99ff]/20 dark:hover:bg-[#0d99ff]/35 dark:active:bg-[#0d99ff]/50 rounded-lg shadow-xs shadow-[#0d99ff]/20 dark:shadow-[0_0_14px_rgba(13,153,255,0.25)] border border-[#0d99ff]/90 dark:border-[#0d99ff]/50 transition-all disabled:opacity-50 cursor-pointer"
-            :disabled="entering"
+            class="wf-tap inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 dark:bg-blue-500 dark:hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50 cursor-pointer"
+            :disabled="entering || loading || !!loadError"
             :title="t('enterCanvas')"
             @click="enterCanvas"
           >
             <Play class="w-3.5 h-3.5 fill-current" />
-            <span>{{ t('enterCanvas') }}</span>
+            <span>{{ entering ? t('enteringCanvas') : t('enterCanvas') }}</span>
           </button>
 
           <!-- Language & Theme Switcher (1:1 with Project List) -->
@@ -79,24 +79,17 @@
     <!-- ===== Secondary Toolbar (Search, Filter, View Mode, Path Hint) ===== -->
     <div class="border-b border-slate-200/70 dark:border-[#333333] bg-white/70 dark:bg-[#252525] px-6 py-2.5 transition-colors">
       <div class="w-full flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-        <!-- Left: Quiet Directory Path Indicator & Quick Copy -->
-        <div class="flex items-center gap-2 text-slate-500 dark:text-[#a1a1a1] min-w-0">
-          <span class="text-slate-400 dark:text-[#a1a1a1] font-medium shrink-0 flex items-center gap-1">
-            <Folder class="w-3.5 h-3.5 text-slate-400 dark:text-[#a1a1a1]" />
-            {{ t('designsPath') }}:
-          </span>
-          <div
-            class="group inline-flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100/90 dark:bg-[#1e1e1e] hover:bg-slate-200/70 dark:hover:bg-[#2c2c2c] border border-slate-200/60 dark:border-[#383838] font-mono text-[11px] text-slate-600 dark:text-slate-300 truncate max-w-sm sm:max-w-md cursor-pointer transition-colors"
-            :title="t('copyPath')"
-            @click="copyDirectoryPath"
-          >
-            <span class="truncate">{{ designsDir }}</span>
-            <button class="shrink-0 text-slate-400 group-hover:text-slate-700 dark:group-hover:text-white ml-0.5">
-              <CheckCheck v-if="copied" class="w-3 h-3 text-emerald-600 dark:text-[#0d99ff]" />
-              <Copy v-else class="w-3 h-3" />
-            </button>
-          </div>
-        </div>
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 self-start text-sm text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 py-1.5 cursor-pointer"
+          :aria-expanded="showImportSettings"
+          aria-controls="project-import-settings"
+          @click="showImportSettings = !showImportSettings"
+        >
+          <Folder class="w-4 h-4" />
+          {{ t('importSettings') }}
+          <ChevronRight class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-90': showImportSettings }" />
+        </button>
 
         <!-- Right: Search, Status Filter & View Toggle -->
         <div class="flex items-center flex-wrap gap-2.5 shrink-0">
@@ -157,6 +150,17 @@
           </div>
         </div>
       </div>
+      <div v-if="showImportSettings" id="project-import-settings" class="mt-3 pt-3 border-t border-slate-200 dark:border-[#383838] text-sm">
+        <p class="text-slate-500 dark:text-slate-400 mb-2">{{ t('importSettingsHint') }}</p>
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="shrink-0 text-slate-600 dark:text-slate-300">{{ t('designsDir') }}</span>
+          <code class="min-w-0 break-all text-xs text-slate-600 dark:text-slate-300">{{ designsDir }}</code>
+          <button type="button" class="shrink-0 p-1.5 rounded-md text-slate-500 hover:bg-slate-100 dark:hover:bg-[#383838] cursor-pointer" :title="t('copyPath')" :aria-label="t('copyPath')" @click="copyDirectoryPath">
+            <CheckCheck v-if="copied" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <Copy v-else class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- ===== Main Frame Workspace ===== -->
@@ -167,10 +171,18 @@
         <p class="mt-3 text-xs text-slate-400 dark:text-[#a1a1a1] font-medium tracking-wide">{{ t('readingData') }}</p>
       </div>
 
+      <div v-else-if="loadError" role="alert" class="bg-white dark:bg-[#252525] border border-slate-200 dark:border-[#383838] rounded-xl p-10 text-center max-w-lg mx-auto my-12">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">{{ t('projectLoadError') }}</h2>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">{{ t('projectLoadErrorHint') }}</p>
+        <button type="button" class="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium cursor-pointer" @click="load()">
+          <RefreshCw class="w-4 h-4" />{{ t('retryLoad') }}
+        </button>
+      </div>
+
       <!-- Empty State (No Pages Found) -->
       <div
         v-else-if="pages.length === 0"
-        class="bg-white dark:bg-[#2d2d2d] border border-dashed border-slate-300/80 dark:border-[#444444] rounded-2xl p-12 text-center max-w-md mx-auto my-12 shadow-sm dark:shadow-xl dark:shadow-black/50"
+        class="bg-white dark:bg-[#2d2d2d] border border-dashed border-slate-300/80 dark:border-[#444444] rounded-xl p-12 text-center max-w-md mx-auto my-12"
       >
         <div class="w-11 h-11 rounded-xl bg-slate-50 dark:bg-[#232323] text-slate-400 dark:text-[#a1a1a1] flex items-center justify-center mx-auto mb-3 border border-slate-200/70 dark:border-[#383838]">
           <Folder class="w-5 h-5" />
@@ -186,7 +198,7 @@
             @click="enterCanvas"
           >
             <Play class="w-3.5 h-3.5 fill-current" />
-            <span>{{ entering ? '正在进入...' : t('directDraw') }}</span>
+            <span>{{ entering ? t('enteringCanvas') : t('directDraw') }}</span>
           </button>
           <button
             class="wf-tap inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-[#383838] hover:bg-slate-50 dark:hover:bg-[#444444] border border-slate-200 dark:border-[#484848] rounded-lg transition-all cursor-pointer disabled:opacity-50"
@@ -204,7 +216,7 @@
         v-else-if="filteredPages.length === 0"
         class="py-20 text-center text-slate-400 dark:text-[#a1a1a1] text-xs"
       >
-        <p>{{ t('noMatchingFrames', { query: searchQuery }) }}</p>
+        <p>{{ searchQuery.trim() ? t('noMatchingFrames', { query: searchQuery }) : t('noFramesForFilter') }}</p>
         <button
           class="mt-2 text-emerald-600 dark:text-[#0d99ff] hover:underline font-medium cursor-pointer"
           @click="searchQuery = ''; statusFilter = 'all'"
@@ -216,14 +228,18 @@
       <!-- ===== Mode 1: Figma-Style Minimalist Grid View ===== -->
       <div
         v-else-if="viewMode === 'grid'"
-        class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
+        class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5"
       >
         <div
           v-for="p in filteredPages"
           :key="p.id"
-          class="group relative flex flex-col bg-white dark:bg-[#2d2d2d] rounded-xl border border-slate-200/80 dark:border-[#444444] hover:border-emerald-500/80 dark:hover:border-[#0d99ff] hover:shadow-md dark:shadow-xl dark:shadow-black/50 dark:hover:bg-[#353535] transition-all cursor-pointer p-2 overflow-hidden"
-          title="点击进入画布编辑"
+          class="group relative flex flex-col bg-white dark:bg-[#2d2d2d] rounded-lg border border-slate-200 dark:border-[#444444] hover:border-blue-400 dark:hover:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 transition-colors cursor-pointer p-3 overflow-hidden"
+          role="button"
+          tabindex="0"
+          :title="t('openCanvas')"
           @click="router.push(`/projects/${id}/prototype?page=${p.id}`)"
+          @keydown.enter="router.push(`/projects/${id}/prototype?page=${p.id}`)"
+          @keydown.space.prevent="router.push(`/projects/${id}/prototype?page=${p.id}`)"
         >
           <!-- Thumbnail Area (Phone Frame 9:16 Aspect) -->
           <div class="relative w-full aspect-[9/15] bg-slate-50 dark:bg-[#1a1a1a] rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 dark:border-[#383838]">
@@ -274,8 +290,8 @@
           </div>
 
           <!-- Clean Card Footer -->
-          <div class="pt-2 px-0.5 flex items-center justify-between">
-            <span class="text-xs font-semibold text-slate-800 dark:text-slate-100 group-hover:text-emerald-700 dark:group-hover:text-[#38bdf8] transition-colors truncate">
+          <div class="pt-3 px-0.5 flex items-center justify-between">
+            <span class="text-sm font-medium text-slate-800 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
               {{ p.name }}
             </span>
           </div>
@@ -285,7 +301,7 @@
       <!-- ===== Mode 2: Minimalist List / Table View ===== -->
       <div
         v-else-if="viewMode === 'list'"
-        class="bg-white dark:bg-[#2d2d2d] border border-slate-200/80 dark:border-[#383838] rounded-xl overflow-hidden shadow-2xs dark:shadow-xl dark:shadow-black/50"
+        class="bg-white dark:bg-[#2d2d2d] border border-slate-200 dark:border-[#383838] rounded-lg overflow-hidden"
       >
         <table class="w-full text-left text-xs border-collapse">
           <thead>
@@ -405,6 +421,7 @@ interface PageCard {
 const project = ref<any>(null)
 const pages = ref<PageCard[]>([])
 const loading = ref(true)
+const loadError = ref(false)
 const scanning = ref(false)
 const analyzing = ref(false)
 const analyzeProgressText = ref('')
@@ -417,6 +434,7 @@ const searchQuery = ref('')
 const statusFilter = ref<'all' | 'analyzed' | 'pending'>('all')
 const viewMode = ref<'grid' | 'list'>('grid')
 const copied = ref(false)
+const showImportSettings = ref(false)
 const thumbObservers = new Map<HTMLElement, ResizeObserver>()
 
 function pagePreviewHtml(p: PageCard) {
@@ -468,23 +486,23 @@ async function copyDirectoryPath() {
   try {
     await navigator.clipboard.writeText(designsDir.value)
     copied.value = true
-    ElMessage.success('已复制设计稿路径到剪贴板')
+    ElMessage.success(t('copiedDesignPath'))
     setTimeout(() => {
       copied.value = false
     }, 2000)
   } catch {
-    ElMessage.info('复制路径: ' + designsDir.value)
+    ElMessage.info(t('copyPathFallback', { path: designsDir.value }))
   }
 }
 
 async function enterCanvas() {
-  if (entering.value) return
+  if (entering.value || loading.value || loadError.value) return
   if (pages.value.length === 0) {
     entering.value = true
     try {
-      await projectApi.createPage(id, { name: '画板 1', width: 375, height: 812, x: 56, y: 64 })
+      await projectApi.createPage(id, { name: t('blankFrameName'), width: 375, height: 812, x: 56, y: 64 })
     } catch (e: any) {
-      ElMessage.error(e?.response?.data?.message || e?.message || '创建空白画板失败')
+      ElMessage.error(e?.response?.data?.message || e?.message || t('blankFrameFailed'))
       entering.value = false
       return
     }
@@ -503,21 +521,23 @@ async function load(silent = false) {
       elements: p.elements.length,
       annotations: p.annotations.length,
     }))
+    loadError.value = false
   } catch (e: any) {
-    ElMessage.error(e.message || '加载失败')
+    loadError.value = true
   } finally {
     if (!silent) loading.value = false
   }
 }
 
 async function scan() {
+  if (scanning.value || loading.value || loadError.value) return
   scanning.value = true
   try {
     const created = await projectApi.scan(id)
-    ElMessage.success(created.length > 0 ? `扫描完成，新增 ${created.length} 个页面` : '没有新的设计稿')
+    ElMessage.success(created.length > 0 ? t('scanCompleted', { n: created.length }) : t('scanNoNewDesigns'))
     await load()
   } catch (e: any) {
-    ElMessage.error(e.message || '扫描失败')
+    ElMessage.error(e.message || t('scanFailed'))
   } finally {
     scanning.value = false
   }
@@ -538,7 +558,7 @@ async function pollAnalysisStatus() {
     if (status.analyzing) {
       sessionStorage.setItem('wf_analyzing_proj_' + id, '1')
       analyzing.value = true
-      analyzeProgressText.value = status.step || `正在分析 (${status.current}/${status.total})...`
+      analyzeProgressText.value = status.step || t('analysisProgressFallback', { current: status.current, total: status.total })
       startPolling()
     } else {
       const wasTracking = analyzing.value || sessionStorage.getItem('wf_analyzing_proj_' + id) === '1'
@@ -549,9 +569,9 @@ async function pollAnalysisStatus() {
 
       if (wasTracking) {
         if (status.lastError) {
-          ElMessage.error(`分析中断：${status.lastError}`)
+          ElMessage.error(t('analysisInterrupted', { error: status.lastError }))
         } else if (status.okCount > 0) {
-          ElMessage.success(`分析完成：成功 ${status.okCount} 页${status.failCount > 0 ? `，失败 ${status.failCount} 页` : ''}`)
+          ElMessage.success(t('analysisCompleteSummary', { ok: status.okCount, failed: status.failCount }))
         } else if (status.step && status.step.includes('完成')) {
           ElMessage.success(status.step)
         }
@@ -565,7 +585,7 @@ async function pollAnalysisStatus() {
       stopPolling()
       analyzing.value = false
       analyzeProgressText.value = ''
-      ElMessage.error('无法连接到后端分析服务，已恢复按钮状态')
+      ElMessage.error(t('analysisServiceUnavailable'))
     }
   }
 }
@@ -577,15 +597,15 @@ function startPolling() {
 }
 
 async function analyze() {
-  if (analyzing.value) return
+  if (analyzing.value || loading.value || loadError.value) return
   const pending = pages.value.filter((p: any) => !p.analyzed || p.elements === 0)
   if (pending.length === 0) {
-    ElMessage.info('所有页面都已有原型线稿，无需生成')
+    ElMessage.info(t('allPrototypesGenerated'))
     return
   }
 
   analyzing.value = true
-  analyzeProgressText.value = '准备启动 AI 分析...'
+  analyzeProgressText.value = t('preparingAnalysis')
   sessionStorage.setItem('wf_analyzing_proj_' + id, '1')
   try {
     const status = await projectApi.startAnalyze(id)
@@ -597,7 +617,7 @@ async function analyze() {
     sessionStorage.removeItem('wf_analyzing_proj_' + id)
     analyzing.value = false
     analyzeProgressText.value = ''
-    ElMessage.error(err?.response?.data?.message || err?.message || '启动分析失败')
+    ElMessage.error(err?.response?.data?.message || err?.message || t('analysisStartFailed'))
   }
 }
 

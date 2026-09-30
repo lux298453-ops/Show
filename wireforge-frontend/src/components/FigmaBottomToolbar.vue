@@ -13,17 +13,17 @@
     <Transition name="figma-popover">
       <div
         v-if="isResourcesPopoverOpen"
-        class="absolute bottom-[calc(100%+12px)] left-1/2 -translate-x-1/2 w-[420px] max-h-[480px] bg-white/95 backdrop-blur-2xl border border-slate-200/90 shadow-2xl shadow-slate-950/20 rounded-2xl flex flex-col overflow-hidden z-50"
+        class="resources-popover absolute bottom-[calc(100%+12px)] left-1/2 -translate-x-1/2 w-[420px] max-h-[480px] bg-white/95 backdrop-blur-2xl border border-slate-200/90 shadow-2xl shadow-slate-950/20 rounded-2xl flex flex-col overflow-hidden z-50"
         @click.stop
       >
         <!-- Popover Header -->
         <div class="px-3.5 py-2.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div class="flex items-center gap-2">
             <div class="w-5 h-5 rounded-md bg-[#0D99FF]/10 text-[#0D99FF] flex items-center justify-center font-bold text-xs">
-              ❖
+              <Component class="w-4 h-4" />
             </div>
-            <span class="text-xs font-bold text-slate-800">原子组件与插件库</span>
-            <span class="text-[10px] text-slate-400 font-mono">Resources</span>
+            <span class="text-xs font-medium text-slate-800">{{ t('componentsTab') }}</span>
+            <span class="text-[11px] text-slate-400 tabular-nums">{{ filteredItems.length }}</span>
           </div>
           <button
             type="button"
@@ -42,7 +42,7 @@
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="搜索组件..."
+              :placeholder="t('searchComponents')"
               class="w-full text-xs bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400"
             />
             <button
@@ -66,8 +66,9 @@
                 ? 'bg-white text-[#0D99FF] shadow-2xs font-bold'
                 : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'"
               @click="activeCat = cat.id"
+              :aria-pressed="activeCat === cat.id"
             >
-              {{ cat.name }}
+              {{ t('cat_' + cat.id) }}
             </button>
           </div>
         </div>
@@ -82,7 +83,11 @@
             <div
               v-for="item in filteredItems"
               :key="item.id"
-              class="group relative bg-slate-50/70 hover:bg-white border border-slate-200/80 hover:border-[#0D99FF] rounded-xl h-18 shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing flex items-center justify-center overflow-hidden p-2"
+              class="resource-item group relative cursor-grab active:cursor-grabbing flex flex-col overflow-hidden"
+              role="button"
+              tabindex="0"
+              @keydown.enter.self.prevent="insertComponent(item)"
+              @keydown.space.self.prevent="insertComponent(item)"
               draggable="true"
               :title="item.name"
               @dragstart="onDragStart($event, item)"
@@ -100,9 +105,8 @@
               </button>
 
               <!-- Visual Preview (Pure preview without explanatory labels) -->
-              <div class="w-full h-full flex items-center justify-center pointer-events-none overflow-hidden">
-                <div v-html="item.previewHtml" class="scale-100 transform-origin-center"></div>
-              </div>
+              <ComponentThumbnail :html="item.previewHtml" />
+              <span class="resource-name truncate">{{ item.name }}</span>
             </div>
           </div>
         </div>
@@ -437,6 +441,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import ComponentThumbnail from './ComponentThumbnail.vue'
+import { t } from '../utils/i18n'
 import {
   MousePointer2,
   Hand,

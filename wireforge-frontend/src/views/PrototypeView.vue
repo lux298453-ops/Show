@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-[#1e1e1e] text-slate-800 dark:text-slate-100 select-none selection:bg-emerald-500 selection:text-white transition-colors duration-200">
+  <div class="prototype-workbench h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-[#1e1e1e] text-slate-800 dark:text-slate-100 select-none selection:bg-emerald-500 selection:text-white transition-colors duration-200">
     <!-- ===== Professional SaaS Top Toolbar ===== -->
     <header class="px-5 py-1 bg-white/95 dark:bg-[#2c2c2c] backdrop-blur-md border-b border-slate-200/80 dark:border-[#383838] flex items-center justify-between z-40 shrink-0 shadow-2xs dark:shadow-md transition-colors">
       <!-- Left: Back & Project Info -->
@@ -24,7 +24,7 @@
             {{ proto?.project.name || t('prototypeCanvas') }}
           </span>
           <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#383838] text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-[#484848] uppercase tracking-wider">
-            {{ t('interactiveMode') }}
+            {{ t('prototypeCanvas') }}
           </span>
         </div>
       </div>
@@ -34,6 +34,10 @@
 
       <!-- Right: Preview CTA Dropdown (Figma Style) & Navbar Controls -->
       <div class="flex items-center gap-2.5">
+        <span class="workbench-save-status" :class="{ 'is-error': saveStatus === 'error' }" role="status" aria-live="polite">
+          <span class="save-status-dot" :class="{ 'is-saving': saveStatus === 'saving' }"></span>
+          {{ saveStatusLabel }}
+        </span>
         <el-dropdown trigger="click" @command="handlePreviewCommand">
           <button
             class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white dark:text-[#38bdf8] bg-[#0d99ff] hover:bg-[#0b87e0] active:bg-[#0972bd] dark:bg-[#0d99ff]/20 dark:hover:bg-[#0d99ff]/35 dark:active:bg-[#0d99ff]/50 border border-[#0d99ff]/90 dark:border-[#0d99ff]/50 rounded-xl shadow-sm dark:shadow-[0_0_14px_rgba(13,153,255,0.25)] transition-all cursor-pointer"
@@ -71,14 +75,26 @@
       </div>
     </header>
 
+    <div v-if="canRetry || hasManualFailures" class="workbench-alert" role="alert">
+      <AlertTriangle class="w-4 h-4 shrink-0" />
+      <span class="flex-1">{{ t('saveErrorHint') }} {{ saveErrorMessage }} <span v-if="hasManualFailures">{{ t('saveRetryManual') }}</span></span>
+      <button v-if="canRetry" class="alert-retry" :disabled="savePendingCount > 0" @click="retrySaving">{{ savePendingCount > 0 ? t('savePending') : t('saveRetry') }}</button>
+    </div>
+    <div v-if="loadError" class="workbench-alert" role="alert">
+      <AlertTriangle class="w-4 h-4 shrink-0" />
+      <span class="flex-1">{{ loadError }}</span>
+      <button class="alert-retry" :disabled="loadingData" @click="loadData">{{ loadingData ? '正在连接…' : '重试' }}</button>
+    </div>
+
     <!-- ===== Main Workbench Workspace ===== -->
     <div class="flex flex-1 overflow-hidden relative">
       <!-- ===== Left Sidebar: Design File Explorer & Component Palette ===== -->
-      <aside class="w-64 bg-white/95 backdrop-blur-md border-r border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs">
+      <aside class="editor-sidebar editor-sidebar-left w-64 bg-white/95 backdrop-blur-md border-r border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs">
         <!-- Sidebar Header: Double Tab Switch -->
-        <div class="px-2 py-2 border-b border-slate-100 dark:border-[#383838] flex items-center gap-1 bg-slate-50/70 dark:bg-[#1e1e1e] shrink-0">
+        <div class="editor-tabs px-2 py-2 border-b border-slate-100 dark:border-[#383838] flex items-center gap-1 bg-slate-50/70 dark:bg-[#1e1e1e] shrink-0">
           <button
             class="wf-tap flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            :aria-pressed="leftSidebarTab === 'outline'"
             :class="leftSidebarTab === 'outline'
               ? 'bg-white dark:bg-[#383838] text-slate-900 dark:text-white shadow-2xs border border-slate-200/80 dark:border-[#484848]'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'"
@@ -89,6 +105,7 @@
           </button>
           <button
             class="wf-tap flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            :aria-pressed="leftSidebarTab === 'layers'"
             :class="leftSidebarTab === 'layers'
               ? 'bg-white dark:bg-[#383838] text-blue-700 dark:text-[#38bdf8] shadow-2xs border border-slate-200/80 dark:border-[#484848]'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'"
@@ -138,7 +155,7 @@
               :class="p.id === focusPageId
                 ? 'bg-emerald-50/80 dark:bg-[#2c2c2c] border-emerald-200/80 dark:border-[#0D99FF]/60 text-emerald-950 dark:text-slate-100 shadow-2xs'
                 : 'hover:bg-slate-50 dark:hover:bg-[#2c2c2c]/60 border-transparent text-slate-700 dark:text-slate-300'"
-              @click="focusPage(p.id)"
+              @click="focusPage(p.id, true)"
             >
               <!-- Thumbnail -->
               <div class="w-9 h-12 rounded-lg bg-slate-100 dark:bg-[#1e1e1e] overflow-hidden border border-slate-200/80 dark:border-[#383838] shrink-0 flex items-center justify-center shadow-2xs">
@@ -348,7 +365,7 @@
                   @mousedown.stop
                 />
                 <GripVertical class="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />
-                <span class="cursor-pointer hover:underline truncate max-w-[170px]" @click.stop="focusPage(b.page.id)">{{ b.title }}</span>
+                <span class="cursor-pointer hover:underline truncate max-w-[170px]" @click.stop="focusPage(b.page.id, true)">{{ b.title }}</span>
 
                 <!-- 独占锁定徽标：他人正在微调此页 -->
                 <span
@@ -371,8 +388,8 @@
 
                 <button
                   class="wf-tap ml-0.5 p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:bg-slate-100 dark:hover:bg-[#383838] transition-colors cursor-pointer"
-                  title="放大聚焦此页"
-                  @click.stop="focusPage(b.page.id)"
+                  title="聚焦当前画板"
+                  @click.stop="focusPage(b.page.id, true)"
                   @mousedown.stop
                 >
                   <Maximize2 class="w-3 h-3" />
@@ -392,7 +409,7 @@
                   v-if="b.page.html_content"
                   class="wf-tap p-1 rounded-md text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
                   :class="{ 'animate-spin pointer-events-none': regeneratingIds.has(b.page.id) }"
-                  title="同步重绘本页渲染（本地 0 消耗）"
+                  title="更新原型预览"
                   @click.stop="onRegenerateHtml(b.page.id)"
                   @mousedown.stop
                 >
@@ -431,6 +448,8 @@
                 @navigate="onProtoNavigate"
                 @back="onProtoBack"
                 @save-html="onSaveHtml"
+                @save-dirty="markLocalEdit(String(id), $event)"
+                @save-preparation-failed="markLocalEdit(String(id), $event, '无法准备保存内容，请保持本页打开并再次尝试编辑')"
                 @element-click="handleElementClick"
                 @element-hover="handleElementHover"
                 @ann-hover="hoveredAnnId = $event"
@@ -841,7 +860,7 @@
             }"
           >
             <div class="absolute -top-7 left-0 px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold shadow-md flex items-center gap-1">
-              <span>Frame {{ Math.round(activeFrameDraw.width) }} × {{ Math.round(activeFrameDraw.height) }}</span>
+              <span>画板 {{ Math.round(activeFrameDraw.width) }} × {{ Math.round(activeFrameDraw.height) }}</span>
             </div>
           </div>
 
@@ -985,7 +1004,7 @@
               }"
               @click.stop="selectConnection(conn, $event)"
             >
-              <span class="text-[11px] text-[#0D99FF] dark:text-[#38bdf8] font-bold">⚡</span>
+              <Zap class="w-3.5 h-3.5 text-[#0D99FF] dark:text-[#38bdf8]" />
               <span class="max-w-[130px] truncate text-[11px] font-semibold" :title="`${conn.label} ➔ ${conn.toPageName}`">
                 {{ conn.label }} ➔ {{ conn.toPageName }}
               </span>
@@ -1044,7 +1063,7 @@
       </main>
 
       <!-- ===== Right Sidebar: Mode Switcher, Zoom Controls, Design Inspector & Component Palette ===== -->
-      <aside class="w-72 min-w-[288px] max-w-[288px] bg-white/95 backdrop-blur-md border-l border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs overflow-hidden">
+      <aside class="editor-sidebar editor-sidebar-right w-72 min-w-[288px] max-w-[288px] bg-white/95 backdrop-blur-md border-l border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs overflow-hidden">
         <!-- 评论模式：右侧呈现专属评论面板 -->
         <CommentPanel
           v-if="activeDrawTool === 'comment'"
@@ -1062,13 +1081,14 @@
         <template v-else>
           <!-- 0. Right Sidebar Topmost: Mode Switcher [ Design | Prototype ] -->
           <div class="px-2.5 py-2 border-b border-slate-100 dark:border-[#383838] bg-slate-50/90 dark:bg-[#252525] flex flex-col gap-1.5 shrink-0">
-          <div class="flex items-center gap-1 w-full bg-slate-200/80 dark:bg-[#1e1e1e] p-1 rounded-xl">
+          <div class="editor-mode-switch flex items-center gap-1 w-full bg-slate-200/80 dark:bg-[#1e1e1e] p-1 rounded-xl">
             <button
               class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all cursor-pointer text-center flex items-center justify-center gap-1"
               :class="workbenchMode === 'design'
                 ? 'bg-white dark:bg-[#383838] text-slate-900 dark:text-white shadow-2xs border border-slate-200/80 dark:border-[#484848]'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
               @click="setWorkbenchMode('design')"
+              :aria-pressed="workbenchMode === 'design'"
             >
               <span>{{ t('modeDesign') }}</span>
             </button>
@@ -1078,6 +1098,7 @@
                 ? 'bg-blue-600 dark:bg-[#0D99FF] text-white shadow-sm shadow-blue-500/30'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
               @click="setWorkbenchMode('interactive')"
+              :aria-pressed="workbenchMode === 'interactive'"
             >
               <span>{{ t('modePrototype') }}</span>
             </button>
@@ -1089,7 +1110,7 @@
             :title="t('aiAutowireTitle')"
             @click="triggerAutowireAi"
           >
-            <span v-if="isAutowiringAi" class="animate-spin text-xs">⏳</span>
+            <Sparkles v-if="isAutowiringAi" class="w-3.5 h-3.5 animate-spin" />
             <span>{{ isAutowiringAi ? t('aiAutowiring') : t('aiAutowire') }}</span>
           </button>
         </div>
@@ -1125,7 +1146,7 @@
             <button
               class="wf-tap p-1.5 hover:bg-slate-200/70 dark:hover:bg-[#333333] hover:text-slate-700 dark:hover:text-white rounded-md transition-colors cursor-pointer"
               :title="t('focusSelected')"
-              @click="focusPage(focusPageId ?? (blocks[0]?.page.id ?? 0))"
+              @click="focusPage(focusPageId ?? (blocks[0]?.page.id ?? 0), true)"
             >
               <Crosshair class="w-3.5 h-3.5" />
             </button>
@@ -1140,13 +1161,14 @@
         </div>
 
         <!-- 2. Right Sidebar Header: Double Tab Switch -->
-        <div class="px-2 py-1.5 border-b border-slate-100 dark:border-[#383838] flex items-center gap-1 bg-white dark:bg-[#252525] shrink-0">
+        <div class="editor-tabs px-2 py-1.5 border-b border-slate-100 dark:border-[#383838] flex items-center gap-1 bg-white dark:bg-[#252525] shrink-0">
           <button
             class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             :class="rightSidebarTab === 'design'
               ? 'bg-slate-100 dark:bg-[#383838] text-slate-900 dark:text-white font-bold border border-slate-200/80 dark:border-[#484848] shadow-2xs'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
             @click="rightSidebarTab = 'design'"
+            :aria-pressed="rightSidebarTab === 'design'"
           >
             <SlidersHorizontal class="w-3.5 h-3.5" :class="rightSidebarTab === 'design' ? 'text-[#0D99FF]' : 'text-slate-400'" />
             <span>{{ t('inspectorTab') }}</span>
@@ -1157,6 +1179,7 @@
               ? 'bg-blue-50 dark:bg-[#1e3a5f] text-blue-700 dark:text-[#38bdf8] font-bold border border-blue-200/80 dark:border-[#0D99FF]/40 shadow-2xs'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
             @click="rightSidebarTab = 'components'"
+            :aria-pressed="rightSidebarTab === 'components'"
           >
             <Component class="w-3.5 h-3.5" :class="rightSidebarTab === 'components' ? 'text-blue-600 dark:text-[#38bdf8]' : 'text-slate-400'" />
             <span>{{ t('componentsTab') }}</span>
@@ -1242,7 +1265,7 @@
                   @click="selectConnIds([c.id])"
                 >
                   <div class="flex items-center gap-1.5 truncate">
-                    <span class="text-[#0D99FF] text-[10px]">⚡</span>
+                    <Zap class="w-3 h-3 text-[#0D99FF]" />
                     <span class="font-medium text-slate-700 dark:text-slate-200 truncate">{{ c.label }} ➔ {{ c.toPageName }}</span>
                   </div>
                   <button
@@ -1274,6 +1297,7 @@
             @update-text-style="onInspectorUpdateTextStyle"
             @align-selection="onInspectorAlign"
             @update-radius="onInspectorUpdateRadius"
+            @update-opacity="onInspectorUpdateOpacity"
             @update-stroke="onInspectorUpdateStroke"
             @update-effects="onInspectorUpdateEffects"
             @duplicate-selection="onInspectorDuplicate"
@@ -1947,7 +1971,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft,
@@ -1986,6 +2010,7 @@ import ComponentPalette, { type PaletteItem } from '../components/ComponentPalet
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
 import NavbarControls from '../components/NavbarControls.vue'
 import { t } from '../utils/i18n'
+import { discardSaveState, markLocalEdit, useSaveState } from '../utils/saveState'
 import LayerTree from '../components/LayerTree.vue'
 import DesignInspector from '../components/DesignInspector.vue'
 import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
@@ -2270,6 +2295,41 @@ async function handleCommentDelete(threadId: number) {
 const route = useRoute()
 const router = useRouter()
 const id = Number(route.params.id)
+const { status: saveStatus, errorMessage: saveErrorMessage, pendingCount: savePendingCount, retryFailed, canRetry, hasManualFailures, hasUnsavedChanges } = useSaveState(String(id))
+const saveStatusLabel = computed(() => ({ idle: t('saveIdle'), dirty: t('saveDirty'), saving: t('savePending'), saved: t('saveComplete'), error: t('saveError') })[saveStatus.value])
+const loadError = ref('')
+const loadingData = ref(false)
+
+async function retrySaving() {
+  try {
+    await retryFailed()
+  } catch {
+    // Failed writes remain visible in the persistent status bar for another retry.
+  }
+}
+
+function onUnsavedBeforeUnload(event: BeforeUnloadEvent) {
+  persistWorkbenchView()
+  if (hasUnsavedChanges.value) {
+    event.preventDefault()
+    event.returnValue = ''
+  }
+}
+
+onBeforeRouteLeave(async () => {
+  if (!hasUnsavedChanges.value) return true
+  try {
+    await ElMessageBox.confirm('还有尚未保存的更改。离开后，当前编辑内容可能丢失。', '离开工作台', {
+      confirmButtonText: '仍然离开',
+      cancelButtonText: '继续编辑',
+      type: 'warning',
+    })
+    discardSaveState(String(id))
+    return true
+  } catch {
+    return false
+  }
+})
 
 const proto = ref<Prototype | null>(null)
 const pages = computed(() => proto.value?.pages || [])
@@ -2298,7 +2358,7 @@ function setWorkbenchMode(m: 'design' | 'interactive') {
     flowHandleArmed.value = false
     selectedConnIds.value = new Set()
     ElMessage.info({
-      message: '已切回 Design',
+      message: '已切回设计模式',
       duration: 2000,
     })
   }
@@ -2406,20 +2466,25 @@ function onPageBlockClick(e: MouseEvent, b: any) {
   showFrameFill(b.page.id)
 }
 
+const htmlSaveVersions = new Map<number, number>()
+
 function onSaveHtml(p: { pageId: number; html: string }) {
   const conflict = pageEditingConflicts.value[p.pageId]?.conflict
   if (conflict) {
     const editor = pageEditingConflicts.value[p.pageId]?.editor || '其他成员'
     const pageName = pages.value.find((pg) => pg.id === p.pageId)?.name || '页面'
+    markLocalEdit(String(id), p.pageId, `「${pageName}」正在由 ${editor} 编辑，当前更改尚未保存。`)
     showToast(`保存被拦截:「${pageName}」当前正被 ${editor} 独占微调，无法覆盖其修改。`)
     return
   }
+  const version = (htmlSaveVersions.get(p.pageId) || 0) + 1
+  htmlSaveVersions.set(p.pageId, version)
   projectApi
     .saveHtml(id, p.pageId, p.html, clientId.value)
     .then(() => {
+      if (htmlSaveVersions.get(p.pageId) !== version) return
       const page = proto.value?.pages.find((pg) => pg.id === p.pageId)
       if (page) page.html_content = p.html
-      showToast('微调已保存')
     })
     .catch((e: any) => showToast(`保存失败: ${e?.response?.data?.message || e?.message || '未知错误'}`))
 }
@@ -2875,7 +2940,7 @@ function startFrameDraw(logicX: number, logicY: number) {
     const finalY = isClick ? s.startY : s.top
 
     await handleCreateFrameOnCanvas(finalX, finalY, {
-      name: `Frame ${pages.value.length + 1}`,
+      name: `画板 ${pages.value.length + 1}`,
       width: finalW,
       height: finalH,
     })
@@ -3221,15 +3286,17 @@ async function onGeneratePrototypeForDesign(b: { page: Page; x: number; y: numbe
 }
 
 async function onRegenerateHtml(pageId: number) {
-  if (regeneratingIds.value.has(pageId)) return
+  if (regeneratingIds.value.has(pageId)) return false
   regeneratingIds.value.add(pageId)
   try {
     const html = await projectApi.regenerateHtml(id, pageId)
     const page = proto.value?.pages.find((p) => p.id === pageId)
     if (page) page.html_content = html
-    showToast(`页面「${page?.name || pageId}」画板渲染已同步`)
+    showToast(`「${page?.name || pageId}」原型预览已更新`)
+    return true
   } catch (e: any) {
-    showToast(`同步失败: ${e?.message || '未知错误'}`)
+    showToast(`更新预览失败: ${e?.message || '未知错误'}`)
+    return false
   } finally {
     regeneratingIds.value.delete(pageId)
     regenChecked.value.delete(pageId)
@@ -3240,20 +3307,22 @@ async function onRegenerateHtml(pageId: number) {
 async function onRegenerateChecked() {
   const targets = pages.value.filter((p) => p.html_content && regenChecked.value.has(p.id)).map((p) => p.id)
   if (!targets.length) {
-    showToast('请先勾选要同步的页面')
+    showToast('请先勾选要更新预览的画板')
     return
   }
   let ok = 0
   for (const pageId of targets) {
-    await onRegenerateHtml(pageId)
-    ok++
+    if (await onRegenerateHtml(pageId)) ok++
   }
-  showToast(`已同步 ${ok} 个画板的整页渲染`)
+  showToast(ok === targets.length ? `已更新 ${ok} 个画板的预览` : `已更新 ${ok} 个画板，${targets.length - ok} 个未完成，请重试`)
 }
 
 const isReanalyzing = ref(false)
 
 async function loadData() {
+  if (loadingData.value) return
+  loadingData.value = true
+  loadError.value = ''
   try {
     proto.value = await projectApi.prototype(id)
     await loadComments()
@@ -3275,7 +3344,9 @@ async function loadData() {
       activeInteractionPageId.value = focusPageId.value || proto.value.pages[0]?.id || null
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '加载失败')
+    loadError.value = `暂时无法加载项目，请重试。${e?.response?.data?.message || e?.message || ''}`
+  } finally {
+    loadingData.value = false
   }
 }
 
@@ -3383,7 +3454,7 @@ function clearStampedNav(params?: string | null, pageId?: number, toPageName?: s
     }
     if (updated !== sourcePage.html_content) {
       sourcePage.html_content = updated
-      projectApi.saveHtml(id, pageId, updated).catch(() => {})
+      projectApi.saveHtml(id, pageId, updated).catch((e: any) => showToast(`交互更改保存失败: ${e?.response?.data?.message || e?.message || '请重新保存'}`))
     }
   }
 }
@@ -4913,7 +4984,7 @@ function viewportSize() {
   return { w: r.width, h: r.height }
 }
 
-function focusPage(pageId: number) {
+function focusPage(pageId: number, fitGroup = false) {
   const b = (workbenchMode.value === 'interactive'
     ? blocks.value.find((bb) => bb.page.id === pageId && bb.blockType === 'prototype')
     : null) || blocks.value.find((bb) => bb.page.id === pageId)
@@ -4931,6 +5002,10 @@ function focusPage(pageId: number) {
     selectedDomLayerUids.value = []
   }
   showFrameFill(pageId)
+  if (fitGroup) {
+    fitPageGroup(pageId)
+    return
+  }
   const { w, h } = viewportSize()
   const v = view.value
   const targetX = w / 2 - (b.x + b.w / 2) * v.k
@@ -4939,6 +5014,69 @@ function focusPage(pageId: number) {
   view.value = { ...v, x: targetX, y: targetY }
   if (animTimer) clearTimeout(animTimer)
   animTimer = setTimeout(() => (animating.value = false), 500)
+}
+
+/** Fit the current page's existing artboards without changing their persisted positions. */
+function fitPageGroup(pageId: number) {
+  const group = blocks.value.filter((block) => block.pageId === pageId)
+  if (!group.length || !viewportRef.value) return
+  const minX = Math.min(...group.map((block) => block.x))
+  const minY = Math.min(...group.map((block) => block.y - 42))
+  const maxX = Math.max(...group.map((block) => block.x + block.w + (blockShowsAnnotations(block) ? ANN_CLEAR : 0)))
+  const maxY = Math.max(...group.map((block) => block.y + block.h))
+  const { w, h } = viewportSize()
+  const paddingX = Math.min(64, w * 0.08)
+  const paddingTop = 40
+  const paddingBottom = 100 // Keep the floating drawing toolbar clear of the artboards.
+  const availableW = Math.max(1, w - paddingX * 2)
+  const availableH = Math.max(1, h - paddingTop - paddingBottom)
+  const scale = Math.min(1, availableW / (maxX - minX), availableH / (maxY - minY))
+  animating.value = true
+  view.value = {
+    k: scale,
+    x: w / 2 - (minX + maxX) / 2 * scale,
+    y: paddingTop + availableH / 2 - (minY + maxY) / 2 * scale,
+  }
+  if (animTimer) clearTimeout(animTimer)
+  animTimer = setTimeout(() => (animating.value = false), 450)
+}
+
+const workbenchStorageKey = `wf_workbench_view_${id}`
+let persistViewTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistWorkbenchView() {
+  if (!didInitialFocus || !viewportRef.value) return
+  const { w, h } = viewportSize()
+  try {
+    localStorage.setItem(workbenchStorageKey, JSON.stringify({
+      view: view.value,
+      pageId: focusPageId.value,
+      viewport: { w, h },
+    }))
+  } catch {
+    // Canvas navigation still works when browser storage is unavailable.
+  }
+}
+
+function restoreWorkbenchView() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(workbenchStorageKey) || 'null')
+    if (!saved || !pages.value.some((page) => page.id === saved.pageId)) return false
+    const savedView = saved.view
+    if (!savedView || ![savedView.x, savedView.y, savedView.k].every(Number.isFinite) || savedView.k <= 0 || savedView.k > 3) return false
+    const { w, h } = viewportSize()
+    const oldW = Number.isFinite(saved.viewport?.w) ? saved.viewport.w : w
+    const oldH = Number.isFinite(saved.viewport?.h) ? saved.viewport.h : h
+    focusPageId.value = saved.pageId
+    selectedNodeId.value = saved.pageId
+    activeInteractionPageId.value = saved.pageId
+    previewPageId.value = saved.pageId
+    view.value = { k: savedView.k, x: savedView.x + (w - oldW) / 2, y: savedView.y + (h - oldH) / 2 }
+    showFrameFill(saved.pageId)
+    return true
+  } catch {
+    return false
+  }
 }
 
 let dragRafId: number | null = null
@@ -5383,13 +5521,15 @@ function targetPageName(ix: { target_page_id?: number | null }): string {
   return pages.value.find((p) => p.id === ix.target_page_id)?.name || `#${ix.target_page_id}`
 }
 
-function handleAnnOrderChange(pageId: number, order: number[]) {
+async function handleAnnOrderChange(pageId: number, order: number[]) {
   pageAnnOrders.value[pageId] = order
   saveAnnOrders()
-  projectApi.updatePageAnnotationOrders(id, pageId, order).catch((e: any) => {
-    console.error('Failed to sync annotation orders to server', e)
-  })
-  showToast('画布说明顺序已更新并同步')
+  try {
+    await projectApi.updatePageAnnotationOrders(id, pageId, order)
+    showToast('说明顺序已保存')
+  } catch (e: any) {
+    showToast(`说明顺序保存失败: ${e?.response?.data?.message || e?.message || '请重新保存'}`)
+  }
 }
 
 // 持久化自定义说明标题 (双向同步到画布与模拟器)
@@ -5845,6 +5985,12 @@ function onInspectorUpdateRadius(radius: number) {
   }
 }
 
+function onInspectorUpdateOpacity(payload: { opacity: number; live?: boolean }) {
+  if (currentFocusPage.value) {
+    pageRefs.value[currentFocusPage.value.id]?.updateElementOpacity?.(payload.opacity, !!payload.live)
+  }
+}
+
 function onInspectorUpdateStroke(stroke: { width: number; color: string; style: string }) {
   if (currentFocusPage.value) {
     pageRefs.value[currentFocusPage.value.id]?.updateElementStroke?.(stroke)
@@ -6088,14 +6234,14 @@ function onVectorCommit(results: any[]) {
     activeDrawTool.value = 'select'
     activeVectorPageId.value = null
     vectorHostKey.value = null
-    showToast('矢量图形修改已保存')
+    showToast('矢量图形修改已应用')
   } else {
     // 新绘制的图形
     const keepDrawing = activeDrawTool.value === 'pencil'
     pageRefs.value[pid]?.insertVectorShapes(results, undefined, !keepDrawing)
     const drewOnDesign = vectorHostKey.value?.startsWith('design-')
     if (keepDrawing) {
-      showToast(drewOnDesign ? '这一笔已放到右侧原型图，可继续画，按 Esc 退出' : '这一笔已保存，可继续画下一笔，按 Esc 退出')
+      showToast(drewOnDesign ? '这一笔已放到右侧原型，可继续画，按 Esc 退出' : '这一笔已加入画板，可继续画下一笔，按 Esc 退出')
       return
     }
     activeDrawTool.value = 'select'
@@ -6143,7 +6289,7 @@ function onVectorToolbarDone() {
   const inst = Array.isArray(vectorOverlayRef.value) ? vectorOverlayRef.value[0] : vectorOverlayRef.value
   if (activeDrawTool.value === 'pencil' && !isEditingVector.value) {
     if (inst?.hasActivePoints?.()) inst.commitPath?.()
-    showToast('这一笔已经保存，可以直接画下一笔。按 Esc 或点叉才退出铅笔')
+    showToast('这一笔已加入画板，可以继续画下一笔。按 Esc 或点叉退出铅笔')
     return
   }
   if (inst && typeof inst.commitPath === 'function') {
@@ -6258,12 +6404,7 @@ function onSimDrop(e: DragEvent, targetId: number) {
 
     const pageId = previewPage.value.id
     const newOrder = currentList.map((a) => a.id)
-    pageAnnOrders.value[pageId] = newOrder
-    saveAnnOrders()
-    projectApi.updatePageAnnotationOrders(id, pageId, newOrder).catch((e: any) => {
-      console.error('Failed to sync annotation orders to server', e)
-    })
-    showToast('已调整业务说明排序')
+    void handleAnnOrderChange(pageId, newOrder)
   }
 
   dragOverAnnId.value = null
@@ -6680,6 +6821,7 @@ watch(activeEditingPageId, (newId, oldId) => {
 })
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', onUnsavedBeforeUnload)
   window.addEventListener('resize', updatePhoneScale)
   window.addEventListener('wf-component-dragstart', () => {
     isDraggingComponent.value = true
@@ -6722,14 +6864,12 @@ watch(
       didInitialFocus = true
       nextTick(() => {
         const qPage = route.query.page ? Number(route.query.page) : null
-        const targetBlock = (qPage ? blocks.value.find((b) => b.page.id === qPage) : null) || blocks.value[0]
+        const requestedBlock = qPage ? blocks.value.find((b) => b.page.id === qPage) : null
+        if (!requestedBlock && restoreWorkbenchView()) return
+        const targetBlock = requestedBlock || blocks.value[0]
         if (!targetBlock) return
-        focusPageId.value = targetBlock.page.id
-        if (qPage) {
-          previewPageId.value = qPage
-        }
-        const { w, h } = viewportSize()
-        view.value = { x: w / 2 - (targetBlock.x + targetBlock.w / 2), y: h / 2 - (targetBlock.y + targetBlock.h / 2), k: 1 }
+        previewPageId.value = targetBlock.page.id
+        focusPage(targetBlock.page.id, true)
       })
     }
   },
@@ -6742,7 +6882,7 @@ watch(
     if (newPageId != null) {
       const pid = Number(newPageId)
       if (!isNaN(pid) && pages.value.some((p) => p.id === pid)) {
-        focusPage(pid)
+        focusPage(pid, true)
         if (mode.value === 'preview') {
           previewPageId.value = pid
         }
@@ -6752,6 +6892,9 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  persistWorkbenchView()
+  if (persistViewTimer) clearTimeout(persistViewTimer)
+  window.removeEventListener('beforeunload', onUnsavedBeforeUnload)
   window.removeEventListener('mousedown', onLayerMenuPointerDown, true)
   window.removeEventListener('keydown', onLayerMenuKey)
   if (editStatusTimer) clearInterval(editStatusTimer)
@@ -6765,6 +6908,12 @@ onBeforeUnmount(() => {
   window.removeEventListener('mouseup', onWindowMouseUp)
   window.removeEventListener('resize', updatePhoneScale)
 })
+
+watch([view, focusPageId], () => {
+  if (!didInitialFocus) return
+  if (persistViewTimer) clearTimeout(persistViewTimer)
+  persistViewTimer = setTimeout(persistWorkbenchView, 250)
+}, { deep: true })
 
 watch(
   mode,
@@ -7201,8 +7350,120 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
+.prototype-workbench {
+  > header {
+    min-height: 56px;
+    padding-block: 8px;
+    box-shadow: none;
+
+    button {
+      border-radius: 7px;
+      box-shadow: none;
+      font-size: 13px;
+      font-weight: 500;
+    }
+  }
+
+  aside {
+    box-shadow: none;
+    backdrop-filter: none;
+
+    .wf-tap {
+      box-shadow: none;
+      border-radius: 6px;
+    }
+
+    .text-xs {
+      font-size: 12px;
+    }
+  }
+
+  .page-block {
+    border-radius: 2px;
+    --tw-shadow: 0 2px 8px rgb(15 23 42 / 5%);
+  }
+
+  .block-label {
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+}
+
+.workbench-save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 8px;
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+
+  &.is-error {
+    color: #b45309;
+  }
+}
+
+.save-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+
+  &.is-saving {
+    animation: savePulse 1.2s ease-in-out infinite;
+  }
+}
+
+.workbench-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.5;
+  z-index: 30;
+}
+
+.alert-retry {
+  flex-shrink: 0;
+  border: 1px solid #d97706;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: wait;
+  }
+}
+
+:global(.dark .workbench-alert) {
+  background: #30251c;
+  border-color: #78502a;
+  color: #fcd9a4;
+}
+
+:global(.dark .workbench-save-status) {
+  color: #a6b0bd;
+}
+
+:global(.dark .workbench-save-status.is-error) {
+  color: #fcd9a4;
+}
+
+@keyframes savePulse {
+  50% { opacity: 0.3; }
+}
+
 .canvas-viewport {
-  background-color: #f5f5f5;
+  background-color: #f2f4f7;
 }
 
 .canvas-content {

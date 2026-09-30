@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center gap-2" ref="containerRef">
+  <div class="wf-navbar-controls flex items-center gap-2" ref="containerRef" @keydown.esc="isLangOpen = false; isThemeOpen = false">
     <!-- ===== 1. Language Toggle Button ===== -->
     <div class="relative">
       <button
@@ -10,6 +10,8 @@
             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/90 dark:text-slate-200 dark:hover:text-white dark:hover:bg-[#444444] border border-slate-200/80 dark:border-[#484848] bg-white/70 dark:bg-[#383838] shadow-2xs'
         "
         :title="t('language')"
+        :aria-label="t('language')"
+        :aria-expanded="isLangOpen"
         @click.stop="toggleLang"
       >
         <Globe class="w-4 h-4" />
@@ -67,6 +69,8 @@
             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/90 dark:text-slate-200 dark:hover:text-white dark:hover:bg-[#444444] border border-slate-200/80 dark:border-[#484848] bg-white/70 dark:bg-[#383838] shadow-2xs'
         "
         :title="t('appearance')"
+        :aria-label="t('appearance')"
+        :aria-expanded="isThemeOpen"
         @click.stop="toggleTheme"
       >
         <!-- Icon reflecting current mode -->
@@ -211,3 +215,26 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
 })
 </script>
+
+<style scoped>
+.wf-navbar-controls > .relative > button {
+  border-radius: 6px;
+  box-shadow: none;
+}
+.wf-navbar-controls .absolute {
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(15 23 42 / 12%);
+}
+.wf-navbar-controls button[class*="bg-emerald"] {
+  background: var(--wf-primary-light);
+  border-color: var(--wf-primary);
+  color: var(--wf-primary);
+  box-shadow: none;
+}
+.wf-navbar-controls button[class*="bg-emerald"] :deep(svg) { color: inherit; }
+.wf-navbar-controls .absolute button { border-radius: 5px; }
+:global(html.dark .wf-navbar-controls button[class*="bg-emerald"]) {
+  background: #193b54;
+  color: #7dd3fc;
+}
+</style>

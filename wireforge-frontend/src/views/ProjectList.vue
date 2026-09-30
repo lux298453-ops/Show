@@ -1,441 +1,205 @@
 <template>
-  <div class="min-h-screen bg-[#f8fafc] dark:bg-[#1e1e1e] flex flex-col text-slate-800 dark:text-slate-100 selection:bg-emerald-500 selection:text-white transition-colors duration-200">
-    <!-- ===== Global Figma-Style Header ===== -->
-    <header class="sticky top-0 z-30 bg-white/95 dark:bg-[#2c2c2c] backdrop-blur-md border-b border-slate-200/80 dark:border-[#383838] px-6 py-2.5 transition-all shadow-2xs dark:shadow-md dark:shadow-black/50">
-      <div class="w-full flex items-center justify-between gap-4">
-        <!-- Logo and Brand -->
-        <div class="flex items-center gap-2.5 select-none">
-          <img
-            src="/favicon.svg"
-            alt="WireForge Logo"
-            class="w-7 h-7 rounded-lg object-contain shadow-2xs hover:scale-105 transition-transform shrink-0"
-          />
-          <span class="text-sm font-bold text-slate-900 dark:text-white tracking-tight">WireForge</span>
-        </div>
-
-        <!-- Header Actions & Engine Status -->
-        <div class="flex items-center gap-3">
-          <div class="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-200 bg-slate-100/80 dark:bg-[#383838] px-2.5 py-1 rounded-md border border-slate-200/60 dark:border-[#484848]">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <span>{{ t('engineReady') }}</span>
-          </div>
-
-          <button
-            class="wf-tap inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white dark:text-[#38bdf8] bg-[#0d99ff] hover:bg-[#0b87e0] active:bg-[#0972bd] dark:bg-[#0d99ff]/20 dark:hover:bg-[#0d99ff]/35 dark:active:bg-[#0d99ff]/50 rounded-lg shadow-xs shadow-[#0d99ff]/20 dark:shadow-[0_0_14px_rgba(13,153,255,0.25)] border border-[#0d99ff]/90 dark:border-[#0d99ff]/50 transition-all cursor-pointer"
-            @click="dialogVisible = true"
-          >
-            <Plus class="w-3.5 h-3.5" />
-            <span>{{ t('newProject') }}</span>
-          </button>
-
-          <!-- Language & Appearance Controls (1:1 with reference images) -->
+  <div class="project-home">
+    <header class="home-header">
+      <div class="home-header-inner">
+        <RouterLink to="/" class="brand" aria-label="WireForge"><img src="/favicon.svg" alt="" /><span>WireForge</span></RouterLink>
+        <div class="header-actions">
+          <button class="home-button primary" @click="dialogVisible = true"><Plus :size="16" />{{ t('newProject') }}</button>
           <NavbarControls />
         </div>
       </div>
     </header>
 
-    <!-- ===== Secondary Toolbar (Title, Search, View Switcher) ===== -->
-    <div class="border-b border-slate-200/70 dark:border-[#333333] bg-white/70 dark:bg-[#252525] px-6 py-3 transition-colors">
-      <div class="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-        <!-- Title and Count -->
-        <div class="flex items-center gap-2.5">
-          <h1 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight">{{ t('projectLibrary') }}</h1>
-          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#383838] text-slate-600 dark:text-slate-200 tabular-nums border border-slate-200/60 dark:border-[#484848]">
-            {{ t('projectsCount', { n: projects.length }) }}
-          </span>
-        </div>
-
-        <!-- Search & View Mode Switcher -->
-        <div class="flex items-center gap-2.5">
-          <!-- Search Box -->
-          <div class="relative w-48 sm:w-56">
-            <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <input
-              v-model="searchQuery"
-              type="text"
-              :placeholder="t('searchProjects')"
-              class="w-full pl-8 pr-2.5 py-1 text-xs bg-white dark:bg-[#1e1e1e] border border-slate-200 dark:border-[#444444] rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-400 focus:outline-none focus:border-[#0d99ff] focus:ring-1 focus:ring-[#0d99ff]/30 transition-all"
-            />
-          </div>
-
-          <!-- View Mode Switcher -->
-          <div class="flex items-center bg-slate-100/90 dark:bg-[#1a1a1a] p-0.5 rounded-lg border border-slate-200/70 dark:border-[#383838]">
-            <button
-              class="p-1 rounded-md transition-all cursor-pointer"
-              :class="viewMode === 'grid' ? 'bg-white dark:bg-[#383838] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
-              :title="t('gridView')"
-              @click="viewMode = 'grid'"
-            >
-              <LayoutGrid class="w-3.5 h-3.5" />
-            </button>
-            <button
-              class="p-1 rounded-md transition-all cursor-pointer"
-              :class="viewMode === 'list' ? 'bg-white dark:bg-[#383838] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
-              :title="t('listView')"
-              @click="viewMode = 'list'"
-            >
-              <List class="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== Main Content Area ===== -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-6 py-6">
-      <!-- Loading State -->
-      <div v-if="loading" class="flex flex-col items-center justify-center py-24">
-        <div class="w-8 h-8 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
-        <p class="mt-3 text-xs text-slate-400 font-medium tracking-wide">正在载入项目列表...</p>
+    <main class="home-main">
+      <section class="library-heading">
+        <div><p class="eyebrow">{{ copy.workspace }}</p><h1>{{ copy.myProjects }}</h1><p class="heading-description">{{ copy.intro }}</p></div>
+        <span v-if="!loading && !loadError" class="project-count">{{ t('projectsCount', { n: projects.length }) }}</span>
+      </section>
+      <div class="library-toolbar">
+        <label class="project-search"><Search :size="17" /><input v-model="searchQuery" type="search" :placeholder="t('searchProjects')" :aria-label="t('searchProjects')" /></label>
+        <div class="toolbar-right"><span class="sort-label">{{ copy.sort }}</span><div class="view-switch" role="group" :aria-label="copy.view">
+          <button :class="{ active: viewMode === 'grid' }" :aria-label="t('gridView')" :aria-pressed="viewMode === 'grid'" :title="t('gridView')" @click="viewMode = 'grid'"><LayoutGrid :size="17" /></button>
+          <button :class="{ active: viewMode === 'list' }" :aria-label="t('listView')" :aria-pressed="viewMode === 'list'" :title="t('listView')" @click="viewMode = 'list'"><List :size="17" /></button>
+        </div></div>
       </div>
 
-      <!-- Empty State -->
-      <div
-        v-else-if="projects.length === 0"
-        class="bg-white dark:bg-[#2d2d2d] border border-dashed border-slate-300/80 dark:border-[#444444] rounded-2xl p-12 text-center max-w-md mx-auto my-12 shadow-sm dark:shadow-xl dark:shadow-black/50"
-      >
-        <div class="w-11 h-11 rounded-xl bg-slate-50 dark:bg-[#232323] text-slate-400 flex items-center justify-center mx-auto mb-3 border border-slate-200/70 dark:border-[#383838]">
-          <FolderPlus class="w-5 h-5" />
-        </div>
-        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">{{ t('noProjects') }}</h3>
-        <p class="text-xs text-slate-400 dark:text-[#a1a1a1] mt-1 mb-5 leading-relaxed max-w-xs mx-auto">
-          {{ t('noProjectsDesc') }}
-        </p>
-        <button
-          class="wf-tap inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white dark:text-[#38bdf8] bg-[#0d99ff] hover:bg-[#0b87e0] active:bg-[#0972bd] dark:bg-[#0d99ff]/20 dark:hover:bg-[#0d99ff]/35 dark:border-[#0d99ff]/50 border border-[#0d99ff]/90 rounded-lg shadow-sm transition-all cursor-pointer"
-          @click="dialogVisible = true"
-        >
-          <Plus class="w-3.5 h-3.5" />
-          <span>{{ t('createFirstProject') }}</span>
-        </button>
-      </div>
+      <div v-if="loading" class="home-state" role="status"><span class="loading-spinner"></span><h2>{{ copy.loading }}</h2></div>
+      <div v-else-if="loadError" class="home-state" role="alert"><AlertCircle :size="30" /><h2>{{ copy.loadFailed }}</h2><p>{{ copy.loadFailedDesc }}</p><button class="home-button primary" @click="load"><RotateCw :size="15" />{{ copy.retry }}</button></div>
+      <div v-else-if="projects.length === 0" class="home-state"><FolderPlus :size="32" /><h2>{{ t('noProjects') }}</h2><p>{{ copy.emptyDesc }}</p><button class="home-button primary" @click="dialogVisible = true"><Plus :size="16" />{{ t('createFirstProject') }}</button></div>
+      <div v-else-if="filteredProjects.length === 0" class="home-state"><Search :size="30" /><h2>{{ t('noMatches') }}</h2><p>{{ searchQuery }}</p><button class="home-button" @click="searchQuery = ''">{{ t('clearFilter') }}</button></div>
 
-      <!-- Filter No Results -->
-      <div
-        v-else-if="filteredProjects.length === 0"
-        class="py-20 text-center text-slate-400 dark:text-[#a1a1a1] text-xs"
-      >
-        <p>{{ t('noMatches') }}「{{ searchQuery }}」</p>
-        <button
-          class="mt-2 text-emerald-600 dark:text-[#0d99ff] hover:underline font-medium cursor-pointer"
-          @click="searchQuery = ''"
-        >
-          {{ t('clearFilter') }}
-        </button>
-      </div>
-
-      <!-- ===== Mode 1: Figma-Style Polished Project Grid ===== -->
-      <div
-        v-else-if="viewMode === 'grid'"
-        class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-5"
-      >
-        <div
-          v-for="p in filteredProjects"
-          :key="p.id"
-          class="group relative bg-white dark:bg-[#2d2d2d] rounded-2xl border border-slate-200/85 dark:border-[#444444] hover:border-emerald-500/80 dark:hover:border-[#0d99ff] hover:shadow-md dark:shadow-xl dark:shadow-black/50 dark:hover:shadow-2xl dark:hover:bg-[#353535] hover:-translate-y-1 transition-all duration-200 cursor-pointer p-5 flex flex-col justify-between"
-          @click="router.push(`/projects/${p.id}`)"
-        >
-          <div>
-            <!-- Card Header: Icon, Title & Delete -->
-            <div class="flex items-start justify-between gap-3 mb-3">
-              <div class="flex items-center gap-3 min-w-0">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-[#383838] dark:to-[#333333] border border-emerald-200/60 dark:border-[#484848] text-emerald-700 dark:text-[#0d99ff] flex items-center justify-center font-bold text-sm shrink-0 shadow-2xs group-hover:border-emerald-300 dark:group-hover:border-[#0d99ff]/50 transition-colors">
-                  <Layers class="w-5 h-5 text-emerald-600 dark:text-[#0d99ff]" />
-                </div>
-                <div class="min-w-0">
-                  <div class="flex items-center gap-1.5">
-                    <h3 class="text-sm font-bold text-slate-900 dark:text-white group-hover:text-emerald-700 dark:group-hover:text-[#38bdf8] transition-colors truncate">
-                      {{ p.name }}
-                    </h3>
-                  </div>
-                  <span class="text-[10px] font-mono text-slate-400 dark:text-[#a1a1a1] block tabular-nums">ID #{{ p.id }}</span>
-                </div>
-              </div>
-
-              <!-- Delete Action Button -->
-              <button
-                class="wf-tap opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 focus:opacity-100 cursor-pointer shrink-0"
-                :title="t('delete')"
-                @click.stop="remove(p)"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-              </button>
+      <div v-else class="project-collection" :class="viewMode">
+        <article v-for="p in filteredProjects" :key="p.id" class="project-card">
+          <RouterLink :to="`/projects/${p.id}`" class="project-cover" :aria-label="`${t('openProject')} ${p.name}`">
+            <img v-if="p.cover && !p.imageUnavailable" :src="getFileUrl(p.cover)" alt="" loading="lazy" @error="p.imageUnavailable = true" />
+            <div v-else class="cover-placeholder"><Layers :size="28" /><span>{{ p.imageUnavailable || p.statsState === 'error' ? copy.previewUnavailable : p.statsState === 'loading' ? copy.loadingPreview : copy.noPreview }}</span></div>
+          </RouterLink>
+          <div class="project-content">
+            <div class="project-title-row">
+              <h2><RouterLink :to="`/projects/${p.id}`" :title="p.name">{{ p.name }}</RouterLink></h2>
+              <el-dropdown trigger="click" @command="remove(p)">
+                <button class="more-button" :aria-label="`${copy.more} ${p.name}`" :title="copy.more"><MoreHorizontal :size="19" /></button>
+                <template #dropdown><el-dropdown-menu><el-dropdown-item command="delete"><Trash2 :size="14" class="menu-icon" />{{ t('delete') }}</el-dropdown-item></el-dropdown-menu></template>
+              </el-dropdown>
             </div>
-
-            <!-- Card Description -->
-            <p v-if="p.description" class="text-xs text-slate-500 dark:text-[#cbd5e1] line-clamp-2 leading-relaxed mb-3 mt-1">
-              {{ p.description }}
-            </p>
-            <div v-else class="h-2"></div>
-
-            <!-- Project Tags & Stats Pill Row -->
-            <div class="flex items-center flex-wrap gap-1.5 mb-2 text-[11px] tabular-nums">
-              <span
-                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-medium transition-colors"
-                :class="p.pageCount ? 'bg-emerald-50/80 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-emerald-200/70 dark:border-emerald-600/50' : 'bg-slate-50 dark:bg-[#232323] text-slate-400 dark:text-[#a1a1a1] border-slate-200/60 dark:border-[#444444]'"
-              >
-                <Layers class="w-3 h-3" />
-                <span>{{ p.pageCount != null ? `${p.pageCount} ${t('frames')}` : '...' }}</span>
-              </span>
-
-              <span
-                v-if="p.analyzedCount != null && p.analyzedCount > 0"
-                class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-50 dark:bg-[#232323] text-slate-600 dark:text-slate-200 border border-slate-200/60 dark:border-[#444444] font-medium"
-              >
-                <Check class="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                <span>{{ p.analyzedCount }} {{ t('ready') }}</span>
-              </span>
+            <p class="project-description" :class="{ muted: !p.description }" :title="p.description">{{ p.description || copy.noDescription }}</p>
+            <div class="project-meta" aria-live="polite">
+              <span v-if="p.statsState === 'loaded'" class="board-count"><Layers :size="14" />{{ p.pageCount }} {{ copy.boards }}<span v-if="p.analyzedCount" class="analyzed-count">· {{ p.analyzedCount }} {{ copy.analyzed }}</span></span>
+              <span v-else-if="p.statsState === 'loading'">{{ copy.loadingStats }}</span>
+              <span v-else class="stats-error">{{ copy.unknownStats }}<button :aria-label="`${copy.retry} ${p.name}`" @click="loadStats(p)">{{ copy.retry }}</button></span>
+              <time v-if="validDate(p.createdAt)" :datetime="p.createdAt">{{ copy.created }} {{ formatDate(p.createdAt) }}</time>
+              <span v-else>{{ copy.unknownDate }}</span>
+            </div>
+            <div class="project-footer">
+              <RouterLink :to="`/projects/${p.id}`" class="details-link">{{ copy.details }}<ChevronRight :size="14" /></RouterLink>
+              <RouterLink v-if="p.statsState === 'loaded' && p.pageCount" :to="`/projects/${p.id}/prototype`" class="edit-link">{{ copy.edit }}<ArrowUpRight :size="15" /></RouterLink>
+              <RouterLink v-else :to="`/projects/${p.id}`" class="edit-link">{{ copy.open }}<ArrowUpRight :size="15" /></RouterLink>
             </div>
           </div>
-
-          <!-- Card Footer Meta -->
-          <div class="pt-3 border-t border-slate-100 dark:border-[#383838] flex items-center justify-between text-[11px] text-slate-400 dark:text-[#a1a1a1] mt-2">
-            <span class="flex items-center gap-1 tabular-nums">
-              <Calendar class="w-3 h-3 text-slate-400 dark:text-[#a1a1a1]" />
-              {{ new Date(p.createdAt || '').toLocaleDateString() }}
-            </span>
-            <span class="text-xs font-semibold text-slate-500 dark:text-[#0d99ff] group-hover:text-emerald-600 dark:group-hover:text-[#38bdf8] transition-colors flex items-center gap-0.5">
-              {{ t('enterWorkspace') }}
-              <ChevronRight class="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <!-- ===== Mode 2: Minimalist List / Table View ===== -->
-      <div
-        v-else-if="viewMode === 'list'"
-        class="bg-white dark:bg-[#2d2d2d] border border-slate-200/80 dark:border-[#383838] rounded-xl overflow-hidden shadow-2xs dark:shadow-xl dark:shadow-black/50"
-      >
-        <table class="w-full text-left text-xs border-collapse">
-          <thead>
-            <tr class="bg-slate-50 dark:bg-[#262626] border-b border-slate-200/80 dark:border-[#383838] text-slate-500 dark:text-[#a1a1a1] font-medium">
-              <th class="py-2.5 px-4 w-12">#</th>
-              <th class="py-2.5 px-4">{{ t('projectName') }}</th>
-              <th class="py-2.5 px-4 w-32">{{ t('frames') }}</th>
-              <th class="py-2.5 px-4">{{ t('projectDesc') }}</th>
-              <th class="py-2.5 px-4 w-36">{{ t('createTime') }}</th>
-              <th class="py-2.5 px-4 w-28 text-right">{{ t('actions') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 dark:divide-[#383838]">
-            <tr
-              v-for="p in filteredProjects"
-              :key="p.id"
-              class="hover:bg-slate-50/80 dark:hover:bg-[#353535] transition-colors cursor-pointer group"
-              @click="router.push(`/projects/${p.id}`)"
-            >
-              <!-- ID -->
-              <td class="py-2.5 px-4 text-slate-400 dark:text-[#a1a1a1] tabular-nums">
-                {{ p.id }}
-              </td>
-              <!-- Name -->
-              <td class="py-2.5 px-4 font-semibold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-[#38bdf8] transition-colors">
-                <div class="flex items-center gap-2">
-                  <div class="w-6 h-6 rounded bg-emerald-50 dark:bg-[#383838] border border-emerald-200/60 dark:border-[#484848] text-emerald-700 dark:text-[#0d99ff] flex items-center justify-center shrink-0">
-                    <Layers class="w-3.5 h-3.5" />
-                  </div>
-                  <span>{{ p.name }}</span>
-                </div>
-              </td>
-              <!-- Page Count -->
-              <td class="py-2.5 px-4 tabular-nums">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-600/50">
-                  {{ p.pageCount != null ? `${p.pageCount} ${t('frames')}` : '—' }}
-                </span>
-              </td>
-              <!-- Description -->
-              <td class="py-2.5 px-4 text-slate-500 dark:text-[#cbd5e1] truncate max-w-xs">
-                {{ p.description || '—' }}
-              </td>
-              <!-- Date -->
-              <td class="py-2.5 px-4 text-slate-400 dark:text-[#94a3b8] tabular-nums">
-                {{ new Date(p.createdAt || '').toLocaleDateString() }}
-              </td>
-              <!-- Action -->
-              <td class="py-2.5 px-4 text-right">
-                <div class="inline-flex items-center gap-2">
-                  <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-0.5">
-                    {{ t('open') }}
-                    <ChevronRight class="w-3 h-3" />
-                  </span>
-                  <button
-                    class="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 transition-colors cursor-pointer"
-                    :title="t('delete')"
-                    @click.stop="remove(p)"
-                  >
-                    <Trash2 class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        </article>
       </div>
     </main>
 
-    <!-- ===== New Project Dialog ===== -->
-    <el-dialog
-      v-model="dialogVisible"
-      :title="t('newProject')"
-      width="460px"
-      align-center
-      class="rounded-2xl"
-    >
-      <div class="space-y-4 pt-2">
-        <div>
-          <label class="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">{{ t('projectName') }} <span class="text-red-500">*</span></label>
-          <el-input
-            v-model="form.name"
-            :placeholder="t('projectNamePlaceholder')"
-            size="large"
-            clearable
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">{{ t('projectDesc') }}</label>
-          <el-input
-            v-model="form.description"
-            type="textarea"
-            :rows="3"
-            :placeholder="t('projectDescPlaceholder')"
-          />
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="flex justify-end gap-2.5">
-          <button
-            class="wf-tap px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#383838] dark:border dark:border-[#484848] rounded-xl transition-all cursor-pointer"
-            @click="dialogVisible = false"
-          >
-            {{ t('cancel') }}
-          </button>
-          <button
-            class="wf-tap inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white dark:text-[#38bdf8] bg-[#0d99ff] hover:bg-[#0b87e0] active:bg-[#0972bd] dark:bg-[#0d99ff]/20 dark:hover:bg-[#0d99ff]/35 dark:active:bg-[#0d99ff]/50 dark:border-[#0d99ff]/50 border border-[#0d99ff]/90 rounded-xl shadow-sm dark:shadow-[0_0_14px_rgba(13,153,255,0.25)] transition-all disabled:opacity-60 cursor-pointer"
-            :disabled="creating"
-            @click="create"
-          >
-            <div v-if="creating" class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            {{ creating ? t('creating') : t('create') }}
-          </button>
-        </div>
-      </template>
+    <el-dialog v-model="dialogVisible" :title="t('newProject')" width="min(460px, calc(100vw - 32px))" align-center>
+      <div class="project-form"><label><div>{{ t('projectName') }} <span>*</span></div><el-input v-model="form.name" :placeholder="t('projectNamePlaceholder')" size="large" clearable /></label><label>{{ t('projectDesc') }}<el-input v-model="form.description" type="textarea" :rows="3" :placeholder="t('projectDescPlaceholder')" /></label></div>
+      <template #footer><div class="dialog-actions"><button class="home-button" @click="dialogVisible = false">{{ t('cancel') }}</button><button class="home-button primary" :disabled="creating" @click="create"><span v-if="creating" class="loading-spinner small"></span>{{ creating ? t('creating') : t('create') }}</button></div></template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  Plus,
-  FolderPlus,
-  LayoutGrid,
-  List,
-  Trash2,
-  Calendar,
-  Search,
-  ChevronRight,
-  Layers,
-  Check,
-} from 'lucide-vue-next'
+import { Plus, FolderPlus, LayoutGrid, List, Trash2, Search, ChevronRight, Layers, MoreHorizontal, ArrowUpRight, AlertCircle, RotateCw } from 'lucide-vue-next'
 import NavbarControls from '../components/NavbarControls.vue'
-import { t } from '../utils/i18n'
+import { t, currentLang } from '../utils/i18n'
 import { projectApi } from '../api/project'
+import { getFileUrl } from '../api/http'
 import type { Project } from '../types'
 
 interface ProjectItem extends Project {
   pageCount?: number
   analyzedCount?: number
+  cover?: string
+  imageUnavailable?: boolean
+  statsState: 'loading' | 'loaded' | 'error'
 }
-
+const words = {
+  zh: { workspace: '工作空间', myProjects: '我的项目', intro: '从设计稿到交互原型，继续你的设计工作。', sort: '按创建时间排序', view: '项目显示方式', loading: '正在加载项目', loadFailed: '项目暂时无法加载', loadFailedDesc: '请检查连接后重试，现有项目不会受到影响。', retry: '重试', emptyDesc: '创建一个项目，导入设计稿并开始构建原型。', previewUnavailable: '封面暂时无法显示', loadingPreview: '正在加载封面', noPreview: '暂无画板封面', more: '更多项目操作', noDescription: '未填写项目说明', boards: '画板', analyzed: '已识别', loadingStats: '正在加载画板信息', unknownStats: '画板信息暂不可用', created: '创建于', unknownDate: '创建日期未知', details: '项目详情', edit: '编辑原型', open: '打开项目', required: '请输入项目名称', createFailed: '创建失败，请重试', deleteFailed: '删除失败，请重试', deleteConfirm: '确定删除项目「{name}」吗？其下所有画板、元素、标注将一并删除，且不可恢复。', deleteTitle: '删除项目', deleteAction: '确定删除' },
+  en: { workspace: 'WORKSPACE', myProjects: 'My projects', intro: 'Continue your design work, from reference to interactive prototype.', sort: 'Newest created first', view: 'Project view', loading: 'Loading projects', loadFailed: 'Projects could not be loaded', loadFailedDesc: 'Check your connection and try again. Your existing projects are safe.', retry: 'Retry', emptyDesc: 'Create a project, import your designs and start building a prototype.', previewUnavailable: 'Cover unavailable', loadingPreview: 'Loading cover', noPreview: 'No artboard cover', more: 'More project actions', noDescription: 'No project description', boards: 'artboards', analyzed: 'analyzed', loadingStats: 'Loading artboard details', unknownStats: 'Artboard details unavailable', created: 'Created', unknownDate: 'Creation date unknown', details: 'Project details', edit: 'Edit prototype', open: 'Open project', required: 'Enter a project name', createFailed: 'Could not create the project. Try again.', deleteFailed: 'Could not delete the project. Try again.', deleteConfirm: 'Delete project “{name}”? All its artboards, elements and annotations will be permanently deleted.', deleteTitle: 'Delete project', deleteAction: 'Delete permanently' },
+  ja: { workspace: 'ワークスペース', myProjects: 'マイプロジェクト', intro: 'デザインからインタラクティブなプロトタイプへ。作業を続けましょう。', sort: '作成日時の新しい順', view: 'プロジェクト表示', loading: 'プロジェクトを読み込み中', loadFailed: 'プロジェクトを読み込めません', loadFailedDesc: '接続を確認して再試行してください。既存のプロジェクトには影響しません。', retry: '再試行', emptyDesc: 'プロジェクトを作成し、デザインを取り込んでプロトタイプを構築しましょう。', previewUnavailable: 'カバーを表示できません', loadingPreview: 'カバーを読み込み中', noPreview: 'アートボードのカバーなし', more: 'プロジェクトのその他の操作', noDescription: 'プロジェクトの説明なし', boards: 'アートボード', analyzed: '解析済み', loadingStats: 'アートボード情報を読み込み中', unknownStats: 'アートボード情報を取得できません', created: '作成日', unknownDate: '作成日不明', details: 'プロジェクト詳細', edit: 'プロトタイプを編集', open: 'プロジェクトを開く', required: 'プロジェクト名を入力してください', createFailed: '作成できませんでした。再試行してください。', deleteFailed: '削除できませんでした。再試行してください。', deleteConfirm: 'プロジェクト「{name}」を削除しますか？すべてのアートボード、要素、注釈が削除され、復元できません。', deleteTitle: 'プロジェクトを削除', deleteAction: '完全に削除' },
+}
+const copy = computed(() => words[currentLang.value])
 const router = useRouter()
 const projects = ref<ProjectItem[]>([])
 const loading = ref(true)
+const loadError = ref(false)
 const dialogVisible = ref(false)
 const creating = ref(false)
 const form = reactive({ name: '', description: '' })
-
 const searchQuery = ref('')
 const viewMode = ref<'grid' | 'list'>('grid')
-
+let loadGeneration = 0
 const filteredProjects = computed(() => {
-  if (!searchQuery.value.trim()) return projects.value
   const q = searchQuery.value.trim().toLowerCase()
-  return projects.value.filter((p) => p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q)))
+  return [...projects.value].filter(p => !q || p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q)).sort((a, b) => (dateValue(b.createdAt) - dateValue(a.createdAt)) || b.id - a.id)
 })
+function dateValue(value?: string) { const time = value ? Date.parse(value) : NaN; return Number.isFinite(time) ? time : 0 }
+function validDate(value?: string) { return !!value && Number.isFinite(Date.parse(value)) }
+function formatDate(value?: string) { return new Date(value!).toLocaleDateString({ zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' }[currentLang.value], { year: 'numeric', month: 'short', day: 'numeric' }) }
 
-async function load() {
-  loading.value = true
+async function loadStats(p: ProjectItem, generation = loadGeneration) {
+  p.statsState = 'loading'
   try {
-    const list: ProjectItem[] = await projectApi.list()
-    projects.value = list
-
-    // Asynchronously load page statistics for each project
-    Promise.allSettled(
-      list.map(async (p) => {
-        try {
-          const proto = await projectApi.prototype(p.id)
-          const target = projects.value.find((item) => item.id === p.id)
-          if (target && proto?.pages) {
-            target.pageCount = proto.pages.length
-            target.analyzedCount = proto.pages.filter((pg: any) => pg.analyzed === 1).length
-          }
-        } catch {
-          /* ignore */
-        }
-      })
-    )
-  } catch (e: any) {
-    ElMessage.error(e.message || '加载失败')
-  } finally {
-    loading.value = false
+    const proto = await projectApi.prototype(p.id)
+    if (generation !== loadGeneration || !projects.value.includes(p)) return
+    if (!proto || !Array.isArray(proto.pages)) throw new Error('Invalid prototype response')
+    p.pageCount = proto.pages.length
+    p.analyzedCount = proto.pages.filter(page => page.analyzed === 1).length
+    p.cover = p.coverImage || proto.pages.find(page => page.background_image)?.background_image
+    p.imageUnavailable = false
+    p.statsState = 'loaded'
+  } catch {
+    if (generation === loadGeneration && projects.value.includes(p)) p.statsState = 'error'
   }
 }
-
-async function create() {
-  if (!form.name.trim()) {
-    ElMessage.warning('请输入项目名称')
-    return
+async function load() {
+  const generation = ++loadGeneration
+  loading.value = true
+  loadError.value = false
+  try {
+    const list = await projectApi.list()
+    if (generation !== loadGeneration) return
+    if (!Array.isArray(list)) throw new Error('Invalid project list')
+    projects.value = list.map(p => ({ ...p, cover: p.coverImage, statsState: 'loading' }))
+    loading.value = false
+    // Covers and statistics load independently; one failure never hides the other projects.
+    await Promise.allSettled(projects.value.map(p => loadStats(p, generation)))
+  } catch {
+    if (generation === loadGeneration) loadError.value = true
+  } finally {
+    if (generation === loadGeneration) loading.value = false
   }
+}
+async function create() {
+  if (creating.value) return
+  if (!form.name.trim()) { ElMessage.warning(copy.value.required); return }
   creating.value = true
   try {
     const project = await projectApi.create(form.name, form.description)
-    ElMessage.success('创建成功')
+    ElMessage.success(t('projectCreated'))
     dialogVisible.value = false
     router.push(`/projects/${project.id}`)
-  } catch (e: any) {
-    ElMessage.error(e.message || '创建失败')
-  } finally {
-    creating.value = false
-  }
+  } catch { ElMessage.error(copy.value.createFailed) }
+  finally { creating.value = false }
 }
-
 async function remove(p: Project) {
   try {
-    await ElMessageBox.confirm(
-      `确定删除项目「${p.name}」吗？其下所有页面、元素、标注将一并删除，且不可恢复。`,
-      '删除确认',
-      {
-        confirmButtonText: '确定删除',
-        cancelButtonText: '取消',
-        type: 'warning',
-        confirmButtonClass: 'el-button--danger',
-      },
-    )
-  } catch {
-    return // 用户取消
-  }
+    await ElMessageBox.confirm(copy.value.deleteConfirm.replace('{name}', p.name), copy.value.deleteTitle, { confirmButtonText: copy.value.deleteAction, cancelButtonText: t('cancel'), type: 'warning', confirmButtonClass: 'el-button--danger' })
+  } catch { return }
   try {
     await projectApi.remove(p.id)
-    ElMessage.success('项目已删除')
+    ElMessage.success(t('projectDeleted'))
     await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '删除失败')
-  }
+  } catch { ElMessage.error(copy.value.deleteFailed) }
 }
-
 onMounted(load)
+onUnmounted(() => { loadGeneration++ })
 </script>
+
+<style scoped>
+.project-home { --home-bg: #f7f8fa; --home-surface: #fff; --home-text: #17202e; --home-muted: #667085; --home-line: #e5e8ed; --home-soft: #f0f2f5; --home-blue: #086bd6; min-height: 100vh; background: var(--home-bg); color: var(--home-text); font-size: 14px; }
+:global(.dark .project-home) { --home-bg: #191b1f; --home-surface: #23262b; --home-text: #eef0f4; --home-muted: #a4adba; --home-line: #363c44; --home-soft: #2c3138; --home-blue: #68afff; }
+.home-header { background: var(--home-surface); border-bottom: 1px solid var(--home-line); }
+.home-header-inner { width: 100%; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.brand, .header-actions { display: flex; align-items: center; gap: 14px; }
+.brand { color: var(--home-text); font-size: 16px; font-weight: 650; gap: 9px; text-decoration: none; }.brand img { width: 28px; height: 28px; }
+.home-main { max-width: 1280px; padding: 48px 32px 64px; margin: auto; }
+.library-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 32px; }
+.eyebrow { color: var(--home-muted); font-size: 12px; margin: 0 0 8px; letter-spacing: .06em; }
+h1 { font-size: 28px; font-weight: 650; letter-spacing: -.025em; margin: 0; line-height: 1.35; }.heading-description { color: var(--home-muted); margin: 10px 0 0; line-height: 1.6; }.project-count { color: var(--home-muted); white-space: nowrap; }
+.library-toolbar, .toolbar-right { display: flex; align-items: center; gap: 16px; }.library-toolbar { justify-content: space-between; margin-bottom: 24px; }.sort-label { color: var(--home-muted); font-size: 12px; }
+.project-search { display: flex; align-items: center; gap: 9px; width: 300px; max-width: 100%; border: 1px solid var(--home-line); border-radius: 6px; background: var(--home-surface); padding: 9px 12px; color: var(--home-muted); }.project-search:focus-within { border-color: var(--home-blue); }.project-search input { min-width: 0; width: 100%; background: transparent; color: var(--home-text); outline: none; font-size: 14px; }.project-search input::placeholder { color: var(--home-muted); }
+.view-switch { display: flex; padding: 3px; border: 1px solid var(--home-line); border-radius: 6px; background: var(--home-soft); }.view-switch button { padding: 6px; border-radius: 4px; color: var(--home-muted); cursor: pointer; }.view-switch .active { background: var(--home-surface); color: var(--home-text); }
+.home-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border: 1px solid var(--home-line, #e5e8ed); border-radius: 6px; background: var(--home-surface, var(--el-bg-color, #fff)); color: var(--home-text, var(--el-text-color-primary, #17202e)); font-size: 14px; font-weight: 550; cursor: pointer; }.home-button:hover { background: var(--home-soft); }.home-button.primary { background: #096dd9; color: #fff; border-color: #096dd9; }.home-button.primary:hover { background: #075cb7; }.home-button:disabled { opacity: .6; cursor: wait; }
+.project-collection.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }.project-card { min-width: 0; border: 1px solid var(--home-line); border-radius: 10px; background: var(--home-surface); transition: border-color .15s; }.project-card:hover { border-color: #a8b8cb; }
+.project-cover { display: flex; align-items: center; justify-content: center; aspect-ratio: 16/10; background: var(--home-soft); border-bottom: 1px solid var(--home-line); border-radius: 9px 9px 0 0; overflow: hidden; padding: 16px; text-decoration: none; }.project-cover img { max-width: 100%; width: 100%; height: 100%; object-fit: contain; border-radius: 2px; }.cover-placeholder { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--home-muted); font-size: 12px; }
+.project-content { padding: 18px 20px 0; }.project-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.project-title-row h2 { min-width: 0; font-size: 16px; font-weight: 600; margin: 0; }.project-title-row h2 a { color: var(--home-text); text-decoration: none; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }.project-title-row h2 a:hover { color: var(--home-blue); }.more-button { display: flex; padding: 5px; border-radius: 5px; color: var(--home-muted); cursor: pointer; }.more-button:hover { background: var(--home-soft); }.menu-icon { margin-right: 8px; }
+.project-description { font-size: 14px; color: var(--home-muted); line-height: 1.6; height: 45px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 10px 0 16px; }.project-description.muted { opacity: .85; }
+.project-meta { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--home-muted); min-height: 46px; }.board-count { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }.analyzed-count { color: var(--home-muted); }.stats-error { display: flex; gap: 10px; align-items: center; }.stats-error button { color: var(--home-blue); text-decoration: underline; cursor: pointer; }.project-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--home-line); padding: 14px 0; margin-top: 16px; }.project-footer a { display: inline-flex; align-items: center; gap: 5px; text-decoration: none; font-size: 13px; }.details-link { color: var(--home-muted); }.edit-link { color: var(--home-blue); font-weight: 550; }.project-footer a:hover { text-decoration: underline; }
+.grid .project-card { display: flex; flex-direction: column; }
+.grid .project-cover { height: 176px; aspect-ratio: auto; padding: 12px; flex-shrink: 0; }
+.grid .project-content { display: flex; flex-direction: column; flex: 1; padding: 14px 16px 0; }
+.grid .project-description { height: auto; min-height: 21px; max-height: 42px; font-size: 13px; margin: 6px 0 12px; }
+.grid .project-meta { gap: 6px; min-height: 40px; margin-top: auto; }
+.grid .project-footer { padding: 11px 0; margin-top: 12px; }
+.project-collection.list { display: flex; flex-direction: column; gap: 12px; }.list .project-card { display: flex; min-height: 180px; }.list .project-cover { width: 180px; flex-shrink: 0; aspect-ratio: auto; border-radius: 9px 0 0 9px; border-bottom: none; border-right: 1px solid var(--home-line); }.list .project-cover img { height: 140px; max-height: 140px; }.list .project-content { flex: 1; min-width: 0; }.list .project-description { height: auto; max-height: 45px; margin-bottom: 10px; }.list .project-meta { flex-direction: row; flex-wrap: wrap; gap: 12px; min-height: auto; }.list .project-footer { margin-top: 12px; }
+.home-state { padding: 76px 24px; display: flex; align-items: center; flex-direction: column; text-align: center; color: var(--home-muted); }.home-state h2 { color: var(--home-text); font-size: 18px; font-weight: 600; margin: 20px 0 8px; }.home-state p { line-height: 1.7; max-width: 420px; margin: 0 0 24px; }.loading-spinner { display: inline-block; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--home-line); border-top-color: var(--home-blue); animation: home-spin .8s linear infinite; }.loading-spinner.small { width: 14px; height: 14px; border-color: #ffffff66; border-top-color: #fff; }@keyframes home-spin { to { transform: rotate(360deg); } }
+.project-form { display: grid; gap: 20px; padding: 8px 0; }.project-form label { display: grid; gap: 8px; font-size: 14px; }.project-form label span { color: #e44; }.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--home-blue); outline-offset: 3px; }
+@media (max-width: 1100px) { .project-collection.grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 820px) { .project-collection.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .home-header-inner { padding: 14px 16px; flex-wrap: wrap; }.header-actions { gap: 8px; }.home-main { padding: 28px 16px 40px; }.library-heading { align-items: flex-start; margin-bottom: 24px; }h1 { font-size: 25px; }.project-count { font-size: 12px; margin-top: 34px; }.heading-description { font-size: 13px; }.project-search { flex: 1; width: auto; }.sort-label { display: none; }.library-toolbar { gap: 10px; }.project-collection.grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }.list .project-cover { width: 94px; padding: 8px; }.list .project-cover img { height: 110px; max-height: 110px; }.list .cover-placeholder span { display: none; }.list .project-content { padding: 14px 12px 0; }.list .project-footer { gap: 4px; }.list .project-footer a { font-size: 12px; }.home-button { padding: 8px 11px; } }
+@media (prefers-reduced-motion: reduce) { .project-card { transition: none; } }
+</style>

@@ -499,17 +499,20 @@ function getDefaultName(el: Element) {
   -moz-osx-font-smoothing: grayscale;
 }
 .layer-row {
-  height: 32px;
-  font-size: 11px;
+  height: 34px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: 0.005em;
 }
 .layer-icon {
-  shape-rendering: crispEdges;
+  shape-rendering: geometricPrecision;
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.65;
 }
 .layer-search,
 .layer-rename {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: rgba(0, 0, 0, 0.9);
 }

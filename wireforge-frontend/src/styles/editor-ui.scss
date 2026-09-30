@@ -1,0 +1,108 @@
+/* Editor chrome only: generated prototypes and inserted component HTML keep
+   their own fonts, geometry and behavior. */
+:is(.prototype-workbench, .project-detail) {
+  --editor-surface: #fff;
+  --editor-field: #f5f6f8;
+  --editor-border: #e6e8eb;
+  --editor-label: #69717e;
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0;
+
+  svg.lucide { stroke-width: 1.65; shape-rendering: geometricPrecision; }
+  > header { background: var(--editor-surface); backdrop-filter: none; }
+  > header button { font-weight: 500; box-shadow: none; }
+}
+
+html.dark :is(.prototype-workbench, .project-detail) {
+  --editor-surface: #252525;
+  --editor-field: #303136;
+  --editor-border: #3b3d42;
+  --editor-label: #a6abb5;
+}
+
+.prototype-workbench .editor-sidebar {
+  font-size: 12px;
+  .font-bold, .font-semibold { font-weight: 500; }
+  .text-\[10px\], .text-\[11px\] { font-size: 11px; line-height: 16px; }
+  .font-mono { font-family: inherit; font-variant-numeric: tabular-nums; }
+  > div { border-color: var(--editor-border); }
+  button { transition-property: background-color, border-color, color; }
+}
+
+/* This canvas pans through its transform, rather than native scroll offsets.
+   Focusing a toolbar/popover must not move the canvas underneath it. */
+.prototype-workbench .canvas-viewport { overflow: clip; }
+
+.prototype-workbench .editor-tabs {
+  padding: 4px 12px 0;
+  gap: 12px;
+  background: var(--editor-surface);
+  > button.wf-tap {
+    min-height: 36px;
+    padding: 6px 8px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  > button[aria-pressed='true'] { border-bottom-color: #0d99ff; color: #0878d0; }
+}
+
+.prototype-workbench .editor-mode-switch {
+  border-radius: 6px;
+  background: var(--editor-field);
+  padding: 3px;
+  > button.wf-tap { min-height: 28px; border: 0; box-shadow: none; font-weight: 500; }
+  > button[aria-pressed='true'] { background: var(--editor-surface); color: var(--wf-text-main); }
+}
+
+.design-inspector-panel {
+  > .p-3 { padding: 14px 16px; }
+  .uppercase.tracking-wider { font-size: 12px; font-weight: 500; color: var(--wf-text-main); letter-spacing: 0; }
+  .font-mono { font-family: Inter, 'Microsoft YaHei', sans-serif; font-variant-numeric: tabular-nums; }
+  input:not([type='color']):not([type='checkbox']), select { font-size: 12px; font-weight: 400; line-height: 20px; }
+  .grid-cols-2 > div:has(> input[type='number']) { min-height: 32px; border-color: transparent; background: var(--editor-field); border-radius: 6px; }
+  .grid-cols-2 > div:has(> input[type='number']):hover { border-color: var(--editor-border); }
+  .grid-cols-2 > div:has(> input[type='number']):focus-within { border-color: #0d99ff; background: var(--editor-surface); }
+  button { box-shadow: none; }
+}
+
+.component-palette {
+  > div:first-child { padding: 12px 12px 8px; border-bottom: 0; }
+  > div:first-child > div { border-radius: 6px; background: var(--editor-field); box-shadow: none; }
+  > div:nth-child(2) { padding: 0 12px 10px; }
+  > div:nth-child(3) { padding: 12px; }
+}
+
+.prototype-workbench :is(.component-palette, .resources-popover, .layer-tree-panel) input::placeholder {
+  color: var(--editor-label);
+  opacity: 1;
+}
+html.dark .prototype-workbench :is(.editor-sidebar, .resources-popover) input:not([type='color']):not([type='checkbox']) {
+  background-color: transparent !important;
+}
+
+.figma-bottom-toolbar {
+  > div:not(.absolute) { border-radius: 12px; box-shadow: 0 4px 20px rgb(0 0 0 / 10%), 0 1px 3px rgb(0 0 0 / 5%); background: var(--editor-surface); }
+  button { border-radius: 7px; box-shadow: none; }
+  .resources-popover { border-radius: 12px; max-width: calc(100vw - 40px); max-height: min(480px, calc(100dvh - 160px)); background: var(--editor-surface); backdrop-filter: none; }
+  .resources-popover > .overflow-y-auto { min-height: 0; }
+  .resources-popover input { font-size: 12px; }
+  .resource-item { border-radius: 8px; border: 1px solid var(--editor-border); background: var(--editor-surface); }
+  .resource-item:hover { border-color: #7bb8f5; }
+  .resource-name { padding: 9px 12px; font-size: 12px; font-weight: 500; line-height: 18px; }
+  .resource-item:focus-visible { outline: 2px solid #0d99ff; outline-offset: 2px; }
+  .resource-item:focus-within > button { opacity: 1; }
+}
+
+html.dark .figma-bottom-toolbar {
+  .resources-popover > div, .resources-popover > div > div:not(.grid), .resources-popover .grid-cols-6 { background: var(--editor-surface); border-color: var(--editor-border); }
+  button:not([class*='bg-[#0D99FF]']):not([class*='bg-amber']) { color: #bfc6d1; }
+  button:hover { background-color: #3a3c42; }
+}
