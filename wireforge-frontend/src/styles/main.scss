@@ -36,6 +36,205 @@
   --el-font-family: Inter, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
+html.dark {
+  --wf-border: #383838;
+  --wf-surface: #2c2c2c;
+  --wf-bg: #1e1e1e;
+  --wf-text-main: #f5f5f5;
+  --wf-text-muted: #a3a3a3;
+
+  /* Global text color adaptation for customized slate palette in dark mode */
+  .text-slate-900,
+  .text-slate-800,
+  .text-slate-700 {
+    color: #f1f5f9;
+  }
+  .text-slate-600 {
+    color: #cbd5e1;
+  }
+  .text-slate-500 {
+    color: #94a3b8;
+  }
+  .text-slate-400 {
+    color: #9ca3af;
+  }
+
+  /* Global borders adaptation for customized slate palette in dark mode */
+  .border-slate-100,
+  .border-slate-200,
+  .border-slate-200\/50,
+  .border-slate-200\/60,
+  .border-slate-200\/70,
+  .border-slate-200\/80,
+  .border-slate-200\/85,
+  .border-slate-200\/90 {
+    border-color: #383838;
+  }
+
+  /* Global Workbench Canvas in Dark Mode */
+  .canvas-viewport {
+    background-color: #1e1e1e !important;
+  }
+
+  /* Floating Frame Block Header Capsule */
+  .block-label {
+    background: rgba(44, 44, 44, 0.95) !important;
+    border-color: #383838 !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45) !important;
+
+    &:hover {
+      border-color: #0d99ff !important;
+      color: #38bdf8 !important;
+    }
+
+    button:not(.bg-emerald-50):not(.bg-\[\#0D99FF\]) {
+      color: #cbd5e1 !important;
+
+      &:hover {
+        background-color: #383838 !important;
+        color: #ffffff !important;
+      }
+    }
+  }
+
+  /* Left and Right Sidebars in PrototypeView */
+  aside {
+    background-color: #252525 !important;
+    border-color: #383838 !important;
+    color: #f1f5f9 !important;
+
+    > div.bg-white,
+    > div.bg-slate-50,
+    > div.bg-slate-50\/70,
+    > div.bg-slate-50\/80,
+    > div.bg-slate-50\/90 {
+      background-color: #252525 !important;
+      border-color: #383838 !important;
+    }
+
+    .text-slate-900,
+    .text-slate-800,
+    .text-slate-700 {
+      color: #f1f5f9 !important;
+    }
+    .text-slate-500,
+    .text-slate-400 {
+      color: #94a3b8 !important;
+    }
+
+    .border-slate-100,
+    .border-slate-200,
+    .border-slate-200\/50,
+    .border-slate-200\/60,
+    .border-slate-200\/70,
+    .border-slate-200\/80,
+    .border-slate-200\/90 {
+      border-color: #383838 !important;
+    }
+
+    input, select, textarea {
+      background-color: #1e1e1e !important;
+      border-color: #383838 !important;
+      color: #ffffff !important;
+    }
+  }
+
+  /* Design Inspector Panel */
+  .design-inspector-panel {
+    background-color: #252525 !important;
+    color: #f1f5f9 !important;
+
+    > div.bg-white,
+    > div.bg-slate-50,
+    > div.bg-slate-50\/60,
+    > div.bg-slate-50\/70,
+    > div.bg-slate-50\/80 {
+      background-color: #252525 !important;
+      border-color: #383838 !important;
+    }
+
+    input, select, textarea {
+      background-color: #1e1e1e !important;
+      border-color: #383838 !important;
+      color: #ffffff !important;
+    }
+  }
+
+  /* Figma UI3 Bottom Toolbar & Vector SubToolbar */
+  .figma-bottom-toolbar > div:last-child,
+  .vector-sub-toolbar {
+    background-color: rgba(44, 44, 44, 0.95) !important;
+    border-color: #383838 !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6) !important;
+    color: #ffffff !important;
+
+    button:not(.bg-\[\#0D99FF\]):not(.bg-emerald-600) {
+      color: #cbd5e1 !important;
+    }
+    button:not(.bg-\[\#0D99FF\]):not(.bg-emerald-600):hover {
+      background-color: #383838 !important;
+      color: #ffffff !important;
+    }
+  }
+
+  /* Popovers from Toolbar (Resources, Shapes, Frames) */
+  .figma-bottom-toolbar div[class*="backdrop-blur"] {
+    background-color: rgba(38, 38, 38, 0.98) !important;
+    border-color: #383838 !important;
+    color: #f1f5f9 !important;
+
+    .bg-white,
+    .bg-slate-50\/70,
+    .bg-slate-100\/80 {
+      background-color: #2c2c2c !important;
+      border-color: #383838 !important;
+    }
+
+    .text-slate-800,
+    .text-slate-700 {
+      color: #f1f5f9 !important;
+    }
+
+    input {
+      background-color: #1e1e1e !important;
+      border-color: #383838 !important;
+      color: #ffffff !important;
+    }
+  }
+
+  /* Top Toolbar Header in PrototypeView */
+  header.wf-glass-panel {
+    background-color: rgba(44, 44, 44, 0.95) !important;
+    border-color: #383838 !important;
+    color: #f1f5f9 !important;
+  }
+
+  /* Custom Scrollbar in Dark Mode */
+  ::-webkit-scrollbar-thumb {
+    background: #444444;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #555555;
+  }
+
+  /* Dropdown Menus in Dark Mode */
+  .el-dropdown-menu {
+    background-color: #2c2c2c !important;
+    border: 1px solid #383838 !important;
+  }
+  .el-dropdown-menu__item {
+    color: #e5e5e5 !important;
+  }
+  .el-dropdown-menu__item:hover {
+    background-color: #383838 !important;
+    color: #ffffff !important;
+  }
+  .el-dropdown-menu__item--divided {
+    border-top-color: #383838 !important;
+  }
+}
+
 * {
   margin: 0;
   padding: 0;

@@ -1,36 +1,36 @@
 <template>
-  <div class="layer-tree-panel flex-1 flex flex-col h-full bg-white select-none">
-    <div class="px-4 h-9 border-b border-[#e6e6e6] flex items-center justify-between gap-2 shrink-0">
-      <span class="truncate" :title="currentPage?.name || '未选择画板'">
-        {{ currentPage?.name || '未选择画板' }}
+  <div class="layer-tree-panel flex-1 flex flex-col h-full bg-white dark:bg-[#252525] select-none text-slate-800 dark:text-slate-100">
+    <div class="px-4 h-9 border-b border-[#e6e6e6] dark:border-[#383838] flex items-center justify-between gap-2 shrink-0">
+      <span class="truncate text-xs font-semibold text-slate-800 dark:text-slate-200" :title="currentPage?.name || t('noArtboardSelected')">
+        {{ currentPage?.name || t('noArtboardSelected') }}
       </span>
       <div class="flex items-center gap-0.5 shrink-0">
         <button
           type="button"
-          class="px-1.5 h-6 rounded hover:bg-[#f0f0f0]"
-          title="先按住 Ctrl 逐个点选，或按住 Shift 连选，再编成一组 (Ctrl+G)"
+          class="px-1.5 h-6 rounded hover:bg-[#f0f0f0] dark:hover:bg-[#383838] text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+          :title="t('groupLayersTitle')"
           @click="emit('group-layers')"
-        >成组</button>
+        >{{ t('groupLayers') }}</button>
         <button
           type="button"
-          class="px-1.5 h-6 rounded hover:bg-[#f0f0f0]"
-          title="解散选中的分组 (Ctrl+Shift+G)"
+          class="px-1.5 h-6 rounded hover:bg-[#f0f0f0] dark:hover:bg-[#383838] text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+          :title="t('ungroupLayersTitle')"
           @click="emit('ungroup-layers')"
-        >解组</button>
+        >{{ t('ungroupLayers') }}</button>
       </div>
     </div>
 
-    <div class="px-4 h-8 border-b border-[#f0f0f0] flex items-center gap-1.5 bg-white shrink-0">
-      <Search class="w-3.5 h-3.5 text-black/40 shrink-0" />
+    <div class="px-4 h-8 border-b border-[#f0f0f0] dark:border-[#383838] flex items-center gap-1.5 bg-white dark:bg-[#252525] shrink-0">
+      <Search class="w-3.5 h-3.5 text-black/40 dark:text-white/40 shrink-0" />
       <input
         v-model="searchQuery"
         type="text"
-        placeholder="搜索图层"
-        class="layer-search w-full bg-transparent outline-none placeholder:text-black/35"
+        :placeholder="t('searchLayers')"
+        class="layer-search w-full bg-transparent outline-none placeholder:text-black/35 dark:placeholder:text-white/40 text-xs text-slate-800 dark:text-slate-100"
       />
       <button
         v-if="searchQuery"
-        class="p-0.5 text-black/40 hover:text-black/80 rounded"
+        class="p-0.5 text-black/40 hover:text-black/80 dark:text-white/40 dark:hover:text-white rounded cursor-pointer"
         @click="searchQuery = ''"
       >
         <X class="w-3 h-3" />
@@ -40,14 +40,14 @@
     <div class="flex-1 overflow-y-auto custom-scrollbar">
       <div
         class="layer-row flex items-center cursor-pointer"
-        :class="isFrameSelected ? 'bg-[#e5f4ff]' : 'hover:bg-[#f5f5f5]'"
+        :class="isFrameSelected ? 'bg-[#e5f4ff] dark:bg-[#1e3a5f]' : 'hover:bg-[#f5f5f5] dark:hover:bg-[#333333]'"
         style="padding-left: 16px; padding-right: 10px"
         @click="emit('select-frame', currentPage?.id)"
       >
         <span class="w-4 shrink-0"></span>
-        <Hash class="layer-icon w-3 h-3 shrink-0 text-black/75" />
-        <span class="truncate ml-1.5">{{ currentPage?.name || 'Artboard' }}</span>
-        <span class="ml-auto pl-2 text-black/40 tabular-nums">{{ layerCount || '' }}</span>
+        <Hash class="layer-icon w-3 h-3 shrink-0 text-black/75 dark:text-white/75" />
+        <span class="truncate ml-1.5 text-xs text-slate-800 dark:text-slate-200">{{ currentPage?.name || 'Artboard' }}</span>
+        <span class="ml-auto pl-2 text-black/40 dark:text-white/40 tabular-nums text-[10px]">{{ layerCount || '' }}</span>
       </div>
 
       <template v-if="useDomLayers">
@@ -56,7 +56,7 @@
             v-for="row in visibleDomRows"
             :key="row.layer.uid"
             class="layer-row group relative flex items-center cursor-pointer"
-            :class="isRowSelected(row.layer.uid) ? 'is-selected bg-[#0D99FF] text-white' : 'hover:bg-[#f5f5f5]'"
+            :class="isRowSelected(row.layer.uid) ? 'is-selected bg-[#0D99FF] text-white' : 'hover:bg-[#f5f5f5] dark:hover:bg-[#333333]'"
             :style="{ paddingLeft: (16 + row.depth * 18) + 'px', paddingRight: '8px' }"
             :draggable="renamingUid !== row.layer.uid"
             @mousedown="onLayerRowMouseDown(row.layer.uid, $event)"
@@ -76,7 +76,7 @@
               v-if="row.layer.children && row.layer.children.length"
               type="button"
               class="w-4 h-4 shrink-0 flex items-center justify-center rounded hover:bg-black/10"
-              :title="collapsed[row.layer.uid] ? '展开' : '收起'"
+              :title="collapsed[row.layer.uid] ? t('expand') : t('collapse')"
               @click.stop="toggleCollapse(row.layer.uid)"
             >
               <ChevronDown v-if="!collapsed[row.layer.uid]" class="layer-icon w-3 h-3" />
@@ -105,7 +105,7 @@
               v-else
               class="truncate ml-1.5"
               :class="row.layer.hidden && !isRowSelected(row.layer.uid) ? 'opacity-40' : ''"
-              :title="row.layer.name + '（双击改名）'"
+              :title="row.layer.name + ' (' + t('doubleClickToRename') + ')'"
               @dblclick.stop="startRename(row.layer)"
             >{{ row.layer.name }}</span>
             <span class="flex-1"></span>
@@ -113,7 +113,7 @@
               type="button"
               class="w-5 h-5 shrink-0 flex items-center justify-center rounded hover:bg-black/10"
               :class="row.layer.locked || isRowSelected(row.layer.uid) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
-              :title="row.layer.locked ? '解锁' : '锁定'"
+              :title="row.layer.locked ? t('unlock') : t('lock')"
               @click.stop="emit('toggle-layer-locked', row.layer)"
             >
               <Lock v-if="row.layer.locked" class="layer-icon w-3 h-3" />
@@ -123,7 +123,7 @@
               type="button"
               class="w-5 h-5 shrink-0 flex items-center justify-center rounded hover:bg-black/10"
               :class="row.layer.hidden || isRowSelected(row.layer.uid) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
-              :title="row.layer.hidden ? '显示' : '隐藏'"
+              :title="row.layer.hidden ? t('show') : t('hide')"
               @click.stop="emit('toggle-layer-hidden', row.layer)"
             >
               <EyeOff v-if="row.layer.hidden" class="layer-icon w-3 h-3" />
@@ -132,7 +132,7 @@
           </div>
         </template>
         <div v-else class="py-8 text-center text-black/40 text-[11px]">
-          {{ searchQuery ? '未找到匹配图层' : '暂无图层元素' }}
+          {{ searchQuery ? t('noMatchingLayers') : t('noLayers') }}
         </div>
       </template>
 
@@ -178,7 +178,7 @@
           </div>
         </template>
         <div v-else class="py-8 text-center text-slate-400 text-[11px]">
-          {{ searchQuery ? '未找到匹配图层' : '暂无图层元素' }}
+          {{ searchQuery ? t('noMatchingLayers') : t('noLayers') }}
         </div>
       </div>
     </div>
@@ -187,6 +187,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from 'vue'
+import { t } from '../utils/i18n'
 import {
   Search,
   X,

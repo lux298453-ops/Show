@@ -1,18 +1,18 @@
 <template>
-  <div class="h-full flex flex-col overflow-hidden bg-slate-100 text-slate-800 select-none selection:bg-emerald-500 selection:text-white">
+  <div class="h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-[#1e1e1e] text-slate-800 dark:text-slate-100 select-none selection:bg-emerald-500 selection:text-white transition-colors duration-200">
     <!-- ===== Professional SaaS Top Toolbar ===== -->
-    <header class="h-13 wf-glass-panel px-4 flex items-center justify-between z-40 shrink-0 shadow-2xs">
+    <header class="px-5 py-1 bg-white/95 dark:bg-[#2c2c2c] backdrop-blur-md border-b border-slate-200/80 dark:border-[#383838] flex items-center justify-between z-40 shrink-0 shadow-2xs dark:shadow-md transition-colors">
       <!-- Left: Back & Project Info -->
       <div class="flex items-center gap-3">
         <button
-          class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white/70 hover:bg-white border border-slate-200/80 rounded-xl shadow-2xs transition-all cursor-pointer"
+          class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-white/70 dark:bg-[#383838] hover:bg-white dark:hover:bg-[#444444] border border-slate-200/80 dark:border-[#484848] rounded-xl shadow-2xs transition-all cursor-pointer"
           @click="router.push(`/projects/${id}`)"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
-          <span>返回项目</span>
+          <span>{{ t('backToProjects') }}</span>
         </button>
 
-        <div class="h-4 w-[1px] bg-slate-200"></div>
+        <div class="h-4 w-[1px] bg-slate-200 dark:bg-[#383838]"></div>
 
         <div class="flex items-center gap-2">
           <img
@@ -20,11 +20,11 @@
             alt="WireForge"
             class="w-5 h-5 rounded-md object-contain shrink-0"
           />
-          <span class="text-xs font-bold text-slate-900 tracking-tight truncate max-w-[180px] sm:max-w-xs">
-            {{ proto?.project.name || '原型画板' }}
+          <span class="text-xs font-bold text-slate-900 dark:text-white tracking-tight truncate max-w-[180px] sm:max-w-xs">
+            {{ proto?.project.name || t('prototypeCanvas') }}
           </span>
-          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 uppercase tracking-wider">
-            交互模式
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#383838] text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-[#484848] uppercase tracking-wider">
+            {{ t('interactiveMode') }}
           </span>
         </div>
       </div>
@@ -32,15 +32,15 @@
       <!-- Center: Clean Space -->
       <div class="flex-1"></div>
 
-      <!-- Right: Preview CTA Dropdown (Figma Style) -->
-      <div class="flex items-center gap-3">
+      <!-- Right: Preview CTA Dropdown (Figma Style) & Navbar Controls -->
+      <div class="flex items-center gap-2.5">
         <el-dropdown trigger="click" @command="handlePreviewCommand">
           <button
-            class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 rounded-xl shadow-sm transition-all cursor-pointer"
-            title="原型演示 (Present / Preview)"
+            class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white dark:text-[#38bdf8] bg-[#0d99ff] hover:bg-[#0b87e0] active:bg-[#0972bd] dark:bg-[#0d99ff]/20 dark:hover:bg-[#0d99ff]/35 dark:active:bg-[#0d99ff]/50 border border-[#0d99ff]/90 dark:border-[#0d99ff]/50 rounded-xl shadow-sm dark:shadow-[0_0_14px_rgba(13,153,255,0.25)] transition-all cursor-pointer"
+            :title="t('prototypePresent')"
           >
-            <Play class="w-3.5 h-3.5 fill-white" />
-            <ChevronDown class="w-3 h-3 text-emerald-200" />
+            <Play class="w-3.5 h-3.5 fill-current" />
+            <ChevronDown class="w-3 h-3 text-white/80 dark:text-[#38bdf8]/80" />
           </button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -48,8 +48,8 @@
                 <div class="flex items-center gap-2.5 py-1 pr-2">
                   <Maximize2 class="w-4 h-4 text-cyan-600 shrink-0" />
                   <div>
-                    <div class="font-bold text-xs text-slate-800">Present (全屏演示)</div>
-                    <div class="text-[10px] text-slate-400">独立全屏分享 · iPhone 16 Pro</div>
+                    <div class="font-bold text-xs text-slate-800 dark:text-slate-100">{{ t('presentFullscreen') }}</div>
+                    <div class="text-[10px] text-slate-400">{{ t('presentFullscreenDesc') }}</div>
                   </div>
                 </div>
               </el-dropdown-item>
@@ -57,14 +57,17 @@
                 <div class="flex items-center gap-2.5 py-1 pr-2">
                   <Smartphone class="w-4 h-4 text-emerald-600 shrink-0" />
                   <div>
-                    <div class="font-bold text-xs text-slate-800">Preview (侧边手机浮层)</div>
-                    <div class="text-[10px] text-slate-400">在画布呈现可拖拽真机模型演示</div>
+                    <div class="font-bold text-xs text-slate-800 dark:text-slate-100">{{ t('previewDrawer') }}</div>
+                    <div class="text-[10px] text-slate-400">{{ t('previewDrawerDesc') }}</div>
                   </div>
                 </div>
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+
+        <!-- Appearance & Language Controls -->
+        <NavbarControls />
       </div>
     </header>
 
@@ -73,55 +76,55 @@
       <!-- ===== Left Sidebar: Design File Explorer & Component Palette ===== -->
       <aside class="w-64 bg-white/95 backdrop-blur-md border-r border-slate-200/90 flex flex-col shrink-0 z-10 shadow-2xs">
         <!-- Sidebar Header: Double Tab Switch -->
-        <div class="px-2 py-2 border-b border-slate-100 flex items-center gap-1 bg-slate-50/70 shrink-0">
+        <div class="px-2 py-2 border-b border-slate-100 dark:border-[#383838] flex items-center gap-1 bg-slate-50/70 dark:bg-[#1e1e1e] shrink-0">
           <button
             class="wf-tap flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             :class="leftSidebarTab === 'outline'
-              ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
-              : 'text-slate-500 hover:text-slate-800'"
+              ? 'bg-white dark:bg-[#383838] text-slate-900 dark:text-white shadow-2xs border border-slate-200/80 dark:border-[#484848]'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'"
             @click="leftSidebarTab = 'outline'"
           >
-            <Layers class="w-3.5 h-3.5" :class="leftSidebarTab === 'outline' ? 'text-emerald-600' : 'text-slate-400'" />
-            <span>设计稿大纲</span>
+            <Layers class="w-3.5 h-3.5" :class="leftSidebarTab === 'outline' ? 'text-emerald-600 dark:text-[#38bdf8]' : 'text-slate-400'" />
+            <span>{{ t('outlineTab') }}</span>
           </button>
           <button
             class="wf-tap flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             :class="leftSidebarTab === 'layers'
-              ? 'bg-white text-blue-700 shadow-2xs border border-slate-200/80'
-              : 'text-slate-500 hover:text-slate-800'"
+              ? 'bg-white dark:bg-[#383838] text-blue-700 dark:text-[#38bdf8] shadow-2xs border border-slate-200/80 dark:border-[#484848]'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'"
             @click="leftSidebarTab = 'layers'"
           >
-            <ListTree class="w-3.5 h-3.5" :class="leftSidebarTab === 'layers' ? 'text-blue-600' : 'text-slate-400'" />
-            <span>图层</span>
+            <ListTree class="w-3.5 h-3.5" :class="leftSidebarTab === 'layers' ? 'text-blue-600 dark:text-[#38bdf8]' : 'text-slate-400'" />
+            <span>{{ t('layersTab') }}</span>
           </button>
         </div>
 
         <!-- Tab 1: 100% Retained Design Outline -->
         <div v-if="leftSidebarTab === 'outline'" class="flex-1 flex flex-col overflow-hidden">
           <!-- Batch Action Bar: HTML Fast Render & AI Deep Re-analyze -->
-          <div class="px-3 py-2 bg-slate-50/80 border-b border-slate-100 flex flex-col gap-1.5">
+          <div class="px-3 py-2 bg-slate-50/80 dark:bg-[#252525] border-b border-slate-100 dark:border-[#383838] flex flex-col gap-1.5">
             <div class="flex items-center justify-between">
-              <label class="flex items-center gap-1.5 text-xs text-slate-600 font-semibold cursor-pointer">
+              <label class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 font-semibold cursor-pointer">
                 <input
                   type="checkbox"
                   :checked="regenAll"
                   @change="toggleRegenAll"
-                  class="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 focus:ring-0"
+                  class="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 dark:border-[#484848] dark:bg-[#1e1e1e] focus:ring-0"
                 />
-                <span>全选</span>
+                <span>{{ t('selectAll') }}</span>
               </label>
-              <span class="text-[11px] text-slate-400 tabular-nums">已选 {{ regenChecked.size }} 页</span>
+              <span class="text-[11px] text-slate-400 dark:text-slate-400 tabular-nums">{{ t('selectedPages', { n: regenChecked.size }) }}</span>
             </div>
 
             <div class="flex items-center">
               <button
-                class="wf-tap w-full inline-flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200/60 rounded-lg transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer shadow-2xs"
+                class="wf-tap w-full inline-flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200/60 dark:border-teal-700/50 rounded-lg transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer shadow-2xs"
                 :disabled="regenChecked.size === 0 || isReanalyzing || regeneratingIds.size > 0"
-                title="调用视觉大模型重新提取页面组件与识别元素（耗时约10-20秒）"
+                :title="t('aiReanalyzeSelectedTitle')"
                 @click="onReanalyzeChecked"
               >
-                <Sparkles class="w-3.5 h-3.5 text-teal-600" :class="{ 'animate-spin': isReanalyzing }" />
-                <span>AI 重新识别选定页面</span>
+                <Sparkles class="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" :class="{ 'animate-spin': isReanalyzing }" />
+                <span>{{ t('aiReanalyzeSelected') }}</span>
               </button>
             </div>
           </div>
@@ -133,33 +136,33 @@
               :key="p.id"
               class="group relative flex items-center gap-2.5 p-2 rounded-xl transition-all cursor-pointer border"
               :class="p.id === focusPageId
-                ? 'bg-emerald-50/80 border-emerald-200/80 text-emerald-950 shadow-2xs'
-                : 'hover:bg-slate-50 border-transparent text-slate-700'"
+                ? 'bg-emerald-50/80 dark:bg-[#2c2c2c] border-emerald-200/80 dark:border-[#0D99FF]/60 text-emerald-950 dark:text-slate-100 shadow-2xs'
+                : 'hover:bg-slate-50 dark:hover:bg-[#2c2c2c]/60 border-transparent text-slate-700 dark:text-slate-300'"
               @click="focusPage(p.id)"
             >
               <!-- Thumbnail -->
-              <div class="w-9 h-12 rounded-lg bg-slate-100 overflow-hidden border border-slate-200/80 shrink-0 flex items-center justify-center shadow-2xs">
+              <div class="w-9 h-12 rounded-lg bg-slate-100 dark:bg-[#1e1e1e] overflow-hidden border border-slate-200/80 dark:border-[#383838] shrink-0 flex items-center justify-center shadow-2xs">
                 <img v-if="p.background_image" :src="getFileUrl(p.background_image)" class="w-full h-full object-cover" />
-                <div v-else class="text-[9px] text-slate-400">无图</div>
+                <div v-else class="text-[9px] text-slate-400 dark:text-slate-500">{{ t('noImage') }}</div>
               </div>
 
               <!-- Meta Info -->
               <div class="flex-1 min-w-0">
-                <div class="text-xs font-bold truncate leading-tight mb-1 text-slate-900">
+                <div class="text-xs font-bold truncate leading-tight mb-1 text-slate-900 dark:text-slate-100">
                   {{ p.name }}
                 </div>
-                <div class="flex items-center gap-1.5 text-[10px] text-slate-400 tabular-nums">
-                  <span class="w-1.5 h-1.5 rounded-full" :class="p.analyzed ? 'bg-emerald-500' : 'bg-amber-400'"></span>
-                  <span>{{ p.analyzed ? '已分析' : '待分析' }}</span>
+                <div class="flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-400 tabular-nums">
+                  <span class="w-1.5 h-1.5 rounded-full" :class="p.analyzed ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-400'"></span>
+                  <span>{{ p.analyzed ? t('analyzedTag') : t('pendingTag') }}</span>
                   <span>·</span>
-                  <span>{{ p.elements.length }} 元素</span>
+                  <span>{{ t('elementsCount', { n: p.elements.length }) }}</span>
                 </div>
               </div>
 
               <!-- Delete Page Button (hover to show) -->
               <button
-                class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer shrink-0"
-                title="删除画板"
+                class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-all cursor-pointer shrink-0"
+                :title="t('deleteFrame')"
                 @click.stop="confirmDeletePage(p)"
                 @mousedown.stop
               >
@@ -169,13 +172,13 @@
           </div>
 
           <!-- Sidebar Footer Summary -->
-          <div class="p-3 bg-slate-50/80 border-t border-slate-100 text-[11px] text-slate-500 space-y-1.5 tabular-nums">
-            <div class="flex justify-between"><span>总元素数</span><span class="font-bold text-slate-700">{{ totalElements }}</span></div>
-            <div class="flex justify-between"><span>交互事件</span><span class="font-bold text-slate-700">{{ totalInteractions }}</span></div>
-            <div class="flex justify-between"><span>说明标注</span><span class="font-bold text-slate-700">{{ totalAnnotations }}</span></div>
-            <div class="pt-1.5 border-t border-slate-200/60 text-[10px] text-slate-400 flex items-center gap-1">
+          <div class="p-3 bg-slate-50/80 dark:bg-[#252525] border-t border-slate-100 dark:border-[#383838] text-[11px] text-slate-500 dark:text-slate-400 space-y-1.5 tabular-nums">
+            <div class="flex justify-between"><span>{{ t('totalElements') }}</span><span class="font-bold text-slate-700 dark:text-slate-200">{{ totalElements }}</span></div>
+            <div class="flex justify-between"><span>{{ t('totalInteractions') }}</span><span class="font-bold text-slate-700 dark:text-slate-200">{{ totalInteractions }}</span></div>
+            <div class="flex justify-between"><span>{{ t('totalAnnotations') }}</span><span class="font-bold text-slate-700 dark:text-slate-200">{{ totalAnnotations }}</span></div>
+            <div class="pt-1.5 border-t border-slate-200/60 dark:border-[#383838] text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
               <MousePointer class="w-3 h-3" />
-              <span>拖拽框选多画板，空格+拖拽漫游</span>
+              <span>{{ t('canvasNavTip') }}</span>
             </div>
           </div>
         </div>
@@ -331,7 +334,7 @@
 
               <!-- Block Header Capsule Floating Label -->
               <div
-                class="block-label absolute -top-9 left-0 inline-flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-md border border-slate-200/85 rounded-xl shadow-xs text-xs font-bold text-slate-800 hover:border-emerald-300 hover:text-emerald-600 hover:shadow-md transition-all cursor-default"
+                class="block-label absolute -top-9 left-0 inline-flex items-center gap-2 px-3 py-1.5 bg-white/90 dark:bg-[#2c2c2c]/95 backdrop-blur-md border border-slate-200/85 dark:border-[#383838] rounded-xl shadow-xs text-xs font-bold text-slate-800 dark:text-slate-100 hover:border-emerald-300 dark:hover:border-[#0D99FF] hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:shadow-md transition-all cursor-default"
                 @mousedown.stop="onBlockDragStart($event, b)"
                 @contextmenu.prevent.stop="openLayerContextMenu($event.clientX, $event.clientY, undefined, undefined, b.page.id)"
               >
@@ -339,35 +342,35 @@
                   v-if="b.page.html_content"
                   type="checkbox"
                   :checked="regenChecked.has(b.page.id)"
-                  class="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 focus:ring-0 mr-0.5 cursor-pointer"
+                  class="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 dark:border-[#484848] dark:bg-[#1e1e1e] focus:ring-0 mr-0.5 cursor-pointer"
                   @change="(e: any) => { if (e.target.checked) regenChecked.add(b.page.id); else regenChecked.delete(b.page.id); regenChecked = new Set(regenChecked) }"
                   @click.stop
                   @mousedown.stop
                 />
-                <GripVertical class="w-3.5 h-3.5 text-slate-400" />
+                <GripVertical class="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />
                 <span class="cursor-pointer hover:underline truncate max-w-[170px]" @click.stop="focusPage(b.page.id)">{{ b.title }}</span>
 
                 <!-- 独占锁定徽标：他人正在微调此页 -->
                 <span
                   v-if="pageEditingConflicts[b.page.id]?.conflict"
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-300 text-[10px] font-semibold select-none shrink-0"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700/60 text-[10px] font-semibold select-none shrink-0"
                   :title="`${pageEditingConflicts[b.page.id]?.editor || '其他成员'} 正在独占微调此页面，已被锁定保护`"
                 >
-                  <Lock class="w-3 h-3 text-rose-500 shrink-0" />
+                  <Lock class="w-3 h-3 text-rose-500 dark:text-rose-400 shrink-0" />
                   <span>{{ pageEditingConflicts[b.page.id]?.editor || '协同成员' }} 独占微调中</span>
                 </span>
 
                 <!-- 本地微调徽标：当前正独占微调此页 -->
                 <span
                   v-else-if="fineTune && mode === 'edit' && activeEditingPageId === b.page.id"
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-300 text-[10px] font-semibold select-none shrink-0 animate-pulse"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 text-[10px] font-semibold select-none shrink-0 animate-pulse"
                 >
-                  <SlidersHorizontal class="w-3 h-3 text-emerald-600 shrink-0" />
+                  <SlidersHorizontal class="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <span>微调中</span>
                 </span>
 
                 <button
-                  class="wf-tap ml-0.5 p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                  class="wf-tap ml-0.5 p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:bg-slate-100 dark:hover:bg-[#383838] transition-colors cursor-pointer"
                   title="放大聚焦此页"
                   @click.stop="focusPage(b.page.id)"
                   @mousedown.stop
@@ -376,18 +379,18 @@
                 </button>
                 <button
                   v-if="!b.page.html_content && b.page.background_image"
-                  class="wf-tap px-2 py-0.5 rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                  class="wf-tap px-2 py-0.5 rounded-lg text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/80 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-700/60 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
                   :class="{ 'animate-pulse pointer-events-none': regeneratingIds.has(b.page.id) }"
                   title="为设计稿生成独立原型图（放置在右侧）"
                   @click.stop="onGeneratePrototypeForDesign(b)"
                   @mousedown.stop
                 >
-                  <Sparkles class="w-3 h-3 text-emerald-600" :class="{ 'animate-spin': regeneratingIds.has(b.page.id) }" />
+                  <Sparkles class="w-3 h-3 text-emerald-600 dark:text-emerald-400" :class="{ 'animate-spin': regeneratingIds.has(b.page.id) }" />
                   <span>生成原型图</span>
                 </button>
                 <button
                   v-if="b.page.html_content"
-                  class="wf-tap p-1 rounded-md text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 transition-colors cursor-pointer"
+                  class="wf-tap p-1 rounded-md text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
                   :class="{ 'animate-spin pointer-events-none': regeneratingIds.has(b.page.id) }"
                   title="同步重绘本页渲染（本地 0 消耗）"
                   @click.stop="onRegenerateHtml(b.page.id)"
@@ -396,7 +399,7 @@
                   <RotateCw class="w-3 h-3" />
                 </button>
                 <button
-                  class="wf-tap p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                  class="wf-tap p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
                   title="删除此画板 (Delete / Backspace)"
                   @click.stop="confirmDeletePage(b.page)"
                   @mousedown.stop
@@ -963,6 +966,44 @@
             </svg>
           </template>
 
+          <!-- ===== 交互连线中点悬浮操作胶囊与快速删除按钮 (Direct on-canvas interaction pill & delete) ===== -->
+          <div
+            v-if="!isBlockDragging && workbenchMode === 'interactive' && visibleConnections.length > 0"
+            class="pointer-events-none absolute left-0 top-0 w-0 h-0 overflow-visible z-[48]"
+          >
+            <div
+              v-for="conn in visibleConnections"
+              :key="'badge-' + conn.id"
+              class="figma-conn-badge group pointer-events-auto absolute flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium shadow-md transition-all select-none cursor-pointer"
+              :class="selectedConnIds.has(conn.id)
+                ? 'bg-[#0D99FF] text-white shadow-lg shadow-blue-500/35 ring-2 ring-white scale-105 z-[55]'
+                : 'bg-white/95 dark:bg-[#1e1e1e]/95 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-white/10 hover:border-[#0D99FF] hover:shadow-lg hover:scale-102 z-[48]'"
+              :style="{
+                left: `${conn.midX}px`,
+                top: `${conn.midY}px`,
+                transform: 'translate(-50%, -50%)',
+              }"
+              @click.stop="selectConnection(conn, $event)"
+            >
+              <span class="text-[11px] text-[#0D99FF] dark:text-[#38bdf8] font-bold">⚡</span>
+              <span class="max-w-[130px] truncate text-[11px] font-semibold" :title="`${conn.label} ➔ ${conn.toPageName}`">
+                {{ conn.label }} ➔ {{ conn.toPageName }}
+              </span>
+              <!-- 删除按钮：点击立刻删除交互连线 (支持 Ctrl+Z 撤销) -->
+              <button
+                type="button"
+                class="ml-0.5 w-4 h-4 rounded-full flex items-center justify-center transition-all cursor-pointer"
+                :class="selectedConnIds.has(conn.id)
+                  ? 'bg-white/20 hover:bg-rose-500 text-white hover:text-white'
+                  : 'text-slate-400 hover:text-white hover:bg-rose-500 dark:text-slate-400 dark:hover:bg-rose-500'"
+                title="删除此交互连线 (按 Delete 键也可删除)"
+                @click.stop="removeConnection(conn)"
+              >
+                <span class="text-[11px] leading-none font-bold">✕</span>
+              </button>
+            </div>
+          </div>
+
           <div v-if="!pages.length" class="flex flex-col items-center justify-center p-20 text-slate-400">
             <Layers class="w-12 h-12 text-slate-300 mb-3" />
             <p class="text-sm font-medium text-slate-600">还没有画板</p>
@@ -1020,59 +1061,59 @@
 
         <template v-else>
           <!-- 0. Right Sidebar Topmost: Mode Switcher [ Design | Prototype ] -->
-          <div class="px-2.5 py-2 border-b border-slate-100 bg-slate-50/90 flex flex-col gap-1.5 shrink-0">
-          <div class="flex items-center gap-1 w-full bg-slate-200/80 p-1 rounded-xl">
+          <div class="px-2.5 py-2 border-b border-slate-100 dark:border-[#383838] bg-slate-50/90 dark:bg-[#252525] flex flex-col gap-1.5 shrink-0">
+          <div class="flex items-center gap-1 w-full bg-slate-200/80 dark:bg-[#1e1e1e] p-1 rounded-xl">
             <button
               class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all cursor-pointer text-center flex items-center justify-center gap-1"
               :class="workbenchMode === 'design'
-                ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
-                : 'text-slate-500 hover:text-slate-800'"
+                ? 'bg-white dark:bg-[#383838] text-slate-900 dark:text-white shadow-2xs border border-slate-200/80 dark:border-[#484848]'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
               @click="setWorkbenchMode('design')"
             >
-              <span>Design</span>
+              <span>{{ t('modeDesign') }}</span>
             </button>
             <button
               class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all cursor-pointer text-center flex items-center justify-center gap-1"
               :class="workbenchMode === 'interactive'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30'
-                : 'text-slate-500 hover:text-slate-800'"
+                ? 'bg-blue-600 dark:bg-[#0D99FF] text-white shadow-sm shadow-blue-500/30'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
               @click="setWorkbenchMode('interactive')"
             >
-              <span>Prototype</span>
+              <span>{{ t('modePrototype') }}</span>
             </button>
           </div>
           <button
             v-if="workbenchMode === 'interactive'"
-            class="wf-tap w-full py-1.5 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+            class="wf-tap w-full py-1.5 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 dark:from-[#0D99FF] dark:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
             :disabled="isAutowiringAi"
-            title="执行阶段二：基于本地规则与轻量纯文本大模型增量推导所有页面的未决跳转交互"
+            :title="t('aiAutowireTitle')"
             @click="triggerAutowireAi"
           >
             <span v-if="isAutowiringAi" class="animate-spin text-xs">⏳</span>
-            <span>{{ isAutowiringAi ? 'AI 拓扑推导中...' : 'AI 拓扑智能连线' }}</span>
+            <span>{{ isAutowiringAi ? t('aiAutowiring') : t('aiAutowire') }}</span>
           </button>
         </div>
 
         <!-- 1. Right Sidebar: Canvas Zoom Controls -->
-        <div class="px-2.5 py-2 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-          <div class="flex items-center bg-slate-50 border border-slate-200/80 rounded-lg p-0.5 text-slate-600 shadow-2xs">
+        <div class="px-2.5 py-2 border-b border-slate-100 dark:border-[#383838] flex items-center justify-between bg-white dark:bg-[#252525] shrink-0">
+          <div class="flex items-center bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-lg p-0.5 text-slate-600 dark:text-slate-300 shadow-2xs">
             <button
-              class="wf-tap p-1 hover:bg-slate-100 hover:text-slate-900 rounded transition-colors cursor-pointer"
-              title="缩小 (Ctrl + 滚轮)"
+              class="wf-tap p-1 hover:bg-slate-100 dark:hover:bg-[#333333] hover:text-slate-900 dark:hover:text-white rounded transition-colors cursor-pointer"
+              :title="t('zoomOut')"
               @click="zoomAtCenter(0.85)"
             >
               <Minus class="w-3 h-3" />
             </button>
             <button
-              class="wf-tap px-2 py-0.5 text-[11px] font-bold tabular-nums text-slate-700 hover:text-emerald-700 hover:bg-slate-100 rounded select-none transition-colors cursor-pointer"
-              title="点击还原 100% 比例 (Ctrl+0)"
+              class="wf-tap px-2 py-0.5 text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-[#0D99FF] hover:bg-slate-100 dark:hover:bg-[#333333] rounded select-none transition-colors cursor-pointer"
+              :title="t('zoomReset')"
               @click="resetZoom100"
             >
               {{ Math.round(view.k * 100) }}%
             </button>
             <button
-              class="wf-tap p-1 hover:bg-slate-100 hover:text-slate-900 rounded transition-colors cursor-pointer"
-              title="放大 (Ctrl + 滚轮)"
+              class="wf-tap p-1 hover:bg-slate-100 dark:hover:bg-[#333333] hover:text-slate-900 dark:hover:text-white rounded transition-colors cursor-pointer"
+              :title="t('zoomIn')"
               @click="zoomAtCenter(1.18)"
             >
               <Plus class="w-3 h-3" />
@@ -1080,17 +1121,17 @@
           </div>
 
           <!-- Quick Canvas Focus Tools -->
-          <div class="flex items-center gap-1 text-slate-400">
+          <div class="flex items-center gap-1 text-slate-400 dark:text-slate-400">
             <button
-              class="wf-tap p-1.5 hover:bg-slate-200/70 hover:text-slate-700 rounded-md transition-colors cursor-pointer"
-              title="聚焦当前选中画框 (Shift+2)"
+              class="wf-tap p-1.5 hover:bg-slate-200/70 dark:hover:bg-[#333333] hover:text-slate-700 dark:hover:text-white rounded-md transition-colors cursor-pointer"
+              :title="t('focusSelected')"
               @click="focusPage(focusPageId ?? (blocks[0]?.page.id ?? 0))"
             >
               <Crosshair class="w-3.5 h-3.5" />
             </button>
             <button
-              class="wf-tap p-1.5 hover:bg-slate-200/70 hover:text-slate-700 rounded-md transition-colors cursor-pointer"
-              title="自适应全览所有画框 (Shift+1)"
+              class="wf-tap p-1.5 hover:bg-slate-200/70 dark:hover:bg-[#333333] hover:text-slate-700 dark:hover:text-white rounded-md transition-colors cursor-pointer"
+              :title="t('fitAllCanvas')"
               @click="fitAll"
             >
               <Maximize2 class="w-3.5 h-3.5" />
@@ -1099,53 +1140,150 @@
         </div>
 
         <!-- 2. Right Sidebar Header: Double Tab Switch -->
-        <div class="px-2 py-1.5 border-b border-slate-100 flex items-center gap-1 bg-white shrink-0">
+        <div class="px-2 py-1.5 border-b border-slate-100 dark:border-[#383838] flex items-center gap-1 bg-white dark:bg-[#252525] shrink-0">
           <button
             class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             :class="rightSidebarTab === 'design'
-              ? 'bg-slate-100 text-slate-900 font-bold border border-slate-200/80 shadow-2xs'
-              : 'text-slate-500 hover:text-slate-800'"
+              ? 'bg-slate-100 dark:bg-[#383838] text-slate-900 dark:text-white font-bold border border-slate-200/80 dark:border-[#484848] shadow-2xs'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
             @click="rightSidebarTab = 'design'"
           >
             <SlidersHorizontal class="w-3.5 h-3.5" :class="rightSidebarTab === 'design' ? 'text-[#0D99FF]' : 'text-slate-400'" />
-            <span>属性</span>
+            <span>{{ t('inspectorTab') }}</span>
           </button>
           <button
             class="wf-tap flex-1 py-1 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             :class="rightSidebarTab === 'components'
-              ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200/80 shadow-2xs'
-              : 'text-slate-500 hover:text-slate-800'"
+              ? 'bg-blue-50 dark:bg-[#1e3a5f] text-blue-700 dark:text-[#38bdf8] font-bold border border-blue-200/80 dark:border-[#0D99FF]/40 shadow-2xs'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
             @click="rightSidebarTab = 'components'"
           >
-            <Component class="w-3.5 h-3.5" :class="rightSidebarTab === 'components' ? 'text-blue-600' : 'text-slate-400'" />
-            <span>组件库</span>
+            <Component class="w-3.5 h-3.5" :class="rightSidebarTab === 'components' ? 'text-blue-600 dark:text-[#38bdf8]' : 'text-slate-400'" />
+            <span>{{ t('componentsTab') }}</span>
           </button>
         </div>
 
-        <!-- 3. Tab 1: Design Inspector Panel -->
-        <DesignInspector
-          v-if="rightSidebarTab === 'design'"
-          :current-page="currentFocusPage"
-          :selected-element="selectedElementObj"
-          :element-info="activeSelectedElementInfo"
-          :frame-fill="frameFillColor"
-          @update-dimension="onInspectorUpdateDimension"
-          @update-position="onInspectorUpdatePosition"
-          @update-color="onInspectorUpdateColor"
-          @update-frame-color="onInspectorUpdateFrameColor"
-          @update-font-size="onInspectorUpdateFontSize"
-          @update-text-style="onInspectorUpdateTextStyle"
-          @align-selection="onInspectorAlign"
-          @update-radius="onInspectorUpdateRadius"
-          @update-stroke="onInspectorUpdateStroke"
-          @update-effects="onInspectorUpdateEffects"
-          @duplicate-selection="onInspectorDuplicate"
-          @delete-selection="onInspectorDelete"
-          @replace-asset="onInspectorReplaceAsset"
-          @start-text-edit="onInspectorStartTextEdit"
-          @update-text="onInspectorUpdateText"
-          @select-parent="onInspectorSelectParent"
-        />
+        <!-- 3. Tab 1: Design Inspector Panel (带 Prototype 交互连线管理) -->
+        <div v-if="rightSidebarTab === 'design'" class="flex-1 flex flex-col min-h-0 overflow-y-auto">
+          <!-- Prototype 交互模式专用连线与删除控制面板 -->
+          <div
+            v-if="workbenchMode === 'interactive'"
+            class="p-3 border-b border-slate-200 dark:border-[#383838] bg-slate-50/70 dark:bg-[#1e1e1e]/70 space-y-2.5 shrink-0 select-none"
+          >
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <Zap class="w-3.5 h-3.5 text-[#0D99FF]" />
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-100">交互关系管理</span>
+              </div>
+              <span class="text-[11px] text-slate-400 font-mono tabular-nums">
+                {{ activePageConnections.length }} 条连线
+              </span>
+            </div>
+
+            <!-- Case A: 选中了连线 (单条或多条) -->
+            <div v-if="selectedConnIds.size > 0" class="p-2.5 rounded-xl bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 space-y-2">
+              <div class="flex items-center justify-between text-xs font-bold text-blue-800 dark:text-blue-200">
+                <span v-if="selectedConnIds.size === 1">已选中 1 条连线</span>
+                <span v-else>已选中 {{ selectedConnIds.size }} 条连线</span>
+                <button
+                  type="button"
+                  class="text-[11px] text-blue-500 hover:underline cursor-pointer"
+                  @click="selectedConnIds = new Set()"
+                >
+                  取消选中
+                </button>
+              </div>
+
+              <!-- 单条连线属性明细 -->
+              <div v-if="selectedConnList.length === 1" class="text-[11px] text-slate-600 dark:text-slate-300 space-y-1 bg-white/80 dark:bg-[#252525]/80 p-2 rounded-lg border border-slate-200/60 dark:border-white/5">
+                <div class="flex justify-between">
+                  <span class="text-slate-400">源画板:</span>
+                  <span class="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[150px]">{{ selectedConnList[0].fromPageName }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">触发元素:</span>
+                  <span class="font-bold text-[#0D99FF] truncate max-w-[150px]">{{ selectedConnList[0].label }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">目标画板:</span>
+                  <span class="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[150px]">{{ selectedConnList[0].toPageName }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">手势 / 动作:</span>
+                  <span class="font-medium">{{ selectedConnList[0].triggerLabel || '点击' }} ➔ {{ selectedConnList[0].actionLabel || '跳转' }}</span>
+                </div>
+              </div>
+
+              <!-- 醒目的红色删除按钮 -->
+              <button
+                type="button"
+                class="w-full py-1.5 px-3 bg-rose-500 hover:bg-rose-600 active:scale-[0.98] text-white font-bold text-xs rounded-lg shadow-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                :title="`删除选中的连线 (按 Backspace/Delete 也可删除)`"
+                @click="deleteSelectedConnections"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+                <span>{{ selectedConnIds.size > 1 ? `批量删除 ${selectedConnIds.size} 条连线` : '删除此交互连线' }}</span>
+              </button>
+              <div class="text-[10px] text-slate-400 dark:text-slate-500 text-center">
+                快捷键：按 Delete 或 Backspace 键也可直接删除 (Ctrl+Z 可撤销)
+              </div>
+            </div>
+
+            <!-- Case B: 未选中具体连线，列出当前激活画板的连线并提供一键删除 -->
+            <div v-else class="space-y-2">
+              <div class="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                <span>当前画板：<strong class="text-slate-700 dark:text-slate-200">{{ currentActiveFrameName }}</strong></span>
+              </div>
+              <div v-if="activePageConnections.length > 0" class="space-y-1.5 max-h-[160px] overflow-y-auto pr-0.5">
+                <div
+                  v-for="c in activePageConnections"
+                  :key="c.id"
+                  class="group flex items-center justify-between p-1.5 rounded-lg bg-white dark:bg-[#252525] border border-slate-200/80 dark:border-white/5 hover:border-[#0D99FF] text-xs cursor-pointer transition-all"
+                  @click="selectConnIds([c.id])"
+                >
+                  <div class="flex items-center gap-1.5 truncate">
+                    <span class="text-[#0D99FF] text-[10px]">⚡</span>
+                    <span class="font-medium text-slate-700 dark:text-slate-200 truncate">{{ c.label }} ➔ {{ c.toPageName }}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="p-1 text-slate-400 hover:text-white hover:bg-rose-500 rounded transition-colors shrink-0"
+                    title="删除此交互连线"
+                    @click.stop="removeConnection(c)"
+                  >
+                    <Trash2 class="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              <div v-else class="p-2 rounded-lg bg-white dark:bg-[#252525] border border-dashed border-slate-200 dark:border-white/10 text-center text-[11px] text-slate-400">
+                当前画板暂无连线。移到画板元素上拖拽加号到目标画板即可建立连线。
+              </div>
+            </div>
+          </div>
+
+          <DesignInspector
+            :current-page="currentFocusPage"
+            :selected-element="selectedElementObj"
+            :element-info="activeSelectedElementInfo"
+            :frame-fill="frameFillColor"
+            @update-dimension="onInspectorUpdateDimension"
+            @update-position="onInspectorUpdatePosition"
+            @update-color="onInspectorUpdateColor"
+            @update-frame-color="onInspectorUpdateFrameColor"
+            @update-font-size="onInspectorUpdateFontSize"
+            @update-text-style="onInspectorUpdateTextStyle"
+            @align-selection="onInspectorAlign"
+            @update-radius="onInspectorUpdateRadius"
+            @update-stroke="onInspectorUpdateStroke"
+            @update-effects="onInspectorUpdateEffects"
+            @duplicate-selection="onInspectorDuplicate"
+            @delete-selection="onInspectorDelete"
+            @replace-asset="onInspectorReplaceAsset"
+            @start-text-edit="onInspectorStartTextEdit"
+            @update-text="onInspectorUpdateText"
+            @select-parent="onInspectorSelectParent"
+          />
+        </div>
 
         <!-- 4. Tab 2: Atomic Component Palette -->
         <ComponentPalette
@@ -1846,6 +1984,8 @@ import type { Element, Page, Prototype, CommentThread, CommentReply } from '../t
 import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
+import NavbarControls from '../components/NavbarControls.vue'
+import { t } from '../utils/i18n'
 import LayerTree from '../components/LayerTree.vue'
 import DesignInspector from '../components/DesignInspector.vue'
 import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
@@ -1855,7 +1995,7 @@ import VectorSubToolbar, { type VectorSubToolType } from '../components/VectorSu
 import VectorDrawOverlay from '../components/VectorDrawOverlay.vue'
 import type { VectorPathData, VectorPoint } from '../utils/vectorEngine'
 import { scalePointsAndHandles } from '../utils/vectorEngine'
-import { findInteractionByDomUids, interactionDomUid, resolveNavigateElement } from '../utils/interactionHit'
+import { findInteractionByDomUids, hitInteractionElement, findElementAt, interactionDomUid, resolveNavigateElement } from '../utils/interactionHit'
 
 const activeDrawTool = ref<ActiveToolType>('select')
 const toolNames: Record<string, string> = {
@@ -2143,11 +2283,14 @@ const workbenchMode = ref<'design' | 'interactive'>('design')
 function setWorkbenchMode(m: 'design' | 'interactive') {
   workbenchMode.value = m
   if (m === 'interactive') {
+    if (!activeInteractionPageId.value || !pages.value.some((p) => p.id === activeInteractionPageId.value)) {
+      activeInteractionPageId.value = focusPageId.value || selectedNodeId.value || pages.value[0]?.id || null
+    }
     if (!selectedNodeId.value && pages.value.length > 0) {
-      selectedNodeId.value = focusPageId.value || pages.value[0]?.id
+      selectedNodeId.value = activeInteractionPageId.value || pages.value[0]?.id
     }
     ElMessage.info({
-      message: '移到组件上会出现蓝点，再移到蓝点上变成加号，按住拖到另一块画板即可连线',
+      message: '交互连线模式：点击画板可固定展示连线，移出画框不消失；点击连线 ✕ 或按 Delete 可删除交互。',
       duration: 3500,
     })
   } else {
@@ -2259,6 +2402,7 @@ function onPageBlockClick(e: MouseEvent, b: any) {
   selectedDomLayerUid.value = null
   selectedDomLayerUids.value = []
   focusPageId.value = b.page.id
+  activeInteractionPageId.value = b.page.id
   showFrameFill(b.page.id)
 }
 
@@ -3127,6 +3271,9 @@ async function loadData() {
       focusPageId.value = qPage
       previewPageId.value = qPage
     }
+    if (!activeInteractionPageId.value && proto.value.pages.length > 0) {
+      activeInteractionPageId.value = focusPageId.value || proto.value.pages[0]?.id || null
+    }
   } catch (e: any) {
     ElMessage.error(e.message || '加载失败')
   }
@@ -3201,15 +3348,43 @@ function onPreviewHotspotClick(pos?: { x: number; y: number; uids?: string[] }) 
   if (name) onProtoNavigate(name)
 }
 
-function clearStampedNav(params?: string | null, pageId?: number) {
-  if (!params || !pageId) return
+function clearStampedNav(params?: string | null, pageId?: number, toPageName?: string, toPageId?: number | null) {
+  if (!pageId) return
+  if (!toPageName && toPageId) {
+    const targetPage = pages.value.find((p) => p.id === toPageId)
+    if (targetPage) toPageName = targetPage.name
+  }
+  let domUid: string | null = null
   try {
-    const parsed = JSON.parse(params)
-    if (parsed?.domUid) {
-      pageRefs.value[pageId]?.stampElementNav?.(String(parsed.domUid), null)
+    const parsed = params ? JSON.parse(params) : null
+    if (parsed?.domUid) domUid = String(parsed.domUid)
+  } catch {}
+
+  // 1. 通知画板实时从 iframe 内部移除该导航属性并恢复默认光标
+  pageRefs.value[pageId]?.removeElementNav?.(domUid, toPageName, toPageId)
+
+  // 2. 清理内存和数据库中该页面 HTML 的残留 data-nav 属性
+  const sourcePage = pages.value.find((p) => p.id === pageId)
+  if (sourcePage && sourcePage.html_content) {
+    let updated = sourcePage.html_content
+    if (domUid) {
+      const uidRegex = new RegExp(`(<[^>]+data-wf-uid=["']${domUid}["'][^>]*?)(\\s+data-nav=["'][^"']*["'])([^>]*>)`, 'gi')
+      updated = updated.replace(uidRegex, '$1$3')
     }
-  } catch {
-    /* 旧连线没有记下组件，删连线时不用改页面 */
+    if (toPageName || toPageId) {
+      const escapedName = (toPageName || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const patterns: string[] = []
+      if (escapedName) patterns.push(escapedName)
+      if (toPageId) patterns.push(String(toPageId))
+      if (patterns.length > 0) {
+        const targetRegex = new RegExp(`\\s+data-nav=["'](?:${patterns.join('|')})["']`, 'gi')
+        updated = updated.replace(targetRegex, '')
+      }
+    }
+    if (updated !== sourcePage.html_content) {
+      sourcePage.html_content = updated
+      projectApi.saveHtml(id, pageId, updated).catch(() => {})
+    }
   }
 }
 
@@ -3297,21 +3472,75 @@ function findTargetPage(pageKey: string, fromPageId?: number | null): Page | nul
 }
 
 // ===== 整页 HTML 内的跨页跳转：点击 data-nav 元素 → 切换到目标页原型 =====
-function onProtoNavigate(pageName: string, uids?: string[]) {
+function onProtoNavigate(pageName: string, uids?: string[], pos?: { x?: number; y?: number; uid?: string }) {
   clearSpotlightInIframe()
   const current = mode.value === 'preview' ? previewPageId.value : focusPageId.value ?? null
   const fromPage = current != null ? pages.value.find((p) => p.id === current) : null
-  const byUid = findInteractionByDomUids(fromPage, uids)
-  if (current != null) backStack.value.push(current)
 
+  // 1. 优先通过 DOM UID 精准匹配已绑定的交互连线
+  const byUid = findInteractionByDomUids(fromPage, uids)
   const uidTargetId = byUid?.interaction?.target_page_id
-  const target = uidTargetId
-    ? pages.value.find((p) => p.id === uidTargetId) || null
-    : findTargetPage(pageName, current)
+  if (uidTargetId) {
+    if (current != null) backStack.value.push(current)
+    if (mode.value === 'preview' && previewPageId.value != null) {
+      slideClass.value = 'slide-in-right'
+      previewPageId.value = uidTargetId
+      setTimeout(() => (slideClass.value = ''), 400)
+    } else {
+      focusPage(uidTargetId)
+    }
+    const named = pages.value.find((p) => p.id === uidTargetId)
+    showToast(`↗ 跳转到「${named?.name || uidTargetId}」`)
+    return
+  }
+
+  // 2. 尝试通过点击物理坐标命中热区交互规则
+  if (pos?.x != null && pos?.y != null) {
+    const hit = hitInteractionElement(fromPage, pos.x, pos.y)
+    const hitTarget = hit?.interaction?.target_page_id
+    if (hitTarget) {
+      if (current != null) backStack.value.push(current)
+      if (mode.value === 'preview' && previewPageId.value != null) {
+        slideClass.value = 'slide-in-right'
+        previewPageId.value = hitTarget
+        setTimeout(() => (slideClass.value = ''), 400)
+      } else {
+        focusPage(hitTarget)
+      }
+      const named = pages.value.find((p) => p.id === hitTarget)
+      showToast(`↗ 跳转到「${named?.name || hitTarget}」`)
+      return
+    }
+
+    // 3. 关键判定：检查点击位置是否命中了某个具体组件（若该组件无交互规则，说明未连接或已被用户删除）
+    const matchedEl = findElementAt(fromPage, pos.x, pos.y, uids)
+    if (matchedEl) {
+      console.log(`[PrototypeView] 拦截跳转：组件「${matchedEl.label || matchedEl.id}」未绑定交互连线`)
+      return
+    }
+  }
+
+  // 4. 如果点击元素带有 UID，检查对应组件是否有交互
+  if (uids?.length) {
+    const matchedEl = findElementAt(fromPage, null, null, uids)
+    if (matchedEl && !matchedEl.interaction?.target_page_id) {
+      console.log(`[PrototypeView] 拦截跳转：组件「${matchedEl.label || matchedEl.id}」无交互连线`)
+      return
+    }
+  }
+
+  // 5. 如果当前项目存在交互连线系统，禁止非绑定的任意元素根据文本跳转
+  const projectHasInteractions = pages.value.some((p) => (p.elements || []).some((e) => e.interaction?.target_page_id))
+  if (projectHasInteractions) {
+    return
+  }
+
+  const target = findTargetPage(pageName, current)
   if (!target) {
     showToast(`未找到页面「${pageName}」`)
     return
   }
+  if (current != null) backStack.value.push(current)
   if (mode.value === 'preview' && previewPageId.value != null) {
     slideClass.value = 'slide-in-right'
     previewPageId.value = target.id
@@ -3737,6 +3966,28 @@ function getPrimaryInteractiveElements(page: Page): Element[] {
 const selectedNodeId = ref<number | null>(null)
 const selectedNodeKey = ref<string | null>(null)
 const selectedBlockKeys = ref<Set<string>>(new Set())
+/** 当前在 Prototype 交互模式下固定展示连线的画板 ID (点击画板时锁定，移出不消失，只有点击其他画板才切换) */
+const activeInteractionPageId = ref<number | null>(null)
+
+const selectedConnList = computed(() => connections.value.filter((c) => selectedConnIds.value.has(c.id)))
+const currentActiveInteractionPageId = computed(() => activeInteractionPageId.value || selectedNodeId.value || focusPageId.value || pages.value[0]?.id)
+const currentActiveFrameName = computed(() => pages.value.find((p) => p.id === currentActiveInteractionPageId.value)?.name || '当前画板')
+const activePageConnections = computed(() => {
+  const pid = currentActiveInteractionPageId.value
+  if (!pid) return []
+  return connections.value.filter((c) => c.fromId === pid || c.toId === pid)
+})
+
+async function deleteSelectedConnections() {
+  const targets = selectedConnList.value
+  if (targets.length === 1) {
+    await removeConnection(targets[0])
+  } else if (targets.length > 1) {
+    await removeConnections(targets)
+  }
+  selectedConnIds.value = new Set()
+}
+
 const isSpacePressed = ref(false)
 
 interface SelectionMarquee {
@@ -3954,11 +4205,11 @@ function selectConnIds(ids: string[]) {
 }
 
 // 连线显示：
-// 1. 交互连线模式里，当前画板的线都留着，选中的线额外加亮
+// 1. 严格遵循用户要求：当点击该画框时该画框的交互线就一直显示着，移出画框不消失；除非点击其他画框才切换显示其他画框的交互线
 // 2. 走查模式不画线
 const visibleConnections = computed<ConnectionItem[]>(() => {
   if (workbenchMode.value !== 'interactive') return []
-  const pageId = liveHotspot.value?.pageId || hoveredNodeId.value || selectedNodeId.value
+  const pageId = activeInteractionPageId.value || selectedNodeId.value || focusPageId.value || pages.value[0]?.id
   const pageLines = pageId
     ? connections.value.filter((c) => c.fromId === pageId || c.toId === pageId)
     : []
@@ -4043,6 +4294,7 @@ async function undoInteraction(): Promise<boolean> {
         selectConnIds([`conn-${item.elementId}-${item.prevTargetPageId}`])
         ElMessage.success(`已撤销连线：已恢复为「${item.label} ➔ ${item.prevToPageName || '原目标画板'}」`)
       } else {
+        clearStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId)
         await projectApi.saveInteraction(id, {
           elementId: item.elementId,
           pageId: item.pageId,
@@ -4067,6 +4319,7 @@ async function redoInteraction(): Promise<boolean> {
 
   try {
     if (item.type === 'delete') {
+      clearStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId)
       await projectApi.saveInteraction(id, {
         elementId: item.elementId,
         pageId: item.pageId,
@@ -4078,6 +4331,7 @@ async function redoInteraction(): Promise<boolean> {
       return true
     } else if (item.type === 'delete-many' && item.items?.length) {
       for (const one of item.items) {
+        clearStampedNav(one.params, one.pageId, one.toPageName, one.targetPageId)
         await projectApi.saveInteraction(id, {
           elementId: one.elementId,
           pageId: one.pageId,
@@ -4119,11 +4373,12 @@ function selectConnection(conn: ConnectionItem, event?: MouseEvent) {
   }
   selectedElementId.value = conn.elementId || null
   selectedNodeId.value = conn.fromId
+  activeInteractionPageId.value = conn.fromId
   const count = selectedConnIds.value.size
   ElMessage.info({
     message: count > 1
-      ? `已选中 ${count} 条连线，按 Backspace 可一起删除`
-      : `已选中连线：「${conn.label} ➔ ${conn.toPageName}」，按 Backspace 可删除，拉框可以多选`,
+      ? `已选中 ${count} 条连线，按 Delete 键或右侧栏按钮可删除`
+      : `已选中连线：「${conn.label} ➔ ${conn.toPageName}」，按 Delete 键或右侧栏按钮可删除`,
     duration: 2500,
   })
 }
@@ -4132,12 +4387,14 @@ function isConnActive(conn: ConnectionItem): boolean {
   if (selectedConnIds.value.has(conn.id)) return true
   if (selectedConnIds.value.size > 0) return false
   if (selectedElementId.value && conn.elementId === selectedElementId.value) return true
-  if (selectedNodeId.value && (conn.fromId === selectedNodeId.value || conn.toId === selectedNodeId.value)) return true
+  const activePid = activeInteractionPageId.value || selectedNodeId.value || focusPageId.value
+  if (activePid && (conn.fromId === activePid || conn.toId === activePid)) return true
   return false
 }
 
 function onInteractiveElementClick(b: any, el: Element) {
   selectedNodeId.value = b.page.id
+  activeInteractionPageId.value = b.page.id
   selectedElementId.value = el.id
   focusPageId.value = b.page.id
   // 检查该按钮是否已有连线；若已有连线，只聚焦该连线，其他连线隐藏
@@ -4435,7 +4692,7 @@ async function confirmCreateInteraction() {
 
 async function removeConnection(conn: any) {
   try {
-    clearStampedNav(conn.params, conn.fromId)
+    clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId)
     // 记录历史供 Ctrl+Z 撤销恢复
     interactionUndoStack.value.push({
       type: 'delete',
@@ -4462,9 +4719,13 @@ async function removeConnection(conn: any) {
     }
     const sourcePage = pages.value.find((p) => p.id === conn.fromId || p.id === conn.fromPageId)
     if (sourcePage) {
-      const el = sourcePage.elements.find((e) => e.id === conn.elementId)
-      if (el && el.interaction) {
-        delete el.interaction
+      for (const el of sourcePage.elements) {
+        if (el.id === conn.elementId || el.interaction?.target_page_id === conn.toId) {
+          if (el.interaction?.id && el.interaction.id !== conn.interactionId) {
+            await projectApi.deleteInteraction(id, el.interaction.id).catch(() => {})
+          }
+          delete el.interaction
+        }
       }
     }
     selectedConnIds.value = new Set()
@@ -4501,7 +4762,7 @@ async function removeConnections(conns: ConnectionItem[]) {
   interactionRedoStack.value = []
   try {
     for (const conn of conns) {
-      clearStampedNav(conn.params, conn.fromId)
+      clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId)
       if (conn.interactionId) {
         await projectApi.deleteInteraction(id, conn.interactionId)
       } else if (conn.elementId) {
@@ -4510,6 +4771,17 @@ async function removeConnections(conns: ConnectionItem[]) {
           pageId: conn.fromId,
           targetPageId: null,
         })
+      }
+      const sourcePage = pages.value.find((p) => p.id === conn.fromId)
+      if (sourcePage) {
+        for (const el of sourcePage.elements) {
+          if (el.id === conn.elementId || el.interaction?.target_page_id === conn.toId) {
+            if (el.interaction?.id && el.interaction.id !== conn.interactionId) {
+              await projectApi.deleteInteraction(id, el.interaction.id).catch(() => {})
+            }
+            delete el.interaction
+          }
+        }
       }
     }
     selectedConnIds.value = new Set()
@@ -4528,6 +4800,7 @@ function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
   const frame = (e.currentTarget as HTMLElement | null)?.closest('.page-block') as HTMLElement | null
   if (!frame) return
   e.stopPropagation()
+  activeInteractionPageId.value = b.page.id
   const startClientX = e.clientX
   const startClientY = e.clientY
   const startX = b.x
@@ -4641,11 +4914,14 @@ function viewportSize() {
 }
 
 function focusPage(pageId: number) {
-  const b = blocks.value.find((bb) => bb.page.id === pageId)
+  const b = (workbenchMode.value === 'interactive'
+    ? blocks.value.find((bb) => bb.page.id === pageId && bb.blockType === 'prototype')
+    : null) || blocks.value.find((bb) => bb.page.id === pageId)
   if (!b) return
   const switched = focusPageId.value !== pageId
   focusPageId.value = pageId
   selectedNodeId.value = pageId
+  activeInteractionPageId.value = pageId
   hoveredElementId.value = null
   hoveredAnnId.value = null
   selectedElementId.value = null
@@ -4806,7 +5082,7 @@ function connectionHitsRect(path: string, r: { x: number; y: number; w: number; 
 
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0 && e.button !== 1) return
-  if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel, .figma-bottom-toolbar, .draft-comment-container, .comment-pin-container, .interaction-svg-layer, .figma-conn-tag')) return
+  if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel, .figma-bottom-toolbar, .draft-comment-container, .comment-pin-container, .interaction-svg-layer, .figma-conn-tag, .figma-conn-badge')) return
 
   if (activeDrawTool.value === 'comment') {
     e.preventDefault()
@@ -4963,8 +5239,10 @@ function onMouseDown(e: MouseEvent) {
   // 3. 兜底画布平移
   selectedElementId.value = null
   selectedConnIds.value = new Set()
-  selectedBlockKeys.value = new Set()
-  selectedNodeId.value = null
+  if (workbenchMode.value !== 'interactive') {
+    selectedBlockKeys.value = new Set()
+    selectedNodeId.value = null
+  }
   isDragging.value = true
   dragStart = { x: e.clientX, y: e.clientY }
   dragOrigin = { x: view.value.x, y: view.value.y }
@@ -5243,6 +5521,7 @@ function onPrototypeFrameFocus(pageId: number, blockKey: string) {
   const switched = focusPageId.value !== pageId
   focusPageId.value = pageId
   selectedNodeId.value = pageId
+  activeInteractionPageId.value = pageId
   selectedNodeKey.value = blockKey
   selectedBlockKeys.value = new Set([blockKey])
   if (switched) {

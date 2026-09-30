@@ -142,7 +142,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import type { Element, Page } from '../types'
-import { findInteractionByDomUids, resolveNavigateElement } from '../utils/interactionHit'
+import { findInteractionByDomUids, hitInteractionElement, findElementAt, resolveNavigateElement } from '../utils/interactionHit'
 import PageCanvas from './PageCanvas.vue'
 
 const props = defineProps<{
@@ -235,13 +235,47 @@ function navigateTo(pageId: number) {
   emit('navigate-page', pageId)
 }
 
-function onCanvasNavigate(pageName: string, uids?: string[]) {
+function onCanvasNavigate(pageName: string, uids?: string[], pos?: { x?: number; y?: number; uid?: string }) {
+  // 1. 优先通过 DOM UID 精准匹配已绑定的交互连线
   const byUid = findInteractionByDomUids(currentPage.value, uids)
   const uidTarget = byUid?.interaction?.target_page_id
   if (uidTarget) {
     navigateTo(uidTarget)
     return
   }
+
+  // 2. 尝试通过点击物理坐标命中热区交互规则
+  if (pos?.x != null && pos?.y != null) {
+    const hit = hitInteractionElement(currentPage.value, pos.x, pos.y)
+    const hitTarget = hit?.interaction?.target_page_id
+    if (hitTarget) {
+      navigateTo(hitTarget)
+      return
+    }
+
+    // 3. 关键判定：检查点击位置是否命中了某个具体组件（若该组件无交互规则，说明未连接或已被用户删除）
+    const matchedEl = findElementAt(currentPage.value, pos.x, pos.y, uids)
+    if (matchedEl) {
+      console.log(`[FigmaFloatingPreview] 拦截跳转：组件「${matchedEl.label || matchedEl.id}」未绑定交互连线`)
+      return
+    }
+  }
+
+  // 4. 如果点击元素带有 UID，检查对应组件是否有交互
+  if (uids?.length) {
+    const matchedEl = findElementAt(currentPage.value, null, null, uids)
+    if (matchedEl && !matchedEl.interaction?.target_page_id) {
+      console.log(`[FigmaFloatingPreview] 拦截跳转：组件「${matchedEl.label || matchedEl.id}」无交互连线`)
+      return
+    }
+  }
+
+  // 5. 如果当前项目存在交互连线系统，禁止非绑定的任意元素根据文本跳转
+  const projectHasInteractions = props.pages.some((p) => (p.elements || []).some((e) => e.interaction?.target_page_id))
+  if (projectHasInteractions) {
+    return
+  }
+
   const clean = pageName.trim().toLowerCase()
   const target = props.pages.find(
     (p) => p.name.trim().toLowerCase() === clean || String(p.id) === clean,
@@ -260,17 +294,29 @@ function onHotspotClick(pos?: { x: number; y: number; uids?: string[] }) {
 function onElementClick(el: Element) {
   const targetId = el.interaction?.target_page_id
   const action = el.interaction?.action
-  if (targetId && (!action || action === 'navigate')) navigateTo(targetId)
+  if (action === 'back' || action === 'close') {
+    goBack()
+    return
+  }
+  if (targetId) {
+    navigateTo(targetId)
+  }
 }
 
 function goBack() {
   if (!historyStack.value.length) return
-  activePageId.value = historyStack.value.pop()!
+  const prevId = historyStack.value.pop()!
+  activePageId.value = prevId
+  emit('navigate-page', prevId)
 }
 
 function resetPreview() {
   historyStack.value = []
-  if (props.pages.length) activePageId.value = props.pages[0].id
+  if (props.pages.length) {
+    const firstId = props.pages[0].id
+    activePageId.value = firstId
+    emit('navigate-page', firstId)
+  }
 }
 
 // 实时时间

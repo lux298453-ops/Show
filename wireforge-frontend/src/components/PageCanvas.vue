@@ -351,7 +351,7 @@ const emit = defineEmits<{
   (e: 'annClick', annId: number): void
   (e: 'annSave', annId: number, text: string, title?: string): void
   (e: 'annOrderChange', pageId: number, order: number[]): void
-  (e: 'navigate', pageName: string, uids?: string[]): void
+  (e: 'navigate', pageName: string, uids?: string[], pos?: { x?: number; y?: number; uid?: string }): void
   (e: 'back'): void
   (e: 'saveHtml', payload: { pageId: number; html: string }): void
   (e: 'lockedClick'): void
@@ -434,7 +434,23 @@ function sendEditMode() {
 }
 
 function sendInteractiveMode() {
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-interactive', on: !!props.interactive }, '*')
+  const activeTargets: string[] = []
+  const hasSystem = (props.allPages || []).some((p) => (p.elements || []).some((e) => e.interaction?.target_page_id))
+  if (hasSystem) {
+    for (const el of props.page.elements || []) {
+      if (el.interaction?.target_page_id) {
+        activeTargets.push(String(el.interaction.target_page_id))
+        const tp = (props.allPages || []).find((p) => p.id === el.interaction!.target_page_id)
+        if (tp) activeTargets.push(tp.name.trim().toLowerCase())
+      }
+    }
+  }
+  htmlFrameRef.value?.contentWindow?.postMessage({
+    type: 'wf-interactive',
+    on: !!props.interactive,
+    hasInteractionSystem: hasSystem,
+    validTargets: activeTargets,
+  }, '*')
 }
 
 /** 用户刚改过画板尺寸时，短时间内不要再把内容缩回旧比例，否则看起来像没变化 */
@@ -454,6 +470,15 @@ function sendProtoHotspot() {
 function stampElementNav(uid: string, pageName: string | null) {
   if (!uid) return
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-set-nav', uid, page: pageName || '' }, '*')
+}
+
+function removeElementNav(uid?: string | null, targetPageName?: string | null, targetPageId?: number | null) {
+  htmlFrameRef.value?.contentWindow?.postMessage({
+    type: 'wf-remove-nav',
+    uid: uid || '',
+    targetPageName: targetPageName || '',
+    targetPageId: targetPageId != null ? String(targetPageId) : '',
+  }, '*')
 }
 
 function onFrameLoad() {
@@ -863,7 +888,18 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       if(nav){
         var prev2 = document.querySelectorAll('.wf-spotlight-target');
         for (var pi2 = 0; pi2 < prev2.length; pi2++) prev2[pi2].classList.remove('wf-spotlight-target');
-        parent.postMessage({type:'wf-nav',page:nav, uids: collectUids(t)},'*');
+        var r = el.getBoundingClientRect();
+        var bodyRect = document.body.getBoundingClientRect();
+        var hitX = Math.round(r.left - bodyRect.left + r.width / 2);
+        var hitY = Math.round(r.top - bodyRect.top + r.height / 2);
+        parent.postMessage({
+          type: 'wf-nav',
+          page: nav,
+          uids: collectUids(t),
+          uid: el.getAttribute('data-wf-uid') || '',
+          x: hitX,
+          y: hitY
+        }, '*');
       }
     },true);
   })();<\/script>`
@@ -3574,11 +3610,52 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         scheduleSave();
         return;
       }
+      if(d.type === 'wf-remove-nav'){
+        var removed = false;
+        if(d.uid){
+          var elByUid = document.querySelector('[data-wf-uid="' + d.uid + '"]');
+          if(elByUid && elByUid.hasAttribute('data-nav')){
+            elByUid.removeAttribute('data-nav');
+            elByUid.style.cursor = '';
+            removed = true;
+          }
+        }
+        var targetName = (d.targetPageName || '').trim().toLowerCase();
+        var targetId = (d.targetPageId != null ? String(d.targetPageId) : '').trim();
+        if(targetName || targetId){
+          var allNavEls = document.querySelectorAll('[data-nav]');
+          for(var ni = 0; ni < allNavEls.length; ni++){
+            var val = (allNavEls[ni].getAttribute('data-nav') || '').trim();
+            if((targetName && val.toLowerCase() === targetName) || (targetId && val === targetId)){
+              allNavEls[ni].removeAttribute('data-nav');
+              allNavEls[ni].style.cursor = '';
+              removed = true;
+            }
+          }
+        }
+        if(removed){
+          scheduleSave();
+        }
+        return;
+      }
       if(d.uid && d.type !== 'wf-select-uid' && d.type !== 'wf-color' && d.type !== 'wf-font-size' && d.type !== 'wf-text-style') resolveEditTarget(d);
       if(d.type === 'wf-interactive'){
         if(d.on){
           deselect();
           clearHover();
+          if(d.hasInteractionSystem && Array.isArray(d.validTargets)){
+            var validSet = new Set(d.validTargets.map(function(s){ return String(s).trim().toLowerCase(); }));
+            var navEls = document.querySelectorAll('[data-nav]');
+            for(var ni = 0; ni < navEls.length; ni++){
+              var nVal = (navEls[ni].getAttribute('data-nav') || '').trim().toLowerCase();
+              if(!validSet.has(nVal)){
+                navEls[ni].removeAttribute('data-nav');
+                if(navEls[ni].style.cursor === 'pointer'){
+                  navEls[ni].style.cursor = '';
+                }
+              }
+            }
+          }
         }
         return;
       }
@@ -4417,10 +4494,10 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     // 鼠标按下：拖动8点把手缩放、拖动元素位移、Alt/Shift快捷删除、单选元素
     document.addEventListener('mousedown', function(e){
-      if(document.body.classList.contains('wf-interactive')) return;
       if(e.button === 0){
         try { parent.postMessage({ type: 'wf-frame-focus', pageId: PAGE_ID }, '*'); } catch(err) {}
       }
+      if(document.body.classList.contains('wf-interactive')) return;
       var handle = e.target.closest ? e.target.closest('.wf-handle') : null;
       if(handle && (selectedEl || selectedEls.length > 0)){
         var handleLocked = false;
@@ -5234,7 +5311,12 @@ function onIframeMessage(e: MessageEvent) {
   if (!d) return
   if (d.type === 'wf-nav' && d.page) {
     const uids = Array.isArray((d as any).uids) ? (d as any).uids.map(String) : []
-    emit('navigate', d.page, uids)
+    const pos = {
+      x: (d as any).x != null ? Number((d as any).x) : undefined,
+      y: (d as any).y != null ? Number((d as any).y) : undefined,
+      uid: (d as any).uid != null ? String((d as any).uid) : undefined,
+    }
+    emit('navigate', d.page, uids, pos)
   } else if (d.type === 'wf-back') {
     emit('back')
   } else if (d.type === 'wf-pick-asset') {
@@ -5914,6 +5996,7 @@ defineExpose({
   replaceVectorOriginal,
   insertVectorShapes,
   stampElementNav,
+  removeElementNav,
   copyAsSvg,
   copyAsCode,
   requestPngData,

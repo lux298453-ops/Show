@@ -277,6 +277,15 @@ export const componentLibrary: PaletteItem[] = [
     html: `<div class="wf-el wf-rating" style="display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box;"><div style="display: flex; gap: 2px; color: #f59e0b;"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div><span style="font-size: 14px; font-weight: 800; color: #0f172a;">4.9</span><span style="font-size: 12px; color: #94a3b8;">(2,480 条评价)</span></div>`,
     previewHtml: `<div style="display: flex; align-items: center; gap: 3px;"><div style="color: #f59e0b; font-size: 9px;">★★★★★</div><span style="font-size: 8px; font-weight: 700; color: #334155;">4.9</span></div>`,
   },
+  {
+    id: 'display-skeleton-card',
+    name: '骨架屏卡片',
+    category: 'display',
+    tag: 'Skeleton Card',
+    description: '包含圆形头像与多行骨架加载条的卡片',
+    html: `<div class="wf-el wf-card wf-skeleton-card" style="width: 335px; background: #ffffff; border-radius: 14px; padding: 14px; border: 1px solid #f1f5f9; box-shadow: 0 2px 8px rgba(0,0,0,0.03); display: flex; gap: 12px; align-items: center; box-sizing: border-box;"><div style="width: 46px; height: 46px; border-radius: 50%; background: #e5e7eb; flex-shrink: 0;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 8px;"><div style="width: 60%; height: 16px; background: #e5e7eb; border-radius: 4px;"></div><div style="width: 90%; height: 12px; background: #f1f5f9; border-radius: 4px;"></div><div style="width: 40%; height: 10px; background: #f1f5f9; border-radius: 4px;"></div></div></div>`,
+    previewHtml: `<div style="width: 74px; height: 26px; background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 3px; display: flex; align-items: center; gap: 4px;"><div style="width: 14px; height: 14px; border-radius: 50%; background: #e5e7eb;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 2px;"><div style="width: 70%; height: 3px; background: #e5e7eb;"></div><div style="width: 90%; height: 2px; background: #f1f5f9;"></div></div></div>`,
+  },
 
   // =========================================================================
   // 4. 反馈与浮层 (Feedback & Overlays)
@@ -298,6 +307,24 @@ export const componentLibrary: PaletteItem[] = [
     description: '带顶部拖动条手柄的底部操作抽屉',
     html: `<div class="wf-modal wf-bottom-sheet wf-show" style="position: absolute; inset: 0; background: rgba(0,0,0,0.45); display: flex; flex-direction: column; justify-content: flex-end; z-index: 9999; box-sizing: border-box;"><div style="width: 100%; background: #ffffff; border-radius: 20px 20px 0 0; padding: 16px 20px 28px 20px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15);"><div style="width: 36px; height: 4px; background: #cbd5e1; border-radius: 2px; margin: 0 auto 14px auto;"></div><h4 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 12px 0;">快捷面板操作</h4><div style="display: flex; flex-direction: column; gap: 8px;"><div style="padding: 10px 14px; background: #f8fafc; border-radius: 10px; font-size: 13px; color: #334155; font-weight: 500; cursor: pointer;">选项一：分享到微信朋友圈</div><div style="padding: 10px 14px; background: #f8fafc; border-radius: 10px; font-size: 13px; color: #334155; font-weight: 500; cursor: pointer;">选项二：复制并生成链接</div></div><button class="wf-btn wf-modal-dismiss" style="width: 100%; margin-top: 14px; padding: 10px; background: #f1f5f9; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; color: #64748b; cursor: pointer;">取消关闭</button></div></div>`,
     previewHtml: `<div style="width: 58px; height: 32px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px 6px 0 0; display: flex; flex-direction: column; align-items: center; padding-top: 4px; box-shadow: 0 -2px 6px rgba(0,0,0,0.06);"><div style="width: 14px; height: 2px; background: #cbd5e1; border-radius: 1px;"></div></div>`,
+  },
+  {
+    id: 'feedback-skeleton-sheet',
+    name: '骨架抽屉弹窗',
+    category: 'feedback',
+    tag: 'Skeleton Sheet',
+    description: '标准半屏骨架屏抽屉（含把手、顶部操作栏、5条卡片骨架与行动按钮）',
+    html: `<div class="wf-modal wf-bottom-sheet wf-show" style="position: absolute; inset: 0; background: rgba(0,0,0,0.38); display: flex; flex-direction: column; justify-content: flex-end; z-index: 9999; box-sizing: border-box;"><div style="width: 100%; background: #ffffff; border-radius: 24px 24px 0 0; padding: 12px 18px 24px 18px; box-shadow: 0 -8px 32px rgba(0,0,0,0.15); box-sizing: border-box; max-height: 85%; overflow: hidden;"><div style="width: 36px; height: 5px; background: #d1d5db; border-radius: 9999px; margin: 0 auto 14px auto;"></div><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;"><div style="width: 84px; height: 26px; background: #e5e7eb; border-radius: 6px;"></div><div style="width: 26px; height: 26px; background: #e5e7eb; border-radius: 6px;"></div></div><div style="background: #f9fafb; border: 1px solid #f1f5f9; border-radius: 16px; padding: 14px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px;"><div style="width: 100%; height: 42px; background: #e5e7eb; border-radius: 8px;"></div><div style="width: 88px; height: 16px; background: #e5e7eb; border-radius: 4px;"></div><div style="width: 100%; height: 54px; background: #e5e7eb; border-radius: 8px;"></div><div style="width: 100%; height: 54px; background: #e5e7eb; border-radius: 8px;"></div><div style="width: 100%; height: 54px; background: #e5e7eb; border-radius: 8px;"></div></div><div style="width: 100px; height: 44px; background: #e5e7eb; border-radius: 12px;"></div></div></div>`,
+    previewHtml: `<div style="width: 58px; height: 36px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px 6px 0 0; display: flex; flex-direction: column; align-items: center; padding: 3px 4px; box-shadow: 0 -2px 6px rgba(0,0,0,0.08); gap: 2px;"><div style="width: 12px; height: 2px; background: #cbd5e1; border-radius: 1px;"></div><div style="width: 100%; display: flex; justify-content: space-between;"><div style="width: 18px; height: 4px; background: #e5e7eb; border-radius: 1px;"></div><div style="width: 4px; height: 4px; background: #e5e7eb; border-radius: 1px;"></div></div><div style="width: 100%; height: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 2px; padding: 2px; display: flex; flex-direction: column; gap: 2px;"><div style="width: 100%; height: 3px; background: #e5e7eb; border-radius: 1px;"></div><div style="width: 60%; height: 2px; background: #e5e7eb; border-radius: 1px;"></div><div style="width: 100%; height: 3px; background: #e5e7eb; border-radius: 1px;"></div></div></div>`,
+  },
+  {
+    id: 'feedback-skeleton-dialog',
+    name: '居中骨架弹窗',
+    category: 'feedback',
+    tag: 'Skeleton Modal',
+    description: '居中遮罩骨架加载弹窗（含标题条、内容条与双操作按钮）',
+    html: `<div class="wf-modal wf-show" style="position: absolute; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 9999; box-sizing: border-box;"><div style="width: 290px; background: #ffffff; border-radius: 18px; padding: 22px; box-shadow: 0 20px 30px -5px rgba(0,0,0,0.25); box-sizing: border-box;"><div style="width: 120px; height: 20px; background: #e5e7eb; border-radius: 6px; margin: 0 auto 16px auto;"></div><div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px;"><div style="width: 100%; height: 14px; background: #e5e7eb; border-radius: 4px;"></div><div style="width: 80%; height: 14px; background: #e5e7eb; border-radius: 4px;"></div><div style="width: 60%; height: 14px; background: #e5e7eb; border-radius: 4px;"></div></div><div style="display: flex; gap: 10px;"><div style="flex: 1; height: 38px; background: #f1f5f9; border-radius: 10px;"></div><div style="flex: 1; height: 38px; background: #e5e7eb; border-radius: 10px;"></div></div></div></div>`,
+    previewHtml: `<div style="width: 52px; height: 36px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px; gap: 3px;"><div style="width: 20px; height: 4px; background: #e5e7eb; border-radius: 1px;"></div><div style="width: 36px; height: 2px; background: #e5e7eb; border-radius: 1px;"></div><div style="width: 28px; height: 2px; background: #e5e7eb; border-radius: 1px;"></div><div style="width: 38px; display: flex; gap: 3px; margin-top: 2px;"><div style="flex: 1; height: 6px; background: #f1f5f9; border-radius: 1px;"></div><div style="flex: 1; height: 6px; background: #e5e7eb; border-radius: 1px;"></div></div></div>`,
   },
   {
     id: 'feedback-action-sheet',
@@ -401,5 +428,14 @@ export const componentLibrary: PaletteItem[] = [
     description: '1px 浅灰色水平分隔线',
     html: `<div class="wf-divider" style="width: 335px; height: 1px; background: #e2e8f0; margin: 16px 0; box-sizing: border-box;"></div>`,
     previewHtml: `<div style="width: 60px; height: 2px; background: #cbd5e1; border-radius: 1px;"></div>`,
+  },
+  {
+    id: 'shape-skeleton-bar',
+    name: '骨架占位条',
+    category: 'shapes',
+    tag: 'Skeleton Bar',
+    description: '圆角灰色骨架加载条（可自由拖拉拉伸）',
+    html: `<div class="wf-skeleton-bar wf-el" style="width: 335px; height: 28px; background: #e5e7eb; border-radius: 8px; box-sizing: border-box;"></div>`,
+    previewHtml: `<div style="width: 60px; height: 12px; background: #e5e7eb; border-radius: 4px;"></div>`,
   },
 ]

@@ -32,6 +32,10 @@ scan-interactions.*
 # Frontend test scripts
 wireforge-frontend/run_*.mjs
 wireforge-frontend/.env.local
+wireforge-frontend/public/*.png
+wireforge-frontend/public/*-preview*.html
+wireforge-frontend/public/*_widget.html
+wireforge-frontend/public/themes/
 
 # Backend target
 wireforge-backend/target/

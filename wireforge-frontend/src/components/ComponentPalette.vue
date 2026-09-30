@@ -1,20 +1,20 @@
 <template>
-  <div class="h-full flex flex-col bg-white overflow-hidden select-none">
+  <div class="h-full flex flex-col bg-white dark:bg-[#252525] overflow-hidden select-none">
     <!-- 1. Search Bar -->
-    <div class="p-2.5 pb-2 border-b border-slate-100 bg-white">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100/80 rounded-xl border border-slate-200/60 text-slate-500 focus-within:border-[#0D99FF] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#0D99FF]/20 transition-all">
+    <div class="p-2.5 pb-2 border-b border-slate-100 dark:border-[#383838] bg-white dark:bg-[#252525]">
+      <div class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100/80 dark:bg-[#1e1e1e] rounded-xl border border-slate-200/60 dark:border-[#383838] text-slate-500 dark:text-slate-400 focus-within:border-[#0D99FF] focus-within:bg-white dark:focus-within:bg-[#1e1e1e] focus-within:ring-2 focus-within:ring-[#0D99FF]/20 transition-all">
         <Search class="w-3.5 h-3.5 text-slate-400 shrink-0" />
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="搜索组件..."
-          class="w-full text-xs bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400"
+          :placeholder="t('searchComponents')"
+          class="w-full text-xs bg-transparent border-none outline-none text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder-slate-500"
         />
         <button
           v-if="searchQuery"
           type="button"
-          class="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
-          title="清空搜索"
+          class="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+          :title="t('clearSearch')"
           @click="searchQuery = ''"
         >
           <X class="w-3.5 h-3.5" />
@@ -23,19 +23,19 @@
     </div>
 
     <!-- 2. Category Filter Tabs (Compact 6-Column Segmented Bar, Fits Perfectly in Sidebar) -->
-    <div class="px-2.5 py-1.5 border-b border-slate-100 bg-white">
-      <div class="grid grid-cols-6 gap-1 bg-slate-100/80 p-0.5 rounded-lg border border-slate-200/50">
+    <div class="px-2.5 py-1.5 border-b border-slate-100 dark:border-[#383838] bg-white dark:bg-[#252525]">
+      <div class="grid grid-cols-6 gap-1 bg-slate-100/80 dark:bg-[#1e1e1e] p-0.5 rounded-lg border border-slate-200/50 dark:border-[#383838]">
         <button
           v-for="cat in componentCategories"
           :key="cat.id"
           type="button"
           class="py-1 text-[11px] font-medium rounded-md transition-all text-center cursor-pointer select-none"
           :class="activeCat === cat.id
-            ? 'bg-white text-[#0D99FF] shadow-2xs font-bold'
-            : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'"
+            ? 'bg-white dark:bg-[#383838] text-[#0D99FF] dark:text-[#38bdf8] shadow-2xs font-bold'
+            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-white/50 dark:hover:bg-[#333333]'"
           @click="activeCat = cat.id"
         >
-          {{ cat.name }}
+          {{ t('cat_' + cat.id) || cat.name }}
         </button>
       </div>
     </div>
@@ -44,7 +44,7 @@
     <div class="flex-1 overflow-y-auto p-2.5 space-y-3 custom-scrollbar">
       <!-- Empty state when search produces no results -->
       <div v-if="displayedCategories.length === 0" class="py-12 text-center text-xs text-slate-400">
-        无匹配组件，换个关键词搜搜看
+        {{ t('noMatchingComponents') }}
       </div>
 
       <div
@@ -54,14 +54,14 @@
       >
         <!-- Category Section Header (only shown when in 'all' view) -->
         <div v-if="activeCat === 'all'" class="text-[10px] font-bold text-slate-400 px-1 uppercase tracking-wider">
-          {{ cat.name }}
+          {{ t('cat_' + cat.id) || cat.name }}
         </div>
 
         <div class="grid grid-cols-2 gap-2">
           <div
             v-for="item in cat.items"
             :key="item.id"
-            class="palette-item group relative bg-white border border-slate-200 hover:border-[#0D99FF] rounded-xl shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing flex flex-col items-stretch overflow-hidden px-2 py-2"
+            class="palette-item group relative bg-white dark:bg-[#2c2c2c] border border-slate-200 dark:border-[#383838] hover:border-[#0D99FF] rounded-xl shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing flex flex-col items-stretch overflow-hidden px-2 py-2"
             draggable="true"
             :title="item.name"
             @dragstart="onDragStart($event, item)"
@@ -71,17 +71,17 @@
             <!-- Quick Add Hover Button in top-right -->
             <button
               type="button"
-              class="absolute top-1.5 right-1.5 w-5 h-5 rounded-md bg-white hover:bg-[#0D99FF] text-slate-400 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-xs border border-slate-200/80 hover:border-transparent z-10"
-              :title="`添加 ${item.name}`"
+              class="absolute top-1.5 right-1.5 w-5 h-5 rounded-md bg-white dark:bg-[#383838] hover:bg-[#0D99FF] text-slate-400 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-xs border border-slate-200/80 dark:border-[#484848] hover:border-transparent z-10"
+              :title="`${t('quickAddPrefix')} ${item.name}`"
               @click.stop="emit('addComponent', item)"
             >
               <Plus class="w-3 h-3" />
             </button>
 
-            <div class="palette-preview w-full h-14 bg-slate-50 rounded-lg border border-slate-200/80 flex items-center justify-center overflow-hidden pointer-events-none">
+            <div class="palette-preview w-full h-14 bg-slate-50 dark:bg-[#1e1e1e] rounded-lg border border-slate-200/80 dark:border-[#383838] flex items-center justify-center overflow-hidden pointer-events-none">
               <div v-html="item.previewHtml" class="palette-sketch"></div>
             </div>
-            <div class="mt-1.5 px-0.5 text-[11px] leading-4 font-semibold text-slate-900 text-center truncate">
+            <div class="mt-1.5 px-0.5 text-[11px] leading-4 font-semibold text-slate-900 dark:text-slate-100 text-center truncate">
               {{ item.name }}
             </div>
           </div>
@@ -94,6 +94,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { Plus, Search, X } from 'lucide-vue-next'
+import { t } from '../utils/i18n'
 import {
   componentLibrary,
   componentCategories,

@@ -77,3 +77,40 @@ export function resolveNavigateElement(
   return findInteractionByDomUids(page, uids) || hitInteractionElement(page, x, y)
 }
 
+/** 查找页面在指定坐标或 UID 处的具体组件（无论其是否有交互），用于判断是否点击了无交互/已删交互的组件 */
+export function findElementAt(
+  page: Page | null | undefined,
+  x?: number | null,
+  y?: number | null,
+  uids?: string[],
+): Element | null {
+  if (!page) return null
+  if (uids?.length) {
+    for (const uid of uids) {
+      if (!uid) continue
+      for (const el of page.elements || []) {
+        if (interactionDomUid(el) === uid) return el
+      }
+    }
+  }
+  if (x != null && y != null && x > 0 && y > 0) {
+    let best: Element | null = null
+    let bestArea = Infinity
+    for (const el of page.elements || []) {
+      const w = el.width || 0
+      const h = el.height || 0
+      if (w < 4 || h < 4) continue
+      if (x >= el.x - 8 && x <= el.x + w + 8 && y >= el.y - 8 && y <= el.y + h + 8) {
+        const area = w * h
+        if (area < bestArea) {
+          best = el
+          bestArea = area
+        }
+      }
+    }
+    if (best) return best
+  }
+  return null
+}
+
+

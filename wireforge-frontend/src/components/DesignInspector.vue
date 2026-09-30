@@ -1,5 +1,5 @@
 <template>
-  <div class="design-inspector-panel flex-1 flex flex-col h-full bg-white select-none text-xs overflow-y-auto custom-scrollbar">
+  <div class="design-inspector-panel flex-1 flex flex-col h-full bg-white dark:bg-[#1e1e1e] select-none text-xs overflow-y-auto custom-scrollbar">
     <!-- 1. 顶部当前选中对象标识 & 6大对齐工具 -->
     <div class="border-b border-slate-100 bg-slate-50/60 shrink-0">
       <!-- 对象标识行 -->
@@ -10,32 +10,32 @@
             class="w-3.5 h-3.5 text-slate-500 shrink-0"
           />
           <span class="font-bold text-slate-800 truncate text-[11px]">
-            {{ hasSelection ? (elementInfo?.tagName || selectedElement?.label || selectedElement?.type || '选定元素') : (currentPage?.name || '未选画板') }}
+            {{ hasSelection ? (elementInfo?.tagName || selectedElement?.label || selectedElement?.type || t('selectedElement')) : (currentPage?.name || t('noSelectedFrame')) }}
           </span>
         </div>
         <div class="flex items-center gap-1 shrink-0">
           <button
             v-if="elementInfo?.hasParentContainer"
             type="button"
-            class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-[#0D99FF] hover:bg-blue-100 transition-colors cursor-pointer flex items-center gap-0.5"
-            title="一键选中外层卡片容器"
+            class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 dark:bg-[#1e3a5f] text-[#0D99FF] dark:text-[#38bdf8] hover:bg-blue-100 dark:hover:bg-[#264b7a] transition-colors cursor-pointer flex items-center gap-0.5"
+            :title="t('selectParentTitle')"
             @click="emit('select-parent')"
           >
             <ArrowUp class="w-3 h-3" />
-            <span>选外层</span>
+            <span>{{ t('selectParent') }}</span>
           </button>
-          <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 font-mono">
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-[#383838] text-slate-600 dark:text-slate-300 font-mono">
             {{ hasSelection ? 'Element' : 'Frame' }}
           </span>
         </div>
       </div>
 
       <!-- 6 大 Figma 一键对齐工具栏 -->
-      <div class="px-2.5 py-1.5 border-t border-slate-200/60 bg-white flex items-center justify-between gap-1">
+      <div class="px-2.5 py-1.5 border-t border-slate-200/60 dark:border-[#383838] bg-white dark:bg-[#252525] flex items-center justify-between gap-1">
         <button
           type="button"
-          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 hover:text-[#0D99FF] hover:bg-blue-50/80 transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
-          title="左对齐 (Align Left)"
+          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          :title="t('alignLeft')"
           :disabled="!hasSelection"
           @click="emit('align-selection', 'left')"
         >
@@ -43,8 +43,8 @@
         </button>
         <button
           type="button"
-          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 hover:text-[#0D99FF] hover:bg-blue-50/80 transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
-          title="水平居中 (Align Horizontal Centers)"
+          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          :title="t('alignCenterH')"
           :disabled="!hasSelection"
           @click="emit('align-selection', 'center-h')"
         >
@@ -52,18 +52,18 @@
         </button>
         <button
           type="button"
-          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 hover:text-[#0D99FF] hover:bg-blue-50/80 transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
-          title="右对齐 (Align Right)"
+          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          :title="t('alignRight')"
           :disabled="!hasSelection"
           @click="emit('align-selection', 'right')"
         >
           <AlignEndVertical class="w-3.5 h-3.5" />
         </button>
-        <div class="w-[1px] h-3.5 bg-slate-200/80 mx-0.5"></div>
+        <div class="w-[1px] h-3.5 bg-slate-200/80 dark:bg-[#383838] mx-0.5"></div>
         <button
           type="button"
-          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 hover:text-[#0D99FF] hover:bg-blue-50/80 transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
-          title="顶对齐 (Align Top)"
+          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          :title="t('alignTop')"
           :disabled="!hasSelection"
           @click="emit('align-selection', 'top')"
         >
@@ -71,8 +71,8 @@
         </button>
         <button
           type="button"
-          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 hover:text-[#0D99FF] hover:bg-blue-50/80 transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
-          title="垂直居中 (Align Vertical Centers)"
+          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          :title="t('alignCenterV')"
           :disabled="!hasSelection"
           @click="emit('align-selection', 'center-v')"
         >
@@ -80,8 +80,8 @@
         </button>
         <button
           type="button"
-          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 hover:text-[#0D99FF] hover:bg-blue-50/80 transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
-          title="底对齐 (Align Bottom)"
+          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          :title="t('alignBottom')"
           :disabled="!hasSelection"
           @click="emit('align-selection', 'bottom')"
         >
@@ -92,18 +92,18 @@
 
     <!-- 2. 几何尺寸与坐标 (Transform) -->
     <div class="p-3 border-b border-slate-100">
-      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">布局 (Layout)</div>
+      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{{ t('layout') }}</div>
       <div class="grid grid-cols-2 gap-2">
         <!-- X 坐标 -->
         <div
-          class="flex items-center bg-slate-50 border border-slate-200/80 rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white transition-colors"
+          class="flex items-center bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white dark:focus-within:bg-[#1e1e1e] transition-colors"
           :class="{ 'opacity-40 pointer-events-none': !canEditGeometry }"
         >
           <span class="text-[10px] text-slate-400 font-mono w-3.5">X</span>
           <input
             type="number"
             :value="displayX"
-            class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700"
+            class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700 dark:text-slate-100"
             :disabled="!canEditGeometry"
             @change="onPosChange('x', $event)"
             @keydown.enter="($event.target as HTMLInputElement).blur()"
@@ -111,14 +111,14 @@
         </div>
         <!-- Y 坐标 -->
         <div
-          class="flex items-center bg-slate-50 border border-slate-200/80 rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white transition-colors"
+          class="flex items-center bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white dark:focus-within:bg-[#1e1e1e] transition-colors"
           :class="{ 'opacity-40 pointer-events-none': !canEditGeometry }"
         >
           <span class="text-[10px] text-slate-400 font-mono w-3.5">Y</span>
           <input
             type="number"
             :value="displayY"
-            class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700"
+            class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700 dark:text-slate-100"
             :disabled="!canEditGeometry"
             @change="onPosChange('y', $event)"
             @keydown.enter="($event.target as HTMLInputElement).blur()"
@@ -126,14 +126,14 @@
         </div>
         <!-- 宽度 W -->
         <div
-          class="flex items-center bg-slate-50 border border-slate-200/80 rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white transition-colors"
+          class="flex items-center bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white dark:focus-within:bg-[#1e1e1e] transition-colors"
           :class="{ 'opacity-40 pointer-events-none': !canEditGeometry }"
         >
           <span class="text-[10px] text-slate-400 font-mono w-3.5">W</span>
           <input
             type="number"
             :value="displayW"
-            class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700"
+            class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700 dark:text-slate-100"
             :disabled="!canEditGeometry"
             @change="onDimensionChange('width', $event)"
             @keydown.enter="($event.target as HTMLInputElement).blur()"
@@ -141,14 +141,14 @@
         </div>
         <!-- 高度 H -->
         <div
-          class="flex items-center bg-slate-50 border border-slate-200/80 rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white transition-colors"
+          class="flex items-center bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white dark:focus-within:bg-[#1e1e1e] transition-colors"
           :class="{ 'opacity-40 pointer-events-none': !canEditGeometry }"
         >
           <span class="text-[10px] text-slate-400 font-mono w-3.5">H</span>
           <input
             type="number"
             :value="displayH"
-            class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700"
+            class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700 dark:text-slate-100"
             :disabled="!canEditGeometry"
             @change="onDimensionChange('height', $event)"
             @keydown.enter="($event.target as HTMLInputElement).blur()"
@@ -159,29 +159,29 @@
 
     <!-- 3. 圆角调节 (Corner Radius) -->
     <div
-      class="p-3 border-b border-slate-100"
+      class="p-3 border-b border-slate-100 dark:border-[#383838]"
       :class="{ 'opacity-60 pointer-events-none': isVectorShape, 'opacity-40 pointer-events-none': !hasSelection && !isVectorShape }"
     >
       <div class="flex items-center justify-between mb-2">
-        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">圆角 (Corner Radius)</div>
-        <span v-if="!isVectorShape" class="font-mono text-[10px] text-slate-500">{{ currentRadius }}px</span>
+        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{{ t('cornerRadius') }}</div>
+        <span v-if="!isVectorShape" class="font-mono text-[10px] text-slate-500 dark:text-slate-400">{{ currentRadius }}px</span>
       </div>
       <!-- 矢量图形置灰并提示不支持整体圆角 -->
-      <div v-if="isVectorShape" class="py-1.5 px-2 bg-slate-50 border border-slate-200/80 rounded-md text-[11px] text-slate-400 flex items-center justify-between">
-        <span class="text-[10px] text-slate-400">自由路径不支持整体圆角</span>
+      <div v-if="isVectorShape" class="py-1.5 px-2 bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md text-[11px] text-slate-400 flex items-center justify-between">
+        <span class="text-[10px] text-slate-400">{{ t('vectorNoRadius') }}</span>
         <span class="text-[10px] text-slate-400 font-mono">N/A</span>
       </div>
       <div v-else class="space-y-2">
         <!-- 数值输入与滑块 -->
         <div class="flex items-center gap-2">
-          <div class="flex-1 flex items-center bg-slate-50 border border-slate-200/80 rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white">
+          <div class="flex-1 flex items-center bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white dark:focus-within:bg-[#1e1e1e]">
             <Minimize2 class="w-3 h-3 text-slate-400 mr-1.5" />
             <input
               type="number"
               min="0"
               max="9999"
               :value="currentRadius"
-              class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700"
+              class="w-full bg-transparent text-[11px] font-mono outline-none text-slate-700 dark:text-slate-100"
               :disabled="!hasSelection"
               @change="onRadiusChange"
             />
@@ -193,7 +193,7 @@
               :key="r"
               type="button"
               class="px-1.5 py-1 rounded text-[10px] font-mono transition-colors cursor-pointer"
-              :class="currentRadius === r ? 'bg-blue-600 text-white font-bold' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'"
+              :class="currentRadius === r ? 'bg-blue-600 dark:bg-[#0D99FF] text-white font-bold' : 'bg-slate-100 dark:bg-[#383838] hover:bg-slate-200 dark:hover:bg-[#444444] text-slate-600 dark:text-slate-300'"
               :disabled="!hasSelection"
               @click="applyRadius(r)"
             >
@@ -202,12 +202,12 @@
             <button
               type="button"
               class="px-1.5 py-1 rounded text-[10px] font-mono transition-colors cursor-pointer"
-              :class="currentRadius >= 99 ? 'bg-blue-600 text-white font-bold' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'"
-              title="胶囊全圆角"
+              :class="currentRadius >= 99 ? 'bg-blue-600 dark:bg-[#0D99FF] text-white font-bold' : 'bg-slate-100 dark:bg-[#383838] hover:bg-slate-200 dark:hover:bg-[#444444] text-slate-600 dark:text-slate-300'"
+              :title="t('fullRadiusTitle')"
               :disabled="!hasSelection"
               @click="applyRadius(9999)"
             >
-              全
+              {{ t('fullRadius') }}
             </button>
           </div>
         </div>
@@ -216,28 +216,28 @@
 
     <!-- 4. 描边与边框 (Stroke / Border) -->
     <div
-      class="p-3 border-b border-slate-100"
+      class="p-3 border-b border-slate-100 dark:border-[#383838]"
       :class="{ 'opacity-40 pointer-events-none': !hasSelection }"
     >
-      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">描边 (Stroke)</div>
+      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{{ t('stroke') }}</div>
       <div class="flex items-center justify-between gap-2">
         <!-- 粗细选择 -->
-        <div class="flex items-center gap-1 bg-slate-50 border border-slate-200/80 rounded-md p-0.5">
+        <div class="flex items-center gap-1 bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md p-0.5">
           <button
             v-for="w in [0, 1, 2, 4]"
             :key="w"
             type="button"
             class="px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors cursor-pointer"
-            :class="strokeWidth === w ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'"
+            :class="strokeWidth === w ? 'bg-white dark:bg-[#383838] shadow-xs text-blue-600 dark:text-[#38bdf8] font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
             :disabled="!hasSelection"
             @click="setStrokeWidth(w)"
           >
-            {{ w === 0 ? '无' : `${w}px` }}
+            {{ w === 0 ? t('strokeNone') : `${w}px` }}
           </button>
         </div>
 
         <!-- 边框色选择器 -->
-        <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 rounded-md px-1.5 py-1">
+        <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md px-1.5 py-1">
           <label
             class="w-4 h-4 rounded border border-slate-300 shadow-2xs relative overflow-hidden shrink-0"
             :class="hasSelection ? 'cursor-pointer' : 'cursor-default'"
@@ -265,18 +265,18 @@
       :class="{ 'opacity-40 pointer-events-none': !hasSelection }"
     >
       <div class="flex items-center justify-between mb-2">
-        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">效果 (Effects)</div>
+        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{{ t('effects') }}</div>
         <button
           type="button"
           class="wf-effect-anchor w-5 h-5 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 flex items-center justify-center cursor-pointer"
-          title="添加效果"
+          :title="t('addEffect')"
           :disabled="!hasSelection"
           @click.stop="toggleAddMenu"
         >
           <Plus class="w-3.5 h-3.5" />
         </button>
       </div>
-      <div v-if="!effects.length" class="text-[11px] text-slate-400 px-0.5">还没有效果</div>
+      <div v-if="!effects.length" class="text-[11px] text-slate-400 px-0.5">{{ t('noEffects') }}</div>
       <div v-else class="flex flex-col gap-1">
         <div
           v-for="fx in effects"
@@ -300,7 +300,7 @@
           <button
             type="button"
             class="w-5 h-5 rounded text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer"
-            :title="fx.visible ? '隐藏效果' : '显示效果'"
+            :title="fx.visible ? t('hideEffect') : t('showEffect')"
             @click.stop="patchEffect(fx.id, { visible: !fx.visible })"
           >
             <Eye v-if="fx.visible" class="w-3.5 h-3.5" />
@@ -349,7 +349,7 @@
           <button
             type="button"
             class="w-6 h-6 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center cursor-pointer"
-            title="删除这个效果"
+            :title="t('deleteEffect')"
             @click="removeEffect(openEffect.id)"
           >
             <X class="w-3.5 h-3.5" />
@@ -357,7 +357,7 @@
         </div>
         <template v-if="!isBlurEffect(openEffect.type)">
           <div class="flex items-center gap-2 mb-2">
-            <span class="w-10 text-[11px] text-slate-500 shrink-0">位置</span>
+            <span class="w-10 text-[11px] text-slate-500 shrink-0">{{ t('position') }}</span>
             <label class="flex-1 flex items-center gap-1 bg-slate-100 rounded-md px-1.5 py-1">
               <span class="text-[10px] text-slate-400">X</span>
               <input :value="openEffect.x" type="number" class="w-full bg-transparent text-[12px] text-slate-800 outline-none" @input="onEffectNumber(openEffect.id, 'x', $event, true)" @change="onEffectNumber(openEffect.id, 'x', $event, false)" />
@@ -368,19 +368,19 @@
             </label>
           </div>
           <div class="flex items-center gap-2 mb-2">
-            <span class="w-10 text-[11px] text-slate-500 shrink-0">模糊</span>
+            <span class="w-10 text-[11px] text-slate-500 shrink-0">{{ t('blur') }}</span>
             <label class="flex-1 flex items-center bg-slate-100 rounded-md px-1.5 py-1">
               <input :value="openEffect.blur" type="number" min="0" class="w-full bg-transparent text-[12px] text-slate-800 outline-none" @input="onEffectNumber(openEffect.id, 'blur', $event, true)" @change="onEffectNumber(openEffect.id, 'blur', $event, false)" />
             </label>
           </div>
           <div class="flex items-center gap-2 mb-2">
-            <span class="w-10 text-[11px] text-slate-500 shrink-0">扩展</span>
+            <span class="w-10 text-[11px] text-slate-500 shrink-0">{{ t('spread') }}</span>
             <label class="flex-1 flex items-center bg-slate-100 rounded-md px-1.5 py-1">
               <input :value="openEffect.spread" type="number" class="w-full bg-transparent text-[12px] text-slate-800 outline-none" @input="onEffectNumber(openEffect.id, 'spread', $event, true)" @change="onEffectNumber(openEffect.id, 'spread', $event, false)" />
             </label>
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-10 text-[11px] text-slate-500 shrink-0">颜色</span>
+            <span class="w-10 text-[11px] text-slate-500 shrink-0">{{ t('color') }}</span>
             <label class="w-5 h-5 rounded border border-slate-300 relative overflow-hidden shrink-0 cursor-pointer" :style="{ backgroundColor: openEffect.color }">
               <input type="color" :value="toColorInput(openEffect.color)" class="absolute -top-2 -left-2 w-10 h-10 opacity-0 cursor-pointer" @input="onEffectColor(openEffect.id, $event, true)" @change="onEffectColor(openEffect.id, $event, false)" />
             </label>
@@ -397,7 +397,7 @@
           </div>
         </template>
         <div v-else class="flex items-center gap-2">
-          <span class="w-10 text-[11px] text-slate-500 shrink-0">模糊</span>
+          <span class="w-10 text-[11px] text-slate-500 shrink-0">{{ t('blur') }}</span>
           <label class="flex-1 flex items-center bg-slate-100 rounded-md px-1.5 py-1">
             <input :value="openEffect.blur" type="number" min="0" class="w-full bg-transparent text-[12px] text-slate-800 outline-none" @input="onEffectNumber(openEffect.id, 'blur', $event, true)" @change="onEffectNumber(openEffect.id, 'blur', $event, false)" />
           </label>
@@ -407,17 +407,17 @@
 
     <!-- 6. 填充与色彩 (Fill)。没选中元素时，颜色铺在当前画框上。 -->
     <div
-      class="p-3 border-b border-slate-100"
+      class="p-3 border-b border-slate-100 dark:border-[#383838]"
       :class="{ 'opacity-40 pointer-events-none': !canFill }"
     >
       <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-        {{ hasSelection ? '填充 (Fill)' : '画框填充' }}
+        {{ hasSelection ? t('fillColor') : t('frameFillColor') }}
       </div>
-      <div class="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200/80 rounded-lg p-1.5">
+      <div class="flex items-center justify-between gap-2 bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-lg p-1.5">
         <div class="flex items-center gap-2">
           <!-- 色盘输入器 -->
           <label
-            class="w-5 h-5 rounded border border-slate-300 shadow-2xs relative overflow-hidden shrink-0"
+            class="w-5 h-5 rounded border border-slate-300 dark:border-[#484848] shadow-2xs relative overflow-hidden shrink-0"
             :class="canFill ? 'cursor-pointer' : 'cursor-default'"
             :style="{ backgroundColor: currentFillColor }"
           >
@@ -433,7 +433,7 @@
               @change="onColorChange"
             />
           </label>
-          <span class="font-mono text-[11px] text-slate-700 font-semibold uppercase">
+          <span class="font-mono text-[11px] text-slate-700 dark:text-slate-200 font-semibold uppercase">
             {{ currentFillColor }}
           </span>
         </div>
@@ -454,12 +454,12 @@
 
     <!-- 7. 媒体素材：图片，以及可以铺图的方框 -->
     <div v-if="elementInfo?.isImage" class="p-3 border-b border-slate-100">
-      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">图片素材 (Media)</div>
+      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{{ t('mediaAsset') }}</div>
         <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200/80 rounded-lg p-2">
         <button
           type="button"
           class="w-10 h-10 rounded-md border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
-          title="更换图片素材"
+          :title="t('replaceImage')"
           @click="emit('replace-asset')"
         >
           <img
@@ -478,9 +478,9 @@
             @click="emit('replace-asset')"
           >
             <ImageIcon class="w-3.5 h-3.5" />
-            <span>{{ elementInfo?.imgSrc ? '替换图片素材...' : '从素材库填充图片...' }}</span>
+            <span>{{ elementInfo?.imgSrc ? t('replaceImage') : t('fillFromMedia') }}</span>
           </button>
-          <p class="text-[10px] text-slate-400 mt-1 truncate">矩形、圆、椭圆和图片都可以从素材库填入</p>
+          <p class="text-[10px] text-slate-400 mt-1 truncate">{{ t('mediaTip') }}</p>
         </div>
       </div>
     </div>
@@ -492,27 +492,27 @@
       :class="{ 'opacity-40 pointer-events-none': !hasSelection }"
     >
       <div class="flex items-center justify-between mb-2">
-        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">文字 (Typography)</div>
+        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{{ t('typography') }}</div>
         <button
           type="button"
           class="text-[10px] text-[#0D99FF] hover:text-blue-700 font-medium flex items-center gap-0.5 cursor-pointer"
-          title="在画布上直接打字修改文案"
+          :title="t('directTypeTip')"
           :disabled="!hasSelection"
           @click="emit('start-text-edit')"
         >
           <Edit3 class="w-2.5 h-2.5" />
-          <span>双击打字</span>
+          <span>{{ t('doubleClickToType') }}</span>
         </button>
       </div>
 
       <!-- 文案直接编辑输入框 -->
       <div class="mb-2.5">
-        <div class="text-[10px] text-slate-500 mb-1">文本内容</div>
+        <div class="text-[10px] text-slate-500 mb-1">{{ t('textContent') }}</div>
         <div class="flex items-center bg-slate-50 border border-slate-200/80 rounded-md px-2 py-1 focus-within:border-[#0D99FF] focus-within:bg-white transition-colors">
           <input
             type="text"
             :value="currentTextVal"
-            placeholder="输入文案..."
+            :placeholder="t('textPlaceholder')"
             class="w-full bg-transparent text-[11px] outline-none text-slate-700"
             :disabled="!hasSelection"
             @input="onTextInput"
@@ -522,7 +522,7 @@
       </div>
 
       <div class="flex items-center justify-between gap-2 mb-2">
-        <span class="text-[10px] text-slate-500 shrink-0">文字颜色</span>
+        <span class="text-[10px] text-slate-500 shrink-0">{{ t('textColor') }}</span>
         <div class="flex items-center gap-1.5 min-w-0">
           <label
             class="w-5 h-5 rounded border border-slate-300 relative overflow-hidden shrink-0"
@@ -552,14 +552,14 @@
         </div>
       </div>
 
-      <div class="text-[10px] text-slate-500 mb-1">字体</div>
+      <div class="text-[10px] text-slate-500 mb-1">{{ t('font') }}</div>
       <select
         class="w-full h-7 mb-2 bg-slate-50 border border-slate-200/80 rounded-md px-2 text-[11px] text-slate-700 outline-none focus:border-[#0D99FF] focus:bg-white"
         :value="fontId"
         :disabled="!hasSelection"
         @change="onFontFamily"
       >
-        <option v-if="fontId === 'custom'" value="custom">当前字体</option>
+        <option v-if="fontId === 'custom'" value="custom">{{ t('currentFont') }}</option>
         <option v-for="font in fontOptions" :key="font.id" :value="font.id" :style="{ fontFamily: font.family }">
           {{ font.label }}
         </option>
@@ -576,11 +576,11 @@
             {{ item.label }}
           </option>
         </select>
-        <div class="flex items-center h-7 bg-slate-50 border border-slate-200/80 rounded-md px-1 shrink-0">
+        <div class="flex items-center h-7 bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md px-1 shrink-0">
           <button
             type="button"
-            class="w-5 h-5 rounded hover:bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs cursor-pointer"
-            title="减小字号 (快捷键 [ )"
+            class="w-5 h-5 rounded hover:bg-slate-200 dark:hover:bg-[#383838] flex items-center justify-center font-bold text-slate-600 dark:text-slate-300 text-xs cursor-pointer"
+            :title="t('decreaseFontSize')"
             :disabled="!hasSelection"
             @click="stepFontSize(-2)"
           >
@@ -590,16 +590,16 @@
             type="number"
             min="8"
             max="200"
-            class="w-9 bg-transparent text-center font-mono text-[11px] font-semibold text-slate-700 outline-none [appearance:textfield]"
+            class="w-9 bg-transparent text-center font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-200 outline-none [appearance:textfield]"
             :value="currentFontSize"
             :disabled="!hasSelection"
-            title="字号"
+            :title="t('fontSize')"
             @change="onFontSizeInput"
           />
           <button
             type="button"
-            class="w-5 h-5 rounded hover:bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs cursor-pointer"
-            title="增大字号 (快捷键 ] )"
+            class="w-5 h-5 rounded hover:bg-slate-200 dark:hover:bg-[#383838] flex items-center justify-center font-bold text-slate-600 dark:text-slate-300 text-xs cursor-pointer"
+            :title="t('increaseFontSize')"
             :disabled="!hasSelection"
             @click="stepFontSize(2)"
           >
@@ -612,9 +612,9 @@
         <div class="flex items-center gap-1">
           <button
             type="button"
-            class="w-7 h-7 rounded-md border text-[11px] font-bold cursor-pointer"
-            :class="fontWeight >= 600 ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100'"
-            title="加粗"
+            class="w-7 h-7 rounded-md border text-[11px] font-bold cursor-pointer transition-colors"
+            :class="fontWeight >= 600 ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 dark:bg-[#383838] border-slate-200/80 dark:border-[#484848] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#444444]'"
+            :title="t('bold')"
             :disabled="!hasSelection"
             @click="toggleBold"
           >
@@ -622,9 +622,9 @@
           </button>
           <button
             type="button"
-            class="w-7 h-7 rounded-md border text-[11px] italic font-serif cursor-pointer"
-            :class="italicOn ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100'"
-            title="斜体"
+            class="w-7 h-7 rounded-md border text-[11px] italic font-serif cursor-pointer transition-colors"
+            :class="italicOn ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 dark:bg-[#383838] border-slate-200/80 dark:border-[#484848] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#444444]'"
+            :title="t('italic')"
             :disabled="!hasSelection"
             @click="toggleItalic"
           >
@@ -632,22 +632,22 @@
           </button>
           <button
             type="button"
-            class="w-7 h-7 rounded-md border text-[11px] underline cursor-pointer"
-            :class="underlineOn ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100'"
-            title="下划线"
+            class="w-7 h-7 rounded-md border text-[11px] underline cursor-pointer transition-colors"
+            :class="underlineOn ? 'bg-[#0D99FF] border-[#0D99FF] text-white' : 'bg-slate-50 dark:bg-[#383838] border-slate-200/80 dark:border-[#484848] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#444444]'"
+            :title="t('underline')"
             :disabled="!hasSelection"
             @click="toggleUnderline"
           >
             U
           </button>
         </div>
-        <div class="flex items-center gap-0.5 bg-slate-50 border border-slate-200/80 rounded-md p-0.5">
+        <div class="flex items-center gap-0.5 bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md p-0.5">
           <button
             v-for="item in alignOptions"
             :key="item.value"
             type="button"
-            class="w-7 h-6 rounded flex items-center justify-center cursor-pointer"
-            :class="textAlign === item.value ? 'bg-white shadow-xs text-[#0D99FF]' : 'text-slate-500 hover:text-slate-800'"
+            class="w-7 h-6 rounded flex items-center justify-center cursor-pointer transition-colors"
+            :class="textAlign === item.value ? 'bg-white dark:bg-[#383838] shadow-xs text-[#0D99FF] dark:text-[#38bdf8]' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'"
             :title="item.label"
             :disabled="!hasSelection"
             @click="setTextAlign(item.value)"
@@ -660,32 +660,32 @@
 
     <!-- 9. 快速操作 (Actions) -->
     <div class="p-3">
-      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">常用操作 (Actions)</div>
+      <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{{ t('quickActions') }}</div>
       <div class="flex flex-col gap-1.5">
         <button
           v-if="elementInfo?.hasParentContainer"
           type="button"
-          class="w-full py-1.5 px-2 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-lg text-[#0D99FF] text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          class="w-full py-1.5 px-2 bg-blue-50 dark:bg-[#1e3a5f]/60 hover:bg-blue-100 dark:hover:bg-[#1e3a5f] border border-blue-200/80 dark:border-[#0D99FF]/40 rounded-lg text-[#0D99FF] dark:text-[#38bdf8] text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
           @click="emit('select-parent')"
         >
           <ArrowUp class="w-3 h-3" />
-          <span>选中外层卡片容器</span>
+          <span>{{ t('selectParentContainer') }}</span>
         </button>
         <button
           v-if="hasSelection"
-          class="w-full py-1.5 px-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-lg text-slate-700 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          class="w-full py-1.5 px-2 bg-slate-50 dark:bg-[#383838] hover:bg-slate-100 dark:hover:bg-[#444444] border border-slate-200/80 dark:border-[#484848] rounded-lg text-slate-700 dark:text-slate-200 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
           @click="emit('duplicate-selection')"
         >
-          <Copy class="w-3 h-3 text-slate-500" />
-          <span>克隆副本 (Ctrl+D)</span>
+          <Copy class="w-3 h-3 text-slate-500 dark:text-slate-400" />
+          <span>{{ t('cloneElement') }}</span>
         </button>
         <button
           v-if="hasSelection"
-          class="w-full py-1.5 px-2 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 rounded-lg text-rose-700 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          class="w-full py-1.5 px-2 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200/80 dark:border-rose-700/50 rounded-lg text-rose-700 dark:text-rose-300 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
           @click="emit('delete-selection')"
         >
-          <Trash2 class="w-3 h-3 text-rose-500" />
-          <span>删除元素 (Backspace)</span>
+          <Trash2 class="w-3 h-3 text-rose-500 dark:text-rose-400" />
+          <span>{{ t('deleteElement') }}</span>
         </button>
       </div>
     </div>
@@ -727,6 +727,7 @@ import {
   type WfEffect,
   type WfEffectType,
 } from '../utils/effects'
+import { t } from '../utils/i18n'
 
 const props = defineProps<{
   currentPage: Page | null

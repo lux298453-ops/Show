@@ -381,7 +381,7 @@ import {
 import { projectApi } from '../api/project'
 import type { Element, Page, Prototype } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
-import { findInteractionByDomUids, resolveNavigateElement } from '../utils/interactionHit'
+import { findInteractionByDomUids, hitInteractionElement, findElementAt, resolveNavigateElement } from '../utils/interactionHit'
 
 const route = useRoute()
 const router = useRouter()
@@ -521,7 +521,8 @@ function navigateTo(targetPageId: number) {
   nextTick(updatePhoneScale)
 }
 
-function handleNavigate(pageName: string, uids?: string[]) {
+function handleNavigate(pageName: string, uids?: string[], pos?: { x?: number; y?: number; uid?: string }) {
+  // 1. 优先通过 DOM UID 精准匹配已绑定的交互连线
   const byUid = findInteractionByDomUids(currentPage.value, uids)
   const uidTarget = byUid?.interaction?.target_page_id
   if (uidTarget) {
@@ -530,22 +531,51 @@ function handleNavigate(pageName: string, uids?: string[]) {
     if (named) showToast(`前往: ${named.name}`)
     return
   }
+
+  // 2. 尝试通过点击物理坐标命中热区交互规则
+  if (pos?.x != null && pos?.y != null) {
+    const hit = hitInteractionElement(currentPage.value, pos.x, pos.y)
+    const hitTarget = hit?.interaction?.target_page_id
+    if (hitTarget) {
+      navigateTo(hitTarget)
+      const named = pages.value.find((p) => p.id === hitTarget)
+      if (named) showToast(`前往: ${named.name}`)
+      return
+    }
+
+    // 3. 关键判定：检查点击位置是否命中了某个具体组件（若该组件无交互规则，说明未连接或已被用户删除）
+    const matchedEl = findElementAt(currentPage.value, pos.x, pos.y, uids)
+    if (matchedEl) {
+      console.log(`[PurePreview] 拦截跳转：组件「${matchedEl.label || matchedEl.id}」未绑定交互连线`)
+      return
+    }
+  }
+
+  // 4. 如果点击元素带有 UID，检查对应组件是否有交互
+  if (uids?.length) {
+    const matchedEl = findElementAt(currentPage.value, null, null, uids)
+    if (matchedEl && !matchedEl.interaction?.target_page_id) {
+      console.log(`[PurePreview] 拦截跳转：组件「${matchedEl.label || matchedEl.id}」无交互连线`)
+      return
+    }
+  }
+
+  // 5. 如果当前项目存在交互连线系统，禁止非绑定的任意元素根据文本跳转
+  const projectHasInteractions = pages.value.some((p) => (p.elements || []).some((e) => e.interaction?.target_page_id))
+  if (projectHasInteractions) {
+    return
+  }
+
+  // 6. 纯静态原型无元素时的兜底匹配
   const clean = pageName.trim().toLowerCase()
   const target = pages.value.find(
     (p) => p.name.trim().toLowerCase() === clean || String(p.id) === clean,
+  ) || pages.value.find(
+    (p) => p.name.toLowerCase().includes(clean) || clean.includes(p.name.toLowerCase()),
   )
   if (target) {
     navigateTo(target.id)
     showToast(`前往: ${target.name}`)
-  } else {
-    // 尝试包含匹配
-    const fuzzy = pages.value.find(
-      (p) => p.name.toLowerCase().includes(clean) || clean.includes(p.name.toLowerCase()),
-    )
-    if (fuzzy) {
-      navigateTo(fuzzy.id)
-      showToast(`前往: ${fuzzy.name}`)
-    }
   }
 }
 
