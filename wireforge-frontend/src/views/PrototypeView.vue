@@ -1814,6 +1814,16 @@
           <span class="text-[11px] text-white/50">Ctrl+C</span>
         </button>
 
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
+          @click="runLayerMenu('cut')"
+        >
+          <span>剪切</span>
+          <span class="text-[11px] text-white/50">Ctrl+X</span>
+        </button>
+
         <!-- 2. 粘贴至此处 (Paste here) -->
         <button
           type="button"
@@ -5869,9 +5879,15 @@ const hasCopiedProps = ref(
   typeof window !== 'undefined' &&
     (!!(window as any).__wfCopiedProps || !!localStorage.getItem('wf_copied_props'))
 )
+const copiedElementCount = ref((() => {
+  try {
+    const data = (window as any).__wfCopiedElement || JSON.parse(localStorage.getItem('wf_clipboard_element') || 'null')
+    return data?.items?.length || 1
+  } catch { return 1 }
+})())
 
 const hasSelectedDomElements = computed(() => selectedDomLayerUids.value.length > 0)
-const canPasteReplace = computed(() => selectedDomLayerUids.value.length === 1 && hasCopiedElement.value)
+const canPasteReplace = computed(() => selectedDomLayerUids.value.length === 1 && hasCopiedElement.value && copiedElementCount.value === 1)
 const canPasteProperties = computed(() => selectedDomLayerUids.value.length >= 1 && hasCopiedProps.value)
 
 const submenuFlipX = computed(() => {
@@ -5991,6 +6007,8 @@ function runLayerMenu(action: string) {
   closeLayerContextMenu()
   if (action === 'copy') {
     postToFocusFrame({ type: 'wf-copy' })
+  } else if (action === 'cut') {
+    postToFocusFrame({ type: 'wf-cut' })
   } else if (action === 'paste-here') {
     postToFocusFrame({ type: 'wf-paste', x: currentMenu?.localX, y: currentMenu?.localY })
   } else if (action === 'paste-replace') {
@@ -6799,6 +6817,7 @@ function onSimMessage(ev: MessageEvent) {
     scrollToSimulatorY(ev.data.rect.y, ev.data.rect.height)
   }
   if (ev.data.type === 'wf-element-copied' && ev.data.data) {
+    copiedElementCount.value = ev.data.data.items?.length || 1
     ;(window as any).__wfCopiedElement = ev.data.data
     ;(window as any).__wfLastCopyType = 'element'
     hasCopiedElement.value = true
@@ -7298,12 +7317,25 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
   // 5. 复制快捷键 (Ctrl+C / Cmd+C)
   const isC = e.key === 'c' || e.key === 'C'
+  const isX = e.key === 'x' || e.key === 'X'
   const isV = e.key === 'v' || e.key === 'V'
   const isD = e.key === 'd' || e.key === 'D'
 
-  if ((e.ctrlKey || e.metaKey) && isC && !e.shiftKey) {
+  if ((e.ctrlKey || e.metaKey) && isX && !e.shiftKey && !e.altKey && !isInput && hasSelectedDomElements.value) {
+    e.preventDefault()
+    postToFocusFrame({ type: 'wf-cut' })
+    return
+  }
+
+  if ((e.ctrlKey || e.metaKey) && isC && !e.shiftKey && !e.altKey) {
     const activeTag = (document.activeElement?.tagName || '').toLowerCase()
     if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+      return
+    }
+
+    if (hasSelectedDomElements.value) {
+      e.preventDefault()
+      postToFocusFrame({ type: 'wf-copy' })
       return
     }
 
@@ -7417,6 +7449,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && isD && !e.shiftKey) {
     const activeTag = (document.activeElement?.tagName || '').toLowerCase()
     if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+      return
+    }
+
+    if (hasSelectedDomElements.value) {
+      e.preventDefault()
+      postToFocusFrame({ type: 'wf-duplicate' })
       return
     }
 
