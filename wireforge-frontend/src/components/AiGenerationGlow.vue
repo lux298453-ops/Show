@@ -59,6 +59,7 @@ watchEffect(() => {
 .ai-glow-spread {
   position: absolute;
   inset: 0;
+  opacity: var(--ai-glow-strength);
   transform-origin: var(--ai-origin-x) var(--ai-origin-y);
   animation: ai-glow-spread 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -67,7 +68,7 @@ watchEffect(() => {
 .ai-glow-colors,
 .ai-glow-bloom {
   position: absolute;
-  inset: -12%;
+  inset: -22%;
   pointer-events: none;
 }
 
@@ -77,15 +78,15 @@ watchEffect(() => {
     radial-gradient(ellipse at 82% 15%, rgb(85 198 236 / 26%), transparent 48%),
     radial-gradient(ellipse at 93% 82%, rgb(161 85 236 / 18%), transparent 46%),
     radial-gradient(ellipse at 20% 95%, rgb(85 161 236 / 20%), transparent 44%);
-  opacity: var(--ai-glow-strength);
-  animation: ai-glow-drift 14s ease-in-out infinite alternate;
+  animation: ai-glow-drift 9s ease-in-out infinite alternate;
 }
 
 .ai-glow-bloom {
   background:
-    radial-gradient(ellipse at var(--ai-origin-x) var(--ai-origin-y), rgb(85 198 236 / 18%), transparent 38%),
+    radial-gradient(ellipse at 32% 35%, rgb(85 198 236 / 36%), transparent 20%),
+    radial-gradient(ellipse at 72% 68%, rgb(161 85 236 / 26%), transparent 22%),
     radial-gradient(ellipse at 65% 100%, rgb(236 85 85 / 8%), transparent 38%);
-  animation: ai-glow-breathe 7s ease-in-out infinite;
+  animation: ai-glow-flow 12s ease-in-out infinite;
 }
 
 :global(html.dark .ai-generation-glow) {
@@ -111,13 +112,23 @@ watchEffect(() => {
 }
 
 @keyframes ai-glow-drift {
-  from { transform: translate(-1.5%, -1%) scale(1); }
-  to { transform: translate(1.5%, 1%) scale(1.035); }
+  from { transform: translate(-9%, -5%) rotate(-4deg) scale(1.12); }
+  to { transform: translate(9%, 6%) rotate(4deg) scale(1.17); }
 }
 
-@keyframes ai-glow-breathe {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 0.7; }
+@keyframes ai-glow-flow {
+  0%, 100% {
+    transform: translate(-20%, 8%) rotate(-7deg) scale(1.08);
+    opacity: 0.45;
+  }
+  33% {
+    transform: translate(14%, -12%) rotate(4deg) scale(1.12);
+    opacity: 0.85;
+  }
+  66% {
+    transform: translate(22%, 12%) rotate(-2deg) scale(1.08);
+    opacity: 0.65;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
