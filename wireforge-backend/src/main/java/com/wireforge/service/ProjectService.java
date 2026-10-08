@@ -679,9 +679,58 @@ public class ProjectService {
                         .eq(Page::getProjectId, projectId)
                         .orderByAsc(Page::getSortOrder));
 
+        if (pages.isEmpty()) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("project", project);
+            result.put("pages", List.of());
+            return result;
+        }
+
+        List<Long> pageIds = pages.stream().map(Page::getId).toList();
+
+        // 批量 1: 一次性查出全项目所有页面元素
+        List<Element> allElements = elementMapper.selectList(
+                Wrappers.<Element>lambdaQuery().in(Element::getPageId, pageIds));
+        Map<Long, List<Element>> elementsByPage = allElements.stream()
+                .filter(e -> e.getPageId() != null)
+                .collect(Collectors.groupingBy(Element::getPageId));
+
+        // 批量 2: 一次性查出全项目所有交互连线
+        List<Long> allElementIds = allElements.stream().map(Element::getId).toList();
+        List<Interaction> allInteractions = allElementIds.isEmpty() ? List.of() : interactionMapper.selectList(
+                Wrappers.<Interaction>lambdaQuery().in(Interaction::getElementId, allElementIds));
+        Map<Long, List<Interaction>> interactionsByElement = allInteractions.stream()
+                .filter(i -> i.getElementId() != null)
+                .collect(Collectors.groupingBy(Interaction::getElementId));
+
+        // 批量 3: 一次性查出全项目所有标注说明
+        List<Annotation> allAnnotations;
+        try {
+            allAnnotations = annotationMapper.selectList(
+                    Wrappers.<Annotation>lambdaQuery()
+                            .in(Annotation::getPageId, pageIds)
+                            .orderByAsc(Annotation::getSortOrder)
+                            .orderByAsc(Annotation::getId));
+        } catch (Exception e) {
+            log.warn("Query annotations with sort_order failed, fallback: {}", e.getMessage());
+            allAnnotations = annotationMapper.selectList(
+                    Wrappers.<Annotation>lambdaQuery()
+                            .select(Annotation::getId, Annotation::getPageId, Annotation::getElementId, Annotation::getText,
+                                    Annotation::getPositionX, Annotation::getPositionY, Annotation::getBoxX, Annotation::getBoxY,
+                                    Annotation::getAnchorX, Annotation::getAnchorY, Annotation::getElbowX, Annotation::getCreatedAt)
+                            .in(Annotation::getPageId, pageIds)
+                            .orderByAsc(Annotation::getId));
+        }
+        Map<Long, List<Annotation>> annotationsByPage = allAnnotations.stream()
+                .filter(a -> a.getPageId() != null)
+                .collect(Collectors.groupingBy(Annotation::getPageId));
+
         List<Map<String, Object>> pageList = new ArrayList<>();
         for (Page page : pages) {
-            pageList.add(buildPageVo(page));
+            pageList.add(buildPageVo(page,
+                    elementsByPage.getOrDefault(page.getId(), List.of()),
+                    interactionsByElement,
+                    annotationsByPage.getOrDefault(page.getId(), List.of())));
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -690,7 +739,10 @@ public class ProjectService {
         return result;
     }
 
-    private Map<String, Object> buildPageVo(Page page) {
+    private Map<String, Object> buildPageVo(Page page,
+                                            List<Element> elements,
+                                            Map<Long, List<Interaction>> interactionsByElement,
+                                            List<Annotation> annotations) {
         Map<String, Object> vo = new LinkedHashMap<>();
         vo.put("id", page.getId());
         vo.put("name", page.getName());
@@ -701,14 +753,6 @@ public class ProjectService {
         vo.put("canvas_y", page.getCanvasY());
         vo.put("analyzed", page.getAnalyzed());
         vo.put("html_content", page.getHtmlContent());
-
-        List<Element> elements = elementMapper.selectList(
-                Wrappers.<Element>lambdaQuery().eq(Element::getPageId, page.getId()));
-        List<Interaction> allInteractions = elements.isEmpty() ? List.of() : interactionMapper.selectList(
-                Wrappers.<Interaction>lambdaQuery()
-                        .in(Interaction::getElementId, elements.stream().map(Element::getId).toList()));
-        Map<Long, List<Interaction>> interactionsByElement = allInteractions.stream()
-                .collect(Collectors.groupingBy(Interaction::getElementId));
 
         List<Map<String, Object>> elementList = new ArrayList<>();
         for (Element e : elements) {
@@ -741,23 +785,6 @@ public class ProjectService {
         }
         vo.put("elements", elementList);
 
-        List<Annotation> annotations;
-        try {
-            annotations = annotationMapper.selectList(
-                    Wrappers.<Annotation>lambdaQuery()
-                            .eq(Annotation::getPageId, page.getId())
-                            .orderByAsc(Annotation::getSortOrder)
-                            .orderByAsc(Annotation::getId));
-        } catch (Exception e) {
-            log.warn("Query annotations with sort_order failed, fallback: {}", e.getMessage());
-            annotations = annotationMapper.selectList(
-                    Wrappers.<Annotation>lambdaQuery()
-                            .select(Annotation::getId, Annotation::getPageId, Annotation::getElementId, Annotation::getText,
-                                    Annotation::getPositionX, Annotation::getPositionY, Annotation::getBoxX, Annotation::getBoxY,
-                                    Annotation::getAnchorX, Annotation::getAnchorY, Annotation::getElbowX, Annotation::getCreatedAt)
-                            .eq(Annotation::getPageId, page.getId())
-                            .orderByAsc(Annotation::getId));
-        }
         List<Map<String, Object>> annotationList = new ArrayList<>();
         for (Annotation a : annotations) {
             Map<String, Object> av = new LinkedHashMap<>();
@@ -774,6 +801,7 @@ public class ProjectService {
             av.put("anchor_y", a.getAnchorY());
             av.put("elbow_x", a.getElbowX());
             av.put("sort_order", a.getSortOrder() != null ? a.getSortOrder() : 0);
+            av.put("created_at", a.getCreatedAt());
             annotationList.add(av);
         }
         vo.put("annotations", annotationList);
