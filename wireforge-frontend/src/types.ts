@@ -39,6 +39,8 @@ export interface Element {
 export interface Annotation {
   id: number
   element_id: number | null
+  title?: string | null
+  source?: string | null
   text: string
   x?: number | null
   y?: number | null

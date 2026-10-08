@@ -118,6 +118,9 @@
           <FileText class="w-3.5 h-3.5 text-emerald-600" />
           <span>说明 ({{ annItems.length }})</span>
         </span>
+        <button type="button" class="p-1 rounded hover:bg-slate-200 text-slate-500" title="添加说明标注" @click.stop="emit('annAdd', page.id)" @mousedown.stop>
+          <Plus class="w-3.5 h-3.5" />
+        </button>
         <span class="panel-chevron">
           <ChevronDown v-if="isPanelOpen" class="w-3.5 h-3.5" />
           <ChevronRight v-else class="w-3.5 h-3.5" />
@@ -144,6 +147,8 @@
           @mouseenter="onAnnHover(ap.id)"
           @mouseleave="onAnnHover(null)"
           @click.stop="onAnnClick(ap)"
+          @dblclick.stop="emit('annEdit', ap.id)"
+          title="双击修改或删除说明"
         >
           <!-- Editing Mode Form -->
           <div v-if="editingAnnId === ap.id" class="ann-edit-form" @click.stop @mousedown.stop>
@@ -183,14 +188,6 @@
                 <GripVertical class="w-3.5 h-3.5" />
               </span>
               <span class="ann-title" :title="ap.title">{{ ap.title }}</span>
-              <button
-                class="ann-edit-btn opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-emerald-600 rounded cursor-pointer"
-                title="编辑标题与说明"
-                @click.stop="startEdit(ap)"
-                @mousedown.stop
-              >
-                <Pencil class="w-3 h-3" />
-              </button>
               <span
                 v-if="ap.interactionType"
                 class="ann-badge"
@@ -204,7 +201,7 @@
               <span class="hint-dot"></span>
               <span class="hint-text">去向: {{ ap.interactionTarget }}</span>
             </div>
-            <div class="ann-text" :class="{ empty: !ap.annotation.text }" @dblclick.stop="startEdit(ap)" title="双击快速编辑说明">
+            <div class="ann-text" :class="{ empty: !ap.annotation.text }">
               {{ ap.annotation.text || '双击编辑说明…' }}
             </div>
           </template>
@@ -289,7 +286,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { FileText, ChevronDown, ChevronRight, GripVertical, Pencil, Lock, Image as ImageIcon } from 'lucide-vue-next'
+import { FileText, ChevronDown, ChevronRight, GripVertical, Plus, Lock, Image as ImageIcon } from 'lucide-vue-next'
 import { getFileUrl } from '../api/http'
 import { projectApi } from '../api/project'
 import type { Annotation, Element, Page } from '../types'
@@ -350,12 +347,15 @@ const emit = defineEmits<{
   (e: 'annHover', annId: number | null): void
   (e: 'annClick', annId: number): void
   (e: 'annSave', annId: number, text: string, title?: string): void
+  (e: 'annAdd', pageId: number): void
+  (e: 'annEdit', annId: number): void
   (e: 'annOrderChange', pageId: number, order: number[]): void
   (e: 'navigate', pageName: string, uids?: string[], pos?: { x?: number; y?: number; uid?: string }): void
   (e: 'back'): void
   (e: 'saveHtml', payload: { pageId: number; html: string }): void
   (e: 'saveDirty', pageId: number): void
   (e: 'savePreparationFailed', pageId: number): void
+  (e: 'autowireUnmapped', pageId: number): void
   (e: 'lockedClick'): void
   (e: 'missClick', pos?: { x: number; y: number; uids?: string[] }): void
   (e: 'requestEdit'): void
@@ -474,10 +474,11 @@ function stampElementNav(uid: string, pageName: string | null) {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-set-nav', uid, page: pageName || '' }, '*')
 }
 
-function removeElementNav(uid?: string | null, targetPageName?: string | null, targetPageId?: number | null) {
+function removeElementNav(uid?: string | null, targetPageName?: string | null, targetPageId?: number | null, elementId?: number) {
   htmlFrameRef.value?.contentWindow?.postMessage({
     type: 'wf-remove-nav',
     uid: uid || '',
+    elementId: elementId || null,
     targetPageName: targetPageName || '',
     targetPageId: targetPageId != null ? String(targetPageId) : '',
   }, '*')
@@ -3624,31 +3625,25 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         return;
       }
       if(d.type === 'wf-remove-nav'){
-        var removed = false;
         if(d.uid){
           var elByUid = document.querySelector('[data-wf-uid="' + d.uid + '"]');
-          if(elByUid && elByUid.hasAttribute('data-nav')){
+          if(elByUid){
             elByUid.removeAttribute('data-nav');
+            elByUid.removeAttribute('data-modal');
+            if(elByUid.getAttribute('data-action') === 'back')elByUid.removeAttribute('data-action');
             elByUid.style.cursor = '';
-            removed = true;
           }
         }
-        var targetName = (d.targetPageName || '').trim().toLowerCase();
-        var targetId = (d.targetPageId != null ? String(d.targetPageId) : '').trim();
-        if(targetName || targetId){
-          var allNavEls = document.querySelectorAll('[data-nav]');
-          for(var ni = 0; ni < allNavEls.length; ni++){
-            var val = (allNavEls[ni].getAttribute('data-nav') || '').trim();
-            if((targetName && val.toLowerCase() === targetName) || (targetId && val === targetId)){
-              allNavEls[ni].removeAttribute('data-nav');
-              allNavEls[ni].style.cursor = '';
-              removed = true;
-            }
+        if(d.elementId){
+          var exactEl = document.querySelector('[data-wf-element-id="' + Number(d.elementId) + '"]');
+          if(exactEl){
+            exactEl.removeAttribute('data-nav');
+            exactEl.removeAttribute('data-modal');
+            if(exactEl.getAttribute('data-action') === 'back')exactEl.removeAttribute('data-action');
+            exactEl.style.cursor = '';
           }
         }
-        if(removed){
-          scheduleSave();
-        }
+        // The relation API updates persisted bindings after commit; exporting this older DOM could overwrite it.
         return;
       }
       if(d.uid && d.type !== 'wf-select-uid' && d.type !== 'wf-color' && d.type !== 'wf-font-size' && d.type !== 'wf-text-style') resolveEditTarget(d);
@@ -5351,6 +5346,10 @@ function onIframeMessage(e: MessageEvent) {
   if (e.source !== htmlFrameRef.value?.contentWindow) return
   const d = e.data as { type?: string; page?: string; html?: string; h?: number; src?: string } | null
   if (!d) return
+  if (d.type === 'wf-autowire-unmapped') {
+    emit('autowireUnmapped', props.page.id)
+    return
+  }
   if (d.type === 'wf-nav' && d.page) {
     const uids = Array.isArray((d as any).uids) ? (d as any).uids.map(String) : []
     const pos = {
@@ -5703,7 +5702,7 @@ const annItems = computed<AnnItem[]>(() => {
     }
 
     const customTitle = props.customTitles?.[ann.id]
-    const effectiveTitle = customTitle || el?.label || `说明 ${idx + 1}`
+    const effectiveTitle = ann.title || customTitle || el?.label || `说明 ${idx + 1}`
 
     return {
       id: ann.id,

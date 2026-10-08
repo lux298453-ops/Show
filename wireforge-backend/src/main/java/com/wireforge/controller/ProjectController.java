@@ -11,6 +11,7 @@ import com.wireforge.service.AnalyzeService;
 import com.wireforge.service.InteractionAutowireService;
 import com.wireforge.service.ProjectService;
 import com.wireforge.model.ProjectAnalysisStatus;
+import com.wireforge.model.AutowirePlan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -111,6 +112,19 @@ public class ProjectController {
         return Result.ok(projectService.getPrototype(id));
     }
 
+    /** 手动添加说明，关联元素可选，不创建交互关系。 */
+    @PostMapping("/{id}/pages/{pageId}/annotations")
+    public Result<Map<String, Object>> createAnnotation(@PathVariable Long id, @PathVariable Long pageId,
+                                                       @RequestBody Map<String, Object> body) {
+        return Result.ok(projectService.createAnnotation(id, pageId, body));
+    }
+
+    @DeleteMapping("/{id}/annotations/{annId}")
+    public Result<Void> deleteAnnotation(@PathVariable Long id, @PathVariable Long annId) {
+        projectService.deleteAnnotation(id, annId);
+        return Result.ok(null);
+    }
+
     /** 更新标注（文字 / 位置） */
     @PutMapping("/{id}/annotations/{annId}")
     public Result<Map<String, Object>> updateAnnotation(
@@ -196,14 +210,34 @@ public class ProjectController {
 
     /** 手动触发全局交互拓扑自动布线 */
     @PostMapping("/{id}/autowire-interactions")
-    public Result<Integer> autowireInteractions(@PathVariable Long id) {
-        return Result.ok(interactionAutowireService.autowireProjectInteractions(id));
+    public Result<AutowirePlan> autowireInteractions(@PathVariable Long id) {
+        return Result.ok(interactionAutowireService.preview(id));
     }
 
     /** 手动触发全局交互拓扑自动布线（含阶段二 AI 语义增量推导） */
     @PostMapping("/{id}/autowire-ai")
-    public Result<Map<String, Object>> autowireInteractionsWithAi(@PathVariable Long id) {
-        return Result.ok(projectService.autowireProjectInteractionsWithAi(id));
+    public Result<AutowirePlan> autowireInteractionsWithAi(@PathVariable Long id) {
+        return Result.ok(interactionAutowireService.preview(id));
+    }
+
+    @PostMapping("/{id}/autowire/preview")
+    public Result<AutowirePlan> previewAutowire(@PathVariable Long id) {
+        return Result.ok(interactionAutowireService.preview(id));
+    }
+
+    @PostMapping("/{id}/autowire/apply")
+    public Result<AutowirePlan.ApplyResult> applyAutowire(@PathVariable Long id, @RequestBody AutowirePlan.ApplyRequest body) {
+        return Result.ok(interactionAutowireService.apply(id, body));
+    }
+
+    @GetMapping("/{id}/autowire/applications/{applicationId}")
+    public Result<AutowirePlan.ApplyResult> autowireStatus(@PathVariable Long id, @PathVariable String applicationId) {
+        return Result.ok(interactionAutowireService.status(id, applicationId));
+    }
+
+    @PostMapping("/{id}/autowire/applications/{applicationId}/retry-render")
+    public Result<AutowirePlan.ApplyResult> retryAutowireRender(@PathVariable Long id, @PathVariable String applicationId) {
+        return Result.ok(interactionAutowireService.retry(id, applicationId));
     }
 
     /**

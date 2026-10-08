@@ -14,6 +14,10 @@ public class Annotation {
     private Long id;
     private Long pageId;
     private Long elementId;
+    /** 说明自己的标题，不修改关联元素名称。 */
+    private String title;
+    /** user 表示人工添加或编辑，重新分析时保留。 */
+    private String source;
     private String text;
     private Double positionX;
     private Double positionY;

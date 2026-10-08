@@ -519,6 +519,8 @@ public class AnalyzeService {
      * 清空页面旧的分析数据（重复分析时避免脏数据）。
      */
     private void clearPageData(long pageId) {
+        pageMapper.selectOne(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
+                .eq(Page::getId, pageId).last("FOR UPDATE"));
         List<Element> oldElements = elementMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
                         .eq(Element::getPageId, pageId));
@@ -527,9 +529,20 @@ public class AnalyzeService {
         interactionMapper.delete(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
                         .in(Interaction::getElementId, elementIds));
-        annotationMapper.delete(
-                com.baomidou.mybatisplus.core.toolkit.Wrappers.<Annotation>lambdaQuery()
-                        .in(Annotation::getElementId, elementIds));
+        // Element IDs are rebuilt by vision analysis. Keep manual notes and their
+        // last anchor as page notes rather than deleting the user's specification.
+        List<Annotation> oldAnnotations = annotationMapper.selectList(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<Annotation>lambdaQuery().in(Annotation::getElementId, elementIds));
+        for (Annotation ann : oldAnnotations) {
+            if ("user".equals(ann.getSource())) {
+                Element old = oldElements.stream().filter(e -> e.getId().equals(ann.getElementId())).findFirst().orElse(null);
+                annotationMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<Annotation>lambdaUpdate()
+                        .eq(Annotation::getId, ann.getId()).set(Annotation::getElementId, null)
+                        .set(ann.getTitle() == null && old != null, Annotation::getTitle, old == null ? "页面说明" : old.getLabel()));
+            } else {
+                annotationMapper.deleteById(ann.getId());
+            }
+        }
         elementMapper.deleteBatchIds(elementIds);
     }
 
@@ -608,7 +621,9 @@ public class AnalyzeService {
         if (pending.isEmpty()) return;
 
         int linked = 0;
+        List<Long> resolvedIds = new ArrayList<>();
         for (Interaction interaction : pending) {
+            if (!AutowirePlanner.automatic(interaction) || !AutowirePlanner.crossPage(interaction)) continue;
             try {
                 JsonNode params = objectMapper.readTree(interaction.getParams());
                 String targetName = params.path("target_name").asText("");
@@ -616,14 +631,16 @@ public class AnalyzeService {
                 Long targetPageId = pageIdByName.get(targetName);
                 if (targetPageId != null) {
                     interaction.setTargetPageId(targetPageId);
-                    interaction.setParams(null);
+                    // Keep the original target reference as evidence for future audits.
                     interactionMapper.updateById(interaction);
+                    resolvedIds.add(interaction.getId());
                     linked++;
                 }
             } catch (Exception e) {
                 log.warn("补链解析失败, interaction={}: {}", interaction.getId(), e.getMessage());
             }
         }
+        interactionAutowireService.filterIdentifiedRelations(projectId, resolvedIds);
         if (linked > 0) {
             log.info("交互补链完成: {} 条", linked);
         }
@@ -906,7 +923,7 @@ public class AnalyzeService {
             interactionMapper.delete(
                     com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
                             .in(Interaction::getElementId, projectElIds)
-                            .and(w -> w.isNull(Interaction::getSource).or().ne(Interaction::getSource, "user")));
+                            .in(Interaction::getSource, List.of("ai", "autowire", "ai_inferred")));
         }
         java.util.Set<Long> userWired = new java.util.HashSet<>();
         if (!projectElements.isEmpty()) {
@@ -922,6 +939,7 @@ public class AnalyzeService {
             interactionMapper.insert(it);
             inserted++;
         }
+        interactionAutowireService.filterIdentifiedRelations(projectId, toInsert.stream().map(Interaction::getId).filter(java.util.Objects::nonNull).toList());
         for (Page page : pages) {
             try {
                 elementGroupService.groupPage(page);
@@ -948,6 +966,7 @@ public class AnalyzeService {
 
     private int saveElements(Page page, JsonNode elementsNode, double scaleX, double scaleY) {
         if (!elementsNode.isArray()) return 0;
+        List<Long> newInteractionIds = new ArrayList<>();
 
         double canvasW = page.getCanvasWidth() == null ? 375 : page.getCanvasWidth();
         double canvasH = page.getCanvasHeight() == null ? 812 : page.getCanvasHeight();
@@ -1053,6 +1072,7 @@ public class AnalyzeService {
                     }
                     interaction.setSource("ai");
                     interactionMapper.insert(interaction);
+                    newInteractionIds.add(interaction.getId());
                 }
             }
 
@@ -1074,6 +1094,7 @@ public class AnalyzeService {
             index++;
             count++;
         }
+        interactionAutowireService.filterIdentifiedRelations(page.getProjectId(), newInteractionIds);
         return count;
     }
 

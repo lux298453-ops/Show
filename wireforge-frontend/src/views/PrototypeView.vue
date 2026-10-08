@@ -66,6 +66,15 @@
                   </div>
                 </div>
               </el-dropdown-item>
+              <el-dropdown-item command="specs" divided>
+                <div class="flex items-center gap-2.5 py-1 pr-2">
+                  <FileText class="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <div class="font-semibold text-xs text-slate-800 dark:text-slate-100">说明预览</div>
+                    <div class="text-[10px] text-slate-400">边体验原型，边查看功能说明</div>
+                  </div>
+                </div>
+              </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -455,6 +464,8 @@
                 @ann-hover="hoveredAnnId = $event"
                 @ann-click="handleAnnClick"
                 @ann-save="handleAnnSave"
+                @ann-add="openAnnotationCreate($event)"
+                @ann-edit="openAnnotationEditById"
                 @ann-order-change="handleAnnOrderChange"
                 @locked-click="showLockedToast(b.page)"
                 @request-edit="fineTune = true"
@@ -469,6 +480,7 @@
                 @edit-vector="onEditVector(b.page.id, $event)"
                 @hotspot="onPrototypeHotspot(b, $event)"
                 @hotspot-clear="onPrototypeHotspotClear(b.key)"
+                @autowire-unmapped="onAutowireUnmapped"
               />
 
               <!-- 移到原型里的组件上：右侧先是蓝点，移上去变成加号，按住拖到别的画板 -->
@@ -1284,6 +1296,25 @@
             </div>
           </div>
 
+          <section class="p-3 border-b border-slate-200 dark:border-[#383838] space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5"><FileText class="w-3.5 h-3.5" />说明标注 <span class="text-slate-400 font-normal">{{ currentFocusPage?.annotations.length || 0 }}</span></span>
+              <button type="button" class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 rounded px-1.5 py-1 hover:bg-blue-50 dark:hover:bg-white/5 disabled:opacity-40" :disabled="!currentFocusPage" @click="openAnnotationCreate(currentFocusPage?.id)"><Plus class="w-3.5 h-3.5" />添加说明</button>
+            </div>
+            <p class="text-[11px] text-slate-400 truncate">{{ currentFocusPage?.name || '先新建或选择一个画板' }}</p>
+            <div v-if="currentFocusPage?.annotations.length" class="max-h-44 overflow-y-auto space-y-1.5">
+              <div v-for="ann in currentFocusPage.annotations" :key="ann.id" class="rounded-lg border border-slate-200/80 dark:border-white/10 p-2 text-xs">
+                <button type="button" class="block w-full min-w-0 text-left" title="双击修改或删除说明"
+                  @click="handleAnnClick(ann.id)" @dblclick.stop="openAnnotationEdit(currentFocusPage!.id, ann)"
+                  @keydown.enter.prevent="openAnnotationEdit(currentFocusPage!.id, ann)">
+                  <span class="block truncate font-medium text-slate-700 dark:text-slate-200">{{ annotationTitle(currentFocusPage, ann) }}</span>
+                  <span class="block truncate text-[11px] text-slate-400 mt-1">{{ ann.text }}</span>
+                </button>
+              </div>
+            </div>
+            <p v-else class="text-[11px] leading-relaxed text-slate-400">为页面或某个元素补充用途、操作条件和业务规则。</p>
+          </section>
+
           <DesignInspector
             :current-page="currentFocusPage"
             :selected-element="selectedElementObj"
@@ -1486,6 +1517,7 @@
                     </div>
                   </div>
                 </div>
+                <button type="button" class="p-1.5 text-emerald-400 hover:bg-white/10 rounded-lg" title="添加说明标注" :disabled="!previewPage" @click="openAnnotationCreate(previewPage?.id)"><Plus class="w-4 h-4" /></button>
                 <button
                   class="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
                   title="收起说明抽屉"
@@ -1500,6 +1532,7 @@
                 <div v-if="!simAnnList.length" class="h-44 flex flex-col items-center justify-center text-slate-300 text-xs">
                   <FileText class="w-8 h-8 opacity-30 mb-2" />
                   <span>当前页面暂无业务逻辑标注说明</span>
+                  <button type="button" class="mt-3 text-emerald-400 hover:text-emerald-300" @click="openAnnotationCreate(previewPage?.id)">添加第一条说明</button>
                 </div>
                 <div
                   v-for="item in simAnnList"
@@ -1515,6 +1548,8 @@
                     editingSimAnnId === item.id ? '!border-emerald-500/90 !bg-slate-800' : ''
                   ]"
                   :draggable="editingSimAnnId !== item.id"
+                  @dblclick.stop="openAnnotationEditById(item.id)"
+                  title="双击修改或删除说明"
                   @dragstart="onSimDragStart($event, item.id)"
                   @dragover.prevent="onSimDragOver($event, item.id)"
                   @dragleave="onSimDragLeave($event, item.id)"
@@ -1576,15 +1611,6 @@
                           <GripVertical class="w-3.5 h-3.5" />
                         </span>
                         <span class="font-semibold text-xs text-white truncate" :title="item.title">{{ item.title }}</span>
-                        <!-- Edit Button on Hover -->
-                        <button
-                          class="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-emerald-400 rounded transition-opacity cursor-pointer shrink-0"
-                          title="编辑标题与说明"
-                          @click.stop="startSimEdit(item)"
-                          @mousedown.stop
-                        >
-                          <Pencil class="w-3 h-3" />
-                        </button>
                       </div>
                       <!-- Interaction Capsule -->
                       <span
@@ -1610,7 +1636,7 @@
                     </div>
 
                     <!-- Description Text -->
-                    <div class="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap word-break" @dblclick.stop="startSimEdit(item)" title="双击快速编辑说明">
+                    <div class="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap word-break">
                       {{ item.text || '暂无业务描述' }}
                     </div>
 
@@ -1756,6 +1782,15 @@
         </div>
       </template>
     </el-dialog>
+
+    <AutowireReviewDialog v-model="showAutowireReview" :plan="autowirePlan" :result="autowireResult"
+      :busy="isAutowiringAi || isApplyingAutowire" :error="autowireError"
+      @apply="applyAutowireReview" @recompute="triggerAutowireAi" @retry="retryAutowirePreview" @refresh="refreshAutowireStatus" />
+
+    <AnnotationCreateDialog v-model="showAnnotationCreate" :project-id="id" :page="annotationCreatePage"
+      :initial-element-id="annotationInitialElementId" :annotation="editingAnnotation"
+      :deleting="deletingAnnotationIds.has(editingAnnotation?.id ?? 0)"
+      @created="onAnnotationCreated" @updated="onAnnotationUpdated" @delete="deleteAnnotation" />
 
     <Teleport to="body">
       <div
@@ -2003,8 +2038,11 @@ import {
   ListTree,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
+import AutowireReviewDialog from '../components/AutowireReviewDialog.vue'
+import AnnotationCreateDialog from '../components/AnnotationCreateDialog.vue'
+import type { AutowirePlan, AutowireDecisions, AutowireApplyRequest, AutowireApplyResult } from '../types/autowire'
 import { getFileUrl } from '../api/http'
-import type { Element, Page, Prototype, CommentThread, CommentReply } from '../types'
+import type { Annotation, Element, Page, Prototype, CommentThread, CommentReply } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
@@ -3351,22 +3389,75 @@ async function loadData() {
 }
 
 const isAutowiringAi = ref(false)
+const isApplyingAutowire = ref(false)
+const showAutowireReview = ref(false)
+const autowirePlan = ref<AutowirePlan | null>(null)
+const autowireResult = ref<AutowireApplyResult | null>(null)
+const autowireError = ref('')
+let pendingAutowireRequest: AutowireApplyRequest | null = null
+function onAutowireUnmapped(pageId: number) {
+  if (!showAutowireReview.value || !autowireResult.value) return
+  const name = pages.value.find(p => p.id === pageId)?.name || '部分画板'
+  autowireError.value = `关系已保存，但「${name}」有元素无法准确绑定到原型，请检查对应元素。系统未猜测替换页面内容。`
+}
 
 async function triggerAutowireAi() {
-  if (isAutowiringAi.value) return
+  if (isAutowiringAi.value || isApplyingAutowire.value) return
+  if (hasUnsavedChanges.value) { showToast('请先完成当前编辑的保存，再检查项目关系'); return }
   isAutowiringAi.value = true
+  autowireError.value = ''
   try {
-    showToast('正在执行阶段二：AI 增量拓扑语义连线...')
-    const res = await projectApi.autowireInteractionsWithAi(id)
-    const local = res?.local_wired ?? 0
-    const ai = res?.ai_wired ?? 0
-    showToast(`拓扑智能连线完成！规则连线: ${local} 条，AI 语义推导: ${ai} 条`)
-    await loadData()
+    showToast('正在检查已有关系与业务依据，完成后可审核连线')
+    autowirePlan.value = await projectApi.previewAutowire(id)
+    autowireResult.value = null
+    pendingAutowireRequest = null
+    showAutowireReview.value = true
+    showToast('预检完成，尚未修改项目关系')
   } catch (err: any) {
-    showToast('拓扑智能连线失败: ' + (err.message || '未知错误'))
+    autowireError.value = err.message || '预检失败，请重试'
+    showToast(autowireError.value)
   } finally {
     isAutowiringAi.value = false
   }
+}
+
+async function applyAutowireReview(decisions: AutowireDecisions) {
+  if (!autowirePlan.value || isApplyingAutowire.value) return
+  if (hasUnsavedChanges.value) { autowireError.value = '当前编辑尚未保存，请完成保存后重新预检'; return }
+  const base = { previewId: autowirePlan.value.previewId, ...decisions }
+  const previous = pendingAutowireRequest && { previewId: pendingAutowireRequest.previewId, selectedIds: pendingAutowireRequest.selectedIds, exclusions: pendingAutowireRequest.exclusions, restoreExclusionIds: pendingAutowireRequest.restoreExclusionIds }
+  // Retrying the same review reuses its key even if the response was lost after commit.
+  if (!previous || JSON.stringify(previous) !== JSON.stringify(base)) pendingAutowireRequest = { ...base, idempotencyKey: crypto.randomUUID() }
+  isApplyingAutowire.value = true
+  autowireError.value = ''
+  try {
+    autowireResult.value = await projectApi.applyAutowire(id, pendingAutowireRequest!)
+    await loadData()
+    showToast('已保存审核结果')
+  } catch (err: any) {
+    autowireError.value = err.message || '应用失败，可重试相同审核结果'
+  } finally { isApplyingAutowire.value = false }
+}
+
+async function refreshAutowireStatus() {
+  if (!autowireResult.value || isApplyingAutowire.value) return
+  isApplyingAutowire.value = true
+  try {
+    autowireResult.value = await projectApi.autowireStatus(id, autowireResult.value.applicationId)
+    if (autowireResult.value.renderStatus === 'done') await loadData()
+  } catch (err: any) { autowireError.value = err.message || '状态查询失败' }
+  finally { isApplyingAutowire.value = false }
+}
+
+async function retryAutowirePreview() {
+  if (!autowireResult.value || isApplyingAutowire.value) return
+  isApplyingAutowire.value = true
+  autowireError.value = ''
+  try {
+    autowireResult.value = await projectApi.retryAutowireRender(id, autowireResult.value.applicationId)
+    await loadData()
+  } catch (err: any) { autowireError.value = err.message || '预览更新失败，关系已经保存' }
+  finally { isApplyingAutowire.value = false }
 }
 
 async function onReanalyzePage(pageId: number) {
@@ -3419,7 +3510,7 @@ function onPreviewHotspotClick(pos?: { x: number; y: number; uids?: string[] }) 
   if (name) onProtoNavigate(name)
 }
 
-function clearStampedNav(params?: string | null, pageId?: number, toPageName?: string, toPageId?: number | null) {
+function clearStampedNav(params?: string | null, pageId?: number, toPageName?: string, toPageId?: number | null, elementId?: number) {
   if (!pageId) return
   if (!toPageName && toPageId) {
     const targetPage = pages.value.find((p) => p.id === toPageId)
@@ -3432,29 +3523,23 @@ function clearStampedNav(params?: string | null, pageId?: number, toPageName?: s
   } catch {}
 
   // 1. 通知画板实时从 iframe 内部移除该导航属性并恢复默认光标
-  pageRefs.value[pageId]?.removeElementNav?.(domUid, toPageName, toPageId)
+  pageRefs.value[pageId]?.removeElementNav?.(domUid, toPageName, toPageId, elementId)
 
-  // 2. 清理内存和数据库中该页面 HTML 的残留 data-nav 属性
+  // 2. 即时清理内存；持久化交互绑定由关系接口在提交后更新，避免旧 HTML 覆盖服务端更新。
   const sourcePage = pages.value.find((p) => p.id === pageId)
   if (sourcePage && sourcePage.html_content) {
     let updated = sourcePage.html_content
     if (domUid) {
-      const uidRegex = new RegExp(`(<[^>]+data-wf-uid=["']${domUid}["'][^>]*?)(\\s+data-nav=["'][^"']*["'])([^>]*>)`, 'gi')
+      const escapedUid = domUid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const uidRegex = new RegExp(`(<[^>]+data-wf-uid=["']${escapedUid}["'][^>]*?)(\\s+data-nav=["'][^"']*["'])([^>]*>)`, 'gi')
       updated = updated.replace(uidRegex, '$1$3')
     }
-    if (toPageName || toPageId) {
-      const escapedName = (toPageName || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const patterns: string[] = []
-      if (escapedName) patterns.push(escapedName)
-      if (toPageId) patterns.push(String(toPageId))
-      if (patterns.length > 0) {
-        const targetRegex = new RegExp(`\\s+data-nav=["'](?:${patterns.join('|')})["']`, 'gi')
-        updated = updated.replace(targetRegex, '')
-      }
+    if (elementId) {
+      const elementRegex = new RegExp(`(<[^>]+data-wf-element-id=["']${elementId}["'][^>]*?)(\\s+data-(?:nav|modal|action)=["'][^"']*["'])([^>]*>)`, 'gi')
+      updated = updated.replace(elementRegex, '$1$3')
     }
     if (updated !== sourcePage.html_content) {
       sourcePage.html_content = updated
-      projectApi.saveHtml(id, pageId, updated).catch((e: any) => showToast(`交互更改保存失败: ${e?.response?.data?.message || e?.message || '请重新保存'}`))
     }
   }
 }
@@ -4365,7 +4450,7 @@ async function undoInteraction(): Promise<boolean> {
         selectConnIds([`conn-${item.elementId}-${item.prevTargetPageId}`])
         ElMessage.success(`已撤销连线：已恢复为「${item.label} ➔ ${item.prevToPageName || '原目标画板'}」`)
       } else {
-        clearStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId)
+        clearStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId, item.elementId)
         await projectApi.saveInteraction(id, {
           elementId: item.elementId,
           pageId: item.pageId,
@@ -4390,7 +4475,7 @@ async function redoInteraction(): Promise<boolean> {
 
   try {
     if (item.type === 'delete') {
-      clearStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId)
+      clearStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId, item.elementId)
       await projectApi.saveInteraction(id, {
         elementId: item.elementId,
         pageId: item.pageId,
@@ -4402,7 +4487,7 @@ async function redoInteraction(): Promise<boolean> {
       return true
     } else if (item.type === 'delete-many' && item.items?.length) {
       for (const one of item.items) {
-        clearStampedNav(one.params, one.pageId, one.toPageName, one.targetPageId)
+        clearStampedNav(one.params, one.pageId, one.toPageName, one.targetPageId, one.elementId)
         await projectApi.saveInteraction(id, {
           elementId: one.elementId,
           pageId: one.pageId,
@@ -4763,7 +4848,7 @@ async function confirmCreateInteraction() {
 
 async function removeConnection(conn: any) {
   try {
-    clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId)
+    clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId, conn.elementId)
     // 记录历史供 Ctrl+Z 撤销恢复
     interactionUndoStack.value.push({
       type: 'delete',
@@ -4791,7 +4876,7 @@ async function removeConnection(conn: any) {
     const sourcePage = pages.value.find((p) => p.id === conn.fromId || p.id === conn.fromPageId)
     if (sourcePage) {
       for (const el of sourcePage.elements) {
-        if (el.id === conn.elementId || el.interaction?.target_page_id === conn.toId) {
+        if (el.id === conn.elementId) {
           if (el.interaction?.id && el.interaction.id !== conn.interactionId) {
             await projectApi.deleteInteraction(id, el.interaction.id).catch(() => {})
           }
@@ -4833,7 +4918,7 @@ async function removeConnections(conns: ConnectionItem[]) {
   interactionRedoStack.value = []
   try {
     for (const conn of conns) {
-      clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId)
+      clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId, conn.elementId)
       if (conn.interactionId) {
         await projectApi.deleteInteraction(id, conn.interactionId)
       } else if (conn.elementId) {
@@ -4846,7 +4931,7 @@ async function removeConnections(conns: ConnectionItem[]) {
       const sourcePage = pages.value.find((p) => p.id === conn.fromId)
       if (sourcePage) {
         for (const el of sourcePage.elements) {
-          if (el.id === conn.elementId || el.interaction?.target_page_id === conn.toId) {
+          if (el.id === conn.elementId) {
             if (el.interaction?.id && el.interaction.id !== conn.interactionId) {
               await projectApi.deleteInteraction(id, el.interaction.id).catch(() => {})
             }
@@ -5556,32 +5641,80 @@ function saveCustomTitles() {
 
 loadCustomTitles()
 
-function handleAnnSave(annId: number, text: string, title?: string) {
+const showAnnotationCreate = ref(false)
+const annotationPageId = ref<number | null>(null)
+const annotationInitialElementId = ref<number | null>(null)
+const editingAnnotation = ref<Annotation | null>(null)
+const deletingAnnotationIds = ref(new Set<number>())
+const annotationCreatePage = computed(() => pages.value.find(p => p.id === annotationPageId.value) || null)
+function annotationTitle(page: Page, ann: Annotation) {
+  return ann.title || customTitles.value[ann.id] || page.elements.find(e => e.id === ann.element_id)?.label || '页面说明'
+}
+function openAnnotationCreate(pageId?: number) {
+  const page = pages.value.find(p => p.id === pageId)
+  if (!page) return
+  annotationPageId.value = page.id
+  annotationInitialElementId.value = page.elements.some(e => e.id === selectedElementId.value) ? selectedElementId.value : null
+  editingAnnotation.value = null
+  showAnnotationCreate.value = true
+}
+function openAnnotationEdit(pageId: number, ann: Annotation) {
+  annotationPageId.value = pageId
+  editingAnnotation.value = { ...ann, title: annotationTitle(pages.value.find(p => p.id === pageId)!, ann) }
+  showAnnotationCreate.value = true
+}
+function openAnnotationEditById(annId: number) {
+  const page = pages.value.find(p => p.annotations.some(a => a.id === annId))
+  const ann = page?.annotations.find(a => a.id === annId)
+  if (page && ann) openAnnotationEdit(page.id, ann)
+}
+function onAnnotationCreated(pageId: number, annotation: Annotation) {
+  const page = pages.value.find(p => p.id === pageId)
+  if (!page) return
+  page.annotations.push(annotation)
+  pageAnnOrders.value[pageId] = page.annotations.map(a => a.id)
+  saveAnnOrders()
+  if (mode.value === 'edit') showAnnotations.value = true
+  showToast('说明已添加')
+}
+function onAnnotationUpdated(annotation: Annotation) {
+  const ann = pages.value.flatMap(p => p.annotations).find(a => a.id === annotation.id)
+  if (ann) Object.assign(ann, annotation)
+  showToast('说明已保存')
+}
+async function deleteAnnotation(annId: number) {
+  if (deletingAnnotationIds.value.has(annId)) return
+  const page = pages.value.find(p => p.annotations.some(a => a.id === annId))
+  if (!page) return
+  deletingAnnotationIds.value.add(annId)
+  const ann = page.annotations.find(a => a.id === annId)!
+  try {
+    try { await ElMessageBox.confirm(`删除「${annotationTitle(page, ann)}」这条说明？关联元素和交互关系会保留。`, '删除说明标注', { confirmButtonText: '删除说明', cancelButtonText: '取消', type: 'warning' }) }
+    catch { return }
+    await projectApi.deleteAnnotation(id, annId)
+    page.annotations = page.annotations.filter(a => a.id !== annId)
+    pageAnnOrders.value[page.id] = page.annotations.map(a => a.id)
+    delete customTitles.value[annId]
+    saveAnnOrders(); saveCustomTitles()
+    if (editingAnnotation.value?.id === annId) { showAnnotationCreate.value = false; editingAnnotation.value = null }
+    if (hoveredAnnId.value === annId) hoveredAnnId.value = null
+    if (selectedSimAnnId.value === annId) clearSpotlightInIframe()
+    showToast('说明已删除')
+  } catch (e: any) { ElMessage.error(e?.message || '删除说明失败') }
+  finally { deletingAnnotationIds.value.delete(annId) }
+}
+
+async function handleAnnSave(annId: number, text: string, title?: string) {
   if (!proto.value) return
   const ann = proto.value.pages.flatMap((p) => p.annotations).find((a) => a.id === annId)
-  let el: Element | undefined
-  if (ann) {
-    const page = proto.value.pages.find((p) => p.annotations.some((x) => x.id === annId))
-    if (page) {
-      el = page.elements.find((e) => e.id === ann.element_id)
-    }
-  }
-
-  if (title) {
-    customTitles.value[annId] = title
-    saveCustomTitles()
-    if (el) el.label = title
-  }
-
-  projectApi
-    .updateAnnotation(id, annId, { text, title })
-    .then(() => {
-      if (ann) ann.text = text
+  try {
+      await projectApi.updateAnnotation(id, annId, { text, title })
+      if (ann) { ann.text = text.trim(); ann.title = title; ann.source = 'user' }
+      if (title) { customTitles.value[annId] = title; saveCustomTitles() }
       showToast('说明已保存')
-    })
-    .catch((e: any) => {
+  } catch (e: any) {
       ElMessage.error(`保存失败: ${e.message || '网络错误'}`)
-    })
+  }
 }
 
 const previewPage = computed<Page | null>(() => {
@@ -5622,6 +5755,8 @@ function handlePreviewCommand(cmd: string) {
     openPurePreview()
   } else if (cmd === 'preview' || cmd === 'inpage') {
     showFloatingPreview.value = true
+  } else if (cmd === 'specs') {
+    openPreview()
   }
 }
 
@@ -6468,7 +6603,7 @@ const simAnnList = computed<SimAnnItem[]>(() => {
     }
 
     const customTitle = customTitles.value[ann.id]
-    const effectiveTitle = customTitle || el?.label || `说明 ${idx + 1}`
+    const effectiveTitle = ann.title || customTitle || el?.label || `说明 ${idx + 1}`
 
     return {
       id: ann.id,

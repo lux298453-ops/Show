@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 /**
  * 数据库动态表结构自动迁移组件
@@ -26,6 +28,7 @@ public class DatabaseMigrationConfig {
     public void migrate() {
         log.info("Checking and applying database schema auto-migrations...");
         try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
+            ScriptUtils.executeSqlScript(conn, new ClassPathResource("autowire-schema.sql"));
             // 页面表扩展字段
             addColumnIfNotExists(stmt, "page", "canvas_x", "DOUBLE COMMENT '画布位置X'");
             addColumnIfNotExists(stmt, "page", "canvas_y", "DOUBLE COMMENT '画布位置Y'");
@@ -52,6 +55,8 @@ public class DatabaseMigrationConfig {
             addColumnIfNotExists(stmt, "annotation", "anchor_y", "DOUBLE COMMENT '引线元素端锚点Y'");
             addColumnIfNotExists(stmt, "annotation", "elbow_x", "DOUBLE COMMENT '引线折线X'");
             addColumnIfNotExists(stmt, "annotation", "sort_order", "INT DEFAULT 0 COMMENT '排序权重'");
+            addColumnIfNotExists(stmt, "annotation", "title", "VARCHAR(200) COMMENT '说明标题'");
+            addColumnIfNotExists(stmt, "annotation", "source", "VARCHAR(30) COMMENT '说明来源，user=人工'");
 
             log.info("Database schema auto-migrations completed successfully.");
         } catch (Exception e) {

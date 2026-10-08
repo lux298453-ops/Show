@@ -3027,6 +3027,7 @@ public class TemplateHtmlRenderer {
     private String elementAttrs(Element e, Map<Long, List<Interaction>> intersByEl, Map<Long, String> pageNameById) {
         StringBuilder sb = new StringBuilder();
         String key = e.getGroupKey() == null ? "" : e.getGroupKey().trim();
+        sb.append(" data-wf-element-id=\"").append(e.getId()).append("\"");
         if (!key.isEmpty()) {
             sb.append(" data-group-key=\"").append(esc(key)).append("\"");
             String role = e.getGroupRole() == null ? "" : e.getGroupRole().trim();

@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,6 +55,7 @@ public class ProjectService {
     private final AnalyzeService analyzeService;
     private final AppMapService appMapService;
     private final InteractionAutowireService interactionAutowireService;
+    private final AutowireRenderService autowireRenderService;
     private final ElementGroupService elementGroupService;
     private final com.wireforge.ai.HtmlRenderer htmlRenderer;
 
@@ -148,6 +150,8 @@ public class ProjectService {
     @Transactional
     public void deleteProject(Long id) {
         getProject(id);
+        projectMapper.selectOne(Wrappers.<Project>lambdaQuery().eq(Project::getId, id).last("FOR UPDATE"));
+        interactionAutowireService.deleteProjectRecords(id);
 
         List<Long> pageIds = pageMapper.selectList(
                         Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, id).select(Page::getId))
@@ -759,6 +763,8 @@ public class ProjectService {
             Map<String, Object> av = new LinkedHashMap<>();
             av.put("id", a.getId());
             av.put("element_id", a.getElementId());
+            av.put("title", a.getTitle());
+            av.put("source", a.getSource());
             av.put("text", a.getText());
             av.put("x", a.getPositionX());
             av.put("y", a.getPositionY());
@@ -804,9 +810,67 @@ public class ProjectService {
         }
     }
 
-    /**
-     * 更新标注（文字 / 位置），仅允许 text、positionX、positionY 字段。
-     */
+    private Page annotationPage(Long projectId, Long pageId) {
+        getProject(projectId);
+        Page page = pageMapper.selectById(pageId);
+        if (page == null || !projectId.equals(page.getProjectId())) {
+            throw new IllegalStateException("页面不属于该项目");
+        }
+        return page;
+    }
+
+    private static String annotationText(Object value, String label, int maxLength, boolean required) {
+        if (value != null && !(value instanceof String)) throw new IllegalStateException(label + "必须是文字");
+        String text = value == null ? "" : value.toString().trim();
+        if (required && text.isEmpty()) throw new IllegalStateException("请填写" + label);
+        if (text.length() > maxLength) throw new IllegalStateException(label + "不能超过" + maxLength + "字");
+        return text;
+    }
+
+    @Transactional
+    public Map<String, Object> createAnnotation(Long projectId, Long pageId, Map<String, Object> body) {
+        Page page = annotationPage(projectId, pageId);
+        Page lockedPage = pageMapper.selectOne(Wrappers.<Page>lambdaQuery().eq(Page::getId, pageId).last("FOR UPDATE"));
+        if (lockedPage == null || !projectId.equals(lockedPage.getProjectId())) throw new IllegalStateException("页面不存在或已被删除");
+        String text = annotationText(body.get("text"), "说明内容", 5000, true);
+        String title = annotationText(body.get("title"), "说明标题", 200, false);
+        Element el = null;
+        if (body.get("elementId") != null) {
+            Long elementId;
+            try { elementId = Long.valueOf(body.get("elementId").toString()); }
+            catch (NumberFormatException e) { throw new IllegalStateException("关联元素无效"); }
+            el = elementMapper.selectById(elementId);
+            if (el == null || !pageId.equals(el.getPageId())) throw new IllegalStateException("关联元素不属于该页面");
+        }
+        // Serialize additions with page analysis and append after the last existing card.
+        List<Annotation> existing = annotationMapper.selectList(Wrappers.<Annotation>lambdaQuery().eq(Annotation::getPageId, pageId));
+        Annotation ann = new Annotation();
+        ann.setPageId(pageId);
+        ann.setElementId(el == null ? null : el.getId());
+        ann.setTitle(title.isEmpty() ? (el == null ? "页面说明" : el.getLabel()) : title);
+        ann.setText(text);
+        ann.setSource("user");
+        ann.setSortOrder(existing.stream().map(Annotation::getSortOrder).filter(Objects::nonNull).max(Integer::compareTo).orElse(-1) + 1);
+        ann.setPositionX(el == null ? (page.getCanvasWidth() == null ? 375 : page.getCanvasWidth()) / 2.0 : (el.getPositionX() == null ? 0 : el.getPositionX()) + (el.getWidth() == null ? 0 : el.getWidth()) / 2.0);
+        ann.setPositionY(el == null ? 40.0 : (el.getPositionY() == null ? 0 : el.getPositionY()) + Math.min(16.0, (el.getHeight() == null ? 0 : el.getHeight()) / 2.0));
+        annotationMapper.insert(ann);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", ann.getId()); result.put("element_id", ann.getElementId());
+        result.put("title", ann.getTitle()); result.put("text", ann.getText()); result.put("source", ann.getSource());
+        result.put("x", ann.getPositionX()); result.put("y", ann.getPositionY()); result.put("sort_order", ann.getSortOrder());
+        return result;
+    }
+
+    @Transactional
+    public void deleteAnnotation(Long projectId, Long annId) {
+        Annotation ann = annotationMapper.selectById(annId);
+        if (ann == null) throw new IllegalStateException("标注不存在");
+        annotationPage(projectId, ann.getPageId());
+        annotationMapper.deleteById(annId);
+    }
+
+    /** 更新说明自身的文字、标题和位置。 */
+    @Transactional
     public Map<String, Object> updateAnnotation(Long projectId, Long annId, Map<String, Object> body) {
         getProject(projectId);
         Annotation ann = annotationMapper.selectById(annId);
@@ -819,16 +883,12 @@ public class ProjectService {
         }
 
         if (body.containsKey("text") && body.get("text") != null) {
-            ann.setText(body.get("text").toString());
+            ann.setText(annotationText(body.get("text"), "说明内容", 5000, true));
+            ann.setSource("user");
         }
-        String updatedTitle = null;
-        if (body.containsKey("title") && body.get("title") != null && ann.getElementId() != null) {
-            Element el = elementMapper.selectById(ann.getElementId());
-            if (el != null) {
-                el.setLabel(body.get("title").toString());
-                elementMapper.updateById(el);
-                updatedTitle = el.getLabel();
-            }
+        if (body.containsKey("title") && body.get("title") != null) {
+            ann.setTitle(annotationText(body.get("title"), "说明标题", 200, false));
+            ann.setSource("user");
         }
         if (body.containsKey("positionX")) {
             ann.setPositionX(toDouble(body.get("positionX")));
@@ -856,9 +916,8 @@ public class ProjectService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", ann.getId());
         result.put("text", ann.getText());
-        if (updatedTitle != null) {
-            result.put("title", updatedTitle);
-        }
+        result.put("title", ann.getTitle());
+        result.put("source", ann.getSource());
         result.put("positionX", ann.getPositionX());
         result.put("positionY", ann.getPositionY());
         result.put("boxX", ann.getBoxX());
@@ -1108,6 +1167,7 @@ public class ProjectService {
     @Transactional
     public Interaction saveInteraction(Long projectId, Map<String, Object> body) {
         getProject(projectId);
+        projectMapper.selectOne(Wrappers.<Project>lambdaQuery().eq(Project::getId, projectId).last("FOR UPDATE"));
 
         Long elementId = toLong(body.get("elementId") != null ? body.get("elementId") : body.get("element_id"));
         if (elementId == null || elementId <= 0) {
@@ -1223,6 +1283,8 @@ public class ProjectService {
             interaction.setSource("user");
             interactionMapper.insert(interaction);
         }
+        interactionAutowireService.clearManualExclusions(projectId, element, interaction);
+        autowireRenderService.enqueueManual(projectId, element, existingList);
         return interaction;
     }
 
@@ -1232,6 +1294,7 @@ public class ProjectService {
     @Transactional
     public void deleteInteraction(Long projectId, Long interactionId) {
         getProject(projectId);
+        projectMapper.selectOne(Wrappers.<Project>lambdaQuery().eq(Project::getId, projectId).last("FOR UPDATE"));
         Interaction interaction = interactionMapper.selectById(interactionId);
         if (interaction == null) {
             return;
@@ -1243,40 +1306,20 @@ public class ProjectService {
                 throw new IllegalStateException("交互连线不属于该项目");
             }
         }
+        if (el != null && AutowirePlanner.automatic(interaction)) {
+            interactionAutowireService.remember(projectId, el, "relation",
+                    AutowirePlanner.relationKey(interaction.getTriggerType(), interaction.getActionType(), interaction.getTargetPageId()),
+                    "用户在画布删除自动关系", "canvas_delete");
+        }
         interactionMapper.deleteById(interactionId);
+        if (el != null) autowireRenderService.enqueueManual(projectId, el, List.of(interaction));
     }
 
     /**
      * 手动/按需触发：全项目交互自动布线（本地规则 + 阶段二纯文本增量语义推导）
      */
     public Map<String, Object> autowireProjectInteractionsWithAi(Long projectId) {
-        getProject(projectId);
-        int localCount = interactionAutowireService.autowireProjectInteractions(projectId);
-        int aiCount = interactionAutowireService.autowireUnresolvedWithAi(projectId);
-
-        // 重建 AppMap 并重新渲染整页 HTML
-        appMapService.buildAppMap(projectId);
-        List<Page> allPages = pageMapper.selectList(
-                Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
-        for (Page p : allPages) {
-            if (p.getAnalyzed() == null || p.getAnalyzed() != 1) continue;
-            try {
-                String html = analyzeService.renderTemplateHtml(p);
-                pageMapper.update(null,
-                        Wrappers.<Page>lambdaUpdate()
-                                .eq(Page::getId, p.getId())
-                                .set(Page::getHtmlContent, html));
-            } catch (Exception e) {
-                log.warn("页面 [{}] 拓扑智能连线后重渲染失败: {}", p.getName(), e.getMessage());
-            }
-        }
-
-        Map<String, Object> res = new LinkedHashMap<>();
-        res.put("project_id", projectId);
-        res.put("local_wired", localCount);
-        res.put("ai_wired", aiCount);
-        res.put("total_wired", localCount + aiCount);
-        return res;
+        return Map.of("preview_only", true, "preview", interactionAutowireService.preview(projectId));
     }
 
     /**

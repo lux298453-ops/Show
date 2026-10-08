@@ -83,10 +83,15 @@ public class ElementGroupService {
 
         List<Interaction> users = new ArrayList<>();
         List<Interaction> autos = new ArrayList<>();
+        boolean unknown = false;
         for (Interaction it : all) {
             if ("user".equals(it.getSource())) users.add(it);
-            else autos.add(it);
+            else if (AutowirePlanner.automatic(it)) autos.add(it);
+            else unknown = true;
         }
+
+        // Legacy relations without provenance require review; grouping must not erase them.
+        if (unknown) return;
 
         if (!users.isEmpty()) {
             for (Interaction userLine : users) moveToAnchor(userLine, group.anchor.getId());

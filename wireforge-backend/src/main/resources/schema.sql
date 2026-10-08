@@ -1,4 +1,5 @@
 -- WireForge 建表脚本（MySQL 8）
+-- Autowire review/exclusion/outbox tables are added by DatabaseMigrationConfig from autowire-schema.sql.
 CREATE TABLE IF NOT EXISTS `project` (
   `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
   `name`        VARCHAR(255) NOT NULL,
@@ -78,6 +79,8 @@ CREATE TABLE IF NOT EXISTS `annotation` (
   `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
   `page_id`     BIGINT NOT NULL,
   `element_id`  BIGINT,
+  `title`       VARCHAR(200) COMMENT '说明标题',
+  `source`      VARCHAR(30) COMMENT '说明来源，user=人工',
   `text`        TEXT,
   `position_x`  DOUBLE,
   `position_y`  DOUBLE,

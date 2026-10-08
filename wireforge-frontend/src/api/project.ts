@@ -1,5 +1,6 @@
 import http from './http'
-import type { Project, Prototype, Page, CommentThread, CommentReply } from '../types'
+import type { Project, Prototype, Page, Annotation, CommentThread, CommentReply } from '../types'
+import type { AutowirePlan, AutowireApplyRequest, AutowireApplyResult } from '../types/autowire'
 
 export interface AnalysisStatus {
   projectId: number
@@ -40,6 +41,9 @@ export const projectApi = {
   /** 保存用户微调后的完整整页 HTML */
   saveHtml: (id: number, pageId: number, html: string, clientId?: string) =>
     http.put<any, void>(`/projects/${id}/pages/${pageId}/html`, { html, clientId }),
+  createAnnotation: (id: number, pageId: number, body: { elementId: number | null; title: string; text: string }) =>
+    http.post<any, Annotation>(`/projects/${id}/pages/${pageId}/annotations`, body),
+  deleteAnnotation: (id: number, annId: number) => http.delete<any, void>(`/projects/${id}/annotations/${annId}`),
   updateAnnotation: (
     id: number,
     annId: number,
@@ -86,9 +90,16 @@ export const projectApi = {
       params?: string | null
     },
   ) => http.post<any, any>(`/projects/${id}/interactions`, body),
-  /** 阶段二：增量语义智能连线（AI 拓扑推导） */
+  /** Compatibility entry: now read-only, never silently applies inferred relations. */
   autowireInteractionsWithAi: (id: number) =>
-    http.post<any, { project_id: number; local_wired: number; ai_wired: number; total_wired: number }>(`/projects/${id}/autowire-ai`),
+    http.post<any, AutowirePlan>(`/projects/${id}/autowire-ai`),
+  previewAutowire: (id: number) => http.post<any, AutowirePlan>(`/projects/${id}/autowire/preview`),
+  applyAutowire: (id: number, body: AutowireApplyRequest) =>
+    http.post<any, AutowireApplyResult>(`/projects/${id}/autowire/apply`, body),
+  autowireStatus: (id: number, applicationId: string) =>
+    http.get<any, AutowireApplyResult>(`/projects/${id}/autowire/applications/${applicationId}`),
+  retryAutowireRender: (id: number, applicationId: string) =>
+    http.post<any, AutowireApplyResult>(`/projects/${id}/autowire/applications/${applicationId}/retry-render`),
   /** 删除交互连线 */
   deleteInteraction: (id: number, interactionId: number) =>
     http.delete<any, void>(`/projects/${id}/interactions/${interactionId}`),
