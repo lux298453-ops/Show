@@ -30,6 +30,10 @@
         </div>
       </div>
 
+      <p v-if="(selectionCount || 0) > 1" class="px-3 pb-2 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+        属性修改将应用于全部选中元素
+      </p>
+
       <!-- 6 大 Figma 一键对齐工具栏 -->
       <div v-if="hasSelection" class="px-2.5 py-1.5 border-t border-slate-200/60 dark:border-[#383838] bg-white dark:bg-[#252525] flex items-center justify-between gap-1">
         <button
@@ -832,6 +836,7 @@ import { t } from '../utils/i18n'
 const props = defineProps<{
   currentPage: Page | null
   selectedElement: Element | null
+  selectionCount?: number
   /** 没选中元素时，填充色作用在画框背景上 */
   frameFill?: string | null
   elementInfo?: {
@@ -889,6 +894,7 @@ const emit = defineEmits<{
 
 const hasSelection = computed(() => !!props.selectedElement || !!props.elementInfo)
 const selectedObjectName = computed(() => {
+  if ((props.selectionCount || 0) > 1) return `已选择 ${props.selectionCount} 个元素`
   const content = props.elementInfo?.textContent?.replace(/\s+/g, ' ').trim()
   if (content) return content.slice(0, 80)
   const label = props.selectedElement?.label?.trim()

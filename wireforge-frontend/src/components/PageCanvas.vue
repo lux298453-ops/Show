@@ -958,8 +958,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       border-radius: 0;
     }
     .wf-handle {
-      width: 4px;
-      height: 4px;
+      width: 6px;
+      height: 6px;
       background: #ffffff;
       border: 1px solid #0D99FF;
       border-radius: 0;
@@ -2150,14 +2150,14 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           se: 'nwse-resize', s: 'ns-resize', sw: 'nesw-resize', w: 'ew-resize'
         };
         var positions = {
-          nw: 'left:-2px;top:-2px;',
-          n:  'left:calc(50% - 2px);top:-2px;',
-          ne: 'right:-2px;top:-2px;',
-          e:  'right:-2px;top:calc(50% - 2px);',
-          se: 'right:-2px;bottom:-2px;',
-          s:  'left:calc(50% - 2px);bottom:-2px;',
-          sw: 'left:-2px;bottom:-2px;',
-          w:  'left:-2px;top:calc(50% - 2px);'
+          nw: 'left:-3px;top:-3px;',
+          n:  'left:calc(50% - 3px);top:-3px;',
+          ne: 'right:-3px;top:-3px;',
+          e:  'right:-3px;top:calc(50% - 3px);',
+          se: 'right:-3px;bottom:-3px;',
+          s:  'left:calc(50% - 3px);bottom:-3px;',
+          sw: 'left:-3px;bottom:-3px;',
+          w:  'left:-3px;top:calc(50% - 3px);'
         };
 
         dirs.forEach(function(dir){
@@ -2411,13 +2411,20 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     function layoutHandles(box, w, h){
       var handles = box.querySelectorAll('.wf-handle');
-      var onlyFrame = w < 56 || h < 36;
+      var compact = w < 56 || h < 36;
       for(var i = 0; i < handles.length; i++){
         var dir = handles[i].getAttribute('data-dir') || '';
-        var hide = onlyFrame;
+        // Small objects still need corner handles; only omit crowded edge handles.
+        var hide = compact && dir.length === 1;
         if(!hide && w < 72 && (dir === 'n' || dir === 's')) hide = true;
         if(!hide && h < 48 && (dir === 'e' || dir === 'w')) hide = true;
         handles[i].style.display = hide ? 'none' : 'block';
+        if(dir.length === 2){
+          var gapX = w < 16 ? 8 : 3;
+          var gapY = h < 16 ? 8 : 3;
+          handles[i].style[dir.indexOf('w') >= 0 ? 'left' : 'right'] = '-' + gapX + 'px';
+          handles[i].style[dir.indexOf('n') >= 0 ? 'top' : 'bottom'] = '-' + gapY + 'px';
+        }
       }
     }
 
@@ -3103,16 +3110,31 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     function collectStyleTargets(d){
       var list = [];
-      if(d && Array.isArray(d.uids)){
+      var explicitSelection = d && Array.isArray(d.uids) && d.uids.length > 0;
+      if(explicitSelection){
         for(var i = 0; i < d.uids.length; i++){
           var el = layerDom(String(d.uids[i] || ''));
           if(el && list.indexOf(el) < 0) list.push(el);
         }
       }
-      if(!list.length){
+      if(!explicitSelection){
+        // A focused UID describes the last selected object, not the whole selection.
+        if(selectedEls && selectedEls.length > 1) list = selectedEls.slice();
+        else if(d && d.uid){
+          var focused = layerDom(String(d.uid));
+          if(focused) list.push(focused);
+        }
+      }
+      if(!list.length && !explicitSelection){
         list = (selectedEls && selectedEls.length) ? selectedEls.slice() : (selectedEl ? [selectedEl] : []);
       }
-      return list;
+      return list.filter(function(el){ return el && el.isConnected && !isChromeNode(el); });
+    }
+
+    function refreshSelectionProperties(){
+      if(selectedEls.length > 1) updateMultiTransformBox();
+      else if(selectedEl) updateTransformBox(selectedEl);
+      if(selectedEl) notifySelectedElementInfo(selectedEl);
     }
 
     function resolveEditTarget(d){
@@ -3646,7 +3668,8 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         // The relation API updates persisted bindings after commit; exporting this older DOM could overwrite it.
         return;
       }
-      if(d.uid && d.type !== 'wf-select-uid' && d.type !== 'wf-color' && d.type !== 'wf-font-size' && d.type !== 'wf-text-style') resolveEditTarget(d);
+      var selectionProperty = ['wf-layout', 'wf-radius', 'wf-opacity', 'wf-stroke', 'wf-effects', 'wf-shadow', 'wf-color', 'wf-font-size', 'wf-text-style', 'wf-update-text'].indexOf(d.type) >= 0;
+      if(d.uid && d.type !== 'wf-select-uid' && !selectionProperty) resolveEditTarget(d);
       if(d.type === 'wf-interactive'){
         if(d.on){
           deselect();
@@ -3783,147 +3806,164 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           showToast('已对齐元素位置并保存');
         }
       }else if(d.type === 'wf-layout'){
-        if(selectedEl){
+        var layoutTargets = collectStyleTargets(d);
+        if(layoutTargets.length){
           pushSnapshot();
-          var cs = window.getComputedStyle ? window.getComputedStyle(selectedEl) : null;
-          var pos = selectedEl.style.position || (cs ? cs.position : 'static');
-          var isAbsolute = pos === 'absolute';
+          for(var lti = 0; lti < layoutTargets.length; lti++){
+            var layoutEl = layoutTargets[lti];
+            var cs = window.getComputedStyle ? window.getComputedStyle(layoutEl) : null;
+            var pos = layoutEl.style.position || (cs ? cs.position : 'static');
+            var isAbsolute = pos === 'absolute';
 
-          if(d.key === 'x'){
-            if(isAbsolute){
-              selectedEl.style.left = d.val + 'px';
-            } else {
-              var curOffset = selectedEl.offsetLeft || 0;
-              var curStyleL = parseFloat(selectedEl.style.left) || 0;
-              var diff = d.val - curOffset;
-              selectedEl.style.position = 'relative';
-              selectedEl.style.left = Math.round(curStyleL + diff) + 'px';
-            }
-          } else if(d.key === 'y'){
-            if(isAbsolute){
-              selectedEl.style.top = d.val + 'px';
-            } else {
-              var curOffset = selectedEl.offsetTop || 0;
-              var curStyleT = parseFloat(selectedEl.style.top) || 0;
-              var diff = d.val - curOffset;
-              selectedEl.style.position = 'relative';
-              selectedEl.style.top = Math.round(curStyleT + diff) + 'px';
-            }
-          } else if(d.key === 'width'){
-            var targetW = Math.max(1, d.val);
-            selectedEl.style.width = targetW + 'px';
-            selectedEl.style.maxWidth = 'none';
-            selectedEl.style.flex = 'none';
-            selectedEl.style.boxSizing = 'border-box';
-            if(selectedEl.classList && (selectedEl.classList.contains('wf-avatar') || selectedEl.classList.contains('wf-shape-circle'))){
-              selectedEl.style.height = targetW + 'px';
-            }
-          } else if(d.key === 'height'){
-            var targetH = Math.max(1, d.val);
-            selectedEl.style.height = targetH + 'px';
-            selectedEl.style.maxHeight = 'none';
-            selectedEl.style.flex = 'none';
-            selectedEl.style.boxSizing = 'border-box';
-            if(selectedEl.classList && (selectedEl.classList.contains('wf-avatar') || selectedEl.classList.contains('wf-shape-circle'))){
-              selectedEl.style.width = targetH + 'px';
+            if(d.key === 'x'){
+              if(isAbsolute){
+                layoutEl.style.left = d.val + 'px';
+              } else {
+                var curOffset = layoutEl.offsetLeft || 0;
+                var curStyleL = parseFloat(layoutEl.style.left) || 0;
+                var diff = d.val - curOffset;
+                layoutEl.style.position = 'relative';
+                layoutEl.style.left = Math.round(curStyleL + diff) + 'px';
+              }
+            } else if(d.key === 'y'){
+              if(isAbsolute){
+                layoutEl.style.top = d.val + 'px';
+              } else {
+                var curOffset = layoutEl.offsetTop || 0;
+                var curStyleT = parseFloat(layoutEl.style.top) || 0;
+                var diff = d.val - curOffset;
+                layoutEl.style.position = 'relative';
+                layoutEl.style.top = Math.round(curStyleT + diff) + 'px';
+              }
+            } else if(d.key === 'width'){
+              var targetW = Math.max(1, d.val);
+              layoutEl.style.width = targetW + 'px';
+              layoutEl.style.maxWidth = 'none';
+              layoutEl.style.flex = 'none';
+              layoutEl.style.boxSizing = 'border-box';
+              if(layoutEl.classList && (layoutEl.classList.contains('wf-avatar') || layoutEl.classList.contains('wf-shape-circle'))){
+                layoutEl.style.height = targetW + 'px';
+              }
+            } else if(d.key === 'height'){
+              var targetH = Math.max(1, d.val);
+              layoutEl.style.height = targetH + 'px';
+              layoutEl.style.maxHeight = 'none';
+              layoutEl.style.flex = 'none';
+              layoutEl.style.boxSizing = 'border-box';
+              if(layoutEl.classList && (layoutEl.classList.contains('wf-avatar') || layoutEl.classList.contains('wf-shape-circle'))){
+                layoutEl.style.width = targetH + 'px';
+              }
             }
           }
-          updateTransformBox(selectedEl);
-          notifySelectedElementInfo(selectedEl);
+          refreshSelectionProperties();
           scheduleSave();
         }
       }else if(d.type === 'wf-radius'){
-        if(selectedEl){
+        var radiusTargets = collectStyleTargets(d);
+        if(radiusTargets.length){
           pushSnapshot();
-          selectedEl.style.borderRadius = (typeof d.radius === 'number' ? (d.radius >= 999 ? '9999px' : d.radius + 'px') : d.radius);
-          updateTransformBox(selectedEl);
+          for(var rti = 0; rti < radiusTargets.length; rti++){
+            radiusTargets[rti].style.borderRadius = (typeof d.radius === 'number' ? (d.radius >= 999 ? '9999px' : d.radius + 'px') : d.radius);
+          }
+          refreshSelectionProperties();
           scheduleSave();
         }
       }else if(d.type === 'wf-opacity'){
-        if(selectedEl){
+        var opacityTargets = collectStyleTargets(d);
+        if(opacityTargets.length){
           if(!d.live) pushSnapshot();
           var op = typeof d.opacity === 'number' ? Math.max(0, Math.min(100, d.opacity)) / 100 : parseFloat(d.opacity);
           if(isNaN(op)) op = 1;
-          selectedEl.style.opacity = op >= 1 ? '' : String(op);
+          for(var oti = 0; oti < opacityTargets.length; oti++){
+            opacityTargets[oti].style.opacity = op >= 1 ? '' : String(op);
+          }
           if(!d.live){
             scheduleSave();
-            notifySelectedElementInfo(selectedEl);
+            refreshSelectionProperties();
           }
         }
       }else if(d.type === 'wf-stroke'){
-        if(selectedEl){
+        var strokeTargets = collectStyleTargets(d);
+        if(strokeTargets.length){
           pushSnapshot();
-          var isVector = selectedEl.tagName.toLowerCase() === 'svg' ||
-            (selectedEl.classList && selectedEl.classList.contains('wf-vector-shape')) ||
-            (selectedEl.hasAttribute && selectedEl.hasAttribute('data-wf-vector'));
+          for(var bti = 0; bti < strokeTargets.length; bti++){
+            var strokeEl = strokeTargets[bti];
+            var isVector = strokeEl.tagName.toLowerCase() === 'svg' ||
+              (strokeEl.classList && strokeEl.classList.contains('wf-vector-shape')) ||
+              (strokeEl.hasAttribute && strokeEl.hasAttribute('data-wf-vector'));
 
-          if(isVector){
-            var paths = selectedEl.tagName.toLowerCase() === 'path' ? [selectedEl] : selectedEl.querySelectorAll('path');
-            var strokeCol = d.width === 0 ? 'none' : (d.color || '#cbd5e1');
-            var strokeW = d.width !== undefined ? d.width : 2;
-            for(var pi = 0; pi < paths.length; pi++){
-              if(d.width === 0){
-                paths[pi].setAttribute('stroke', 'none');
-                paths[pi].style.stroke = 'none';
-              } else {
-                paths[pi].setAttribute('stroke', strokeCol);
-                paths[pi].setAttribute('stroke-width', strokeW);
-                paths[pi].style.stroke = strokeCol;
-                paths[pi].style.strokeWidth = strokeW + 'px';
+            if(isVector){
+              var paths = strokeEl.tagName.toLowerCase() === 'path' ? [strokeEl] : strokeEl.querySelectorAll('path');
+              var strokeCol = d.width === 0 ? 'none' : (d.color || '#cbd5e1');
+              var strokeW = d.width !== undefined ? d.width : 2;
+              for(var pi = 0; pi < paths.length; pi++){
+                if(d.width === 0){
+                  paths[pi].setAttribute('stroke', 'none');
+                  paths[pi].style.stroke = 'none';
+                } else {
+                  paths[pi].setAttribute('stroke', strokeCol);
+                  paths[pi].setAttribute('stroke-width', strokeW);
+                  paths[pi].style.stroke = strokeCol;
+                  paths[pi].style.strokeWidth = strokeW + 'px';
+                }
               }
+              var vDataStr = strokeEl.getAttribute('data-wf-vector');
+              if(vDataStr){
+                try{
+                  var vObj = JSON.parse(vDataStr);
+                  vObj.strokeColor = strokeCol;
+                  vObj.strokeWidth = strokeW;
+                  strokeEl.setAttribute('data-wf-vector', JSON.stringify(vObj));
+                }catch(e){}
+              }
+              strokeEl.style.border = 'none';
+            } else {
+              if(d.width === 0){
+                strokeEl.style.border = 'none';
+              }else{
+                strokeEl.style.border = d.width + 'px ' + (d.style || 'solid') + ' ' + (d.color || '#cbd5e1');
+              }
+              strokeEl.style.boxSizing = 'border-box';
             }
-            var vDataStr = selectedEl.getAttribute('data-wf-vector');
-            if(vDataStr){
-              try{
-                var vObj = JSON.parse(vDataStr);
-                vObj.strokeColor = strokeCol;
-                vObj.strokeWidth = strokeW;
-                selectedEl.setAttribute('data-wf-vector', JSON.stringify(vObj));
-              }catch(e){}
-            }
-            selectedEl.style.border = 'none';
-            updateTransformBox(selectedEl);
-            scheduleSave();
-            showToast('描边已修改并保存');
-          } else {
-            if(d.width === 0){
-              selectedEl.style.border = 'none';
-            }else{
-              selectedEl.style.border = d.width + 'px ' + (d.style || 'solid') + ' ' + (d.color || '#cbd5e1');
-            }
-            selectedEl.style.boxSizing = 'border-box';
-            updateTransformBox(selectedEl);
-            scheduleSave();
           }
+          refreshSelectionProperties();
+          scheduleSave();
         }
       }else if(d.type === 'wf-effects'){
-        if(selectedEl){
+        var effectTargets = collectStyleTargets(d);
+        if(effectTargets.length){
           if(!d.live) pushSnapshot();
-          applyEffectList(selectedEl, d.effects || []);
-          updateTransformBox(selectedEl);
+          for(var eti = 0; eti < effectTargets.length; eti++){
+            applyEffectList(effectTargets[eti], d.effects || []);
+          }
+          refreshSelectionProperties();
           scheduleSave();
         }
       }else if(d.type === 'wf-shadow'){
-        if(selectedEl){
+        var shadowTargets = collectStyleTargets(d);
+        if(shadowTargets.length){
           pushSnapshot();
-          var isVectorShadow = String(selectedEl.tagName || '').toLowerCase() === 'svg'
-            || (selectedEl.classList && selectedEl.classList.contains('wf-vector-shape'))
-            || (selectedEl.hasAttribute && selectedEl.hasAttribute('data-wf-vector'));
-          if(isVectorShadow){
-            selectedEl.style.boxShadow = 'none';
-            selectedEl.style.overflow = 'visible';
-            if(!d.shadow || d.shadow === 'none'){
-              selectedEl.style.filter = 'none';
+          for(var sht = 0; sht < shadowTargets.length; sht++){
+            var shadowEl = shadowTargets[sht];
+            var isVectorShadow = String(shadowEl.tagName || '').toLowerCase() === 'svg'
+              || (shadowEl.classList && shadowEl.classList.contains('wf-vector-shape'))
+              || (shadowEl.hasAttribute && shadowEl.hasAttribute('data-wf-vector'));
+            if(isVectorShadow){
+              shadowEl.style.boxShadow = 'none';
+              shadowEl.style.overflow = 'visible';
+              if(!d.shadow || d.shadow === 'none'){
+                shadowEl.style.filter = 'none';
+              }else{
+                shadowEl.style.filter = 'drop-shadow(' + d.shadow + ')';
+              }
             }else{
-              selectedEl.style.filter = 'drop-shadow(' + d.shadow + ')';
+              if(shadowEl.style.filter && shadowEl.style.filter.indexOf('drop-shadow') === 0){
+                shadowEl.style.filter = 'none';
+              }
+              shadowEl.style.boxShadow = d.shadow || 'none';
             }
-          }else{
-            if(selectedEl.style.filter && selectedEl.style.filter.indexOf('drop-shadow') === 0){
-              selectedEl.style.filter = 'none';
-            }
-            selectedEl.style.boxShadow = d.shadow || 'none';
           }
-          updateTransformBox(selectedEl);
+          refreshSelectionProperties();
           scheduleSave();
         }
       }else if(d.type === 'wf-frame-color'){
@@ -3937,22 +3977,13 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }else if(d.type === 'wf-query-frame-fill'){
         publishFrameFill();
       }else if(d.type === 'wf-color'){
-        var colorTargets = [];
-        if(Array.isArray(d.uids)){
-          for(var ui = 0; ui < d.uids.length; ui++){
-            var colorEl = layerDom(String(d.uids[ui] || ''));
-            if(colorEl && colorTargets.indexOf(colorEl) < 0) colorTargets.push(colorEl);
-          }
-        }
-        if(!colorTargets.length){
-          colorTargets = (selectedEls && selectedEls.length) ? selectedEls.slice() : (selectedEl ? [selectedEl] : []);
-        }
+        var colorTargets = collectStyleTargets(d);
         if(colorTargets.length){
           pushSnapshot();
           for(var cti = 0; cti < colorTargets.length; cti++){
             applyColor(colorTargets[cti], d.color, true);
           }
-          if(selectedEl) notifySelectedElementInfo(selectedEl);
+          refreshSelectionProperties();
           scheduleSave();
           showToast(colorTargets.length > 1 ? ('已填充 ' + colorTargets.length + ' 个元素') : '颜色已修改并保存');
         }
@@ -3992,18 +4023,19 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }else if(d.type === 'wf-start-text-edit'){
         if(selectedEl) startTextEdit(selectedEl);
       }else if(d.type === 'wf-update-text'){
-        if(selectedEl){
-          var tText = findTextTarget(selectedEl) || selectedEl;
-          if(tText){
-            pushSnapshot();
+        var textTargets = collectStyleTargets(d).map(function(el){ return findTextTarget(el); }).filter(Boolean);
+        if(textTargets.length){
+          pushSnapshot();
+          for(var tti = 0; tti < textTargets.length; tti++){
+            var tText = textTargets[tti];
             if(tText.tagName === 'INPUT' || tText.tagName === 'TEXTAREA'){
               tText.value = d.text || '';
             } else {
               tText.innerText = d.text || '';
             }
-            updateTransformBox(selectedEl);
-            scheduleSave();
           }
+          refreshSelectionProperties();
+          scheduleSave();
         }
       }else if(d.type === 'wf-select-parent'){
         if(selectedEl && selectedEl.parentElement){
@@ -5925,24 +5957,24 @@ function postToFrame(payload: Record<string, unknown>) {
   htmlFrameRef.value?.contentWindow?.postMessage(uid ? { ...payload, uid } : payload, '*')
 }
 
-function updateElementRadius(radius: number) {
-  postToFrame({ type: 'wf-radius', radius })
+function updateElementRadius(radius: number, uids: string[] = []) {
+  postToFrame({ type: 'wf-radius', radius, uids })
 }
 
-function updateElementOpacity(opacity: number, live = false) {
-  postToFrame({ type: 'wf-opacity', opacity, live })
+function updateElementOpacity(opacity: number, live = false, uids: string[] = []) {
+  postToFrame({ type: 'wf-opacity', opacity, live, uids })
 }
 
-function updateElementStroke(stroke: { width: number; color: string; style: string }) {
-  postToFrame({ type: 'wf-stroke', ...stroke })
+function updateElementStroke(stroke: { width: number; color: string; style: string }, uids: string[] = []) {
+  postToFrame({ type: 'wf-stroke', ...stroke, uids })
 }
 
-function updateElementEffects(effects: unknown[], live = false) {
-  postToFrame({ type: 'wf-effects', effects, live })
+function updateElementEffects(effects: unknown[], live = false, uids: string[] = []) {
+  postToFrame({ type: 'wf-effects', effects, live, uids })
 }
 
-function updateElementShadow(shadow: string) {
-  postToFrame({ type: 'wf-shadow', shadow })
+function updateElementShadow(shadow: string, uids: string[] = []) {
+  postToFrame({ type: 'wf-shadow', shadow, uids })
 }
 
 function updateElementColor(color: string, uids: string[] = []) {
@@ -5965,8 +5997,8 @@ function startTextEdit() {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-start-text-edit' }, '*')
 }
 
-function updateText(text: string) {
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-update-text', text }, '*')
+function updateText(text: string, uids: string[] = []) {
+  postToFrame({ type: 'wf-update-text', text, uids })
 }
 
 function selectParentContainer() {
@@ -5981,12 +6013,12 @@ function openAssetPickerForSelected() {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-open-asset-picker' }, '*')
 }
 
-function updateElementPosition(key: 'x' | 'y', val: number, uid?: string) {
-  postToFrame({ type: 'wf-layout', key, val, uid })
+function updateElementPosition(key: 'x' | 'y', val: number, uid?: string, uids: string[] = []) {
+  postToFrame({ type: 'wf-layout', key, val, uid, uids })
 }
 
-function updateElementDimension(key: 'width' | 'height', val: number, uid?: string) {
-  postToFrame({ type: 'wf-layout', key, val, uid })
+function updateElementDimension(key: 'width' | 'height', val: number, uid?: string, uids: string[] = []) {
+  postToFrame({ type: 'wf-layout', key, val, uid, uids })
 }
 
 function selectLayerByUid(uid: string, multi = false) {

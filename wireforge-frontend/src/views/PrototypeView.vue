@@ -1320,6 +1320,7 @@
             :current-page="currentFocusPage"
             :selected-element="selectedElementObj"
             :element-info="activeSelectedElementInfo"
+            :selection-count="selectedDomLayerUids.length"
             :frame-fill="frameFillColor"
             @update-dimension="onInspectorUpdateDimension"
             @update-position="onInspectorUpdatePosition"
@@ -6123,31 +6124,31 @@ function onInspectorAlign(alignType: string) {
 
 function onInspectorUpdateRadius(radius: number) {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.updateElementRadius?.(radius)
+    pageRefs.value[currentFocusPage.value.id]?.updateElementRadius?.(radius, selectedDomLayerUids.value.slice())
   }
 }
 
 function onInspectorUpdateOpacity(payload: { opacity: number; live?: boolean }) {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.updateElementOpacity?.(payload.opacity, !!payload.live)
+    pageRefs.value[currentFocusPage.value.id]?.updateElementOpacity?.(payload.opacity, !!payload.live, selectedDomLayerUids.value.slice())
   }
 }
 
 function onInspectorUpdateStroke(stroke: { width: number; color: string; style: string }) {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.updateElementStroke?.(stroke)
+    pageRefs.value[currentFocusPage.value.id]?.updateElementStroke?.(stroke, selectedDomLayerUids.value.slice())
   }
 }
 
 function onInspectorUpdateEffects(payload: { effects: any[]; live?: boolean }) {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.updateElementEffects?.(payload.effects || [], !!payload.live)
+    pageRefs.value[currentFocusPage.value.id]?.updateElementEffects?.(payload.effects || [], !!payload.live, selectedDomLayerUids.value.slice())
   }
 }
 
 function onInspectorUpdateShadow(shadow: string) {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.updateElementShadow?.(shadow)
+    pageRefs.value[currentFocusPage.value.id]?.updateElementShadow?.(shadow, selectedDomLayerUids.value.slice())
   }
 }
 
@@ -6158,6 +6159,7 @@ function onInspectorUpdateDimension(payload: { key: 'width' | 'height'; val: num
         payload.key,
         payload.val,
         activeSelectedElementInfo.value.layerUid,
+        selectedDomLayerUids.value.slice(),
       )
       activeSelectedElementInfo.value[payload.key] = payload.val
     } else {
@@ -6185,6 +6187,7 @@ function onInspectorUpdatePosition(payload: { key: 'x' | 'y'; val: number }) {
         payload.key,
         payload.val,
         activeSelectedElementInfo.value.layerUid,
+        selectedDomLayerUids.value.slice(),
       )
       activeSelectedElementInfo.value[payload.key] = payload.val
     } else {
@@ -6282,7 +6285,7 @@ function onInspectorStartTextEdit() {
 
 function onInspectorUpdateText(text: string) {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.updateText?.(text)
+    pageRefs.value[currentFocusPage.value.id]?.updateText?.(text, selectedDomLayerUids.value.slice())
   }
   if (activeSelectedElementInfo.value) {
     activeSelectedElementInfo.value.textContent = text
