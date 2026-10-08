@@ -9,15 +9,26 @@
       aria-hidden="true"
     >
       <div class="ai-glow-spread">
-        <div class="ai-glow-colors"></div>
-        <div class="ai-glow-bloom"></div>
+        <canvas
+          ref="inkCanvas"
+          class="ai-glow-ink"
+          :class="{ 'is-ready': inkReady }"
+          @webglcontextlost.prevent="onContextLost"
+          @webglcontextrestored="initializeInk"
+        ></canvas>
+        <template v-if="!inkReady">
+          <div class="ai-glow-colors"></div>
+          <div class="ai-glow-bloom"></div>
+        </template>
       </div>
     </div>
   </Transition>
 </template>
 
 <script setup lang="ts">
-import { ref, watchEffect } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
+import { createInkBackground, type InkBackground } from '../utils/inkBackground'
+import { isDark } from '../utils/theme'
 
 const props = withDefaults(defineProps<{
   active: boolean
@@ -26,7 +37,111 @@ const props = withDefaults(defineProps<{
 }>(), { origin: null, fixed: false })
 
 const surface = ref<HTMLElement | null>(null)
+const inkCanvas = ref<HTMLCanvasElement | null>(null)
+const inkReady = ref(false)
+const reducedMotion = ref(false)
 const originStyle = ref({ '--ai-origin-x': '85%', '--ai-origin-y': '8%' })
+
+let ink: InkBackground | null = null
+let resizeObserver: ResizeObserver | null = null
+let motionPreference: MediaQueryList | null = null
+let animationFrame = 0
+let elapsed = 0
+let lastTick = 0
+let lastDraw = 0
+
+function pauseAnimation() {
+  if (animationFrame) cancelAnimationFrame(animationFrame)
+  animationFrame = 0
+  lastTick = 0
+}
+
+function drawFrame(now: number) {
+  animationFrame = 0
+  if (!ink || !props.active || reducedMotion.value || document.hidden) return
+  if (lastTick) elapsed += Math.min((now - lastTick) / 1000, 0.25)
+  lastTick = now
+  if (now - lastDraw >= 1000 / 24) {
+    ink.render(elapsed, isDark.value)
+    lastDraw = now
+  }
+  animationFrame = requestAnimationFrame(drawFrame)
+}
+
+function resumeAnimation() {
+  if (!ink || !props.active || reducedMotion.value || document.hidden || animationFrame) return
+  lastTick = 0
+  lastDraw = 0
+  animationFrame = requestAnimationFrame(drawFrame)
+}
+
+function releaseInk() {
+  pauseAnimation()
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  ink?.dispose()
+  ink = null
+}
+
+function initializeInk() {
+  if (!props.active || !inkCanvas.value || !surface.value) return
+  releaseInk()
+  inkReady.value = false
+  ink = createInkBackground(inkCanvas.value)
+  if (!ink) return
+  elapsed = 0
+  const resize = () => {
+    if (!surface.value || !ink) return
+    ink.resize(surface.value.clientWidth, surface.value.clientHeight)
+    ink.render(elapsed, isDark.value)
+  }
+  resize()
+  inkReady.value = true
+  resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(surface.value)
+  resumeAnimation()
+}
+
+function onContextLost() {
+  releaseInk()
+  inkReady.value = false
+}
+
+function updateMotionPreference() {
+  reducedMotion.value = motionPreference?.matches ?? false
+}
+
+function onVisibilityChange() {
+  if (document.hidden) pauseAnimation()
+  else resumeAnimation()
+}
+
+watch([() => props.active, inkCanvas], ([active, canvas]) => {
+  if (!active || !canvas) {
+    releaseInk()
+    return
+  }
+  initializeInk()
+}, { flush: 'post' })
+
+watch([reducedMotion, isDark], () => {
+  ink?.render(elapsed, isDark.value)
+  if (reducedMotion.value) pauseAnimation()
+  else resumeAnimation()
+})
+
+onMounted(() => {
+  motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
+  updateMotionPreference()
+  motionPreference.addEventListener('change', updateMotionPreference)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+
+onBeforeUnmount(() => {
+  releaseInk()
+  motionPreference?.removeEventListener('change', updateMotionPreference)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 
 watchEffect(() => {
   if (!props.active || !surface.value || !props.origin) return
@@ -64,7 +179,20 @@ watchEffect(() => {
   animation: ai-glow-spread 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Soft gradients supply the blur; only opacity and transform move during generation. */
+.ai-glow-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ai-glow-ink.is-ready {
+  opacity: 1;
+}
+
+/* CSS remains available when the browser cannot draw the pigment field. */
 .ai-glow-colors,
 .ai-glow-bloom {
   position: absolute;
@@ -74,8 +202,8 @@ watchEffect(() => {
 
 .ai-glow-colors {
   background:
-    radial-gradient(ellipse at 13% 28%, rgb(161 236 85 / 22%), transparent 48%),
-    radial-gradient(ellipse at 82% 15%, rgb(85 198 236 / 26%), transparent 48%),
+    radial-gradient(ellipse at 13% 28%, rgb(85 198 236 / 28%), transparent 48%),
+    radial-gradient(ellipse at 82% 15%, rgb(161 85 236 / 26%), transparent 48%),
     radial-gradient(ellipse at 93% 82%, rgb(161 85 236 / 18%), transparent 46%),
     radial-gradient(ellipse at 20% 95%, rgb(85 161 236 / 20%), transparent 44%);
   animation: ai-glow-drift 9s ease-in-out infinite alternate;
@@ -83,8 +211,8 @@ watchEffect(() => {
 
 .ai-glow-bloom {
   background:
-    radial-gradient(ellipse at 32% 35%, rgb(85 198 236 / 36%), transparent 20%),
-    radial-gradient(ellipse at 72% 68%, rgb(161 85 236 / 26%), transparent 22%),
+    radial-gradient(ellipse at 32% 35%, rgb(161 236 85 / 36%), transparent 26%),
+    radial-gradient(ellipse at 72% 68%, rgb(85 198 236 / 32%), transparent 30%),
     radial-gradient(ellipse at 65% 100%, rgb(236 85 85 / 8%), transparent 38%);
   animation: ai-glow-flow 12s ease-in-out infinite;
 }
@@ -112,8 +240,8 @@ watchEffect(() => {
 }
 
 @keyframes ai-glow-drift {
-  from { transform: translate(-9%, -5%) rotate(-4deg) scale(1.12); }
-  to { transform: translate(9%, 6%) rotate(4deg) scale(1.17); }
+  from { transform: translate(-9%, -5%) rotate(-4deg) scale(1.12); opacity: 1; }
+  to { transform: translate(9%, 6%) rotate(4deg) scale(1.17); opacity: 0.2; }
 }
 
 @keyframes ai-glow-flow {
