@@ -1,5 +1,6 @@
 <template>
-  <div class="project-detail min-h-screen bg-[#f8fafc] dark:bg-[#1e1e1e] flex flex-col text-slate-800 dark:text-slate-100 selection:bg-blue-500 selection:text-white transition-colors duration-200">
+  <div class="project-detail relative isolate min-h-screen bg-[#f8fafc] dark:bg-[#1e1e1e] flex flex-col text-slate-800 dark:text-slate-100 selection:bg-blue-500 selection:text-white transition-colors duration-200">
+    <AiGenerationGlow :active="analyzing" :origin="aiGenerateButton" fixed />
     <!-- ===== Minimalist Figma-Style Top Navigation (Full-width, no edge margins) ===== -->
     <header class="sticky top-0 z-30 bg-white/95 dark:bg-[#2c2c2c] backdrop-blur-md border-b border-slate-200/80 dark:border-[#383838] px-6 py-3 transition-colors">
       <div class="w-full flex flex-wrap items-center justify-between gap-3">
@@ -50,6 +51,7 @@
 
           <!-- Secondary/AI: AI Analyze Wireframe -->
           <button
+            ref="aiGenerateButton"
             class="wf-tap inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-[#383838] hover:bg-slate-50 dark:hover:bg-[#444444] border border-slate-200 dark:border-[#484848] rounded-md transition-colors disabled:opacity-50 cursor-pointer"
             :disabled="analyzing || loading || !!loadError || pages.length === 0"
             :title="t('aiGenerate')"
@@ -77,7 +79,7 @@
     </header>
 
     <!-- ===== Secondary Toolbar (Search, Filter, View Mode, Path Hint) ===== -->
-    <div class="border-b border-slate-200/70 dark:border-[#333333] bg-white/70 dark:bg-[#252525] px-6 py-2.5 transition-colors">
+    <div class="relative z-10 border-b border-slate-200/70 dark:border-[#333333] bg-white/70 dark:bg-[#252525] px-6 py-2.5 transition-colors">
       <div class="w-full flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
         <button
           type="button"
@@ -164,7 +166,7 @@
     </div>
 
     <!-- ===== Main Frame Workspace ===== -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-6 py-6">
+    <main class="relative z-10 flex-1 max-w-7xl w-full mx-auto px-6 py-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex flex-col items-center justify-center py-24">
         <div class="w-8 h-8 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
@@ -399,6 +401,7 @@ import {
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
 import NavbarControls from '../components/NavbarControls.vue'
+import AiGenerationGlow from '../components/AiGenerationGlow.vue'
 import { t } from '../utils/i18n'
 import type { Page } from '../types'
 
@@ -424,6 +427,7 @@ const loading = ref(true)
 const loadError = ref(false)
 const scanning = ref(false)
 const analyzing = ref(false)
+const aiGenerateButton = ref<HTMLButtonElement | null>(null)
 const analyzeProgressText = ref('')
 const entering = ref(false)
 const DEFAULT_DESIGNS_DIR = 'D:/idea/Project/html版本/html不是很好版/designs'

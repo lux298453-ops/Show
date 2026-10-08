@@ -235,7 +235,7 @@
 
       <!-- ===== Right: Infinite Workbench Canvas ===== -->
       <main
-        class="canvas-viewport flex-1 overflow-hidden relative cursor-default"
+        class="canvas-viewport isolate flex-1 overflow-hidden relative cursor-default"
         ref="viewportRef"
         :class="{
           '!cursor-grab': (activeDrawTool === 'hand' || isSpacePressed) && !isAnyDragging,
@@ -249,6 +249,7 @@
         @dragover.prevent="onViewportDragOver"
         @drop.prevent="onViewportDrop"
       >
+        <AiGenerationGlow :active="isReanalyzing || regeneratingIds.size > 0" :origin="aiGlowOrigin" />
         <!-- ===== 多选画板批量操作悬浮条 (Figma Style) ===== -->
         <Transition name="fade-fast">
           <div
@@ -408,7 +409,7 @@
                   class="wf-tap px-2 py-0.5 rounded-lg text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/80 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-700/60 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
                   :class="{ 'animate-pulse pointer-events-none': regeneratingIds.has(b.page.id) }"
                   title="为设计稿生成独立原型图（放置在右侧）"
-                  @click.stop="onGeneratePrototypeForDesign(b)"
+                  @click.stop="onGeneratePrototypeForDesign(b, $event)"
                   @mousedown.stop
                 >
                   <Sparkles class="w-3 h-3 text-emerald-600 dark:text-emerald-400" :class="{ 'animate-spin': regeneratingIds.has(b.page.id) }" />
@@ -419,7 +420,7 @@
                   class="wf-tap p-1 rounded-md text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
                   :class="{ 'animate-spin pointer-events-none': regeneratingIds.has(b.page.id) }"
                   title="更新原型预览"
-                  @click.stop="onRegenerateHtml(b.page.id)"
+                  @click.stop="onRegenerateHtml(b.page.id, $event)"
                   @mousedown.stop
                 >
                   <RotateCw class="w-3 h-3" />
@@ -2047,6 +2048,7 @@ import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
 import NavbarControls from '../components/NavbarControls.vue'
+import AiGenerationGlow from '../components/AiGenerationGlow.vue'
 import { t } from '../utils/i18n'
 import { discardSaveState, markLocalEdit, useSaveState } from '../utils/saveState'
 import LayerTree from '../components/LayerTree.vue'
@@ -3269,6 +3271,7 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 // ===== 整页 HTML 重新生成（Stitch 式直出快速迭代） =====
 const regeneratingIds = ref<Set<number>>(new Set())
+const aiGlowOrigin = ref<HTMLElement | null>(null)
 const regenChecked = ref<Set<number>>(new Set())
 const regenAll = computed(() => {
   const regenable = pages.value.filter((p) => p.html_content).map((p) => p.id)
@@ -3284,9 +3287,10 @@ function toggleRegenAll() {
   regenChecked.value = new Set(regenChecked.value)
 }
 
-async function onGeneratePrototypeForDesign(b: { page: Page; x: number; y: number }) {
+async function onGeneratePrototypeForDesign(b: { page: Page; x: number; y: number }, event?: MouseEvent) {
   const pageId = b.page.id
   if (regeneratingIds.value.has(pageId)) return
+  aiGlowOrigin.value = (event?.currentTarget as HTMLElement | null) ?? null
   regeneratingIds.value.add(pageId)
   showToast(`正在为「${b.page.name}」生成独立原型图...`)
   try {
@@ -3323,8 +3327,9 @@ async function onGeneratePrototypeForDesign(b: { page: Page; x: number; y: numbe
   }
 }
 
-async function onRegenerateHtml(pageId: number) {
+async function onRegenerateHtml(pageId: number, event?: MouseEvent) {
   if (regeneratingIds.value.has(pageId)) return false
+  aiGlowOrigin.value = (event?.currentTarget as HTMLElement | null) ?? null
   regeneratingIds.value.add(pageId)
   try {
     const html = await projectApi.regenerateHtml(id, pageId)
@@ -3462,6 +3467,7 @@ async function retryAutowirePreview() {
 
 async function onReanalyzePage(pageId: number) {
   if (isReanalyzing.value) return
+  aiGlowOrigin.value = null
   isReanalyzing.value = true
   const page = proto.value?.pages.find((p) => p.id === pageId)
   showToast(`正在调用 AI 重新深度识别「${page?.name || pageId}」...`)
@@ -3477,13 +3483,14 @@ async function onReanalyzePage(pageId: number) {
   }
 }
 
-async function onReanalyzeChecked() {
+async function onReanalyzeChecked(event?: MouseEvent) {
   const targets = pages.value.filter((p) => regenChecked.value.has(p.id)).map((p) => p.id)
   if (!targets.length) {
     showToast('请先勾选要重新识别的页面')
     return
   }
   if (isReanalyzing.value) return
+  aiGlowOrigin.value = (event?.currentTarget as HTMLElement | null) ?? null
   isReanalyzing.value = true
   showToast(`正在调用 AI 重新深度识别选中的 ${targets.length} 个页面...`)
   try {
