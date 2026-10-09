@@ -37,6 +37,12 @@ public class ProjectController {
         return Result.ok(projectService.createProject(body.get("name"), body.get("description")));
     }
 
+    /** 修改项目名称和说明，不影响画板、原型或交互。 */
+    @PutMapping("/{id}")
+    public Result<Project> update(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        return Result.ok(projectService.updateProject(id, body));
+    }
+
     /** 删除项目（级联删除其页面、元素、交互、标注） */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {

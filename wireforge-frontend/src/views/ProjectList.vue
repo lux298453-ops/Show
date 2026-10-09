@@ -37,9 +37,9 @@
           <div class="project-content">
             <div class="project-title-row">
               <h2><RouterLink :to="`/projects/${p.id}`" :title="p.name">{{ p.name }}</RouterLink></h2>
-              <el-dropdown trigger="click" @command="remove(p)">
+              <el-dropdown trigger="click" @command="handleProjectCommand($event, p)">
                 <button class="more-button" :aria-label="`${copy.more} ${p.name}`" :title="copy.more"><MoreHorizontal :size="19" /></button>
-                <template #dropdown><el-dropdown-menu><el-dropdown-item command="delete"><Trash2 :size="14" class="menu-icon" />{{ t('delete') }}</el-dropdown-item></el-dropdown-menu></template>
+                <template #dropdown><el-dropdown-menu><el-dropdown-item command="edit"><Pencil :size="14" class="menu-icon" />{{ t('editProjectInfo') }}</el-dropdown-item><el-dropdown-item command="delete" divided><Trash2 :size="14" class="menu-icon" />{{ t('delete') }}</el-dropdown-item></el-dropdown-menu></template>
               </el-dropdown>
             </div>
             <p class="project-description" :class="{ muted: !p.description }" :title="p.description">{{ p.description || copy.noDescription }}</p>
@@ -60,6 +60,7 @@
       </div>
     </main>
 
+    <ProjectMetadataDialog v-model="metadataVisible" :project="editingProject" @saved="updateProjectMetadata" />
     <el-dialog v-model="dialogVisible" :title="t('newProject')" width="min(460px, calc(100vw - 32px))" align-center>
       <div class="project-form"><label><div>{{ t('projectName') }} <span>*</span></div><el-input v-model="form.name" :placeholder="t('projectNamePlaceholder')" size="large" clearable /></label><label>{{ t('projectDesc') }}<el-input v-model="form.description" type="textarea" :rows="3" :placeholder="t('projectDescPlaceholder')" /></label></div>
       <template #footer><div class="dialog-actions"><button class="home-button" @click="dialogVisible = false">{{ t('cancel') }}</button><button class="home-button primary" :disabled="creating" @click="create"><span v-if="creating" class="loading-spinner small"></span>{{ creating ? t('creating') : t('create') }}</button></div></template>
@@ -71,8 +72,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, FolderPlus, LayoutGrid, List, Trash2, Search, ChevronRight, Layers, MoreHorizontal, ArrowUpRight, AlertCircle, RotateCw } from 'lucide-vue-next'
+import { Plus, FolderPlus, LayoutGrid, List, Trash2, Search, ChevronRight, Layers, MoreHorizontal, ArrowUpRight, AlertCircle, RotateCw, Pencil } from 'lucide-vue-next'
 import NavbarControls from '../components/NavbarControls.vue'
+import ProjectMetadataDialog from '../components/ProjectMetadataDialog.vue'
 import { t, currentLang } from '../utils/i18n'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
@@ -96,6 +98,8 @@ const projects = ref<ProjectItem[]>([])
 const loading = ref(true)
 const loadError = ref(false)
 const dialogVisible = ref(false)
+const metadataVisible = ref(false)
+const editingProject = ref<ProjectItem | null>(null)
 const creating = ref(false)
 const form = reactive({ name: '', description: '' })
 const searchQuery = ref('')
@@ -153,6 +157,14 @@ async function create() {
     router.push(`/projects/${project.id}`)
   } catch { ElMessage.error(copy.value.createFailed) }
   finally { creating.value = false }
+}
+function handleProjectCommand(command: string, p: ProjectItem) {
+  if (command === 'edit') { editingProject.value = p; metadataVisible.value = true }
+  else if (command === 'delete') void remove(p)
+}
+function updateProjectMetadata(saved: Project) {
+  const p = projects.value.find(p => p.id === saved.id)
+  if (p) { p.name = saved.name; p.description = saved.description }
 }
 async function remove(p: Project) {
   try {

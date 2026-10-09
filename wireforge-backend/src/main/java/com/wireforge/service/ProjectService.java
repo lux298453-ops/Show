@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -141,6 +142,36 @@ public class ProjectService {
         project.setCreatedAt(LocalDateTime.now());
         projectMapper.insert(project);
         return project;
+    }
+
+    /** 只更新可编辑的项目资料，保留封面、App Map 和创建时间。 */
+    @Transactional
+    public Project updateProject(Long id, Map<String, String> body) {
+        String name = body == null ? null : body.get("name");
+        if (name == null || name.isBlank()) throw new IllegalStateException("请输入项目名称");
+        name = name.trim();
+        if (name.codePointCount(0, name.length()) > 255) {
+            throw new IllegalStateException("项目名称不能超过 255 个字符");
+        }
+
+        boolean updateDescription = body.containsKey("description");
+        String description = updateDescription ? Objects.requireNonNullElse(body.get("description"), "") : null;
+        if (updateDescription && description.getBytes(StandardCharsets.UTF_8).length > 65535) {
+            throw new IllegalStateException("项目说明过长，请缩短后重试");
+        }
+
+        var update = Wrappers.<Project>lambdaUpdate()
+                .eq(Project::getId, id)
+                .set(Project::getName, name);
+        if (updateDescription) update.set(Project::getDescription, description);
+        int updated = projectMapper.update(null, update);
+        Project saved = getProject(id);
+        // 数据库可能将重复保存计为 0 行；仅在结果确实相同时视为成功。
+        if (updated == 0 && (!Objects.equals(saved.getName(), name)
+                || (updateDescription && !Objects.equals(saved.getDescription(), description)))) {
+            throw new IllegalStateException("项目资料未保存，请重试");
+        }
+        return saved;
     }
 
     /**

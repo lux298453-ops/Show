@@ -27,9 +27,17 @@
             <span>/</span>
           </div>
 
-          <h1 class="text-lg font-semibold text-slate-900 dark:text-white tracking-tight truncate max-w-xs sm:max-w-md">
+          <h1 class="text-lg font-semibold text-slate-900 dark:text-white tracking-tight truncate max-w-xs sm:max-w-md" :title="project?.name">
             {{ project?.name || t('projectDetail') }}
           </h1>
+          <button
+            v-if="project && !loadError"
+            type="button"
+            class="wf-tap shrink-0 p-1.5 rounded-md text-slate-400 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-[#383838] transition-colors cursor-pointer"
+            :title="t('editProjectInfo')"
+            :aria-label="t('editProjectInfo')"
+            @click="metadataVisible = true"
+          ><Pencil class="w-3.5 h-3.5" /></button>
 
           <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#383838] text-slate-600 dark:text-slate-200 tabular-nums border border-slate-200/60 dark:border-[#484848] hidden sm:inline-flex">
             {{ pages.length }} {{ t('frames') }}
@@ -376,6 +384,7 @@
         </table>
       </div>
     </main>
+    <ProjectMetadataDialog v-model="metadataVisible" :project="project" @saved="updateProjectMetadata" />
   </div>
 </template>
 
@@ -397,13 +406,15 @@ import {
   LayoutGrid,
   List,
   ChevronRight,
+  Pencil,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
 import NavbarControls from '../components/NavbarControls.vue'
 import AiGenerationGlow from '../components/AiGenerationGlow.vue'
+import ProjectMetadataDialog from '../components/ProjectMetadataDialog.vue'
 import { t } from '../utils/i18n'
-import type { Page } from '../types'
+import type { Page, Project } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -421,7 +432,11 @@ interface PageCard {
   canvas_height?: number
 }
 
-const project = ref<any>(null)
+const project = ref<Project | null>(null)
+const metadataVisible = ref(false)
+function updateProjectMetadata(saved: Project) {
+  if (project.value?.id === saved.id) { project.value.name = saved.name; project.value.description = saved.description }
+}
 const pages = ref<PageCard[]>([])
 const loading = ref(true)
 const loadError = ref(false)

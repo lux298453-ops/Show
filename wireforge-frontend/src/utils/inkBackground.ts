@@ -1,6 +1,13 @@
+export interface InkBackgroundEntry {
+  /** Linear entry progress, clamped to 0..1. The shader eases the spread. */
+  progress: number
+  /** Click position in 0..1 coordinates, measured from the top-left corner. */
+  origin: { x: number; y: number }
+}
+
 export interface InkBackground {
   resize(width: number, height: number): void
-  render(seconds: number, dark: boolean): void
+  render(seconds: number, dark: boolean, entry?: InkBackgroundEntry): void
   dispose(): void
 }
 
@@ -14,6 +21,8 @@ const fragmentSource = `
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform float u_dark;
+uniform float u_entry_progress;
+uniform vec2 u_entry_origin;
 
 float hash(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * 0.1031);
@@ -78,6 +87,24 @@ void main() {
 
   float density = smoothstep(0.28, 0.70, dot(pigment, weight));
   float alpha = mix(0.18, 0.42, density) * mix(1.0, 1.12, u_dark);
+  if (u_entry_progress < 1.0) {
+    // Reveal pigment in place. The surface and its colour field never scale.
+    vec2 metric = vec2(u_resolution.x / u_resolution.y, 1.0);
+    vec2 fromOrigin = (uv - u_entry_origin) * metric;
+    // The farthest corner, in the same aspect-correct space as the diffusion.
+    float farthest = length(max(u_entry_origin, 1.0 - u_entry_origin) * metric);
+    float distance = length(fromOrigin);
+    float feather = farthest * 0.30;
+    // Low-frequency turbulence dissolves the edge into broad, uneven plumes.
+    // Near the click it tapers to zero, so the first pigment stays at the origin.
+    float irregularity = (cloud(fromOrigin * 1.15 + vec2(t * 0.35, 4.7 - t * 0.26)) - 0.5) * farthest * 0.36;
+    float dissolvedDistance = max(0.0, distance + irregularity * smoothstep(0.0, feather, distance));
+    float spread = smoothstep(0.0, 1.0, u_entry_progress);
+    float reach = spread * (farthest + feather + farthest * 0.18);
+    float diffusion = 1.0 - smoothstep(reach - feather, reach + feather, dissolvedDistance);
+    // At zero the whole canvas is transparent; the initial soft pool fades in.
+    alpha *= diffusion * smoothstep(0.0, 0.14, u_entry_progress);
+  }
   gl_FragColor = vec4(dye, alpha);
 }`
 
@@ -139,6 +166,8 @@ export function createInkBackground(canvas: HTMLCanvasElement): InkBackground | 
     const resolution = gl.getUniformLocation(program, 'u_resolution')
     const time = gl.getUniformLocation(program, 'u_time')
     const dark = gl.getUniformLocation(program, 'u_dark')
+    const entryProgress = gl.getUniformLocation(program, 'u_entry_progress')
+    const entryOrigin = gl.getUniformLocation(program, 'u_entry_origin')
 
     return {
       resize(width, height) {
@@ -153,10 +182,14 @@ export function createInkBackground(canvas: HTMLCanvasElement): InkBackground | 
         gl.viewport(0, 0, w, h)
         gl.uniform2f(resolution, w, h)
       },
-      render(seconds, isDark) {
+      render(seconds, isDark, entry) {
         if (!program || gl.isContextLost()) return
+        const unit = (value: number | undefined, fallback: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value!)) : fallback
         gl.uniform1f(time, seconds)
         gl.uniform1f(dark, isDark ? 1 : 0)
+        gl.uniform1f(entryProgress, unit(entry?.progress, 1))
+        // WebGL's fragment coordinates start at the bottom-left.
+        gl.uniform2f(entryOrigin, unit(entry?.origin.x, 0.5), 1 - unit(entry?.origin.y, 0.5))
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
       },
       dispose,

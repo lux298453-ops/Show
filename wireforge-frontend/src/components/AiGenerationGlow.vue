@@ -1,5 +1,5 @@
 <template>
-  <Transition name="ai-glow">
+  <Transition name="ai-glow" @after-leave="onFadeComplete">
     <div
       v-if="active"
       ref="surface"
@@ -16,17 +16,17 @@
           @webglcontextlost.prevent="onContextLost"
           @webglcontextrestored="initializeInk"
         ></canvas>
-        <template v-if="!inkReady">
+        <div v-if="!inkReady" class="ai-glow-fallback">
           <div class="ai-glow-colors"></div>
           <div class="ai-glow-bloom"></div>
-        </template>
+        </div>
       </div>
     </div>
   </Transition>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createInkBackground, type InkBackground } from '../utils/inkBackground'
 import { isDark } from '../utils/theme'
 
@@ -41,6 +41,8 @@ const inkCanvas = ref<HTMLCanvasElement | null>(null)
 const inkReady = ref(false)
 const reducedMotion = ref(false)
 const originStyle = ref({ '--ai-origin-x': '85%', '--ai-origin-y': '8%' })
+const originPoint = ref({ x: 0.85, y: 0.08 })
+const spreadDuration = 1.8
 
 let ink: InkBackground | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -49,6 +51,29 @@ let animationFrame = 0
 let elapsed = 0
 let lastTick = 0
 let lastDraw = 0
+
+function captureOrigin() {
+  const bounds = surface.value?.getBoundingClientRect()
+  const source = props.origin?.getBoundingClientRect()
+  const clamp = (value: number) => Math.max(0, Math.min(1, value))
+  // One generation cycle has one source. Starting another concurrent request
+  // must not move an expansion that is already visible.
+  originPoint.value = bounds?.width && bounds.height && source ? {
+    x: clamp((source.left + source.width / 2 - bounds.left) / bounds.width),
+    y: clamp((source.top + source.height / 2 - bounds.top) / bounds.height),
+  } : { x: 0.85, y: 0.08 }
+  originStyle.value = {
+    '--ai-origin-x': `${originPoint.value.x * 100}%`,
+    '--ai-origin-y': `${originPoint.value.y * 100}%`,
+  }
+}
+
+function renderInk() {
+  ink?.render(elapsed, isDark.value, {
+    progress: reducedMotion.value ? 1 : Math.min(elapsed / spreadDuration, 1),
+    origin: originPoint.value,
+  })
+}
 
 function pauseAnimation() {
   if (animationFrame) cancelAnimationFrame(animationFrame)
@@ -62,7 +87,7 @@ function drawFrame(now: number) {
   if (lastTick) elapsed += Math.min((now - lastTick) / 1000, 0.25)
   lastTick = now
   if (now - lastDraw >= 1000 / 24) {
-    ink.render(elapsed, isDark.value)
+    renderInk()
     lastDraw = now
   }
   animationFrame = requestAnimationFrame(drawFrame)
@@ -83,17 +108,20 @@ function releaseInk() {
   ink = null
 }
 
+function onFadeComplete() {
+  if (!props.active) releaseInk()
+}
+
 function initializeInk() {
   if (!props.active || !inkCanvas.value || !surface.value) return
   releaseInk()
   inkReady.value = false
   ink = createInkBackground(inkCanvas.value)
   if (!ink) return
-  elapsed = 0
   const resize = () => {
     if (!surface.value || !ink) return
     ink.resize(surface.value.clientWidth, surface.value.clientHeight)
-    ink.render(elapsed, isDark.value)
+    renderInk()
   }
   resize()
   inkReady.value = true
@@ -118,14 +146,22 @@ function onVisibilityChange() {
 
 watch([() => props.active, inkCanvas], ([active, canvas]) => {
   if (!active || !canvas) {
-    releaseInk()
+    // The transition still displays the last frame while fading out.
+    pauseAnimation()
+    resizeObserver?.disconnect()
+    resizeObserver = null
     return
   }
+  elapsed = reducedMotion.value ? spreadDuration : 0
+  captureOrigin()
   initializeInk()
 }, { flush: 'post' })
 
 watch([reducedMotion, isDark], () => {
-  ink?.render(elapsed, isDark.value)
+  // A static preview is already fully revealed; returning to motion should
+  // continue the flow instead of replaying the entry and making it disappear.
+  if (reducedMotion.value) elapsed = Math.max(elapsed, spreadDuration)
+  renderInk()
   if (reducedMotion.value) pauseAnimation()
   else resumeAnimation()
 })
@@ -143,17 +179,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
-watchEffect(() => {
-  if (!props.active || !surface.value || !props.origin) return
-  const bounds = surface.value.getBoundingClientRect()
-  const source = props.origin.getBoundingClientRect()
-  if (!bounds.width || !bounds.height) return
-  const clamp = (value: number) => Math.max(0, Math.min(100, value))
-  originStyle.value = {
-    '--ai-origin-x': `${clamp((source.left + source.width / 2 - bounds.left) / bounds.width * 100)}%`,
-    '--ai-origin-y': `${clamp((source.top + source.height / 2 - bounds.top) / bounds.height * 100)}%`,
-  }
-}, { flush: 'post' })
 </script>
 
 <style scoped>
@@ -175,8 +200,12 @@ watchEffect(() => {
   position: absolute;
   inset: 0;
   opacity: var(--ai-glow-strength);
-  transform-origin: var(--ai-origin-x) var(--ai-origin-y);
-  animation: ai-glow-spread 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ai-glow-fallback {
+  position: absolute;
+  inset: 0;
+  animation: ai-glow-fade 1.8s ease-in-out both;
 }
 
 .ai-glow-ink {
@@ -196,7 +225,7 @@ watchEffect(() => {
 .ai-glow-colors,
 .ai-glow-bloom {
   position: absolute;
-  inset: -22%;
+  inset: -40%;
   pointer-events: none;
 }
 
@@ -222,7 +251,7 @@ watchEffect(() => {
 }
 
 .ai-glow-enter-active {
-  transition: opacity 800ms ease-out;
+  transition: opacity 800ms ease-in-out;
 }
 
 .ai-glow-leave-active {
@@ -234,9 +263,9 @@ watchEffect(() => {
   opacity: 0;
 }
 
-@keyframes ai-glow-spread {
-  from { transform: scale(0.3); }
-  to { transform: scale(1); }
+@keyframes ai-glow-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes ai-glow-drift {
@@ -260,7 +289,7 @@ watchEffect(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ai-glow-spread,
+  .ai-glow-fallback,
   .ai-glow-colors,
   .ai-glow-bloom {
     animation: none;

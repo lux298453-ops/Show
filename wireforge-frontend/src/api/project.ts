@@ -20,6 +20,7 @@ export interface AnalysisStatus {
 export const projectApi = {
   list: () => http.get<any, Project[]>('/projects'),
   create: (name: string, description?: string) => http.post<any, Project>('/projects', { name, description }),
+  update: (id: number, body: { name: string; description: string }) => http.put<any, Project>(`/projects/${id}`, body),
   remove: (id: number) => http.delete<any, void>(`/projects/${id}`),
   get: (id: number) => http.get<any, Project>(`/projects/${id}`),
   scan: (id: number) => http.post<any, unknown[]>(`/projects/${id}/scan`),
