@@ -2,6 +2,7 @@ import type { AutowireItem, AutowirePlan } from '../types/autowire'
 
 export type ExclusionScope = '' | 'relation' | 'element'
 export interface RememberedDecision { fingerprint: string; selected: boolean; excluded: ExclusionScope; target?: number }
+export interface ReviewConfirmation { target: number; action: string; trigger: string }
 export const reviewKey = (item: AutowireItem) => item.stableKey || `${item.pageId}:${item.elementId}:${item.interactionId ?? 'new'}`
 export const reviewTargets = (item: AutowireItem) => item.navigation?.candidateTargets || item.targetSelection?.candidateTargets || []
 export const reviewTargetBasis = (item: AutowireItem) => item.navigation?.basis || item.targetSelection?.basis
@@ -11,7 +12,7 @@ export function rememberReview(plan: AutowirePlan | null, selected: string[], ex
   return new Map((plan?.items || []).map(item => [reviewKey(item), { fingerprint: reviewFingerprint(item), selected: selected.includes(item.id), excluded: excluded[item.id] || '', target: targets[reviewKey(item)] } as RememberedDecision]))
 }
 
-export function restoreReview(plan: AutowirePlan, memory: Map<string, RememberedDecision>) {
+export function restoreReview(plan: AutowirePlan, memory: Map<string, RememberedDecision>, confirmations: Map<string, ReviewConfirmation> = new Map()) {
   const selected: string[] = []
   const excluded: Record<string, ExclusionScope> = {}
   const targets: Record<string, number | undefined> = {}
@@ -19,7 +20,10 @@ export function restoreReview(plan: AutowirePlan, memory: Map<string, Remembered
     const old = memory.get(reviewKey(item))
     const unchanged = old?.fingerprint === reviewFingerprint(item)
     excluded[item.id] = unchanged ? old!.excluded : ''
-    if (item.applicable && !excluded[item.id] && (unchanged ? old!.selected : old ? false : item.selectedByDefault)) selected.push(item.id)
+    const confirmation = confirmations.get(reviewKey(item))
+    const confirmed = confirmation && item.targetPageId === confirmation.target && item.action === confirmation.action && item.trigger === confirmation.trigger
+      && reviewTargetBasis(item) === 'user_choice' && reviewTargets(item).some(t => t.id === confirmation.target)
+    if (item.applicable && !excluded[item.id] && (confirmation ? confirmed : unchanged ? old!.selected : old ? false : item.selectedByDefault)) selected.push(item.id)
     if (old?.target != null && reviewTargets(item).some(t => t.id === old.target)) targets[reviewKey(item)] = old.target
   }
   return { selected, excluded, targets }

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { rememberReview, restoreReview, reviewKey } from '../src/utils/autowireReviewState.ts'
+import { rememberReview, restoreReview, reviewKey, type ReviewConfirmation } from '../src/utils/autowireReviewState.ts'
 import type { AutowirePlan, AutowireItem } from '../src/types/autowire.ts'
 
 const item = (patch: Partial<AutowireItem> = {}): AutowireItem => ({ id: 'a', category: 'add', pageId: 1, pageName: '首页', elementId: 10, elementLabel: '我的', interactionId: null, trigger: 'click', action: 'navigate', targetPageId: 2, targetPageName: '我的', source: 'autowire_review', reason: '唯一匹配', evidenceRefs: [], applicable: true, selectedByDefault: true, stableKey: '1:nav:family:item:new', decisionFingerprint: 'target-2', ...patch })
@@ -38,4 +38,15 @@ test('ordinary target choices survive a successful server recheck and expire wit
   const state=restoreReview(plan(resolved),memory)
   assert.equal(state.targets[reviewKey(a)],3);assert.deepEqual(state.selected,[])
   assert.deepEqual(restoreReview(plan({...resolved,targetSelection:{basis:'suggestion',candidateTargets:[]}}),memory).targets,{})
+})
+test('an explicit staged confirmation stays checked only for its verified action and target', () => {
+  const a=item({category:'uncertain',applicable:false,selectedByDefault:false,targetSelection:{basis:'suggestion',candidateTargets:[{id:2,name:'我的'}]}})
+  const memory=rememberReview(plan(a),['a'],{}, {[reviewKey(a)]:2})
+  const confirmations=new Map<string,ReviewConfirmation>([[reviewKey(a),{target:2,action:'navigate',trigger:'click'}]])
+  const resolved={...a,id:'verified-a',category:'complete' as const,applicable:true,decisionFingerprint:'verified',targetSelection:{...a.targetSelection!,basis:'user_choice'}}
+  assert.deepEqual(restoreReview(plan(resolved),memory,confirmations).selected,['verified-a'])
+  for (const patch of [{targetPageId:3},{action:'popup'},{trigger:'hover'},{applicable:false},{targetSelection:{...resolved.targetSelection,basis:'suggestion'}}]) {
+    assert.deepEqual(restoreReview(plan({...resolved,...patch}),memory,confirmations).selected,[])
+  }
+  assert.deepEqual(restoreReview(plan(resolved),memory).selected,[],'Ordinary recomputation still clears selection after a changed proposal')
 })

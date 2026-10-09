@@ -94,6 +94,15 @@ class AutowireReviewServiceTest {
         var next=service.preview(1L,new PreviewRequest(plan.previewId(),List.of(),List.of(new NavigationResolution(item.stableKey(),3))));
         assertEquals("add",next.items().get(0).category());assertFalse(next.items().get(0).selectedByDefault());verifyNoInteractions(ai,render,tx);
     }
+    @Test void anExistingTargetStillNeedsReviewButCanBeConfirmedWithoutChangingThePage() {
+        button.setLabel("收集");var old=AutowirePlannerTest.line(40,button,"ai",3L);when(lines.selectList(any())).thenReturn(List.of(old));
+        var plan=service.preview(1L);var item=plan.items().get(0);assertEquals("uncertain",item.category());assertEquals(3L,item.targetPageId());assertFalse(item.applicable());
+        assertNotNull(item.targetSelection());
+        assertThrows(IllegalStateException.class,()->service.apply(1L,request(plan.previewId(),List.of(item.id()))));
+        var next=service.preview(1L,new PreviewRequest(plan.previewId(),List.of(),List.of(new NavigationResolution(item.stableKey(),3))));
+        var verified=next.items().get(0);assertTrue(verified.applicable());assertEquals(3L,verified.targetPageId());assertEquals("user_choice",verified.targetSelection().basis());
+        verify(lines,never()).updateById(any(Interaction.class));verifyNoInteractions(render);
+    }
     @Test void ordinaryTargetSelectionRejectsForgeryDuplicatesAndStalePreview() {
         var plan=service.preview(1L);var item=plan.items().get(0);var choice=new NavigationResolution(item.stableKey(),3);
         assertThrows(IllegalStateException.class,()->service.preview(1L,new PreviewRequest(plan.previewId(),List.of(),List.of(new NavigationResolution(item.stableKey(),999)))));

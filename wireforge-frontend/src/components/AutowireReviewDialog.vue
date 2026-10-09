@@ -40,8 +40,8 @@
               <article v-for="item in pageGroup.items" :key="item.id" class="item">
               <div class="item-heading">
                 <label class="choice">
-                  <input type="checkbox" :checked="selected.includes(item.id)" :disabled="!item.applicable || busy || !!result || !!excluded[item.id]"
-                    :aria-label="`应用 ${item.pageName} · ${item.elementLabel || '未命名元素'}`" @change="toggle(item.id, ($event.target as HTMLInputElement).checked)" />
+                  <input type="checkbox" :checked="selected.includes(item.id)" :disabled="(!item.applicable && !canConfirmTarget(item)) || busy || !!result || !!excluded[item.id]"
+                    :aria-label="`应用 ${item.pageName} · ${item.elementLabel || '未命名元素'}`" @change="chooseRelation(item, ($event.target as HTMLInputElement).checked)" />
                   <span class="change-tag" :class="item.category">{{ changeName(item) }}</span>
                 </label>
                 <span v-if="item.source === 'ai_inferred'" class="muted">AI 建议</span>
@@ -65,7 +65,7 @@
               <div v-if="item.category === 'complete' || previousState(item)" class="change-explanation">
                 <p><span>原来</span>{{ previousState(item) || '未设置目标页面' }}</p>
               </div>
-              <p v-if="pendingTarget(item) != null" class="pending-target">已选择「{{ pageTitle(pendingTarget(item)!) }}」，请点击“检查新目标”。</p>
+              <p v-if="pendingTarget(item) != null" class="pending-target"><template v-if="confirmations.has(reviewKey(item))">已勾选此跳转，请点击“检查新目标”完成校验。</template><template v-else>已选择「{{ pageTitle(pendingTarget(item)!) }}」，可勾选并点击“检查新目标”。</template></p>
               <p v-else-if="!item.applicable && !canChooseTarget(item)" class="muted confirmation-hint">{{ targetUnavailableReason(item) }}</p>
               <details class="item-more" :open="!!excluded[item.id]">
                 <summary>{{ excluded[item.id] ? recommendationChoice(item) : '更多设置' }}</summary>
@@ -129,7 +129,7 @@ import { computed, ref, watch } from 'vue'
 import { ArrowRight, FileText } from 'lucide-vue-next'
 import type { Page } from '../types'
 import type { AutowirePlan, AutowireApplyResult, AutowireDecisions, AutowireItem, AutowirePreviewRequest } from '../types/autowire'
-import { rememberReview, restoreReview, reviewKey, reviewTargets, reviewTargetBasis, type ExclusionScope } from '../utils/autowireReviewState'
+import { rememberReview, restoreReview, reviewKey, reviewTargets, reviewTargetBasis, type ExclusionScope, type ReviewConfirmation } from '../utils/autowireReviewState'
 const visible = defineModel<boolean>({ default: false })
 const props = defineProps<{ plan: AutowirePlan | null; result: AutowireApplyResult | null; busy: boolean; error: string; pages?: Page[] }>()
 const emit = defineEmits<{ apply: [AutowireDecisions]; recompute: [AutowirePreviewRequest]; retry: []; refresh: [] }>()
@@ -140,6 +140,7 @@ const restores = ref<number[]>([])
 const onlyNavigation = ref(false)
 const sourcePage = ref('')
 const targetChoices = ref<Record<string, number | undefined>>({})
+const confirmations = ref(new Map<string, ReviewConfirmation & { ownsTargetChoice: boolean }>())
 const groups: { key: AutowireItem['category']; label: string; empty: string }[] = [
   { key: 'complete', label: '补充 / 修改', empty: '没有需要补充的连线' },
   { key: 'add', label: '新增连线', empty: '没有新增连线' },
@@ -149,8 +150,9 @@ const groups: { key: AutowireItem['category']; label: string; empty: string }[] 
 watch(() => props.plan, (next, previous) => {
   if (!next || next.previewId === previous?.previewId) return
   const memory = next.projectId === previous?.projectId ? rememberReview(previous, selected.value, excluded.value, targetChoices.value) : new Map()
-  const restored = restoreReview(next, memory)
+  const restored = restoreReview(next, memory, next.projectId === previous?.projectId ? confirmations.value : new Map())
   selected.value = restored.selected; excluded.value = restored.excluded; targetChoices.value = restored.targets
+  confirmations.value = new Map()
   restores.value = restores.value.filter(id => next.exclusions.some(e => e.id === id))
   if (next.projectId !== previous?.projectId) sourcePage.value = ''
   if (sourcePage.value && !next.items.some(i => String(i.pageId) === sourcePage.value)) sourcePage.value = ''
@@ -203,7 +205,7 @@ function previousState(item: AutowireItem) {
   return `${actionName(action)}「${pageTitle(target)}」`
 }
 function changeName(item: AutowireItem) {
-  if (item.category === 'uncertain') return canChooseTarget(item) && item.targetPageId == null ? '请选择目标页面' : '关系需确认'
+  if (item.category === 'uncertain') return confirmations.value.has(reviewKey(item)) ? '已勾选，待检查' : canConfirmTarget(item) ? '请勾选确认' : canChooseTarget(item) && item.targetPageId == null ? '请选择目标页面' : '关系需确认'
   if (item.category === 'remove') return '删除连线'
   if (item.category === 'add') return item.action === 'navigate' ? '新增跳转' : item.action === 'back' ? '新增返回操作' : '新增弹窗交互'
   const oldAction = previousAction(item), oldTarget = previousTarget(item)
@@ -212,6 +214,10 @@ function changeName(item: AutowireItem) {
 }
 function needsTarget(action: string) { return ['navigate', 'popup', 'modal'].includes(action) }
 function canChooseTarget(item: AutowireItem) { return item.category !== 'remove' && needsTarget(item.action) && item.navigation?.status !== 'conflict' && reviewTargets(item).length > 0 }
+function canConfirmTarget(item: AutowireItem) {
+  const target = targetChoices.value[reviewKey(item)] ?? item.targetPageId
+  return canChooseTarget(item) && target != null && reviewTargets(item).some(t => t.id === target)
+}
 function targetUnavailableReason(item: AutowireItem) {
   if (item.navigation?.status === 'conflict') return '现有跳转有冲突，请先在画布的交互设置中处理。'
   if (item.navigation || item.targetSelection) return '没有可选的目标页面，请先添加目标页面再重新检查。'
@@ -247,8 +253,26 @@ const diagnosticSummary = computed(() => {
 })
 function chooseTarget(item: AutowireItem, value: string) {
   if (value && !reviewTargets(item).some(target => target.id === Number(value))) return
+  confirmations.value.delete(reviewKey(item))
   targetChoices.value[reviewKey(item)] = value ? Number(value) : undefined
   toggle(item.id, false)
+}
+function chooseRelation(item: AutowireItem, on: boolean) {
+  if (props.busy || props.result || excluded.value[item.id]) return
+  const key = reviewKey(item), confirmation = confirmations.value.get(key)
+  if (!on) {
+    if (confirmation?.ownsTargetChoice && targetChoices.value[key] === confirmation.target) delete targetChoices.value[key]
+    confirmations.value.delete(key)
+    toggle(item.id, false)
+    return
+  }
+  if (!item.applicable || pendingTarget(item) != null) {
+    if (!canConfirmTarget(item)) return
+    const target = targetChoices.value[key] ?? item.targetPageId!
+    confirmations.value.set(key, { target, action: item.action, trigger: item.trigger, ownsTargetChoice: targetChoices.value[key] == null })
+    targetChoices.value[key] = target
+  }
+  toggle(item.id, true)
 }
 function recompute() {
   const choices = (props.plan?.items || []).filter(i => canChooseTarget(i) && !excluded.value[i.id] && targetChoices.value[reviewKey(i)] != null)
@@ -260,9 +284,10 @@ function onExclude(id: string) {
   if (!excluded.value[id]) return
   toggle(id, false)
   const item = props.plan?.items.find(i => i.id === id)
-  if (item) delete targetChoices.value[reviewKey(item)]
+  if (item) { delete targetChoices.value[reviewKey(item)]; confirmations.value.delete(reviewKey(item)) }
 }
 function submit() {
+  if (props.busy || props.result || hasPendingTargets.value || !hasDecisions.value || props.plan?.items.some(i => selected.value.includes(i.id) && !i.applicable)) return
   emit('apply', { selectedIds: [...selected.value].sort(), exclusions: Object.entries(excluded.value).filter(([, scope]) => !!scope).map(([itemId, scope]) => ({ itemId, scope: scope as 'relation' | 'element' })).sort((a, b) => a.itemId.localeCompare(b.itemId)), restoreExclusionIds: [...restores.value].sort((a,b) => a-b) })
 }
 const actionName = (action: string) => ({ navigate: '跳转', popup: '打开弹窗', modal: '打开弹窗', back: '返回', tab_switch: '页内切换', tab: '页内切换', toggle: '切换当前页面的状态', close: '关闭弹窗' }[action] || '执行原有操作')
