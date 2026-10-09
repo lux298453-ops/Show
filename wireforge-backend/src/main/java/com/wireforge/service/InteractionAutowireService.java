@@ -138,7 +138,7 @@ public class InteractionAutowireService {
             String fingerprint = chosen == null ? item.decisionFingerprint() : AutowirePlanner.sha(item.stableKey()+"|"+item.action()+"|"+chosen+"|user_choice");
             items.set(index,new Item(item.id(),category,item.pageId(),item.pageName(),item.elementId(),item.elementLabel(),item.interactionId(),
                     item.trigger(),item.action(),target,targetName,chosen == null ? item.source() : "autowire_review",
-                    chosen == null ? item.reason() : "人工选择目标页面，检查通过后需勾选应用",item.evidenceRefs(),chosen != null || item.applicable(),
+                    chosen == null ? item.reason() : "使用人工选择的目标页面",item.evidenceRefs(),chosen != null || item.applicable(),
                     chosen == null && item.selectedByDefault(),item.stableKey(),fingerprint,null,new TargetSelection(basis,options)));
             if (chosen != null) accepted.add(item.stableKey());
         }
@@ -270,11 +270,142 @@ public class InteractionAutowireService {
         renderService.process(saved.applicationId());
         return withRenderStatus(saved);
     }
+
+    /** Resolve only the user's checked proposals inside the apply transaction; never run AI or expand the plan. */
+    private void resolveApplyChoices(Snapshot snapshot, Map<String, Item> byId, Set<String> selected, ApplyRequest request) {
+        Set<String> resolvedKeys = new HashSet<>();
+        resolveApplyChoices(snapshot, byId, selected, request.navigationResolutions(), true, resolvedKeys);
+        resolveApplyChoices(snapshot, byId, selected, request.targetResolutions(), false, resolvedKeys);
+    }
+
+    private void resolveApplyChoices(Snapshot snapshot, Map<String, Item> byId, Set<String> selected,
+                                     List<NavigationResolution> resolutions, boolean navigation, Set<String> resolvedKeys) {
+        for (NavigationResolution choice : resolutions) {
+            if (choice == null || choice.stableKey() == null || choice.stableKey().isBlank()
+                    || !resolvedKeys.add(choice.stableKey())) throw new IllegalStateException("同一个跳转项只能选择一个目标");
+            Item item = byId.values().stream().filter(i -> Objects.equals(i.stableKey(), choice.stableKey())
+                    && (navigation ? i.navigation() != null : i.navigation() == null && i.targetSelection() != null))
+                    .findFirst().orElseThrow(() -> new IllegalStateException("跳转项无效或不允许修改目标"));
+            if (!selected.contains(item.id())) throw new IllegalStateException("只有已勾选的跳转才能提交目标页面");
+            List<TargetOption> allowed = navigation ? item.navigation().candidateTargets() : item.targetSelection().candidateTargets();
+            if ("remove".equals(item.category()) || allowed == null || allowed.stream().noneMatch(t -> t.id() == choice.targetPageId()))
+                throw new IllegalStateException("目标不属于可选择的项目页面");
+            Page target = snapshot.pages().stream().filter(p -> p.getId() == choice.targetPageId() && p.getId() != item.pageId())
+                    .findFirst().orElseThrow(() -> new IllegalStateException("目标页面不存在或属于当前页"));
+            Item resolved;
+            if (navigation) {
+                resolved = resolveNavigationChoice(snapshot, item, target);
+            } else {
+                assertReviewSource(snapshot, item, List.of(item.elementId()));
+                List<Item> onlyChosen = new ArrayList<>(List.of(item));
+                prepareTargetSelections(snapshot, onlyChosen, Map.of(item.stableKey(), choice.targetPageId()));
+                resolved = onlyChosen.get(0);
+            }
+            if (!resolved.applicable() || !item.id().equals(resolved.id()) || !Objects.equals(item.stableKey(), resolved.stableKey())
+                    || item.pageId() != resolved.pageId() || item.elementId() != resolved.elementId()
+                    || !Objects.equals(item.interactionId(), resolved.interactionId())
+                    || !Objects.equals(item.trigger(), resolved.trigger()) || !Objects.equals(item.action(), resolved.action()))
+                throw conflict("原跳转的来源、操作或依据已变化，请重新检查");
+            byId.put(item.id(), resolved);
+        }
+    }
+
+    private Item resolveNavigationChoice(Snapshot snapshot, Item item, Page target) {
+        NavigationInfo nav = item.navigation();
+        if ("conflict".equals(nav.status()) || "conflict".equals(nav.basis()) || !"navigate".equals(item.action())
+                || AutowirePlanner.safe(target.getName()).matches(".*(弹窗|遮罩|提示弹框|确认弹框).*"))
+            throw new IllegalStateException("现有导航存在冲突或目标不允许跳转，请先处理关系");
+        Page source = snapshot.pages().stream().filter(p -> p.getId() == item.pageId()).findFirst().orElseThrow();
+        List<Element> siblings = pageElements(snapshot, item.pageId());
+        NavigationPlanner.Entry entry = NavigationPlanner.detect(List.of(source), siblings).stream()
+                .filter(e -> e.familyKey().equals(nav.familyKey()) && e.itemKey().equals(nav.itemKey())
+                        && new HashSet<>(e.ids()).equals(new HashSet<>(nav.memberElementIds())))
+                .findFirst().orElseThrow(() -> conflict("导航元素已变化，请重新检查"));
+        assertReviewSource(snapshot, item, entry.ids());
+        if ("local".equals(NavigationPlanner.hint(entry.anchor(), "kind")) || NavigationPlanner.localLabel(entry.label()))
+            throw new IllegalStateException("该导航属于页内切换，不能改为页面跳转");
+        String relation = AutowirePlanner.relationKey(item.trigger(), item.action(), target.getId());
+        if (entry.members().stream().anyMatch(e -> AutowirePlanner.excluded(e, siblings, "*", snapshot.exclusions())
+                || AutowirePlanner.excluded(e, siblings, relation, snapshot.exclusions()))
+                || snapshot.annotations().stream().anyMatch(a -> source.getId().equals(a.getPageId()) && entry.ids().contains(a.getElementId())
+                && AutowirePlanner.safe(a.getText()).matches("(?s).*(不(?:需要|可|能|支持)?(?:点击|跳转|连线)|仅(?:展示|显示)|无需(?:交互|跳转)).*")))
+            throw conflict("该导航已被排除或明确要求不跳转，请先处理关系");
+        Interaction previous = item.interactionId() == null ? null : snapshot.lines().stream()
+                .filter(i -> i.getId().equals(item.interactionId())).findFirst().orElseThrow();
+        if (previous != null && (!Objects.equals(nav.previousAction(), previous.getActionType())
+                || !Objects.equals(nav.previousTargetPageId(), previous.getTargetPageId())
+                || !Set.of("navigate", "tab_switch", "tab").contains(AutowirePlanner.safe(previous.getActionType()))))
+            throw conflict("原导航操作已变化，请重新检查");
+        return NavigationPlanner.proposal(entry, previous, target, "user_choice", "使用人工选择的目标页面", false, snapshot.pages());
+    }
+
+    private void assertReviewSource(Snapshot snapshot, Item item, List<Long> ownerIds) {
+        List<Interaction> current = snapshot.lines().stream().filter(i -> ownerIds.contains(i.getElementId())).toList();
+        if (current.stream().anyMatch(i -> !AutowirePlanner.automatic(i)))
+            throw conflict("人工关系或来源不明的关系已保留，请先处理关系");
+        if (item.interactionId() == null ? !current.isEmpty() : current.size() != 1 || !Objects.equals(current.get(0).getId(), item.interactionId())
+                || !Objects.equals(current.get(0).getElementId(), item.elementId())
+                || !Objects.equals(reviewTrigger(current.get(0).getTriggerType()), reviewTrigger(item.trigger())))
+            throw conflict("原跳转关系或触发方式已变化，请重新检查");
+    }
+
+    private static String reviewTrigger(String trigger) {
+        return AutowirePlanner.safe(trigger).isBlank() ? "click" : trigger;
+    }
+
+    /** A per-page choice must not silently replace the shared target confirmed on an unchecked page. */
+    private void assertConfirmedNavigationTargets(Snapshot snapshot, Map<String, Item> byId, Set<String> selected) {
+        List<Item> navigation = selected.stream().map(byId::get)
+                .filter(i -> i.navigation() != null && !"remove".equals(i.category())).toList();
+        if (navigation.isEmpty()) return;
+        Set<Long> reviewedLines = navigation.stream().map(Item::interactionId).filter(Objects::nonNull).collect(Collectors.toSet());
+        List<NavigationPlanner.Entry> entries = NavigationPlanner.detect(snapshot.pages(), snapshot.elements());
+        Map<Long, Page> pages = snapshot.pages().stream().collect(Collectors.toMap(Page::getId, p -> p));
+        for (Item item : navigation) {
+            NavigationInfo nav = item.navigation();
+            List<NavigationPlanner.Entry> peers = entries.stream().filter(e -> e.familyKey().equals(nav.familyKey())
+                    && e.itemKey().equals(nav.itemKey())).toList();
+            for (NavigationPlanner.Entry peer : peers) {
+                List<Element> siblings = pageElements(snapshot, peer.page().getId());
+                for (Interaction line : snapshot.lines()) {
+                    if (!peer.ids().contains(line.getElementId()) || reviewedLines.contains(line.getId())
+                            || !"navigate".equals(line.getActionType()) || !pages.containsKey(line.getTargetPageId())
+                            || !Set.of("user", "autowire_review").contains(AutowirePlanner.safe(line.getSource()))) continue;
+                    if (peer.members().stream().anyMatch(e -> AutowirePlanner.excluded(e, siblings,
+                            AutowirePlanner.relationKey(line.getTriggerType(), "navigate", line.getTargetPageId()), snapshot.exclusions()))) continue;
+                    if (!Objects.equals(item.targetPageId(), line.getTargetPageId()))
+                        throw conflict("导航「" + nav.label() + "」在「" + peer.page().getName() + "」已确认跳转到「"
+                                + pages.get(line.getTargetPageId()).getName() + "」，本次未选择该关系，不能改写同组目标；请保持已确认目标或先处理原关系");
+                }
+            }
+            for (NavigationPlanner.Mapping mapping : snapshot.mappings()) {
+                if (!mapping.active() || !mapping.familyKey().equals(nav.familyKey()) || !mapping.itemKey().equals(nav.itemKey())
+                        || !pages.containsKey(mapping.targetPageId()) || reviewedLines.contains(mapping.sourceInteractionId())) continue;
+                Interaction source = mapping.sourceInteractionId() == null ? null : snapshot.lines().stream()
+                        .filter(line -> mapping.sourceInteractionId().equals(line.getId()) && "navigate".equals(line.getActionType())
+                                && Objects.equals(line.getTargetPageId(), mapping.targetPageId())
+                                && Set.of("user", "autowire_review").contains(AutowirePlanner.safe(line.getSource()))
+                                && peers.stream().anyMatch(peer -> peer.ids().contains(line.getElementId())))
+                        .findFirst().orElse(null);
+                if (mapping.sourceInteractionId() != null && source == null) continue;
+                if (!Objects.equals(item.targetPageId(), mapping.targetPageId()))
+                    throw conflict("同组导航「" + nav.label() + "」已保存目标「" + pages.get(mapping.targetPageId()).getName()
+                            + "」，本次选择不能覆盖该已确认映射；请保持已确认目标或先处理原关系");
+            }
+        }
+    }
+
     private ApplyResult applyTransaction(Long projectId, ApplyRequest request, String requestHash) {
         Snapshot s = snapshot(projectId, true);
         List<Map<String, Object>> previous = jdbc.queryForList("SELECT request_hash,result_json FROM autowire_application WHERE project_id=? AND idempotency_key=?", projectId, request.idempotencyKey());
         if (!previous.isEmpty()) {
-            if (!requestHash.equals(previous.get(0).get("request_hash"))) throw conflict("同一应用标识不能提交不同内容");
+            String storedHash = previous.get(0).get("request_hash").toString();
+            // Applications saved before target choices existed can still be retried with the old request contract.
+            ObjectNode legacy = objectMapper.valueToTree(request);
+            legacy.remove(List.of("navigationResolutions", "targetResolutions"));
+            boolean legacyRetry = request.navigationResolutions().isEmpty() && request.targetResolutions().isEmpty()
+                    && AutowirePlanner.sha(write(legacy)).equals(storedHash);
+            if (!requestHash.equals(storedHash) && !legacyRetry) throw conflict("同一应用标识不能提交不同内容");
             return read(previous.get(0).get("result_json").toString(), ApplyResult.class);
         }
         Cached cache = previews.get(request.previewId());
@@ -285,6 +416,7 @@ public class InteractionAutowireService {
         List<ExcludeDecision> excluded = request.exclusions() == null ? List.of() : request.exclusions();
         Set<String> excludedIds = excluded.stream().map(ExcludeDecision::itemId).collect(Collectors.toSet());
         if (excludedIds.size() != excluded.size() || selected.stream().anyMatch(excludedIds::contains)) throw new IllegalStateException("应用与排除不能重复或同时选择");
+        resolveApplyChoices(s, byId, selected, request);
         for (String id : selected) if (!byId.containsKey(id) || !byId.get(id).applicable()) throw new IllegalStateException("存在无效或无法应用的预检项");
         for (ExcludeDecision decision : excluded) {
             Item i = byId.get(decision.itemId());
@@ -303,6 +435,7 @@ public class InteractionAutowireService {
             Long previousTarget = selectedMappings.putIfAbsent(key,i.targetPageId());
             if (previousTarget != null && !previousTarget.equals(i.targetPageId())) throw new IllegalStateException("同组导航不能在本次审核中应用不同目标，请先确认映射");
         }
+        assertConfirmedNavigationTargets(s, byId, selected);
         String backup = write(Map.of("interactions", s.lines(), "exclusions", s.exclusions(), "navigationMappings", s.mappings()));
         List<Element> changed = new ArrayList<>(); int added = 0, completed = 0, removed = 0;
         for (Long restoreId : restoreIds) exclusionMapper.update(null, Wrappers.<InteractionExclusion>lambdaUpdate().eq(InteractionExclusion::getId, restoreId).eq(InteractionExclusion::getProjectId, projectId).set(InteractionExclusion::getActive, false).set(InteractionExclusion::getUpdatedAt, LocalDateTime.now()));
@@ -326,6 +459,8 @@ public class InteractionAutowireService {
                 try { JsonNode old = objectMapper.readTree(AutowirePlanner.safe(line.getParams())); params = old != null && old.isObject() ? (ObjectNode) old : objectMapper.createObjectNode(); }
                 catch (Exception ex) { params = objectMapper.createObjectNode(); }
                 params.set("autowire_evidence", objectMapper.valueToTree(item.evidenceRefs()));
+                if (item.targetSelection() != null && "user_choice".equals(item.targetSelection().basis()))
+                    params.put("target_name", item.targetPageName());
                 if (item.navigation() != null) {
                     var nav = item.navigation();
                     params.set("navigation",objectMapper.valueToTree(new NavigationInfo(nav.familyKey(),nav.itemKey(),nav.label(),nav.region(),nav.memberElementIds(),nav.x(),nav.y(),nav.width(),nav.height(),nav.status(),nav.basis(),nav.previousAction(),nav.previousTargetPageId(),List.of())));

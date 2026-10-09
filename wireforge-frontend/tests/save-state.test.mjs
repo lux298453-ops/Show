@@ -14,12 +14,29 @@ const result = await build({
   define: { 'import.meta.env.VITE_API_BASE_URL': '""' },
 })
 await writeFile(output, result.outputFiles[0].contents)
-const { http, useSaveState, beginSave, finishSave, discardSaveState, markLocalEdit } = createRequire(import.meta.url)(output)
+const { http, useSaveState, beginSave, finishSave, discardSaveState, markLocalEdit, waitForSaved } = createRequire(import.meta.url)(output)
 after(async () => { await unlink(output); await rmdir(directory) })
 
 function config(scope, route, data, method = 'put') {
   return { url: `/projects/${scope}/${route}`, method, data, headers: {} }
 }
+
+test('preview waits for local edits and pending saves before continuing', async () => {
+  markLocalEdit('740',1)
+  let ready=false
+  const waiting=waitForSaved('740',{quietMs:0,timeoutMs:1000}).then(()=>{ready=true})
+  await new Promise(resolve=>setTimeout(resolve,10));assert.equal(ready,false)
+  const ticket=beginSave(config('740','pages/1/html',{html:'edited'}),async()=>{})
+  await new Promise(resolve=>setTimeout(resolve,10));assert.equal(ready,false)
+  finishSave(ticket);await waiting;assert.equal(ready,true)
+})
+test('save failure, cancellation and unfinished edits do not silently start preview', async () => {
+  markLocalEdit('741',1,'保存失败')
+  await assert.rejects(waitForSaved('741'),/保存失败/)
+  markLocalEdit('742',1);const controller=new AbortController()
+  const waiting=waitForSaved('742',{signal:controller.signal});controller.abort();await assert.rejects(waiting,/取消/)
+  markLocalEdit('743',1);await assert.rejects(waitForSaved('743',{timeoutMs:20}),/仍未保存/)
+})
 
 test('a late success cannot report saved while a newer edit is still pending or failed', () => {
   const state = useSaveState('701')

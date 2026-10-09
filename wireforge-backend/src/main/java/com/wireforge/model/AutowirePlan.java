@@ -2,7 +2,7 @@ package com.wireforge.model;
 
 import java.util.List;
 
-/** Server-owned proposals: clients submit item IDs, never arbitrary relation payloads. */
+/** Server-owned proposals: clients submit item IDs and allowed target choices, never arbitrary relations. */
 public record AutowirePlan(String previewId, long projectId, long expiresAt, List<Item> items,
                            List<ExclusionView> exclusions, List<String> warnings, int protectedCount,
                            List<NavigationDiagnostic> navigationDiagnostics) {
@@ -53,7 +53,18 @@ public record AutowirePlan(String previewId, long projectId, long expiresAt, Lis
                                 String reason, boolean matched) {}
     public record ExcludeDecision(String itemId, String scope) {}
     public record ApplyRequest(String previewId, String idempotencyKey, List<String> selectedIds,
-                               List<ExcludeDecision> exclusions, List<Long> restoreExclusionIds) {}
+                               List<ExcludeDecision> exclusions, List<Long> restoreExclusionIds,
+                               List<NavigationResolution> navigationResolutions,
+                               List<NavigationResolution> targetResolutions) {
+        public ApplyRequest {
+            navigationResolutions = navigationResolutions == null ? List.of() : List.copyOf(navigationResolutions);
+            targetResolutions = targetResolutions == null ? List.of() : List.copyOf(targetResolutions);
+        }
+        public ApplyRequest(String previewId, String idempotencyKey, List<String> selectedIds,
+                            List<ExcludeDecision> exclusions, List<Long> restoreExclusionIds) {
+            this(previewId, idempotencyKey, selectedIds, exclusions, restoreExclusionIds, List.of(), List.of());
+        }
+    }
     public record ApplyResult(String applicationId, int added, int completed, int removed,
                               int excluded, String renderStatus, String renderError) {}
 }

@@ -93,7 +93,7 @@ export const projectApi = {
   /** Compatibility entry: now read-only, never silently applies inferred relations. */
   autowireInteractionsWithAi: (id: number) =>
     http.post<any, AutowirePlan>(`/projects/${id}/autowire-ai`),
-  previewAutowire: (id: number, body?: AutowirePreviewRequest) => http.post<any, AutowirePlan>(`/projects/${id}/autowire/preview`, body),
+  previewAutowire: (id: number, body?: AutowirePreviewRequest, signal?: AbortSignal) => http.post<any, AutowirePlan>(`/projects/${id}/autowire/preview`, body, { signal }),
   applyAutowire: (id: number, body: AutowireApplyRequest) =>
     http.post<any, AutowireApplyResult>(`/projects/${id}/autowire/apply`, body),
   autowireStatus: (id: number, applicationId: string) =>

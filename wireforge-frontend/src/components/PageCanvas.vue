@@ -367,6 +367,10 @@ const emit = defineEmits<{
   (e: 'layers-changed', payload: { pageId: number; layers: Array<{ uid: string; name: string; kind?: string; hidden?: boolean; locked?: boolean; children?: unknown[] }> }): void
   (e: 'frameFocus'): void
   (e: 'selectionModifiers', state: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): void
+  (e: 'panKey', pressed: boolean): void
+  (e: 'panStart', position: { clientX: number; clientY: number; button: number }): void
+  (e: 'panMove', position: { clientX: number; clientY: number; buttons: number }): void
+  (e: 'panEnd'): void
   (e: 'editVector', payload: any): void
   (e: 'hotspot', payload: { x: number; y: number; w: number; h: number; label: string; uid: string }): void
   (e: 'hotspotClear'): void
@@ -1000,6 +1004,38 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
   <script data-wf-inject>
   (function(){
     var EDIT = ${initialInteractive ? 'false' : 'true'}, hovered = null, touched = [], st = null, PROTO_HOTSPOT = false;
+    var panSpaceHeld = false, panGestureActive = false;
+    function publishPanKey(pressed){
+      if(panSpaceHeld === pressed) return;
+      panSpaceHeld = pressed;
+      parent.postMessage({ type: 'wf-pan-key', pressed: pressed }, '*');
+    }
+    document.addEventListener('keydown', function(e){
+      if(e.code !== 'Space' || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || document.body.classList.contains('wf-interactive')) return;
+      var t = e.target;
+      if(t && (t.isContentEditable || (t.closest && t.closest('input,textarea,select,[data-wf-editing-text="true"]')))) return;
+      e.preventDefault(); publishPanKey(true);
+    }, true);
+    document.addEventListener('keyup', function(e){ if(e.code === 'Space') publishPanKey(false); }, true);
+    window.addEventListener('blur', function(){ publishPanKey(false); });
+    document.addEventListener('mousedown', function(e){
+      if(document.body.classList.contains('wf-interactive') || (e.button !== 1 && !(panSpaceHeld && e.button === 0))) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      panGestureActive = true;
+      parent.postMessage({ type: 'wf-pan-start', clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY, button: e.button }, '*');
+    }, true);
+    // A gesture started in the iframe may keep receiving mouse events even after the parent covers it.
+    document.addEventListener('mousemove', function(e){
+      if(!panGestureActive) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      parent.postMessage({ type: 'wf-pan-move', screenX: e.screenX, screenY: e.screenY, buttons: e.buttons }, '*');
+    }, true);
+    document.addEventListener('mouseup', function(e){
+      if(!panGestureActive) return;
+      panGestureActive = false;
+      e.preventDefault(); e.stopImmediatePropagation();
+      parent.postMessage({ type: 'wf-pan-end' }, '*');
+    }, true);
     var PAGE_ID = ${JSON.stringify(props.page?.id ?? 0)};
     var selectedEl = null;
     var selectedEls = [];
@@ -2207,6 +2243,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     }
 
     function doExport(){
+      clearTimeout(st); st = null;
       try{
         var clone = document.documentElement.cloneNode(true);
         var bad = clone.querySelectorAll('[data-wf-inject],#wf-edit-toast,#wf-transform-box,#wf-marquee-box,[data-wf-editing-text]');
@@ -3674,6 +3711,17 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
     window.addEventListener('message', function(e){
       var d = e.data || {};
+      if(d.type === 'wf-pan-stop' && e.source === parent){
+        panGestureActive = false;
+        return;
+      }
+      if(d.type === 'wf-flush-save' && e.source === parent){
+        var editingText = document.querySelector('[data-wf-editing-text="true"]');
+        if(editingText) editingText.blur();
+        if(st !== null) doExport();
+        parent.postMessage({ type: 'wf-save-flushed', requestId: d.requestId }, '*');
+        return;
+      }
       if(d.type === 'wf-frame-size'){
         applyFrameSize(d.width, d.height);
         return;
@@ -5488,12 +5536,49 @@ function unwrapAssetUrl(value: string) {
   return s
 }
 
+let framePanOrigin: { clientX: number; clientY: number; screenX: number; screenY: number } | null = null
+
 function onIframeMessage(e: MessageEvent) {
   // 关键：只处理当前组件 iframe 自己发出的消息。iframe 的 postMessage 会广播给
   // 父窗口所有监听器，若不校验来源，A 页微调保存会污染所有页面的 HTML（全变同一页）。
   if (e.source !== htmlFrameRef.value?.contentWindow) return
   const d = e.data as { type?: string; page?: string; html?: string; h?: number; src?: string } | null
   if (!d) return
+  if (d.type === 'wf-save-flushed') {
+    saveFlushes.get(String((d as any).requestId))?.()
+    return
+  }
+  if (d.type === 'wf-pan-key') {
+    emit('panKey', !!(d as any).pressed)
+    return
+  }
+  if (d.type === 'wf-pan-start') {
+    const frame = htmlFrameRef.value, rect = frame?.getBoundingClientRect(), position = d as any
+    if (frame && rect && ['clientX', 'clientY', 'screenX', 'screenY'].every(key => Number.isFinite(position[key]))) {
+      const point = {
+        clientX: rect.left + position.clientX * rect.width / (frame.clientWidth || 1),
+        clientY: rect.top + position.clientY * rect.height / (frame.clientHeight || 1),
+      }
+      framePanOrigin = { ...point, screenX: position.screenX, screenY: position.screenY }
+      emit('panStart', { ...point, button: Number(position.button) })
+    }
+    return
+  }
+  if (d.type === 'wf-pan-move') {
+    const position = d as any
+    // The iframe moves with the canvas. Screen deltas avoid mixing old local coordinates with its new bounds.
+    if (framePanOrigin && Number.isFinite(position.screenX) && Number.isFinite(position.screenY)) emit('panMove', {
+      clientX: framePanOrigin.clientX + position.screenX - framePanOrigin.screenX,
+      clientY: framePanOrigin.clientY + position.screenY - framePanOrigin.screenY,
+      buttons: Number(position.buttons),
+    })
+    return
+  }
+  if (d.type === 'wf-pan-end') {
+    framePanOrigin = null
+    emit('panEnd')
+    return
+  }
   if (d.type === 'wf-autowire-unmapped') {
     emit('autowireUnmapped', props.page.id)
     return
@@ -5593,6 +5678,23 @@ function onIframeMessage(e: MessageEvent) {
 }
 onMounted(() => window.addEventListener('message', onIframeMessage))
 onUnmounted(() => window.removeEventListener('message', onIframeMessage))
+
+const saveFlushes = new Map<string, () => void>()
+function stopCanvasPan() {
+  framePanOrigin = null
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-pan-stop' }, '*')
+}
+onUnmounted(() => { for (const resolve of saveFlushes.values()) resolve() })
+function flushPendingSave(): Promise<void> {
+  const frame = htmlFrameRef.value?.contentWindow
+  if (!frame) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID()
+    const timeout = setTimeout(() => { saveFlushes.delete(requestId); reject(new Error(`「${props.page.name}」原型尚未就绪，请稍后重试检查`)) }, 3000)
+    saveFlushes.set(requestId, () => { clearTimeout(timeout); saveFlushes.delete(requestId); resolve() })
+    frame.postMessage({ type: 'wf-flush-save', requestId }, '*')
+  })
+}
 
 function triggerHotspots() {
   // 热区提示已完全停用
@@ -6170,6 +6272,8 @@ function insertVectorShapes(shapes: any[], elementUid?: string, select = true) {
 
 // 暴露尺寸与热区提示及组件插入/复制/粘贴/样式修改方法，供父组件调用
 defineExpose({
+  flushPendingSave,
+  stopCanvasPan,
   stageW,
   stageH,
   triggerHotspots,

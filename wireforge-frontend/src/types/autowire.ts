@@ -55,6 +55,9 @@ export interface AutowireDecisions {
   selectedIds: string[]
   exclusions: { itemId: string; scope: 'relation' | 'element' }[]
   restoreExclusionIds: number[]
+  /** Explicit targets are validated and saved with the selected relations, without another AI preview. */
+  navigationResolutions?: { stableKey: string; targetPageId: number }[]
+  targetResolutions?: { stableKey: string; targetPageId: number }[]
 }
 export interface AutowireApplyRequest extends AutowireDecisions {
   previewId: string

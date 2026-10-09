@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import type { InternalAxiosRequestConfig } from 'axios'
 
 type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
@@ -128,6 +128,30 @@ export function discardSaveState(scope: string): void {
 
 export function markLocalEdit(scope: string, pageId: number, error = ''): void {
   stateFor(scope).localEdits.set(`put:/projects/${scope}/pages/${pageId}/html`, error)
+}
+
+/** Wait for queued edits and their HTTP writes, without replaying failed writes. */
+export function waitForSaved(scope: string, options: { timeoutMs?: number; quietMs?: number; signal?: AbortSignal } = {}): Promise<void> {
+  const state = useSaveState(scope)
+  return new Promise((resolve, reject) => {
+    let quietTimer: ReturnType<typeof setTimeout> | undefined
+    let stop = () => {}
+    const finish = (error?: Error) => {
+      clearTimeout(timeout); clearTimeout(quietTimer); stop()
+      options.signal?.removeEventListener('abort', cancel)
+      error ? reject(error) : resolve()
+    }
+    const cancel = () => finish(new Error('检查已取消'))
+    const check = () => {
+      clearTimeout(quietTimer)
+      if (state.status.value === 'error') return finish(new Error(state.errorMessage.value || '当前编辑保存失败，请先重试保存'))
+      if (!state.hasUnsavedChanges.value) quietTimer = setTimeout(() => finish(), options.quietMs ?? 150)
+    }
+    const timeout = setTimeout(() => finish(new Error('当前编辑仍未保存完成，请检查保存状态后重试')), options.timeoutMs ?? 30000)
+    stop = watch([state.hasUnsavedChanges, state.status, state.errorMessage], check, { flush: 'sync' })
+    options.signal?.addEventListener('abort', cancel, { once: true })
+    if (options.signal?.aborted) cancel(); else check()
+  })
 }
 
 export function useSaveState(scope: string) {

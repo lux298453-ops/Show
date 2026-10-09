@@ -242,10 +242,13 @@
           '!cursor-grabbing': (activeDrawTool === 'hand' || isSpacePressed) && isAnyDragging,
           '!cursor-text': activeDrawTool === 'text' && !isAnyDragging,
           '!cursor-crosshair': activeDrawTool !== 'select' && activeDrawTool !== 'hand' && activeDrawTool !== 'text' && !isAnyDragging,
-          '!cursor-default': activeDrawTool === 'select',
+          '!cursor-default': activeDrawTool === 'select' && !isSpacePressed,
         }"
         @wheel.prevent="onWheel"
         @mousedown="onMouseDown"
+        @mousedown.capture="onCanvasPanCapture"
+        @mouseenter="canvasHovered = true"
+        @mouseleave="canvasHovered = false"
         @dragover.prevent="onViewportDragOver"
         @drop.prevent="onViewportDrop"
       >
@@ -481,11 +484,17 @@
                 :proto-hotspot="workbenchMode === 'interactive' && b.blockType === 'prototype'"
                 @frame-focus="onPrototypeFrameFocus(b.page.id, b.key)"
                 @selection-modifiers="onFrameSelectionModifiers"
+                @pan-key="onFramePanKey"
+                @pan-start="onFramePanStart"
+                @pan-move="onWindowMouseMove"
+                @pan-end="onWindowMouseUp"
                 @edit-vector="onEditVector(b.page.id, $event)"
                 @hotspot="onPrototypeHotspot(b, $event)"
                 @hotspot-clear="onPrototypeHotspotClear(b.key)"
                 @autowire-unmapped="onAutowireUnmapped"
               />
+
+              <div v-if="isSpacePressed || activeDrawTool === 'hand'" class="canvas-pan-surface absolute inset-0 z-[170] cursor-grab" aria-hidden="true" />
 
               <div
                 v-if="activeDrawTool === 'select' && frameSelectionModifier && !(selectedNodeKey === b.key && hasSelectedDomElements)"
@@ -1797,7 +1806,7 @@
     </el-dialog>
 
     <AutowireReviewDialog v-model="showAutowireReview" :plan="autowirePlan" :result="autowireResult"
-      :busy="isAutowiringAi || isApplyingAutowire" :error="autowireError" :pages="pages"
+      :busy="isAutowiringAi || isApplyingAutowire" :error="autowireError" :pages="pages" :loading-message="autowireLoadingMessage"
       @apply="applyAutowireReview" @recompute="triggerAutowireAi" @retry="retryAutowirePreview" @refresh="refreshAutowireStatus" />
 
     <AnnotationCreateDialog v-model="showAnnotationCreate" :project-id="id" :page="annotationCreatePage"
@@ -2072,7 +2081,7 @@ import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBott
 import NavbarControls from '../components/NavbarControls.vue'
 import AiGenerationGlow from '../components/AiGenerationGlow.vue'
 import { t } from '../utils/i18n'
-import { discardSaveState, markLocalEdit, useSaveState } from '../utils/saveState'
+import { discardSaveState, markLocalEdit, useSaveState, waitForSaved } from '../utils/saveState'
 import LayerTree from '../components/LayerTree.vue'
 import DesignInspector from '../components/DesignInspector.vue'
 import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
@@ -3431,6 +3440,9 @@ const showAutowireReview = ref(false)
 const autowirePlan = ref<AutowirePlan | null>(null)
 const autowireResult = ref<AutowireApplyResult | null>(null)
 const autowireError = ref('')
+const autowireLoadingMessage = ref('')
+let autowireAbort: AbortController | null = null
+let workbenchDisposed = false
 let pendingAutowireRequest: AutowireApplyRequest | null = null
 function onAutowireUnmapped(pageId: number) {
   if (!showAutowireReview.value || !autowireResult.value) return
@@ -3440,21 +3452,33 @@ function onAutowireUnmapped(pageId: number) {
 
 async function triggerAutowireAi(request?: AutowirePreviewRequest | Event) {
   if (isAutowiringAi.value || isApplyingAutowire.value) return
-  if (hasUnsavedChanges.value) { showToast('请先完成当前编辑的保存，再检查项目关系'); return }
   isAutowiringAi.value = true
+  resetCanvasPan()
   autowireError.value = ''
+  autowireResult.value = null
+  showAutowireReview.value = true
+  const controller = new AbortController()
+  autowireAbort = controller
   try {
-    showToast('正在检查已有关系与业务依据，完成后可审核连线')
-    autowirePlan.value = await projectApi.previewAutowire(id, request && !(request instanceof Event) ? request : undefined)
-    autowireResult.value = null
+    autowireLoadingMessage.value = '正在等待当前编辑保存，保存完成后自动开始检查…'
+    await nextTick()
+    await Promise.all(Object.values(pageRefs.value).map(frame => frame?.flushPendingSave()))
+    await waitForSaved(String(id), { signal: controller.signal })
+    if (workbenchDisposed) return
+    autowireLoadingMessage.value = '正在检查已有跳转和导航关系，请稍候…'
+    const plan = await projectApi.previewAutowire(id, request && !(request instanceof Event) ? request : undefined, controller.signal)
+    if (workbenchDisposed) return
+    autowirePlan.value = plan
     pendingAutowireRequest = null
     showAutowireReview.value = true
     showToast('预检完成，尚未修改项目关系')
   } catch (err: any) {
+    if (workbenchDisposed || controller.signal.aborted) return
     autowireError.value = err.message || '预检失败，请重试'
-    showToast(autowireError.value)
   } finally {
     isAutowiringAi.value = false
+    autowireLoadingMessage.value = ''
+    if (autowireAbort === controller) autowireAbort = null
   }
 }
 
@@ -3462,18 +3486,19 @@ async function applyAutowireReview(decisions: AutowireDecisions) {
   if (!autowirePlan.value || isApplyingAutowire.value) return
   if (hasUnsavedChanges.value) { autowireError.value = '当前编辑尚未保存，请完成保存后重新预检'; return }
   const base = { previewId: autowirePlan.value.previewId, ...decisions }
-  const previous = pendingAutowireRequest && { previewId: pendingAutowireRequest.previewId, selectedIds: pendingAutowireRequest.selectedIds, exclusions: pendingAutowireRequest.exclusions, restoreExclusionIds: pendingAutowireRequest.restoreExclusionIds }
+  const previous = pendingAutowireRequest && (({ idempotencyKey: _key, ...body }) => body)(pendingAutowireRequest)
   // Retrying the same review reuses its key even if the response was lost after commit.
   if (!previous || JSON.stringify(previous) !== JSON.stringify(base)) pendingAutowireRequest = { ...base, idempotencyKey: crypto.randomUUID() }
   isApplyingAutowire.value = true
   autowireError.value = ''
+  autowireLoadingMessage.value = '正在校验并保存你选择的关系…'
   try {
     autowireResult.value = await projectApi.applyAutowire(id, pendingAutowireRequest!)
     await loadData()
     showToast('已保存审核结果')
   } catch (err: any) {
     autowireError.value = err.message || '应用失败，可重试相同审核结果'
-  } finally { isApplyingAutowire.value = false }
+  } finally { isApplyingAutowire.value = false; autowireLoadingMessage.value = '' }
 }
 
 async function refreshAutowireStatus() {
@@ -4197,6 +4222,34 @@ async function deleteSelectedConnections() {
 }
 
 const isSpacePressed = ref(false)
+const canvasHovered = ref(false)
+
+function onFramePanKey(pressed: boolean) {
+  if (mode.value !== 'preview' && !showAutowireReview.value) isSpacePressed.value = pressed
+}
+function onFramePanStart(position: { clientX: number; clientY: number; button: number }) {
+  if (mode.value === 'preview' || showAutowireReview.value) return
+  if (position.button === 1 || isSpacePressed.value || activeDrawTool.value === 'hand') startCanvasPan(position)
+}
+function onCanvasPanKey(e: KeyboardEvent) {
+  if (e.code !== 'Space' || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || mode.value === 'preview' || showAutowireReview.value) return
+  const target = e.target instanceof HTMLElement || e.target instanceof SVGElement ? e.target : document.activeElement
+  if (target?.closest('input,textarea,select,[contenteditable="true"],[role="textbox"],.el-dialog')) return
+  if (target?.closest('button,a,[role="button"]') && !canvasHovered.value) return
+  e.preventDefault()
+  isSpacePressed.value = true
+}
+function onCanvasPanCapture(e: MouseEvent) {
+  if (mode.value === 'preview' || (e.button !== 0 && e.button !== 1) || !(isSpacePressed.value || activeDrawTool.value === 'hand' || e.button === 1)) return
+  if ((e.target instanceof HTMLElement || e.target instanceof SVGElement) && e.target.closest('input,textarea,select,[contenteditable="true"],button,a,.figma-bottom-toolbar,.ann-panel,.draft-comment-container')) return
+  e.preventDefault(); e.stopImmediatePropagation()
+  startCanvasPan(e)
+}
+function resetCanvasPan() {
+  isSpacePressed.value = false
+  onWindowMouseUp()
+}
+function onCanvasVisibilityChange() { if (document.hidden) resetCanvasPan() }
 
 interface SelectionMarquee {
   startX: number
@@ -5229,10 +5282,12 @@ let dragRafId: number | null = null
 let pendingDragX = 0
 let pendingDragY = 0
 
-function startCanvasPan(e: MouseEvent) {
+function startCanvasPan(e: Pick<MouseEvent, 'clientX' | 'clientY'>) {
+  if (isDragging.value || isBlockDragging.value) return
   selectedElementId.value = null
   selectedConnIds.value = new Set()
   isDragging.value = true
+  suppressBlockClick = true
   dragStart = { x: e.clientX, y: e.clientY }
   dragOrigin = { x: view.value.x, y: view.value.y }
   pendingDragX = dragOrigin.x
@@ -5241,8 +5296,9 @@ function startCanvasPan(e: MouseEvent) {
   window.addEventListener('mouseup', onWindowMouseUp)
 }
 
-function onWindowMouseMove(e: MouseEvent) {
+function onWindowMouseMove(e: Pick<MouseEvent, 'clientX' | 'clientY' | 'buttons'>) {
   if (!isDragging.value) return
+  if (!e.buttons) { onWindowMouseUp(); return }
   pendingDragX = dragOrigin.x + (e.clientX - dragStart.x)
   pendingDragY = dragOrigin.y + (e.clientY - dragStart.y)
   if (dragRafId === null) {
@@ -5258,6 +5314,7 @@ function onWindowMouseMove(e: MouseEvent) {
 }
 
 function onWindowMouseUp() {
+  if (isDragging.value) Object.values(pageRefs.value).forEach(frame => frame?.stopCanvasPan())
   if (dragRafId !== null) {
     cancelAnimationFrame(dragRafId)
     dragRafId = null
@@ -5270,6 +5327,7 @@ function onWindowMouseUp() {
   isDragging.value = false
   window.removeEventListener('mousemove', onWindowMouseMove)
   window.removeEventListener('mouseup', onWindowMouseUp)
+  setTimeout(() => { suppressBlockClick = false }, 0)
 }
 
 function cubicAt(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, t: number) {
@@ -5366,6 +5424,12 @@ function connectionHitsRect(path: string, r: { x: number; y: number; w: number; 
 
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0 && e.button !== 1) return
+  if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],button,a,.figma-bottom-toolbar,.ann-panel,.draft-comment-container')) return
+  if (activeDrawTool.value === 'hand' || isSpacePressed.value || e.button === 1) {
+    e.preventDefault()
+    startCanvasPan(e)
+    return
+  }
   if ((e.target as HTMLElement).closest('.wf-element, .ann-box, .el-button, .el-checkbox, input, select, textarea, .block-label, .page-block, .ann-panel, .figma-bottom-toolbar, .draft-comment-container, .comment-pin-container, .interaction-svg-layer, .figma-conn-tag, .figma-conn-badge')) return
 
   if (activeDrawTool.value === 'comment') {
@@ -5400,12 +5464,6 @@ function onMouseDown(e: MouseEvent) {
       const logicY = Math.round((e.clientY - rect.top - view.value.y) / view.value.k)
       startFrameDraw(logicX, logicY)
     }
-    return
-  }
-
-  // 1. 抓手工具模式、空格键按住或中键：平移画布 (Pan)
-  if (activeDrawTool.value === 'hand' || isSpacePressed.value || e.button === 1) {
-    startCanvasPan(e)
     return
   }
 
@@ -7107,6 +7165,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  workbenchDisposed = true
+  autowireAbort?.abort()
   persistWorkbenchView()
   if (persistViewTimer) clearTimeout(persistViewTimer)
   window.removeEventListener('beforeunload', onUnsavedBeforeUnload)
@@ -7142,13 +7202,6 @@ function onGlobalKeydown(e: KeyboardEvent) {
     // 矢量编辑模式下，由 VectorDrawOverlay 捕获拦截消费，避免画板被误删或工具状态错乱
     if (['Escape', 'Enter', 'Delete', 'Backspace'].includes(e.key) || ['v', 'l', 'b', 'x', 'e'].includes(e.key.toLowerCase())) {
       return
-    }
-  }
-
-  if (e.code === 'Space') {
-    const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-    if (activeTag !== 'input' && activeTag !== 'textarea' && !(document.activeElement as HTMLElement)?.isContentEditable) {
-      isSpacePressed.value = true
     }
   }
 
@@ -7571,6 +7624,9 @@ function onGlobalKeyup(e: KeyboardEvent) {
 }
 
 onMounted(() => {
+  window.addEventListener('keydown', onCanvasPanKey, true)
+  window.addEventListener('blur', resetCanvasPan)
+  document.addEventListener('visibilitychange', onCanvasVisibilityChange)
   window.addEventListener('keydown', onGlobalKeydown)
   window.addEventListener('keydown', onFrameModifierKey, true)
   window.addEventListener('keyup', onFrameModifierKey, true)
@@ -7579,6 +7635,9 @@ onMounted(() => {
   window.addEventListener('focusin', onArtboardFocusIn, true)
 })
 onUnmounted(() => {
+  window.removeEventListener('keydown', onCanvasPanKey, true)
+  window.removeEventListener('blur', resetCanvasPan)
+  document.removeEventListener('visibilitychange', onCanvasVisibilityChange)
   window.removeEventListener('keydown', onGlobalKeydown)
   window.removeEventListener('keydown', onFrameModifierKey, true)
   window.removeEventListener('keyup', onFrameModifierKey, true)

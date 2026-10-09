@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Readonly relationship preview regression</title>
+<style>body{margin:0;font-family:Arial}#app{display:grid;grid-template-columns:330px 330px;gap:20px;padding:20px}.case{height:450px;width:330px}h3{margin:0;height:25px}.case>section{height:425px}</style></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h } from 'vue'
+import Preview from '../src/components/AutowirePagePreview.vue'
+import { createReadonlyPreviewHtml } from '../src/utils/autowirePreview.ts'
+window.previewLeaks=0
+window.previewMessages=[]
+addEventListener('message',event=>window.previewMessages.push(event.data))
+const element={id:10,type:'button',label:'兑换',x:30,y:1100,width:120,height:46}
+const markup=`<!doctype html><html><head><style>body{margin:0;background:#fff4ef;width:375px;height:1600px}.product{position:absolute;left:30px;top:1040px}.exchange{position:absolute;left:30px;top:1100px;width:120px;height:46px;background:#ff7652;border-radius:12px;color:white;border:0}.another{position:absolute;left:190px;top:1100px;width:120px;height:46px}img{position:absolute;top:50px;left:30px;width:20px;height:20px}</style></head><body>
+<h1>真实页面</h1><div class="product">商品一</div><button class="exchange" data-wf-element-id="10" onclick="parent.previewLeaks++">兑换</button><button class="another" data-wf-element-id="11">兑换</button>
+<a href="/__should_not_navigate" style="position:absolute;left:30px;top:100px">页面链接</a><form action="/__should_not_submit"><button type="submit" style="position:absolute;left:30px;top:150px">提交</button></form>
+<img src="/uploads/test.png" onerror="parent.previewLeaks++"><iframe src="/__should_not_frame"></iframe><script>parent.previewLeaks++;parent.postMessage({type:'wf-html-export',html:'unsafe'},'*')<\/script>
+</body></html>`
+const base={id:1,name:'限时兑换商店',background_image:'',canvas_width:375,canvas_height:1600,analyzed:1,html_content:markup,elements:[element,{...element,id:11,x:190}],annotations:[]}
+const imagePage={...base,id:2,name:'真实设计稿',html_content:null,background_image:'/uploads/test.png'}
+const noContent={...base,id:3,name:'待生成页面',html_content:null}
+const uidPage={...base,id:4,name:'使用UID的页面',html_content:'<body style="margin:0"><button data-wf-uid="dom-10" style="position:absolute;left:55px;top:90px;width:90px;height:40px">查看</button></body>',canvas_height:812,elements:[{...element,interaction:{trigger:'click',action:'navigate',params:JSON.stringify({domUid:'dom-10'})}}]}
+window.sanitizedUpload=createReadonlyPreviewHtml('<img src="uploads/picture.png"><div style="background-image:url(\'/uploads/background.png\')"></div>',url=>'https://api.example.com'+url)
+const navigation={x:250,y:1524,width:125,height:76,memberElementIds:[20],itemKey:'my',familyKey:'family',label:'我的',region:'bottom',status:'resolved',basis:'exact_name',previousAction:null,previousTargetPageId:null,candidateTargets:[]}
+const navPage={...base,id:5,elements:[],html_content:'<body style="margin:0;height:1600px"><div>导航页面</div><button class="wf-nav-hotspot" data-wf-nav-owner="20" style="position:absolute;left:0;top:0;width:20px;height:20px"></button></body>'}
+createApp({render:()=>h('main',{style:'display:contents'},[
+['source',base,{source:true,elementId:10}],['target',base,{}],['missing',base,{source:true,elementId:99}],['image',imagePage,{source:true,elementId:10}],['empty',noContent,{}],['uid',uidPage,{source:true,elementId:10}],['navigation',navPage,{source:true,elementId:20,navigation}]
+].map(([id,page,props])=>h('div',{class:'case',id},[h('h3',id),h(Preview,{page,...props})])))}).mount('#app')
+</script></body></html>
