@@ -1797,7 +1797,7 @@
     </el-dialog>
 
     <AutowireReviewDialog v-model="showAutowireReview" :plan="autowirePlan" :result="autowireResult"
-      :busy="isAutowiringAi || isApplyingAutowire" :error="autowireError"
+      :busy="isAutowiringAi || isApplyingAutowire" :error="autowireError" :pages="pages"
       @apply="applyAutowireReview" @recompute="triggerAutowireAi" @retry="retryAutowirePreview" @refresh="refreshAutowireStatus" />
 
     <AnnotationCreateDialog v-model="showAnnotationCreate" :project-id="id" :page="annotationCreatePage"

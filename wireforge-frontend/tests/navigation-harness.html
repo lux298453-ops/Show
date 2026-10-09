@@ -3,6 +3,11 @@
 import { createApp, h, ref } from 'vue'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+import '@fontsource/inter/latin-400.css'
+import '@fontsource/inter/latin-500.css'
+import '@fontsource/inter/latin-600.css'
+import '../src/styles/main.scss'
 import PageCanvas from '../src/components/PageCanvas.vue'
 import ReviewDialog from '../src/components/AutowireReviewDialog.vue'
 
@@ -12,17 +17,28 @@ const makePlan = (previewId, items) => ({ previewId, projectId: 1, expiresAt: Da
 const interactive = ref(true), show = ref(false)
 const plan = ref(makePlan('first', [base('checked'),base('unchecked',{elementLabel:'设置',stableKey:'1:nav:family:unchecked'})]))
 const page = { id: 1, name: '首页', background_image: '', canvas_width: 375, canvas_height: 812, analyzed: 1, html_content: html, elements: [], annotations: [] }
-window.navTest = { navigations: [], unmapped: 0, applied: [], requests: [], edit: () => interactive.value=false, preview: () => interactive.value=true, open: () => show.value=true, unchanged: () => plan.value=makePlan('next',plan.value.items.map(i=>({...i}))) }
+const reviewPages = [page, ...[[2,'我的'],[3,'设置'],[4,'限时兑换商店'],[5,'兑换记录']].map(([id,name])=>({...page,id,name,elements:[]}))]
+window.navTest = { navigations: [], unmapped: 0, applied: [], requests: [], edit: () => interactive.value=false, preview: () => interactive.value=true, open: () => show.value=true, unchanged: () => plan.value=makePlan('next',plan.value.items.map(i=>({...i}))), unresolvedReview: () => {
+  const unknown=base('unresolved',{category:'uncertain',applicable:false,selectedByDefault:false,targetPageId:null,targetPageName:'未确定',stableKey:'1:unresolved',decisionFingerprint:'unresolved'})
+  unknown.navigation={...unknown.navigation,status:'unresolved',basis:'unresolved'}
+  plan.value=makePlan('unresolved',[unknown])
+}, sampleReview: () => {
+  const exchange=base('exchange',{category:'complete',pageId:4,pageName:'限时兑换商店',elementLabel:'兑换记录',interactionId:40,targetPageId:5,targetPageName:'兑换记录',selectedByDefault:false,stableKey:'4:exchange',decisionFingerprint:'exchange',reason:'导航入口已识别；兑换记录是项目中唯一匹配的独立页面。'})
+  exchange.navigation={...exchange.navigation,label:'兑换记录',previousAction:'tab_switch',candidateTargets:[{id:5,name:'兑换记录'}]}
+  const account=base('account',{category:'complete',interactionId:41,selectedByDefault:false,stableKey:'1:account',decisionFingerprint:'account',reason:'人工选择后重新预检的目标页面。'})
+  account.navigation={...account.navigation,basis:'user_choice',previousAction:'navigate',previousTargetPageId:3}
+  plan.value=makePlan('sample',[exchange,account])
+} }
 function recompute(request) {
   window.navTest.requests.push(request)
   plan.value=makePlan('chosen',plan.value.items.map(i=> {
     const choice=request.navigationResolutions.find(c=>c.stableKey===i.stableKey)
-    return choice ? { ...i, targetPageId: choice.targetPageId, targetPageName: choice.targetPageId===3?'设置':'我的', decisionFingerprint: 'choice-'+choice.targetPageId, selectedByDefault: false, navigation: { ...i.navigation, basis: 'user_choice' } } : { ...i }
+    return choice ? { ...i, applicable:true, category:i.interactionId == null ? 'add':'complete', targetPageId: choice.targetPageId, targetPageName: choice.targetPageId===3?'设置':'我的', decisionFingerprint: 'choice-'+choice.targetPageId, selectedByDefault: false, navigation: { ...i.navigation, status:'resolved', basis: 'user_choice' } } : { ...i }
   }))
 }
 createApp({ setup: () => () => h('main', [
   h('p', '真实 PageCanvas iframe 与审核弹窗回归夹具'),
   h(PageCanvas,{ page, boxW:375, interactive:interactive.value, showDesign:false, showAnnotations:false, allPages:[page], onNavigate:name=>window.navTest.navigations.push(name), onAutowireUnmapped:()=>window.navTest.unmapped++ }),
-  h(ReviewDialog,{ modelValue:show.value, 'onUpdate:modelValue':v=>show.value=v, plan:plan.value, result:null, busy:false, error:'', onRecompute:recompute, onApply:v=>window.navTest.applied.push(v) })
+  h(ReviewDialog,{ modelValue:show.value, 'onUpdate:modelValue':v=>show.value=v, plan:plan.value, result:null, busy:false, error:'', pages:reviewPages, onRecompute:recompute, onApply:v=>window.navTest.applied.push(v) })
 ]) }).use(ElementPlus).mount('#app')
 </script></body></html>
