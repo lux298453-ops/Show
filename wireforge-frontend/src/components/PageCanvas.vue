@@ -366,6 +366,7 @@ const emit = defineEmits<{
   (e: 'contextMenu', pos: { x: number; y: number; localX?: number; localY?: number; pageId?: number }): void
   (e: 'layers-changed', payload: { pageId: number; layers: Array<{ uid: string; name: string; kind?: string; hidden?: boolean; locked?: boolean; children?: unknown[] }> }): void
   (e: 'frameFocus'): void
+  (e: 'selectionModifiers', state: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): void
   (e: 'editVector', payload: any): void
   (e: 'hotspot', payload: { x: number; y: number; w: number; h: number; label: string; uid: string }): void
   (e: 'hotspotClear'): void
@@ -5120,6 +5121,13 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       else if(selectedEl) updateTransformBox(selectedEl);
     });
 
+    function publishSelectionModifiers(e){
+      if(e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Meta') return;
+      parent.postMessage({ type: 'wf-selection-modifiers', shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey }, '*');
+    }
+    document.addEventListener('keydown', publishSelectionModifiers, true);
+    document.addEventListener('keyup', publishSelectionModifiers, true);
+
     document.addEventListener('keydown', function(e){
       var activeText = document.querySelector('[data-wf-editing-text="true"]');
       var isEditing = !!activeText || (e.target && (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'));
@@ -5567,6 +5575,9 @@ function onIframeMessage(e: MessageEvent) {
     emit('layers-changed', { pageId: props.page.id, layers: (d as any).layers || [] })
   } else if (d.type === 'wf-frame-focus') {
     emit('frameFocus')
+  } else if (d.type === 'wf-selection-modifiers') {
+    const state = d as any
+    emit('selectionModifiers', { shiftKey: !!state.shiftKey, ctrlKey: !!state.ctrlKey, metaKey: !!state.metaKey })
   } else if (d.type === 'wf-edit-vector') {
     emit('editVector', d)
   } else if (d.type === 'wf-size' && typeof d.h === 'number' && d.h > 0) {

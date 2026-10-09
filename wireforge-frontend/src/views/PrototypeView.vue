@@ -258,7 +258,7 @@
           >
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
-              <span>已框选 <strong>{{ selectedBlockKeys.size }}</strong> 个画板</span>
+              <span>已选择 <strong>{{ selectedBlockKeys.size }}</strong> 个画板</span>
             </div>
             <div class="h-4 w-[1px] bg-white/20"></div>
             <button
@@ -322,7 +322,7 @@
 
         <!-- Full-viewport transparent overlay during drag to shield iframes and eliminate hit-testing cost -->
         <div
-          v-if="isAnyDragging || isDraggingConnection"
+          v-if="isAnyDragging || isDraggingConnection || selectionMarquee"
           class="fixed inset-0 z-[9999] select-none"
           :class="[
             isDraggingConnection
@@ -344,14 +344,16 @@
               class="page-block absolute rounded-2xl cursor-default transition-[box-shadow,opacity] duration-150"
               :data-page-id="b.page.id"
               :data-block-key="b.key"
+              :data-selected="selectedBlockKeys.has(b.key) ? 'true' : 'false'"
               :class="{
                 'ring-4 ring-emerald-400 ring-offset-2 shadow-[0_0_24px_rgba(52,211,153,0.5)] scale-[1.01]': hoveredTargetBlockId === b.page.id,
-                'ring-2 ring-blue-500 ring-offset-4 ring-offset-slate-100 shadow-[0_0_0_2px_#3b82f6,0_12px_28px_rgba(59,130,246,0.22)]': selectedNodeId === b.page.id && hoveredTargetBlockId !== b.page.id,
-                'ring-1 ring-slate-200/90 hover:ring-2 hover:ring-blue-400/50 hover:shadow-md': selectedNodeId !== b.page.id && hoveredTargetBlockId !== b.page.id,
+                'ring-2 ring-blue-500 ring-offset-4 ring-offset-slate-100 shadow-[0_0_0_2px_#3b82f6,0_12px_28px_rgba(59,130,246,0.22)]': selectedBlockKeys.has(b.key) && hoveredTargetBlockId !== b.page.id,
+                'ring-1 ring-slate-200/90 hover:ring-2 hover:ring-blue-400/50 hover:shadow-md': !selectedBlockKeys.has(b.key) && hoveredTargetBlockId !== b.page.id,
                 '!cursor-text': activeDrawTool === 'text',
                 '!cursor-crosshair': activeDrawTool !== 'select' && activeDrawTool !== 'text',
               }"
               :style="{ left: `${b.x}px`, top: `${b.y}px` }"
+              @click.capture="onBlockClickCapture"
               @click.stop="onPageBlockClick($event, b)"
               @mouseenter="hoveredNodeId = b.page.id"
               @mouseleave="hoveredNodeId = null"
@@ -375,7 +377,7 @@
                   @mousedown.stop
                 />
                 <GripVertical class="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />
-                <span class="cursor-pointer hover:underline truncate max-w-[170px]" @click.stop="focusPage(b.page.id, true)">{{ b.title }}</span>
+                <span class="cursor-pointer hover:underline truncate max-w-[170px]" title="点选画板，按住 Shift / Ctrl 可多选" @click.stop="onPageBlockClick($event, b)">{{ b.title }}</span>
 
                 <!-- 独占锁定徽标：他人正在微调此页 -->
                 <span
@@ -478,10 +480,19 @@
                 @layers-changed="onLayersChanged"
                 :proto-hotspot="workbenchMode === 'interactive' && b.blockType === 'prototype'"
                 @frame-focus="onPrototypeFrameFocus(b.page.id, b.key)"
+                @selection-modifiers="onFrameSelectionModifiers"
                 @edit-vector="onEditVector(b.page.id, $event)"
                 @hotspot="onPrototypeHotspot(b, $event)"
                 @hotspot-clear="onPrototypeHotspotClear(b.key)"
                 @autowire-unmapped="onAutowireUnmapped"
+              />
+
+              <div
+                v-if="activeDrawTool === 'select' && frameSelectionModifier && !(selectedNodeKey === b.key && hasSelectedDomElements)"
+                class="frame-select-surface absolute inset-0 z-[150] cursor-default"
+                title="Shift / Ctrl 点选多个画板"
+                @mousedown.stop.prevent
+                @click.stop="onPageBlockClick($event, b)"
               />
 
               <!-- 移到原型里的组件上：右侧先是蓝点，移上去变成加号，按住拖到别的画板 -->
@@ -2488,33 +2499,43 @@ function onPageBlockClick(e: MouseEvent, b: any) {
     return
   }
 
-  if (e.shiftKey) {
+  selectCanvasBlock(b, e.shiftKey || e.ctrlKey || e.metaKey)
+}
+
+function selectCanvasBlock(b: CanvasBlock, additive = false, preserveSelection = false) {
+  const previousPageId = focusPageId.value
+  if (activeSelectedElementInfo.value && previousPageId) {
+    iframeForPage(previousPageId)?.contentWindow?.postMessage({ type: 'wf-select-uids', uids: [] }, '*')
+  }
+  if (document.activeElement instanceof HTMLIFrameElement) document.activeElement.blur()
+  if (additive) {
     const next = new Set(selectedBlockKeys.value)
     if (next.has(b.key)) {
       next.delete(b.key)
-      if (selectedNodeKey.value === b.key) {
-        selectedNodeKey.value = Array.from(next)[0] || null
-      }
     } else {
       next.add(b.key)
       selectedNodeKey.value = b.key
       selectedNodeId.value = b.page.id
     }
     selectedBlockKeys.value = next
-  } else {
+  } else if (!preserveSelection || !selectedBlockKeys.value.has(b.key)) {
     selectedBlockKeys.value = new Set([b.key])
-    selectedNodeId.value = b.page.id
-    selectedNodeKey.value = b.key || null
   }
+
+  const primary = selectedBlockKeys.value.has(b.key) ? b : blocks.value.find((block) => selectedBlockKeys.value.has(block.key))
+  selectedNodeId.value = primary?.pageId || null
+  selectedNodeKey.value = primary?.key || null
 
   selectedConnIds.value = new Set()
   selectedElementId.value = null
   activeSelectedElementInfo.value = null
   selectedDomLayerUid.value = null
   selectedDomLayerUids.value = []
-  focusPageId.value = b.page.id
-  activeInteractionPageId.value = b.page.id
-  showFrameFill(b.page.id)
+  if (primary) {
+    focusPageId.value = primary.pageId
+    activeInteractionPageId.value = primary.pageId
+    showFrameFill(primary.pageId)
+  }
 }
 
 const htmlSaveVersions = new Map<number, number>()
@@ -4140,6 +4161,19 @@ function getPrimaryInteractiveElements(page: Page): Element[] {
 const selectedNodeId = ref<number | null>(null)
 const selectedNodeKey = ref<string | null>(null)
 const selectedBlockKeys = ref<Set<string>>(new Set())
+const frameSelectionModifier = ref(false)
+
+function onFrameSelectionModifiers(state: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) {
+  frameSelectionModifier.value = state.shiftKey || state.ctrlKey || state.metaKey
+}
+
+function onFrameModifierKey(e: KeyboardEvent) {
+  if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Meta') onFrameSelectionModifiers(e)
+}
+
+function resetFrameSelectionModifier() {
+  frameSelectionModifier.value = false
+}
 /** 当前在 Prototype 交互模式下固定展示连线的画板 ID (点击画板时锁定，移出不消失，只有点击其他画板才切换) */
 const activeInteractionPageId = ref<number | null>(null)
 
@@ -4971,37 +5005,35 @@ let suppressBlockClick = false
 function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
   if (e.button !== 0) return
   if ((e.target as HTMLElement).closest('.ann-panel, .el-button, input, textarea, select')) return
-  const frame = (e.currentTarget as HTMLElement | null)?.closest('.page-block') as HTMLElement | null
-  if (!frame) return
+  if (e.shiftKey || e.ctrlKey || e.metaKey || pageEditingConflicts.value[b.pageId]?.conflict) return
   e.stopPropagation()
-  activeInteractionPageId.value = b.page.id
+  selectCanvasBlock(b, false, true)
+  const movingBlocks = blocks.value.filter((block) => selectedBlockKeys.value.has(block.key) && !pageEditingConflicts.value[block.pageId]?.conflict)
+  const movingKeys = new Set(movingBlocks.map((block) => block.key))
+  const items = movingBlocks.flatMap((block) => {
+    const el = document.querySelector<HTMLElement>(`[data-block-key="${block.key}"]`)
+    return el ? [{ block, el, x: block.x, y: block.y }] : []
+  })
+  if (!items.length) return
+  // 单个设计稿仍带动未独立定位的原型图；多选时只移动明确选中的画框。
+  if (movingBlocks.length === 1 && b.blockType === 'design' && !pageOverrides.value[`proto-${b.pageId}`]) {
+    const sibling = blocks.value.find((block) => block.key === `proto-${b.pageId}`)
+    const el = sibling && document.querySelector<HTMLElement>(`[data-block-key="${sibling.key}"]`)
+    if (sibling && el) items.push({ block: sibling, el, x: sibling.x, y: sibling.y })
+  }
   const startClientX = e.clientX
   const startClientY = e.clientY
-  const startX = b.x
-  const startY = b.y
-  const blockKey = b.key
-  const pageId = b.page.id
   let moved = false
   let blockRafId: number | null = null
-  let curNx = startX
-  let curNy = startY
-  const hasDesignSibling = b.blockType === 'prototype' && blocks.value.some((item) => item.key === `design-${pageId}`)
-  const protoFollowsDesign = b.blockType === 'design' && !pageOverrides.value[`proto-${pageId}`]
-  const sibling = protoFollowsDesign
-    ? document.querySelector(`[data-block-key="proto-${pageId}"]`) as HTMLElement | null
-    : null
+  let dx = 0
+  let dy = 0
 
   const paint = () => {
-    const dx = curNx - startX
-    const dy = curNy - startY
     const shift = `translate3d(${dx}px, ${dy}px, 0)`
-    frame.style.transition = 'none'
-    frame.style.willChange = 'transform'
-    frame.style.transform = shift
-    if (sibling) {
-      sibling.style.transition = 'none'
-      sibling.style.willChange = 'transform'
-      sibling.style.transform = shift
+    for (const { el } of items) {
+      el.style.transition = 'none'
+      el.style.willChange = 'transform'
+      el.style.transform = shift
     }
   }
 
@@ -5018,8 +5050,8 @@ function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
     if (!moved) isBlockDragging.value = true
     moved = true
     const k = view.value.k || 1
-    curNx = startX + (ev.clientX - startClientX) / k
-    curNy = startY + (ev.clientY - startClientY) / k
+    dx = (ev.clientX - startClientX) / k
+    dy = (ev.clientY - startClientY) / k
     if (blockRafId === null) {
       blockRafId = requestAnimationFrame(() => {
         paint()
@@ -5037,28 +5069,34 @@ function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
     if (!moved) return
     suppressBlockClick = true
     setTimeout(() => (suppressBlockClick = false), 0)
-    settle(frame, curNx, curNy)
-    if (sibling) {
-      const sx = parseFloat(sibling.style.left) || startX
-      const sy = parseFloat(sibling.style.top) || startY
-      settle(sibling, sx + (curNx - startX), sy + (curNy - startY))
+    const patch: Record<string, { x: number; y: number }> = {}
+    const origins = new Map<number, { page: Page; x: number; y: number }>()
+    for (const { block, el, x, y } of items) {
+      settle(el, x + dx, y + dy)
+      if (!movingKeys.has(block.key)) continue
+      const pos = { x: x + dx, y: y + dy }
+      patch[block.key] = pos
+      const hasDesignSibling = block.blockType === 'prototype' && blocks.value.some((item) => item.key === `design-${block.pageId}`)
+      if (!hasDesignSibling) {
+        patch[block.pageId] = pos
+        origins.set(block.pageId, { page: block.page, ...pos })
+      }
+      if (movingBlocks.length > 1 && block.blockType === 'design' && !movingKeys.has(`proto-${block.pageId}`) && !pageOverrides.value[`proto-${block.pageId}`]) {
+        const sibling = blocks.value.find((item) => item.key === `proto-${block.pageId}`)
+        if (sibling) patch[sibling.key] = { x: sibling.x, y: sibling.y }
+      }
     }
-    const pos = { x: curNx, y: curNy }
-    const patch: Record<string, { x: number; y: number }> = { [blockKey]: pos }
-    const persistPageOrigin = !hasDesignSibling
-    if (persistPageOrigin) patch[pageId] = pos
     pageOverrides.value = { ...pageOverrides.value, ...patch }
     isBlockDragging.value = false
-    if (persistPageOrigin) {
-      b.page.canvas_x = curNx
-      b.page.canvas_y = curNy
-      projectApi.updatePagePosition(id, pageId, { canvasX: curNx, canvasY: curNy }).catch((e2: any) => {
+    for (const [pageId, pos] of origins) {
+      pos.page.canvas_x = pos.x
+      pos.page.canvas_y = pos.y
+      projectApi.updatePagePosition(id, pageId, { canvasX: pos.x, canvasY: pos.y }).catch((e2: any) => {
         ElMessage.error(`位置保存失败: ${e2.message || '网络错误'}`)
       })
     }
     requestAnimationFrame(() => {
-      frame.style.transition = ''
-      if (sibling) sibling.style.transition = ''
+      for (const { el } of items) el.style.transition = ''
     })
   }
   window.addEventListener('mousemove', onMove, { passive: true })
@@ -5092,6 +5130,8 @@ function focusPage(pageId: number, fitGroup = false) {
     ? blocks.value.find((bb) => bb.page.id === pageId && bb.blockType === 'prototype')
     : null) || blocks.value.find((bb) => bb.page.id === pageId)
   if (!b) return
+  selectedBlockKeys.value = new Set([b.key])
+  selectedNodeKey.value = b.key
   const switched = focusPageId.value !== pageId
   focusPageId.value = pageId
   selectedNodeId.value = pageId
@@ -5172,6 +5212,9 @@ function restoreWorkbenchView() {
     const oldH = Number.isFinite(saved.viewport?.h) ? saved.viewport.h : h
     focusPageId.value = saved.pageId
     selectedNodeId.value = saved.pageId
+    const savedBlock = blocks.value.find((block) => block.pageId === saved.pageId)
+    selectedNodeKey.value = savedBlock?.key || null
+    selectedBlockKeys.value = new Set(savedBlock ? [savedBlock.key] : [])
     activeInteractionPageId.value = saved.pageId
     previewPageId.value = saved.pageId
     view.value = { k: savedView.k, x: savedView.x + (w - oldW) / 2, y: savedView.y + (h - oldH) / 2 }
@@ -5378,17 +5421,20 @@ function onMouseDown(e: MouseEvent) {
     const boxingConnections = workbenchMode.value === 'interactive'
     const connScope = boxingConnections ? [...visibleConnections.value] : []
 
-    if (!e.shiftKey) {
-      if (boxingConnections) {
-        selectedConnIds.value = new Set()
-      } else {
-        selectedBlockKeys.value = new Set()
-        selectedNodeId.value = null
-        selectedNodeKey.value = null
-        selectedElementId.value = null
-        selectedConnIds.value = new Set()
-      }
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey
+    if (!additive) {
+      selectedBlockKeys.value = new Set()
+      selectedNodeId.value = null
+      selectedNodeKey.value = null
+      selectedConnIds.value = new Set()
     }
+    if (activeSelectedElementInfo.value && focusPageId.value) {
+      iframeForPage(focusPageId.value)?.contentWindow?.postMessage({ type: 'wf-select-uids', uids: [] }, '*')
+    }
+    selectedElementId.value = null
+    activeSelectedElementInfo.value = null
+    selectedDomLayerUid.value = null
+    selectedDomLayerUids.value = []
 
     selectionMarquee.value = {
       startX: logicX,
@@ -5422,19 +5468,10 @@ function onMouseDown(e: MouseEvent) {
       m.width = Math.abs(curLogicX - m.startX)
       m.height = Math.abs(curLogicY - m.startY)
 
-      if (boxingConnections) {
-        const next = new Set(initialConns)
-        const box = { x: m.left, y: m.top, w: m.width, h: m.height }
-        for (const conn of connScope) {
-          if (connectionHitsRect(conn.path, box)) next.add(conn.id)
-        }
-        selectedConnIds.value = next
-        return
-      }
-
       // 实时相交碰撞检测
       const currentSelected = new Set(initialSelected)
       blocks.value.forEach((b) => {
+        if (pageEditingConflicts.value[b.pageId]?.conflict) return
         const bW = b.w || (b.page.canvas_width || 375)
         const bH = b.h || (b.page.canvas_height || 812)
         const r1 = { x: b.x, y: b.y, w: bW, h: bH }
@@ -5448,6 +5485,17 @@ function onMouseDown(e: MouseEvent) {
         }
       })
       selectedBlockKeys.value = currentSelected
+      // 交互模式也能框选画板；仅框到画板之间的连线时，保留原有连线框选。
+      if (boxingConnections && currentSelected.size === 0) {
+        const next = new Set(initialConns)
+        const box = { x: m.left, y: m.top, w: m.width, h: m.height }
+        for (const conn of connScope) {
+          if (connectionHitsRect(conn.path, box)) next.add(conn.id)
+        }
+        selectedConnIds.value = next
+      } else {
+        selectedConnIds.value = new Set()
+      }
     }
 
     const onMarqueeUp = () => {
@@ -5455,7 +5503,7 @@ function onMouseDown(e: MouseEvent) {
       window.removeEventListener('mouseup', onMarqueeUp, { capture: true })
       if (selectionMarquee.value) {
         selectionMarquee.value = null
-        if (boxingConnections) {
+        if (boxingConnections && selectedBlockKeys.value.size === 0) {
           if (hasMoved && selectedConnIds.value.size > 0) {
             showToast(`已框选 ${selectedConnIds.value.size} 条连线，按 Backspace 可一起删除`)
           }
@@ -5467,6 +5515,9 @@ function onMouseDown(e: MouseEvent) {
           if (firstBlock) {
             selectedNodeId.value = firstBlock.pageId
             selectedNodeKey.value = firstBlock.key
+            focusPageId.value = firstBlock.pageId
+            activeInteractionPageId.value = firstBlock.pageId
+            showFrameFill(firstBlock.pageId)
           }
         }
       }
@@ -7521,11 +7572,17 @@ function onGlobalKeyup(e: KeyboardEvent) {
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('keydown', onFrameModifierKey, true)
+  window.addEventListener('keyup', onFrameModifierKey, true)
+  window.addEventListener('blur', resetFrameSelectionModifier)
   window.addEventListener('keyup', onGlobalKeyup)
   window.addEventListener('focusin', onArtboardFocusIn, true)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('keydown', onFrameModifierKey, true)
+  window.removeEventListener('keyup', onFrameModifierKey, true)
+  window.removeEventListener('blur', resetFrameSelectionModifier)
   window.removeEventListener('keyup', onGlobalKeyup)
   window.removeEventListener('focusin', onArtboardFocusIn, true)
   if (wheelIdleTimer) clearTimeout(wheelIdleTimer)
