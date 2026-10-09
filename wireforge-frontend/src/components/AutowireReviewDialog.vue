@@ -52,31 +52,24 @@
                 <div class="route-point route-element"><span class="route-label">{{ triggerName(item.trigger) }}</span><strong>{{ item.elementLabel || '未命名元素' }}</strong></div>
                 <ArrowRight class="route-arrow" :size="17" aria-hidden="true" />
                 <div class="route-point route-target" :class="{ unresolved: needsTarget(item.action) && item.targetPageId == null, removal: item.category === 'remove' }">
-                  <span class="route-label">{{ targetCaption(item) }}</span><strong>{{ targetTitle(item) }}</strong>
+                  <label v-if="canChooseTarget(item)" class="route-target-picker">
+                    <span class="route-label">{{ targetCaption(item) }}</span>
+                    <select :value="targetChoices[reviewKey(item)] ?? ''" :disabled="busy || !!result || !!excluded[item.id]" :aria-label="`跳转目标 ${item.pageName} · ${item.elementLabel}`" @change="chooseTarget(item, ($event.target as HTMLSelectElement).value)">
+                      <option value="">{{ item.targetPageId == null ? '请选择页面' : targetTitle(item) }}</option>
+                      <option v-for="target in reviewTargets(item)" :key="target.id" :value="target.id">{{ pageTitle(target.id, target.name) }}</option>
+                    </select>
+                  </label>
+                  <template v-else><span class="route-label">{{ targetCaption(item) }}</span><strong>{{ targetTitle(item) }}</strong></template>
                 </div>
               </div>
               <div v-if="item.category === 'complete' || previousState(item)" class="change-explanation">
                 <p><span>原来</span>{{ previousState(item) || '未设置目标页面' }}</p>
               </div>
-              <p v-if="pendingTarget(item) != null" class="pending-target">新目标：<strong>{{ pageTitle(pendingTarget(item)!) }}</strong>（待检查）</p>
-              <label v-if="canChooseTarget(item) && item.targetPageId == null" class="target-choice unresolved-choice">
-                跳转到
-                <select :value="targetChoices[reviewKey(item)] ?? ''" :disabled="busy || !!result || !!excluded[item.id]" :aria-label="`导航目标 ${item.pageName} · ${item.elementLabel}`" @change="chooseTarget(item, ($event.target as HTMLSelectElement).value)">
-                  <option value="">请选择页面</option>
-                  <option v-for="target in item.navigation!.candidateTargets" :key="target.id" :value="target.id">{{ pageTitle(target.id, target.name) }}</option>
-                </select>
-              </label>
-              <p v-else-if="!item.applicable && !canChooseTarget(item)" class="muted confirmation-hint">需先确认这个元素的现有交互。</p>
-              <details class="item-more" :open="!!excluded[item.id] || pendingTarget(item) != null">
+              <p v-if="pendingTarget(item) != null" class="pending-target">已选择「{{ pageTitle(pendingTarget(item)!) }}」，请点击“检查新目标”。</p>
+              <p v-else-if="!item.applicable && !canChooseTarget(item)" class="muted confirmation-hint">{{ targetUnavailableReason(item) }}</p>
+              <details class="item-more" :open="!!excluded[item.id]">
                 <summary>{{ excluded[item.id] ? recommendationChoice(item) : '更多设置' }}</summary>
                 <div class="item-options">
-                  <label v-if="canChooseTarget(item) && item.targetPageId != null" class="target-choice">
-                    更换目标
-                    <select :value="targetChoices[reviewKey(item)] ?? ''" :disabled="busy || !!result || !!excluded[item.id]" :aria-label="`导航目标 ${item.pageName} · ${item.elementLabel}`" @change="chooseTarget(item, ($event.target as HTMLSelectElement).value)">
-                      <option value="">{{ targetTitle(item) }}</option>
-                      <option v-for="target in item.navigation!.candidateTargets" :key="target.id" :value="target.id">{{ pageTitle(target.id, target.name) }}</option>
-                    </select>
-                  </label>
                   <label class="exclude-label">下次还推荐吗
                     <select v-model="excluded[item.id]" :disabled="busy || !!result" @change="onExclude(item.id)" :aria-label="`下次还推荐吗 ${item.pageName} · ${item.elementLabel || '未命名元素'}`">
                       <option value="">继续推荐</option>
@@ -136,7 +129,7 @@ import { computed, ref, watch } from 'vue'
 import { ArrowRight, FileText } from 'lucide-vue-next'
 import type { Page } from '../types'
 import type { AutowirePlan, AutowireApplyResult, AutowireDecisions, AutowireItem, AutowirePreviewRequest } from '../types/autowire'
-import { rememberReview, restoreReview, reviewKey, type ExclusionScope } from '../utils/autowireReviewState'
+import { rememberReview, restoreReview, reviewKey, reviewTargets, reviewTargetBasis, type ExclusionScope } from '../utils/autowireReviewState'
 const visible = defineModel<boolean>({ default: false })
 const props = defineProps<{ plan: AutowirePlan | null; result: AutowireApplyResult | null; busy: boolean; error: string; pages?: Page[] }>()
 const emit = defineEmits<{ apply: [AutowireDecisions]; recompute: [AutowirePreviewRequest]; retry: []; refresh: [] }>()
@@ -184,7 +177,7 @@ const pageNames = computed(() => {
   for (const item of props.plan?.items || []) {
     names.set(item.pageId, item.pageName)
     if (item.targetPageId != null && item.targetPageName) names.set(item.targetPageId, item.targetPageName)
-    for (const target of item.navigation?.candidateTargets || []) if (!names.has(target.id)) names.set(target.id, target.name)
+    for (const target of reviewTargets(item)) if (!names.has(target.id)) names.set(target.id, target.name)
   }
   return names
 })
@@ -210,7 +203,7 @@ function previousState(item: AutowireItem) {
   return `${actionName(action)}「${pageTitle(target)}」`
 }
 function changeName(item: AutowireItem) {
-  if (item.category === 'uncertain') return needsTarget(item.action) && item.targetPageId == null ? '目标待确认' : '关系待确认'
+  if (item.category === 'uncertain') return canChooseTarget(item) && item.targetPageId == null ? '请选择目标页面' : '关系需确认'
   if (item.category === 'remove') return '删除连线'
   if (item.category === 'add') return item.action === 'navigate' ? '新增跳转' : item.action === 'back' ? '新增返回操作' : '新增弹窗交互'
   const oldAction = previousAction(item), oldTarget = previousTarget(item)
@@ -218,7 +211,12 @@ function changeName(item: AutowireItem) {
   return oldTarget != null && oldTarget !== item.targetPageId ? '修改跳转目标' : item.action === 'navigate' ? '补充跳转目标' : '补充弹窗目标'
 }
 function needsTarget(action: string) { return ['navigate', 'popup', 'modal'].includes(action) }
-function canChooseTarget(item: AutowireItem) { return !!item.navigation && item.navigation.status !== 'conflict' && item.navigation.candidateTargets.length > 0 }
+function canChooseTarget(item: AutowireItem) { return item.category !== 'remove' && needsTarget(item.action) && item.navigation?.status !== 'conflict' && reviewTargets(item).length > 0 }
+function targetUnavailableReason(item: AutowireItem) {
+  if (item.navigation?.status === 'conflict') return '现有跳转有冲突，请先在画布的交互设置中处理。'
+  if (item.navigation || item.targetSelection) return '没有可选的目标页面，请先添加目标页面再重新检查。'
+  return `${item.reason}；请在画布的交互设置中确认。`
+}
 function recommendationChoice(item: AutowireItem) {
   if (excluded.value[item.id] === 'element') return '这个元素都不推荐'
   return item.action === 'back' ? '别再推荐这个返回操作' : item.action === 'navigate' ? '别再推荐这个跳转' : '别再推荐这个弹窗'
@@ -227,7 +225,6 @@ function targetCaption(item: AutowireItem) {
   if (item.action === 'back') return '返回到'
   if (!needsTarget(item.action)) return '交互结果'
   if (item.category === 'remove') return '删除此连线'
-  if (item.category === 'uncertain') return '待确认目标'
   return item.action === 'navigate' ? '跳转到' : '打开弹窗'
 }
 function targetTitle(item: AutowireItem) {
@@ -238,25 +235,33 @@ function targetTitle(item: AutowireItem) {
 }
 function pendingTarget(item: AutowireItem) {
   const target = targetChoices.value[reviewKey(item)]
-  return target != null && (target !== item.targetPageId || item.navigation?.basis !== 'user_choice') ? target : null
+  return !excluded.value[item.id] && target != null && (target !== item.targetPageId || reviewTargetBasis(item) !== 'user_choice') ? target : null
 }
 const excludeCount = computed(() => Object.values(excluded.value).filter(Boolean).length)
 const hasDecisions = computed(() => !!(selected.value.length || excludeCount.value || restores.value.length))
-const hasPendingTargets = computed(() => props.plan?.items.some(item => targetChoices.value[reviewKey(item)] != null && (item.targetPageId !== targetChoices.value[reviewKey(item)] || item.navigation?.basis !== 'user_choice')) || false)
+const hasPendingTargets = computed(() => props.plan?.items.some(item => pendingTarget(item) != null) || false)
 const diagnosticSummary = computed(() => {
   const entries = props.plan?.navigationDiagnostics || []
   const labels: Record<string,string> = { correct: '原跳转已保留', current_page: '当前页无需跳转', local_tab: '保留本页内容切换', excluded: '不再推荐', protected: '原交互已保留', unbound: '导航元素未识别', missing_target: '原目标已不存在' }
   return Object.entries(labels).map(([status,label]) => ({ label, count: entries.filter(e => e.status === status).length })).filter(s => s.count).map(s => `${s.label} ${s.count} 项`).join(' · ')
 })
 function chooseTarget(item: AutowireItem, value: string) {
+  if (value && !reviewTargets(item).some(target => target.id === Number(value))) return
   targetChoices.value[reviewKey(item)] = value ? Number(value) : undefined
   toggle(item.id, false)
 }
 function recompute() {
-  emit('recompute', { previousPreviewId: props.plan?.previewId, navigationResolutions: (props.plan?.items || []).filter(i => targetChoices.value[reviewKey(i)] != null).map(i => ({ stableKey: reviewKey(i), targetPageId: targetChoices.value[reviewKey(i)]! })) })
+  const choices = (props.plan?.items || []).filter(i => canChooseTarget(i) && !excluded.value[i.id] && targetChoices.value[reviewKey(i)] != null)
+  const resolution = (i: AutowireItem) => ({ stableKey: reviewKey(i), targetPageId: targetChoices.value[reviewKey(i)]! })
+  emit('recompute', { previousPreviewId: props.plan?.previewId, navigationResolutions: choices.filter(i => i.navigation).map(resolution), targetResolutions: choices.filter(i => !i.navigation).map(resolution) })
 }
 function toggle(id: string, on: boolean) { selected.value = selected.value.filter(i => i !== id); if (on) selected.value.push(id) }
-function onExclude(id: string) { if (excluded.value[id]) toggle(id, false) }
+function onExclude(id: string) {
+  if (!excluded.value[id]) return
+  toggle(id, false)
+  const item = props.plan?.items.find(i => i.id === id)
+  if (item) delete targetChoices.value[reviewKey(item)]
+}
 function submit() {
   emit('apply', { selectedIds: [...selected.value].sort(), exclusions: Object.entries(excluded.value).filter(([, scope]) => !!scope).map(([itemId, scope]) => ({ itemId, scope: scope as 'relation' | 'element' })).sort((a, b) => a.itemId.localeCompare(b.itemId)), restoreExclusionIds: [...restores.value].sort((a,b) => a-b) })
 }
@@ -269,6 +274,7 @@ const basisName = (basis: string) => ({ existing_target: '保留已有有效目�
 </script>
 
 <style scoped>
+.route-target-picker{display:flex;flex-direction:column;min-width:0;cursor:pointer}.route-target-picker select{width:100%;min-width:0;height:32px;padding:4px 8px;border:1px solid #93c5fd;border-radius:5px;background:#fff;color:#1d4ed8;font-size:13px;font-weight:600;cursor:pointer}.route-target-picker select:focus-visible{outline:2px solid #0d99ff;outline-offset:2px}.route-target-picker select:disabled{cursor:not-allowed;opacity:.6}.unresolved .route-target-picker select{border-color:#e9c85f;color:#92400e}:global(.dark .autowire-dialog .route-target-picker select){background:#22364a;border-color:#4e7094;color:#bfdbfe}:global(.dark .autowire-dialog .unresolved .route-target-picker select){background:#433724;border-color:#89723c;color:#fde68a}
 .review-topline{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 8px}.review-topline .review-summary{margin:0}.help-button{border:0;padding:2px 0;background:transparent;color:#64748b;font-size:12px;cursor:pointer}.help-button:hover{color:#0d99ff}.help-copy{margin:6px 0;font-size:12px;line-height:1.7}
 .item .item-heading{margin-bottom:8px}.item .route-point{min-height:54px;padding:8px 10px}.item .route-point strong{font-size:13px}.item .change-explanation{margin:7px 0}.item .change-explanation p>span{flex-basis:30px}.item-more{margin-top:8px;color:#64748b;font-size:12px}.item-more>summary{width:fit-content;cursor:pointer}.item-more[open]>summary{color:#475569}.item-more .item-options{margin-top:8px}.item-more .recommendation-evidence{margin-top:10px}.preference-effect{margin:8px 0 0;color:#92400e;font-size:12px}.unresolved-choice{margin:10px 0 0!important;flex-wrap:wrap}.confirmation-hint{margin-top:8px!important}
 :global(.dark .autowire-dialog .help-button),:global(.dark .autowire-dialog .item-more){color:#a6abb5}:global(.dark .autowire-dialog .item-more[open]>summary){color:#e5e7eb}:global(.dark .autowire-dialog .preference-effect){color:#fde68a}

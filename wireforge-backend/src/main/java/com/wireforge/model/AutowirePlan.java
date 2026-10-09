@@ -14,7 +14,17 @@ public record AutowirePlan(String previewId, long projectId, long expiresAt, Lis
                        String elementLabel, Long interactionId, String trigger, String action,
                        Long targetPageId, String targetPageName, String source, String reason,
                        List<String> evidenceRefs, boolean applicable, boolean selectedByDefault,
-                       String stableKey, String decisionFingerprint, NavigationInfo navigation) {
+                       String stableKey, String decisionFingerprint, NavigationInfo navigation,
+                       TargetSelection targetSelection) {
+        public Item(String id, String category, long pageId, String pageName, long elementId,
+                    String elementLabel, Long interactionId, String trigger, String action,
+                    Long targetPageId, String targetPageName, String source, String reason,
+                    List<String> evidenceRefs, boolean applicable, boolean selectedByDefault,
+                    String stableKey, String decisionFingerprint, NavigationInfo navigation) {
+            this(id, category, pageId, pageName, elementId, elementLabel, interactionId, trigger, action,
+                    targetPageId, targetPageName, source, reason, evidenceRefs, applicable, selectedByDefault,
+                    stableKey, decisionFingerprint, navigation, null);
+        }
         public Item(String id, String category, long pageId, String pageName, long elementId,
                     String elementLabel, Long interactionId, String trigger, String action,
                     Long targetPageId, String targetPageName, String source, String reason,
@@ -26,13 +36,19 @@ public record AutowirePlan(String previewId, long projectId, long expiresAt, Lis
         }
     }
     public record TargetOption(long id, String name) {}
+    public record TargetSelection(String basis, List<TargetOption> candidateTargets) {}
     public record NavigationInfo(String familyKey, String itemKey, String label, String region,
                                  List<Long> memberElementIds, double x, double y, double width, double height,
                                  String status, String basis, String previousAction, Long previousTargetPageId,
                                  List<TargetOption> candidateTargets) {}
     public record NavigationDiagnostic(long pageId, String pageName, String label, String status, String reason) {}
     public record NavigationResolution(String stableKey, long targetPageId) {}
-    public record PreviewRequest(String previousPreviewId, List<NavigationResolution> navigationResolutions) {}
+    public record PreviewRequest(String previousPreviewId, List<NavigationResolution> navigationResolutions,
+                                 List<NavigationResolution> targetResolutions) {
+        public PreviewRequest(String previousPreviewId, List<NavigationResolution> navigationResolutions) {
+            this(previousPreviewId, navigationResolutions, List.of());
+        }
+    }
     public record ExclusionView(long id, String pageName, String elementLabel, String scope,
                                 String reason, boolean matched) {}
     public record ExcludeDecision(String itemId, String scope) {}

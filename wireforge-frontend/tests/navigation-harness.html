@@ -22,6 +22,12 @@ window.navTest = { navigations: [], unmapped: 0, applied: [], requests: [], edit
   const unknown=base('unresolved',{category:'uncertain',applicable:false,selectedByDefault:false,targetPageId:null,targetPageName:'未确定',stableKey:'1:unresolved',decisionFingerprint:'unresolved'})
   unknown.navigation={...unknown.navigation,status:'unresolved',basis:'unresolved'}
   plan.value=makePlan('unresolved',[unknown])
+}, ordinaryUnresolvedReview: () => {
+  plan.value=makePlan('ordinary-unresolved',[base('ordinary',{navigation:null,category:'uncertain',applicable:false,selectedByDefault:false,targetPageId:null,targetPageName:'未确定',stableKey:'1:ordinary',decisionFingerprint:'ordinary-unresolved',targetSelection:{basis:'suggestion',candidateTargets:[{id:2,name:'我的'},{id:3,name:'设置'}]}})])
+}, conflictReview: () => {
+  const conflict=base('conflict',{category:'uncertain',applicable:false,targetPageId:null,selectedByDefault:false})
+  conflict.navigation={...conflict.navigation,status:'conflict',basis:'conflict'}
+  plan.value=makePlan('conflict',[conflict])
 }, sampleReview: () => {
   const exchange=base('exchange',{category:'complete',pageId:4,pageName:'限时兑换商店',elementLabel:'兑换记录',interactionId:40,targetPageId:5,targetPageName:'兑换记录',selectedByDefault:false,stableKey:'4:exchange',decisionFingerprint:'exchange',reason:'导航入口已识别；兑换记录是项目中唯一匹配的独立页面。'})
   exchange.navigation={...exchange.navigation,label:'兑换记录',previousAction:'tab_switch',candidateTargets:[{id:5,name:'兑换记录'}]}
@@ -31,9 +37,9 @@ window.navTest = { navigations: [], unmapped: 0, applied: [], requests: [], edit
 } }
 function recompute(request) {
   window.navTest.requests.push(request)
-  plan.value=makePlan('chosen',plan.value.items.map(i=> {
-    const choice=request.navigationResolutions.find(c=>c.stableKey===i.stableKey)
-    return choice ? { ...i, applicable:true, category:i.interactionId == null ? 'add':'complete', targetPageId: choice.targetPageId, targetPageName: choice.targetPageId===3?'设置':'我的', decisionFingerprint: 'choice-'+choice.targetPageId, selectedByDefault: false, navigation: { ...i.navigation, status:'resolved', basis: 'user_choice' } } : { ...i }
+  plan.value=makePlan('chosen-'+window.navTest.requests.length,plan.value.items.map(i=> {
+    const choice=[...(request.navigationResolutions||[]),...(request.targetResolutions||[])].find(c=>c.stableKey===i.stableKey)
+    return choice ? { ...i, applicable:true, category:i.interactionId == null ? 'add':'complete', targetPageId: choice.targetPageId, targetPageName: choice.targetPageId===3?'设置':'我的', decisionFingerprint: 'choice-'+choice.targetPageId, selectedByDefault: false, navigation: i.navigation ? { ...i.navigation, status:'resolved', basis:'user_choice' } : null, targetSelection:i.targetSelection ? {...i.targetSelection,basis:'user_choice'} : null } : { ...i }
   }))
 }
 createApp({ setup: () => () => h('main', [

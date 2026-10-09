@@ -18,6 +18,7 @@ export interface AutowireItem {
   stableKey?: string
   decisionFingerprint?: string
   navigation?: NavigationInfo | null
+  targetSelection?: { basis: string; candidateTargets: { id: number; name: string }[] } | null
 }
 export interface NavigationInfo {
   familyKey: string
@@ -38,6 +39,7 @@ export interface NavigationInfo {
 export interface AutowirePreviewRequest {
   previousPreviewId?: string
   navigationResolutions?: { stableKey: string; targetPageId: number }[]
+  targetResolutions?: { stableKey: string; targetPageId: number }[]
 }
 export interface AutowirePlan {
   previewId: string

@@ -76,6 +76,44 @@ class AutowireReviewServiceTest {
         assertEquals(1,result.added());verify(lines).insert(argThat((Interaction i)->i.getParams().contains("\"navigation\"")&&i.getTargetPageId()==3));
         var order=inOrder(jdbc,tx);order.verify(jdbc).update(startsWith("INSERT INTO project_navigation_mapping"),any(Object[].class));order.verify(tx).commit(any());
     }
+    @Test void ordinaryUnresolvedJumpCanBeReviewedAndAppliedWithoutPreviewWrites() {
+        button.setLabel("功能入口");
+        var old=AutowirePlannerTest.line(40,button,"ai",null);when(lines.selectList(any())).thenReturn(List.of(old));
+        var plan=service.preview(1L);var item=plan.items().get(0);
+        assertNull(item.navigation());assertFalse(item.applicable());assertEquals(List.of(new TargetOption(3,"兑换记录")),item.targetSelection().candidateTargets());
+        var next=service.preview(1L,new PreviewRequest(plan.previewId(),List.of(),List.of(new NavigationResolution(item.stableKey(),3))));
+        var resolved=next.items().get(0);assertEquals("complete",resolved.category());assertEquals(3L,resolved.targetPageId());
+        assertTrue(resolved.applicable());assertFalse(resolved.selectedByDefault());assertEquals("user_choice",resolved.targetSelection().basis());
+        verifyNoInteractions(render,tx,ai);verify(lines,never()).updateById(any(Interaction.class));
+        var result=service.apply(1L,request(next.previewId(),List.of(resolved.id())));assertEquals(1,result.completed());
+        verify(lines).updateById(argThat((Interaction i)->i.getId()==40&&i.getTargetPageId()==3));
+    }
+    @Test void ordinaryAnnotatedIntentCanReceiveAHumanTargetWithoutAiGuessing() {
+        button.setLabel("功能入口");when(annotations.selectList(any())).thenReturn(List.of(AutowirePlannerTest.annotation(1,button,"点击后跳转到对应功能页面")));
+        var plan=service.preview(1L);var item=plan.items().get(0);assertFalse(item.applicable());assertNotNull(item.targetSelection());
+        var next=service.preview(1L,new PreviewRequest(plan.previewId(),List.of(),List.of(new NavigationResolution(item.stableKey(),3))));
+        assertEquals("add",next.items().get(0).category());assertFalse(next.items().get(0).selectedByDefault());verifyNoInteractions(ai,render,tx);
+    }
+    @Test void ordinaryTargetSelectionRejectsForgeryDuplicatesAndStalePreview() {
+        var plan=service.preview(1L);var item=plan.items().get(0);var choice=new NavigationResolution(item.stableKey(),3);
+        assertThrows(IllegalStateException.class,()->service.preview(1L,new PreviewRequest(plan.previewId(),List.of(),List.of(new NavigationResolution(item.stableKey(),999)))));
+        assertThrows(IllegalStateException.class,()->service.preview(1L,new PreviewRequest(plan.previewId(),List.of(),List.of(choice,choice))));
+        assertThrows(ResponseStatusException.class,()->service.preview(1L,new PreviewRequest(null,List.of(),List.of(choice))));
+        assertThrows(ResponseStatusException.class,()->service.preview(2L,new PreviewRequest(plan.previewId(),List.of(),List.of(choice))));
+        button.setLabel("页面已修改");assertThrows(ResponseStatusException.class,()->service.preview(1L,new PreviewRequest(plan.previewId(),List.of(),List.of(choice))));
+        verifyNoInteractions(render,tx);verify(lines,never()).insert(any(Interaction.class));
+    }
+    @Test void targetPickerCannotBypassDecorationsUnknownSourcesOrConflictingLines() {
+        button.setType("image");when(lines.selectList(any())).thenReturn(List.of(AutowirePlannerTest.line(40,button,"ai",null)));
+        assertTrue(service.preview(1L).items().stream().allMatch(i->i.targetSelection()==null));
+        button.setType("button");when(lines.selectList(any())).thenReturn(List.of(AutowirePlannerTest.line(40,button,null,null)));
+        var unknown=service.preview(1L);assertNull(unknown.items().get(0).targetSelection());
+        assertThrows(IllegalStateException.class,()->service.preview(1L,new PreviewRequest(unknown.previewId(),List.of(),List.of(new NavigationResolution(unknown.items().get(0).stableKey(),3)))));
+        when(lines.selectList(any())).thenReturn(List.of(AutowirePlannerTest.line(40,button,"ai",null),AutowirePlannerTest.line(41,button,"ai",null)));
+        assertTrue(service.preview(1L).items().stream().allMatch(i->i.targetSelection()==null));
+        when(lines.selectList(any())).thenReturn(List.of(AutowirePlannerTest.line(40,button,"user",3L)));assertTrue(service.preview(1L).items().isEmpty());
+        verifyNoInteractions(render,tx);
+    }
     @Test void aiNavigationOnlySuggestsAllowedTargetsAndRemainsUnchecked() throws Exception {
         page.setName("首页");target.setName("个人中心");when(elements.selectList(any())).thenReturn(NavigationPlannerTest.bar(1,"首页","我的"));
         when(ai.generateText(anyString(),anyString())).thenAnswer(inv->{var inputs=json.readTree(inv.getArgument(1,String.class));return "[{\"item_id\":\""+inputs.get(0).path("item_id").asText()+"\",\"decision\":\"link\",\"target_page_id\":3,\"reason\":\"账户入口\"}]";});

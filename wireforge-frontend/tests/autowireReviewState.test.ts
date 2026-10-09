@@ -31,3 +31,11 @@ test('manual target memory is dropped when target is no longer selectable', () =
   const a = item(), memory = rememberReview(plan(a), [], {}, { [reviewKey(a)]: 3 })
   assert.deepEqual(restoreReview(plan(a), memory).targets, {})
 })
+test('ordinary target choices survive a successful server recheck and expire with their option', () => {
+  const a=item({navigation:null,targetSelection:{basis:'suggestion',candidateTargets:[{id:3,name:'设置'}]}})
+  const memory=rememberReview(plan(a),['a'],{}, {[reviewKey(a)]:3})
+  const resolved={...a,targetPageId:3,decisionFingerprint:'choice-3',targetSelection:{...a.targetSelection!,basis:'user_choice'}}
+  const state=restoreReview(plan(resolved),memory)
+  assert.equal(state.targets[reviewKey(a)],3);assert.deepEqual(state.selected,[])
+  assert.deepEqual(restoreReview(plan({...resolved,targetSelection:{basis:'suggestion',candidateTargets:[]}}),memory).targets,{})
+})
