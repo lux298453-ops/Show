@@ -24,3 +24,16 @@ CREATE TABLE IF NOT EXISTS autowire_render_job (
  created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
  KEY idx_autowire_job (status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_navigation_mapping (
+ id BIGINT AUTO_INCREMENT PRIMARY KEY,
+ project_id BIGINT NOT NULL,
+ nav_family_key VARCHAR(64) NOT NULL, nav_item_key VARCHAR(64) NOT NULL,
+ nav_label VARCHAR(255) NOT NULL, target_page_id BIGINT NOT NULL,
+ origin VARCHAR(32) NOT NULL, source_interaction_id BIGINT,
+ active BOOLEAN NOT NULL DEFAULT TRUE,
+ created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY uq_navigation_mapping (project_id, nav_family_key, nav_item_key),
+ KEY idx_navigation_mapping_project (project_id, active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

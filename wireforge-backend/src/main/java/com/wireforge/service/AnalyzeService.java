@@ -1005,6 +1005,10 @@ public class AnalyzeService {
                     styleNode.put("radius", styleIn.path("radius").asDouble());
                 }
             }
+            JsonNode navigationNode = node.path("navigation");
+            if (navigationNode.isObject() && java.util.Set.of("bottom","top","side").contains(navigationNode.path("region").asText())) {
+                styleNode.set("navigation", navigationNode);
+            }
             if (styleNode.size() > 0) {
                 element.setStyle(styleNode.toString());
             }

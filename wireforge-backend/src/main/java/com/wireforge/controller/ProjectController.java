@@ -221,8 +221,8 @@ public class ProjectController {
     }
 
     @PostMapping("/{id}/autowire/preview")
-    public Result<AutowirePlan> previewAutowire(@PathVariable Long id) {
-        return Result.ok(interactionAutowireService.preview(id));
+    public Result<AutowirePlan> previewAutowire(@PathVariable Long id, @RequestBody(required = false) AutowirePlan.PreviewRequest body) {
+        return Result.ok(interactionAutowireService.preview(id, body));
     }
 
     @PostMapping("/{id}/autowire/apply")

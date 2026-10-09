@@ -1,0 +1,62 @@
+import puppeteer from 'puppeteer-core'
+import { readFile } from 'node:fs/promises'
+import assert from 'node:assert/strict'
+
+const origin=process.env.NAV_TEST_ORIGIN || 'http://127.0.0.1:5174'
+const fixture=await readFile(new URL('../../wireforge-backend/target/navigation-runtime-fixture.html',import.meta.url),'utf8')
+const browser=await puppeteer.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true,args:['--no-sandbox','--disable-gpu']})
+try {
+  const page=await browser.newPage();await page.setViewport({width:1400,height:1000})
+  const errors=[];page.on('pageerror',e=>errors.push(String(e)))
+  await page.setRequestInterception(true)
+  page.on('request',request=> {
+    const url=new URL(request.url())
+    if(url.pathname==='/__navigation_fixture')return request.respond({status:200,contentType:'text/html; charset=utf-8',body:fixture})
+    if(url.pathname.startsWith('/api/') || (url.protocol.startsWith('http') && url.origin!==origin))return request.abort()
+    request.continue()
+  })
+  await page.goto(origin+'/tests/navigation-harness.html');await page.waitForSelector('iframe.html-frame')
+  const handle=await page.$('iframe.html-frame');const frame=await handle.contentFrame()
+  await frame.waitForSelector('[data-wf-nav-owner="10"]')
+  const count=()=>page.evaluate(()=>window.navTest.navigations.length)
+  for(const selector of ['.nav-item svg','.nav-item span']) {
+    const before=await count();await frame.click(selector);await page.waitForFunction(n=>window.navTest.navigations.length>n,{},before)
+    assert.equal(await count(),before+1,'Each icon/text click dispatches once')
+  }
+  const wrapper=await frame.$('.nav-item'),rect=await wrapper.boundingBox();const before=await count()
+  await page.mouse.click(rect.x+7,rect.y+rect.height-7);await page.waitForFunction(n=>window.navTest.navigations.length>n,{},before)
+  assert.equal(await count(),before+1,'Wrapper empty space responds')
+  const area=await frame.$('.wf-nav-hotspot');assert.ok(area,'Flat navigation has a presentation hotspot')
+  const beforeFlat=await count();await area.click();await page.waitForFunction(n=>window.navTest.navigations.length>n,{},beforeFlat)
+  assert.equal(await page.evaluate(()=>window.navTest.navigations.at(-1)),'我的')
+  assert.equal(await frame.$('[data-wf-nav-owner="30"]'),null,'Independent child action must not be covered')
+  assert.equal(await frame.$eval('[data-wf-element-id="99"]',n=>n.getAttribute('data-action')),'toggle')
+  await page.evaluate(()=>window.navTest.edit());await frame.waitForFunction(()=>!document.body.classList.contains('wf-interactive'))
+  assert.equal(await frame.$eval('.wf-nav-hotspot',n=>getComputedStyle(n).display),'none','Hotspots stay out of editing')
+  assert.equal(await frame.$eval('[data-wf-element-id="21"]',n=>n.textContent),'我的','Member element identity stays intact')
+  await frame.evaluate(()=> {
+    document.querySelector('[data-wf-element-id="11"]').setAttribute('data-nav','我的')
+    const node=document.getElementById('wf-autowire-bindings'),rows=JSON.parse(node.textContent)
+    rows.find(b=>b.elementId===10).action='none';node.textContent=JSON.stringify(rows)
+    const script=Array.from(document.scripts).find(s=>s.textContent.includes("var rows=JSON.parse(document.getElementById('wf-autowire-bindings')"))
+    window.eval(script.textContent)
+  })
+  assert.equal(await frame.$eval('.nav-item',n=>n.getAttribute('data-nav')),null,'Deleted owner loses navigation')
+  assert.equal(await frame.$eval('[data-wf-element-id="11"]',n=>n.getAttribute('data-nav')),'我的','Deleting one binding preserves surviving member action')
+  await page.evaluate(()=>window.navTest.open());await page.waitForSelector('.autowire-dialog')
+  const checks=await page.$$('article.item input[type=checkbox]');assert.equal(checks.length,2)
+  await checks[1].click();await page.evaluate(()=>window.navTest.unchanged())
+  await page.waitForFunction(()=>document.querySelectorAll('article.item input[type=checkbox]').length===2)
+  assert.deepEqual(await page.$$eval('article.item input[type=checkbox]',nodes=>nodes.map(n=>n.checked)),[true,false],'Unchecked choice survives recompute')
+  await page.select('select[aria-label="导航目标 首页 · 我的"]','3')
+  assert.ok(await page.$eval('.actions .el-button--primary',n=>n.disabled),'Target change requires recomputation')
+  await page.$$eval('.actions button',nodes=>nodes.find(n=>n.textContent.includes('重新预检')).click())
+  await page.waitForFunction(()=>window.navTest.requests.length===1)
+  assert.deepEqual(await page.$$eval('article.item input[type=checkbox]',nodes=>nodes.map(n=>n.checked)),[false,false],'Changed target is unchecked; old unchecked stays unchecked')
+  await (await page.$('article.item input[type=checkbox]')).click()
+  await page.click('.actions .el-button--primary')
+  assert.deepEqual(await page.evaluate(()=>window.navTest.applied[0].selectedIds),['checked'])
+  assert.equal(await page.evaluate(()=>window.navTest.requests[0].navigationResolutions[0].targetPageId),3)
+  assert.deepEqual(errors,[])
+  console.log('PASS: real iframe icon/text/empty-space clicks; safe hotspot; editing isolation; review choice memory and target recheck; no API writes.')
+} finally {await browser.close()}

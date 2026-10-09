@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wireforge.entity.*;
 import com.wireforge.mapper.*;
+import com.wireforge.model.AutowirePlan.NavigationInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -34,7 +35,23 @@ public class AutowireRenderService {
 
     public record Binding(long pageId, long elementId, String label, String type, String group,
                           String domUid, double x, double y, double width, double height,
-                          String action, Long targetId, String targetName) {}
+                          String action, Long targetId, String targetName, NavigationInfo navigation) {
+        public Binding(long pageId, long elementId, String label, String type, String group,
+                       String domUid, double x, double y, double width, double height,
+                       String action, Long targetId, String targetName) {
+            this(pageId,elementId,label,type,group,domUid,x,y,width,height,action,targetId,targetName,null);
+        }
+    }
+
+    private NavigationInfo navigationMetadata(Interaction line, List<Interaction> fallback, long elementId) {
+        List<Interaction> sources = new ArrayList<>(); if (line != null) sources.add(line);
+        fallback.stream().filter(i -> i.getElementId().equals(elementId)).forEach(sources::add);
+        for (Interaction source : sources) try {
+            var node = json.readTree(AutowirePlanner.safe(source.getParams()));
+            if (node != null && node.path("navigation").isObject()) return json.treeToValue(node.path("navigation"),NavigationInfo.class);
+        } catch(Exception ignored) {}
+        return null;
+    }
 
     public List<Binding> bindings(List<Element> changed, List<Interaction> oldLines, List<Page> pages) {
         List<Binding> result = new ArrayList<>();
@@ -52,7 +69,7 @@ public class AutowireRenderService {
             Long target = line == null ? null : line.getTargetPageId();
             String name = pages.stream().filter(p -> p.getId().equals(target)).map(Page::getName).findFirst().orElse("");
             result.add(new Binding(e.getPageId(), e.getId(), AutowirePlanner.safe(e.getLabel()), AutowirePlanner.safe(e.getType()), AutowirePlanner.safe(e.getGroupKey()), uid,
-                    nz(e.getPositionX()), nz(e.getPositionY()), nz(e.getWidth()), nz(e.getHeight()), line == null ? "none" : line.getActionType(), target, name));
+                    nz(e.getPositionX()), nz(e.getPositionY()), nz(e.getWidth()), nz(e.getHeight()), line == null ? "none" : line.getActionType(), target, name,navigationMetadata(line,oldLines,e.getId())));
         }
         return result;
     }
@@ -88,6 +105,7 @@ public class AutowireRenderService {
             List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
             // Refresh persisted binding commands from current relations so a delayed retry cannot restore stale lines.
             List<Binding> refreshed = new ArrayList<>();
+            Map<Long,List<NavigationPlanner.Entry>> navigationByPage = new HashMap<>();
             for (Binding b : changes) {
                 Element element = elementMapper.selectById(b.elementId());
                 if (element == null || element.getPageId() != b.pageId()) continue;
@@ -95,7 +113,14 @@ public class AutowireRenderService {
                 Interaction line = current.stream().filter(i -> "user".equals(i.getSource())).findFirst().orElse(current.isEmpty() ? null : current.get(0));
                 Long target = line == null ? null : line.getTargetPageId();
                 String name = pages.stream().filter(p -> p.getId().equals(target)).map(Page::getName).findFirst().orElse("");
-                refreshed.add(new Binding(b.pageId(), b.elementId(), AutowirePlanner.safe(element.getLabel()), AutowirePlanner.safe(element.getType()), AutowirePlanner.safe(element.getGroupKey()), b.domUid(), nz(element.getPositionX()), nz(element.getPositionY()), nz(element.getWidth()), nz(element.getHeight()), line == null ? "none" : line.getActionType(), target, name));
+                NavigationInfo nav = navigationMetadata(line,List.of(),b.elementId()); if (nav == null) nav = b.navigation();
+                if (nav != null) {
+                    Page owner = pages.stream().filter(p -> p.getId() == b.pageId()).findFirst().orElseThrow();
+                    var entry = navigationByPage.computeIfAbsent(b.pageId(),pageId -> NavigationPlanner.detect(List.of(owner),elementMapper.selectList(Wrappers.<Element>lambdaQuery().eq(Element::getPageId,pageId)))).stream().filter(e -> e.ids().contains(b.elementId())).findFirst().orElse(null);
+                    if (entry != null) nav = new NavigationInfo(entry.familyKey(),entry.itemKey(),entry.label(),entry.region(),entry.ids(),entry.x(),entry.y(),entry.width(),entry.height(),nav.status(),nav.basis(),nav.previousAction(),nav.previousTargetPageId(),List.of());
+                    else nav = null; // Layout changed: retain the exact node binding, never guess a stale hot area.
+                }
+                refreshed.add(new Binding(b.pageId(), b.elementId(), AutowirePlanner.safe(element.getLabel()), AutowirePlanner.safe(element.getType()), AutowirePlanner.safe(element.getGroupKey()), b.domUid(), nz(element.getPositionX()), nz(element.getPositionY()), nz(element.getWidth()), nz(element.getHeight()), line == null ? "none" : line.getActionType(), target, name,nav));
             }
             String beforeMap = jdbc.queryForObject("SELECT COALESCE(app_map,'') FROM project WHERE id=?", String.class, projectId);
             if (appMapService.buildAppMap(projectId) == null) jdbc.update("UPDATE project SET app_map=NULL WHERE id=?", projectId);
@@ -166,6 +191,11 @@ public class AutowireRenderService {
               if(exact.length===1)return exact[0];
               if(b.domUid){exact=Array.from(document.querySelectorAll('[data-wf-uid]')).filter(function(n){return n.getAttribute('data-wf-uid')===b.domUid;});if(exact.length===1)return exact[0];}
               if(b.group){exact=Array.from(document.querySelectorAll('[data-group-key][data-group-role="anchor"]')).filter(function(n){return n.getAttribute('data-group-key')===b.group;});if(exact.length===1)return exact[0];}
+              if(b.navigation){
+                var ids=(b.navigation.memberElementIds||[]).map(String);
+                exact=Array.from(document.querySelectorAll('[data-wf-element-id]')).filter(function(n){return ids.indexOf(n.getAttribute('data-wf-element-id'))>=0;});
+                if(exact.length===1)return exact[0];
+              }
               // Conservative legacy fallback: exact label AND close geometry AND one unambiguous match.
               var body=document.body.getBoundingClientRect();
               exact=Array.from(document.querySelectorAll('.wf-el,.wf-card,.wf-btn,.wf-act,.wf-ic,.wf-t,.wf-tabit,[data-nav],[data-modal],[data-action]')).filter(function(n){
@@ -173,13 +203,59 @@ public class AutowireRenderService {
                 var r=n.getBoundingClientRect();
                 return Math.abs(r.left-body.left-b.x)<=12&&Math.abs(r.top-body.top-b.y)<=12&&Math.abs(r.width-b.width)<=16&&Math.abs(r.height-b.height)<=16;
               });
-              return exact.length===1?exact[0]:null;
+              if(exact.length===1)return exact[0];
+              if(b.navigation){
+                var nav=b.navigation;
+                exact=Array.from(document.querySelectorAll('[data-nav-item],.nav-item,.wf-tabit,.tab-item')).filter(function(n){
+                  if(n.hasAttribute('data-wf-element-id')||norm(n.textContent)!==norm(nav.label))return false;
+                  var r=n.getBoundingClientRect();return r.left>=body.left+nav.x-16&&r.right<=body.left+nav.x+nav.width+16&&r.top>=body.top+nav.y-16&&r.bottom<=body.top+nav.y+nav.height+16;
+                });
+                if(exact.length===1)return exact[0];
+              }
+              return null;
+            }
+            function navigationNode(n,b){
+              var nav=b.navigation;if(!nav)return n;
+              // Deletion clears only its recorded owner; surviving member actions must remain intact.
+              if(b.action==='none')return n;
+              var ids=(nav.memberElementIds||[]).map(String),body=document.body.getBoundingClientRect();
+              var sx=body.width/(document.body.offsetWidth||body.width||1),sy=sx;
+              function owned(el){var own=el.closest&&el.closest('[data-wf-element-id]');return own&&ids.indexOf(own.getAttribute('data-wf-element-id'))>=0;}
+              function inSlot(el){var r=el.getBoundingClientRect();return r.left>=body.left+(nav.x-16)*sx&&r.right<=body.left+(nav.x+nav.width+16)*sx&&r.top>=body.top+(nav.y-32)*sy&&r.bottom<=body.top+(nav.y+nav.height+32)*sy;}
+              var wrapper=n.closest('[data-nav-item],.nav-item,.wf-tabit,.tab-item,button,a,[role="button"]');
+              if(wrapper&&wrapper!==document.body&&wrapper!==document.documentElement&&inSlot(wrapper)){
+                var foreign=Array.from(wrapper.querySelectorAll('button,a,input,textarea,select,[role="button"],[data-nav],[data-modal],[data-action]')).some(function(el){return el!==n&&ids.indexOf(el.getAttribute('data-wf-element-id'))<0;});
+                if(wrapper!==n&&wrapper.hasAttribute('data-wf-element-id')&&!owned(wrapper)&&(wrapper.hasAttribute('data-nav')||wrapper.hasAttribute('data-modal')||wrapper.hasAttribute('data-action')))foreign=true;
+                var otherItem=Array.from(wrapper.querySelectorAll('[data-wf-element-id]')).some(function(el){return ids.indexOf(el.getAttribute('data-wf-element-id'))<0;});
+                if(!foreign&&!otherItem){
+                  wrapper.setAttribute('data-wf-nav-owner',String(b.elementId));
+                  // Only clear members of this reviewed item; independent child controls keep their behavior.
+                  wrapper.querySelectorAll('[data-nav]').forEach(function(el){if(owned(el))el.removeAttribute('data-nav');});
+                  return wrapper;
+                }
+              }
+              var nr=n.getBoundingClientRect();
+              if(nr.left<body.left+(nav.x-16)*sx||nr.right>body.left+(nav.x+nav.width+16)*sx||nr.top<body.top+(nav.y-16)*sy||nr.bottom>body.top+(nav.y+nav.height+16)*sy)return null;
+              var foreign=Array.from(document.querySelectorAll('button,a,input,textarea,select,[data-modal],[data-action]')).some(function(el){
+                if(el===n||ids.indexOf(el.getAttribute('data-wf-element-id'))>=0||el.classList.contains('wf-nav-hotspot'))return false;
+                var r=el.getBoundingClientRect();return r.right>body.left+nav.x*sx&&r.left<body.left+(nav.x+nav.width)*sx&&r.bottom>body.top+nav.y*sy&&r.top<body.top+(nav.y+nav.height)*sy;
+              });
+              if(foreign)return null;
+              var area=document.createElement('button');area.type='button';area.className='wf-nav-hotspot';
+              area.setAttribute('data-wf-nav-owner',String(b.elementId));area.setAttribute('aria-label',nav.label||b.label||'导航');
+              area.style.cssText='position:absolute;left:'+nav.x+'px;top:'+nav.y+'px;width:'+nav.width+'px;height:'+nav.height+'px;background:transparent;border:0;padding:0;z-index:90;cursor:pointer';
+              document.body.appendChild(area);return area;
+            }
+            if(!document.getElementById('wf-nav-hotspot-style')){
+              var style=document.createElement('style');style.id='wf-nav-hotspot-style';style.textContent='body:not(.wf-interactive) .wf-nav-hotspot{display:none}.wf-nav-hotspot:focus-visible{outline:2px solid #0d99ff;outline-offset:-2px}';document.head.appendChild(style);
             }
             rows.forEach(function(b){
               var n=find(b);if(!n){missing.push(b.elementId);return;}
-              n.setAttribute('data-wf-element-id',String(b.elementId));
+              if(!n.hasAttribute('data-wf-element-id'))n.setAttribute('data-wf-element-id',String(b.elementId));
+              document.querySelectorAll('[data-wf-nav-owner]').forEach(function(el){if(el.getAttribute('data-wf-nav-owner')===String(b.elementId)){el.removeAttribute('data-nav');if(el.classList.contains('wf-nav-hotspot'))el.remove();}});
               n.removeAttribute('data-nav');n.removeAttribute('data-modal');
               if(n.getAttribute('data-action')==='back')n.removeAttribute('data-action');
+              if(b.navigation){n=navigationNode(n,b);if(!n){missing.push(b.elementId);return;}}
               if(b.action==='navigate'&&b.targetName)n.setAttribute('data-nav',b.targetName);
               else if((b.action==='popup'||b.action==='modal')&&b.targetId)n.setAttribute('data-modal',String(b.targetId));
               else if(b.action==='back')n.setAttribute('data-action','back');
@@ -212,6 +288,7 @@ public class AutowireRenderService {
               document.querySelectorAll('.wf-tabbar .wf-tabit').forEach(function(n){
                 // Per-element reviewed or manually deleted bindings take priority over shared defaults.
                 if(rows.some(function(b){return n.getAttribute('data-wf-element-id')===String(b.elementId);}))return;
+                if(!n.hasAttribute('data-nav')||n.hasAttribute('data-wf-nav-owner'))return;
                 var matching=items.filter(function(i){return norm(i.label)===norm(n.textContent);});
                 if(matching.length===1&&shared.pageNames[String(matching[0].target)])n.setAttribute('data-nav',shared.pageNames[String(matching[0].target)]);
               });

@@ -15,6 +15,29 @@ export interface AutowireItem {
   evidenceRefs: string[]
   applicable: boolean
   selectedByDefault: boolean
+  stableKey?: string
+  decisionFingerprint?: string
+  navigation?: NavigationInfo | null
+}
+export interface NavigationInfo {
+  familyKey: string
+  itemKey: string
+  label: string
+  region: string
+  memberElementIds: number[]
+  x: number
+  y: number
+  width: number
+  height: number
+  status: string
+  basis: string
+  previousAction: string | null
+  previousTargetPageId: number | null
+  candidateTargets: { id: number; name: string }[]
+}
+export interface AutowirePreviewRequest {
+  previousPreviewId?: string
+  navigationResolutions?: { stableKey: string; targetPageId: number }[]
 }
 export interface AutowirePlan {
   previewId: string
@@ -24,6 +47,7 @@ export interface AutowirePlan {
   exclusions: { id: number; pageName: string; elementLabel: string; scope: string; reason: string; matched: boolean }[]
   warnings: string[]
   protectedCount: number
+  navigationDiagnostics?: { pageId: number; pageName: string; label: string; status: string; reason: string }[]
 }
 export interface AutowireDecisions {
   selectedIds: string[]

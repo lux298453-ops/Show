@@ -1,6 +1,6 @@
 import http from './http'
 import type { Project, Prototype, Page, Annotation, CommentThread, CommentReply } from '../types'
-import type { AutowirePlan, AutowireApplyRequest, AutowireApplyResult } from '../types/autowire'
+import type { AutowirePlan, AutowireApplyRequest, AutowireApplyResult, AutowirePreviewRequest } from '../types/autowire'
 
 export interface AnalysisStatus {
   projectId: number
@@ -93,7 +93,7 @@ export const projectApi = {
   /** Compatibility entry: now read-only, never silently applies inferred relations. */
   autowireInteractionsWithAi: (id: number) =>
     http.post<any, AutowirePlan>(`/projects/${id}/autowire-ai`),
-  previewAutowire: (id: number) => http.post<any, AutowirePlan>(`/projects/${id}/autowire/preview`),
+  previewAutowire: (id: number, body?: AutowirePreviewRequest) => http.post<any, AutowirePlan>(`/projects/${id}/autowire/preview`, body),
   applyAutowire: (id: number, body: AutowireApplyRequest) =>
     http.post<any, AutowireApplyResult>(`/projects/${id}/autowire/apply`, body),
   autowireStatus: (id: number, applicationId: string) =>

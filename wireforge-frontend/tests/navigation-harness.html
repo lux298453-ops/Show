@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Navigation regression harness</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import PageCanvas from '../src/components/PageCanvas.vue'
+import ReviewDialog from '../src/components/AutowireReviewDialog.vue'
+
+const html = await (await fetch('/__navigation_fixture')).text()
+const base = (id, patch = {}) => ({ id, category: 'add', pageId: 1, pageName: '首页', elementId: 20, elementLabel: '我的', interactionId: null, trigger: 'click', action: 'navigate', targetPageId: 2, targetPageName: '我的', source: 'autowire_review', reason: '确认导航目标', evidenceRefs: ['navigation:20','nav_basis:exact_name'], applicable: true, selectedByDefault: true, stableKey: '1:nav:family:' + id, decisionFingerprint: 'target-2', navigation: { familyKey: 'family', itemKey: id, label: '我的', region: 'bottom', memberElementIds: [20,21], x: 125, y: 730, width: 125, height: 76, status: 'resolved', basis: 'exact_name', previousAction: null, previousTargetPageId: null, candidateTargets: [{ id: 2, name: '我的' }, { id: 3, name: '设置' }] }, ...patch })
+const makePlan = (previewId, items) => ({ previewId, projectId: 1, expiresAt: Date.now()+600000, items, exclusions: [], warnings: [], protectedCount: 1, navigationDiagnostics: [{pageId:1,pageName:'首页',label:'首页',status:'current_page',reason:'当前页导航，无需新增跨页连线'}] })
+const interactive = ref(true), show = ref(false)
+const plan = ref(makePlan('first', [base('checked'),base('unchecked',{elementLabel:'设置',stableKey:'1:nav:family:unchecked'})]))
+const page = { id: 1, name: '首页', background_image: '', canvas_width: 375, canvas_height: 812, analyzed: 1, html_content: html, elements: [], annotations: [] }
+window.navTest = { navigations: [], unmapped: 0, applied: [], requests: [], edit: () => interactive.value=false, preview: () => interactive.value=true, open: () => show.value=true, unchanged: () => plan.value=makePlan('next',plan.value.items.map(i=>({...i}))) }
+function recompute(request) {
+  window.navTest.requests.push(request)
+  plan.value=makePlan('chosen',plan.value.items.map(i=> {
+    const choice=request.navigationResolutions.find(c=>c.stableKey===i.stableKey)
+    return choice ? { ...i, targetPageId: choice.targetPageId, targetPageName: choice.targetPageId===3?'设置':'我的', decisionFingerprint: 'choice-'+choice.targetPageId, selectedByDefault: false, navigation: { ...i.navigation, basis: 'user_choice' } } : { ...i }
+  }))
+}
+createApp({ setup: () => () => h('main', [
+  h('p', '真实 PageCanvas iframe 与审核弹窗回归夹具'),
+  h(PageCanvas,{ page, boxW:375, interactive:interactive.value, showDesign:false, showAnnotations:false, allPages:[page], onNavigate:name=>window.navTest.navigations.push(name), onAutowireUnmapped:()=>window.navTest.unmapped++ }),
+  h(ReviewDialog,{ modelValue:show.value, 'onUpdate:modelValue':v=>show.value=v, plan:plan.value, result:null, busy:false, error:'', onRecompute:recompute, onApply:v=>window.navTest.applied.push(v) })
+]) }).use(ElementPlus).mount('#app')
+</script></body></html>

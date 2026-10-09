@@ -2063,7 +2063,7 @@ import {
 import { projectApi } from '../api/project'
 import AutowireReviewDialog from '../components/AutowireReviewDialog.vue'
 import AnnotationCreateDialog from '../components/AnnotationCreateDialog.vue'
-import type { AutowirePlan, AutowireDecisions, AutowireApplyRequest, AutowireApplyResult } from '../types/autowire'
+import type { AutowirePlan, AutowireDecisions, AutowireApplyRequest, AutowireApplyResult, AutowirePreviewRequest } from '../types/autowire'
 import { getFileUrl } from '../api/http'
 import type { Annotation, Element, Page, Prototype, CommentThread, CommentReply } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
@@ -3438,14 +3438,14 @@ function onAutowireUnmapped(pageId: number) {
   autowireError.value = `关系已保存，但「${name}」有元素无法准确绑定到原型，请检查对应元素。系统未猜测替换页面内容。`
 }
 
-async function triggerAutowireAi() {
+async function triggerAutowireAi(request?: AutowirePreviewRequest | Event) {
   if (isAutowiringAi.value || isApplyingAutowire.value) return
   if (hasUnsavedChanges.value) { showToast('请先完成当前编辑的保存，再检查项目关系'); return }
   isAutowiringAi.value = true
   autowireError.value = ''
   try {
     showToast('正在检查已有关系与业务依据，完成后可审核连线')
-    autowirePlan.value = await projectApi.previewAutowire(id)
+    autowirePlan.value = await projectApi.previewAutowire(id, request && !(request instanceof Event) ? request : undefined)
     autowireResult.value = null
     pendingAutowireRequest = null
     showAutowireReview.value = true

@@ -27,9 +27,9 @@ import java.util.Map;
  * 纯确定性算法，不调用 AI。
  *
  * 识别规则：
- *  - 底栏带 = 画布底部 20% 区域；
- *  - 带内 icon 元素：有 navigate 交互 → 项（目标=交互目标页）；无任何交互 → 自指项（目标=本页，激活态）；
- *  - 项文案 = 图标自身 label，或其正下方 30px 内的相邻 text 文案；
+ *  - 与导航预检共用图标、文字和条带分组；缺失交互不代表自指；
+ *  - 仅使用现有有效跳转，或名称唯一匹配本页的自指证据；
+ *  - 同组指纹的导航才能参与共识，冲突项不自动合并；
  *  - 跨页按目标页归并，文案取多数票；贡献 ≥2 个规范目标的页视为 Tab 页；
  *  - bar 盒 = 各 Tab 页最小项 y - 16 起，到这些页画布高度中位数止。
  */
@@ -45,7 +45,7 @@ public class AppMapService {
     private final ObjectMapper objectMapper;
 
     /** 候选项（单页单图标） */
-    private record Cand(long target, String label, double x, double y, double w, double h, long pageId) {}
+    private record Cand(long target, String label, double x, double y, double w, double h, long pageId, String family, String item) {}
 
     /**
      * 构建并保存 app_map。返回解析后的 app_map 节点；无法识别出底栏（<2 项）时返回 null。
@@ -60,10 +60,28 @@ public class AppMapService {
         }
 
         // 1) 收集每页的底栏候选项
+        List<Element> allElements = elementMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
+                .in(Element::getPageId,pages.stream().map(Page::getId).toList()));
+        if (allElements.isEmpty()) return null;
+        List<Interaction> allLines = interactionMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
+                .in(Interaction::getElementId,allElements.stream().map(Element::getId).toList()));
         Map<Long, List<Cand>> candsByPage = new LinkedHashMap<>();
         for (Page p : pages) {
-            candsByPage.put(p.getId(), collectBottomItems(p));
+            candsByPage.put(p.getId(), collectBottomItems(p, pages, allElements, allLines));
         }
+        // The current app_map format describes one shared bar. Never combine different families.
+        Map<String, java.util.Set<Long>> families = new LinkedHashMap<>();
+        Map<String, java.util.Set<Long>> destinations = new LinkedHashMap<>();
+        for (List<Cand> candidates : candsByPage.values()) for (Cand c : candidates) {
+            families.computeIfAbsent(c.family(), k -> new java.util.HashSet<>()).add(c.pageId());
+            destinations.computeIfAbsent(c.family() + ":" + c.item(), k -> new java.util.HashSet<>()).add(c.target());
+        }
+        List<String> eligible = families.keySet().stream().filter(f -> families.get(f).size() >= 2
+                && destinations.entrySet().stream().noneMatch(e -> e.getKey().startsWith(f + ":") && e.getValue().size() > 1))
+                .sorted(Comparator.comparingInt((String f) -> families.get(f).size()).reversed()).toList();
+        if (eligible.isEmpty() || (eligible.size() > 1 && families.get(eligible.get(0)).size() == families.get(eligible.get(1)).size())) return null;
+        String family = eligible.get(0);
+        candsByPage.replaceAll((id, candidates) -> candidates.stream().filter(c -> family.equals(c.family())).toList());
 
         // 2) 共识投票：只有出现在 ≥2 个页面底栏带里的目标才是 Tab 项。
         //    单页独有的底部图标多为"页面级功能工具条"（锁屏/充电/自定义…），必须排除。
@@ -160,11 +178,8 @@ public class AppMapService {
             log.info("项目 {} 规范 Tab 项不足（{} 项 / {} 页），跳过", projectId, norms.size(), tabPages.size());
             return null;
         }
-        // 最多 5 项（移动端底栏上限），按中位 x 排序
+        // 保留实际导航项数量，按中位 x 排序。
         norms.sort(Comparator.comparingDouble(Norm::medX));
-        if (norms.size() > 5) {
-            norms = new ArrayList<>(norms.subList(0, 5));
-        }
 
         // 5) bar 盒与输出 JSON
         double minY = Double.MAX_VALUE;
@@ -210,63 +225,27 @@ public class AppMapService {
     }
 
     /** 收集一页底栏带内的候选 Tab 项 */
-    private List<Cand> collectBottomItems(Page p) {
+    private List<Cand> collectBottomItems(Page p, List<Page> pages, List<Element> allElements, List<Interaction> lines) {
         List<Cand> out = new ArrayList<>();
-        double canvasH = p.getCanvasHeight() == null ? 812 : p.getCanvasHeight();
-        double band = canvasH * 0.80;
-        List<Element> els = elementMapper.selectList(
-                com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
-                        .eq(Element::getPageId, p.getId()));
+        List<Element> els = allElements.stream().filter(e -> p.getId().equals(e.getPageId())).toList();
         if (els.isEmpty()) {
             return out;
         }
-        List<Long> ids = els.stream().map(Element::getId).toList();
-        Map<Long, Long> navTarget = new LinkedHashMap<>();
-        for (Interaction it : interactionMapper.selectList(
-                com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
-                        .in(Interaction::getElementId, ids)
-                        .eq(Interaction::getActionType, "navigate")
-                        .isNotNull(Interaction::getTargetPageId))) {
-            navTarget.put(it.getElementId(), it.getTargetPageId());
-        }
-
-        for (Element e : els) {
-            if (!"icon".equals(e.getType()) && !"text".equals(e.getType())) continue;
-            double y = nz(e.getPositionY());
-            if (y < band) continue;
-            Long target = navTarget.get(e.getId());
-            if (target == null && !"icon".equals(e.getType())) continue;
-            if (target == null) {
-                // 底栏带内无交互的图标 = 自指项（本页激活 Tab）
-                target = p.getId();
+        for (var entry : NavigationPlanner.detect(List.of(p), els)) {
+            if (!"bottom".equals(entry.region()) || "local".equals(NavigationPlanner.hint(entry.anchor(),"kind")) || NavigationPlanner.localLabel(entry.label())) continue;
+            List<Interaction> current = lines.stream().filter(i -> entry.ids().contains(i.getElementId())).toList();
+            if (current.stream().anyMatch(i -> !"navigate".equals(i.getActionType()))) continue;
+            List<Long> targets = current.stream().map(Interaction::getTargetPageId).filter(java.util.Objects::nonNull)
+                    .filter(id -> pages.stream().anyMatch(page -> page.getId().equals(id))).distinct().toList();
+            Long target = targets.size() == 1 ? targets.get(0) : null;
+            if (targets.isEmpty() && current.isEmpty()) {
+                List<Page> exact = pages.stream().filter(page -> AutowirePlanner.normalize(page.getName()).equals(AutowirePlanner.normalize(entry.label()))).toList();
+                if (exact.size() == 1 && exact.get(0).getId().equals(p.getId())) target = p.getId();
             }
-            out.add(new Cand(target, resolveLabel(e, els), nz(e.getPositionX()), y,
-                    nz(e.getWidth()), nz(e.getHeight()), p.getId()));
+            if (target == null) continue;
+            out.add(new Cand(target,entry.label(),entry.x(),entry.y(),entry.width(),entry.height(),p.getId(),entry.familyKey(),entry.itemKey()));
         }
         return out;
     }
 
-    /** 项文案：图标自身 label，或正下方 30px 内的相邻 text 文案（底栏常见"图上字下"结构） */
-    private String resolveLabel(Element icon, List<Element> all) {
-        String own = icon.getLabel() == null ? "" : icon.getLabel().trim();
-        double cx = nz(icon.getPositionX()) + nz(icon.getWidth()) / 2;
-        double bottom = nz(icon.getPositionY()) + nz(icon.getHeight());
-        for (Element t : all) {
-            if (!"text".equals(t.getType()) || t.getId().equals(icon.getId())) continue;
-            double tcx = nz(t.getPositionX()) + nz(t.getWidth()) / 2;
-            double tcy = nz(t.getPositionY()) + nz(t.getHeight()) / 2;
-            if (Math.abs(tcx - cx) <= Math.max(24, nz(icon.getWidth()))
-                    && tcy >= bottom - 6 && tcy <= bottom + 30) {
-                String lbl = t.getLabel() == null ? "" : t.getLabel().trim();
-                if (!lbl.isBlank() && lbl.length() <= 6) {
-                    return lbl;
-                }
-            }
-        }
-        return own;
-    }
-
-    private static double nz(Double v) {
-        return v == null ? 0 : v;
-    }
 }

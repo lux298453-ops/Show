@@ -31,7 +31,7 @@ class AutowireReviewServiceTest {
     ApplyRequest request(String token,List<String> selected) {return new ApplyRequest(token,"review-key-1234",selected,List.of(),List.of());}
     @Test void previewNeverWritesOrRenders() {
         var plan=service.preview(1L);assertEquals(1,plan.items().size());
-        verifyNoInteractions(jdbc,render,tx);verify(lines,never()).insert(any(Interaction.class));verify(lines,never()).deleteById(anyLong());verifyNoInteractions(ai);
+        verifyNoInteractions(render,tx);verify(jdbc,never()).update(anyString(),any(Object[].class));verify(lines,never()).insert(any(Interaction.class));verify(lines,never()).deleteById(anyLong());verifyNoInteractions(ai);
     }
     @Test void stalePlanRollsBackWithoutChangingRelations() {
         var plan=service.preview(1L);button.setLabel("同时编辑后的入口");
@@ -59,5 +59,47 @@ class AutowireReviewServiceTest {
         var plan=service.preview(1L);var result=service.apply(1L,request(plan.previewId(),List.of(plan.items().get(0).id())));
         assertEquals(1,result.added());verify(lines).insert(argThat((Interaction i)->i.getTargetPageId()==3L&&"autowire_review".equals(i.getSource())));
         var order=inOrder(tx,render);order.verify(tx).commit(any());order.verify(render).process(result.applicationId());
+    }
+    @Test void manualNavigationTargetsMustBelongToPriorServerPreview() {
+        when(elements.selectList(any())).thenReturn(NavigationPlannerTest.bar(1,"积分商城","兑换记录"));
+        var plan=service.preview(1L);var item=plan.items().get(0);
+        var next=service.preview(1L,new PreviewRequest(plan.previewId(),List.of(new NavigationResolution(item.stableKey(),3L))));
+        assertEquals("user_choice",next.items().get(0).navigation().basis());assertFalse(next.items().get(0).selectedByDefault());
+        assertThrows(IllegalStateException.class,()->service.preview(1L,new PreviewRequest(plan.previewId(),List.of(new NavigationResolution(item.stableKey(),999L)))));
+        assertThrows(ResponseStatusException.class,()->service.preview(1L,new PreviewRequest(null,List.of(new NavigationResolution(item.stableKey(),3L)))));
+        verify(lines,never()).insert(any(Interaction.class));verifyNoInteractions(render,tx);
+    }
+    @Test void reviewedNavigationWritesMappingAndParamsInSameTransaction() {
+        when(elements.selectList(any())).thenReturn(NavigationPlannerTest.bar(1,"积分商城","兑换记录"));
+        doAnswer(inv->{((Interaction)inv.getArgument(0)).setId(500L);return 1;}).when(lines).insert(any(Interaction.class));
+        var plan=service.preview(1L);var result=service.apply(1L,request(plan.previewId(),List.of(plan.items().get(0).id())));
+        assertEquals(1,result.added());verify(lines).insert(argThat((Interaction i)->i.getParams().contains("\"navigation\"")&&i.getTargetPageId()==3));
+        var order=inOrder(jdbc,tx);order.verify(jdbc).update(startsWith("INSERT INTO project_navigation_mapping"),any(Object[].class));order.verify(tx).commit(any());
+    }
+    @Test void aiNavigationOnlySuggestsAllowedTargetsAndRemainsUnchecked() throws Exception {
+        page.setName("首页");target.setName("个人中心");when(elements.selectList(any())).thenReturn(NavigationPlannerTest.bar(1,"首页","我的"));
+        when(ai.generateText(anyString(),anyString())).thenAnswer(inv->{var inputs=json.readTree(inv.getArgument(1,String.class));return "[{\"item_id\":\""+inputs.get(0).path("item_id").asText()+"\",\"decision\":\"link\",\"target_page_id\":3,\"reason\":\"账户入口\"}]";});
+        var plan=service.preview(1L);var item=plan.items().get(0);assertEquals("ai_suggestion",item.navigation().basis());assertTrue(item.applicable());assertFalse(item.selectedByDefault());
+        verify(lines,never()).insert(any(Interaction.class));verifyNoInteractions(render,tx);
+    }
+    @Test void invalidAiTargetOrAiFailureLeavesManualReview() throws Exception {
+        page.setName("首页");target.setName("个人中心");when(elements.selectList(any())).thenReturn(NavigationPlannerTest.bar(1,"首页","我的"));
+        when(ai.generateText(anyString(),anyString())).thenAnswer(inv->{var inputs=json.readTree(inv.getArgument(1,String.class));return "[{\"item_id\":\""+inputs.get(0).path("item_id").asText()+"\",\"decision\":\"link\",\"target_page_id\":999}]";});
+        assertFalse(service.preview(1L).items().get(0).applicable());
+        doThrow(new IllegalStateException("test failure")).when(ai).generateText(anyString(),anyString());
+        var plan=service.preview(1L);assertFalse(plan.items().get(0).applicable());assertFalse(plan.warnings().isEmpty());verify(lines,never()).insert(any(Interaction.class));
+    }
+    @Test void backgroundAutowireCannotSilentlyApplyNavigationCandidates() {
+        when(elements.selectList(any())).thenReturn(NavigationPlannerTest.bar(1,"积分商城","兑换记录"));
+        assertEquals(0,service.autowireProjectInteractions(1L));verify(lines,never()).insert(any(Interaction.class));verifyNoInteractions(tx,render,ai);
+    }
+    @Test void excludingNavigationUnitRemovesAutomaticLinesOnIconAndText() {
+        var els=NavigationPlannerTest.bar(1,"积分商城","兑换记录");when(elements.selectList(any())).thenReturn(els);
+        var icon=AutowirePlannerTest.line(50,els.get(2),"ai",3L);var text=AutowirePlannerTest.line(51,els.get(3),"ai",3L);
+        when(lines.selectList(any())).thenReturn(List.of(icon,text));when(lines.deleteById(anyLong())).thenReturn(1);
+        var plan=service.preview(1L);assertEquals("conflict",plan.items().get(0).navigation().status());
+        var result=service.apply(1L,new ApplyRequest(plan.previewId(),"exclude-nav-unit",List.of(),List.of(new ExcludeDecision(plan.items().get(0).id(),"element")),List.of()));
+        assertEquals(2,result.removed());verify(lines).deleteById(50L);verify(lines).deleteById(51L);
+        verify(render).bindings(argThat(changed->changed.size()==2),anyList(),anyList());
     }
 }
