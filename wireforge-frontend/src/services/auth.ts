@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import http from '../api/http'
+import http, { apiUrl } from '../api/http'
 
 export type UserRole = 'admin' | 'editor' | 'viewer'
 
@@ -190,7 +190,7 @@ export function getAuthHeaders(): Record<string, string> {
 
 export async function fetchProjectMembers(projectId: number): Promise<ProjectMemberData[]> {
   try {
-    const res = await fetch(`/api/projects/${projectId}/members`, {
+    const res = await fetch(apiUrl(`/projects/${projectId}/members`), {
       headers: getAuthHeaders(),
     })
     if (res.ok) {
@@ -214,7 +214,7 @@ export interface FeishuUserLookup {
 
 /** 按飞书编号查这个人叫什么（登录过的人，或飞书通讯录能查到的人） */
 export async function lookupFeishuUser(projectId: number, userId: string): Promise<FeishuUserLookup> {
-  const res = await fetch(`/api/projects/${projectId}/members/lookup?userId=${encodeURIComponent(userId)}`, {
+  const res = await fetch(apiUrl(`/projects/${projectId}/members/lookup?userId=${encodeURIComponent(userId)}`), {
     headers: getAuthHeaders(),
   })
   const data = await res.json().catch(() => ({}))
@@ -225,7 +225,7 @@ export async function lookupFeishuUser(projectId: number, userId: string): Promi
 }
 
 export async function updateProjectMemberRole(projectId: number, userId: string, role: UserRole): Promise<boolean> {
-  const res = await fetch(`/api/projects/${projectId}/members/${userId}/role`, {
+  const res = await fetch(apiUrl(`/projects/${projectId}/members/${userId}/role`), {
     method: 'PUT',
     headers: getAuthHeaders(),
     body: JSON.stringify({ role }),
@@ -247,7 +247,7 @@ export async function addProjectMember(
   userName: string,
   role: UserRole
 ): Promise<ProjectMemberData> {
-  const res = await fetch(`/api/projects/${projectId}/members`, {
+  const res = await fetch(apiUrl(`/projects/${projectId}/members`), {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({ userId, userName, role }),
@@ -264,7 +264,7 @@ export async function addProjectMember(
 }
 
 export async function removeProjectMember(projectId: number, userId: string): Promise<boolean> {
-  const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
+  const res = await fetch(apiUrl(`/projects/${projectId}/members/${userId}`), {
     method: 'DELETE',
     headers: getAuthHeaders(),
   })

@@ -241,6 +241,7 @@
 <script setup lang="ts">
 import { computed, ref, type FunctionalComponent } from 'vue'
 import type { Element } from '../types'
+import { apiUrl } from '../api/http'
 import * as Lucide from 'lucide-vue-next'
 import {
   Menu,
@@ -535,7 +536,7 @@ const circleStyle = computed(() => {
 // ===== 素材库：有 asset_id 时优先用素材图渲染，加载失败回退占位 =====
 const assetUrl = computed(() => {
   const id = props.el.asset_id
-  return id ? `/api/assets/${id}` : null
+  return id ? apiUrl(`/assets/${id}`) : null
 })
 
 const imageError = ref(false)

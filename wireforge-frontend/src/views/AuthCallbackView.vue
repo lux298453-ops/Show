@@ -75,6 +75,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { Check, AlertCircle } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { completeLogin, isSystemAdmin, type AuthUser } from '@/services/auth'
+import { apiUrl } from '@/api/http'
 
 const router = useRouter()
 const route = useRoute()
@@ -127,7 +128,7 @@ onMounted(async () => {
   }
 
   try {
-    const res = await fetch('/api/auth/feishu/callback', {
+    const res = await fetch(apiUrl('/auth/feishu/callback'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: code.trim() }),

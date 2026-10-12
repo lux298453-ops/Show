@@ -12,6 +12,26 @@ function finishRequest(config: SaveConfig | undefined, error?: string) {
 const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const baseURL = rawBaseUrl ? `${rawBaseUrl}/api` : '/api'
 
+/** 不经过 axios 的请求也要用这个拼地址，前后端分开部署时才会发到后端域名 */
+export function apiUrl(path: string): string {
+  return `${baseURL}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+const HOSTED_PATH = /(^|["'(\s,=;])(\/(?:api\/assets|files|uploads)\/)/g
+const BACKEND_HOSTED_PATH = rawBaseUrl
+  ? new RegExp(rawBaseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=/(?:api/assets|files|uploads)/)', 'g')
+  : null
+
+/** 页面内容里素材和上传图片的地址，显示时指向后端域名 */
+export function withBackendFiles(html: string): string {
+  return rawBaseUrl && html ? html.replace(HOSTED_PATH, `$1${rawBaseUrl}$2`) : html
+}
+
+/** withBackendFiles 的反向：保存前换回相对地址，页面数据里不写死后端域名 */
+export function withoutBackendFiles(html: string): string {
+  return BACKEND_HOSTED_PATH && html ? html.replace(BACKEND_HOSTED_PATH, '') : html
+}
+
 export function getFileUrl(url?: string | null): string {
   if (!url) return ''
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url

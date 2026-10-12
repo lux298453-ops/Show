@@ -14,7 +14,7 @@ export function createReadonlyPreviewHtml(html: string, resolveFileUrl: (url: st
     if (/^(javascript|vbscript|file):/i.test(clean) || /[\u0000-\u001f]/.test(clean)) return ''
     if (/^data:/i.test(clean) && !/^data:image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)[;,]/i.test(clean)) return ''
     // Uploads are hosted by the API origin, not necessarily the Pages origin.
-    if (/^\/?uploads\//i.test(clean)) return resolveFileUrl(clean.startsWith('/') ? clean : `/${clean}`)
+    if (/^\/?uploads\//i.test(clean) || /^\/(?:api\/assets|files)\//i.test(clean)) return resolveFileUrl(clean.startsWith('/') ? clean : `/${clean}`)
     return clean
   }
   const rewriteCss = (css: string) => css.replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (_match, _quote, url: string) => {

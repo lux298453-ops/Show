@@ -270,7 +270,7 @@
                 :data-w="p.canvas_width || 375"
                 :data-h="p.canvas_height || 812"
                 :style="{ width: (p.canvas_width || 375) + 'px', height: (p.canvas_height || 812) + 'px' }"
-                :srcdoc="p.html_content || ''"
+                :srcdoc="withBackendFiles(p.html_content || '')"
                 sandbox=""
                 tabindex="-1"
                 title=""
@@ -343,7 +343,7 @@
                       :data-w="p.canvas_width || 375"
                       :data-h="p.canvas_height || 812"
                       :style="{ width: (p.canvas_width || 375) + 'px', height: (p.canvas_height || 812) + 'px' }"
-                      :srcdoc="p.html_content || ''"
+                      :srcdoc="withBackendFiles(p.html_content || '')"
                       sandbox=""
                       tabindex="-1"
                       title=""
@@ -409,7 +409,7 @@ import {
   Pencil,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
-import { getFileUrl } from '../api/http'
+import { apiUrl, getFileUrl, withBackendFiles } from '../api/http'
 import NavbarControls from '../components/NavbarControls.vue'
 import AiGenerationGlow from '../components/AiGenerationGlow.vue'
 import ProjectMetadataDialog from '../components/ProjectMetadataDialog.vue'
@@ -648,7 +648,7 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   try {
-    const resp = await fetch('/api/projects/' + id)
+    const resp = await fetch(apiUrl('/projects/' + id))
     const body = await resp.json()
     const dir = body?.data?.designsDir || body?.designsDir
     if (dir) {

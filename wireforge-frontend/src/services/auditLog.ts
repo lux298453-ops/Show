@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { getAuthHeaders, currentUser } from './auth'
+import { apiUrl } from '../api/http'
 
 export type AuditActionType = 'page_edit' | 'connection_change' | 'comment_discuss' | 'member_change' | 'project_manage'
 export type AuditChangeType = 'add' | 'edit' | 'delete'
@@ -131,7 +132,7 @@ export function recordAuditLog(item: RecordAuditLogParam): AuditLogItem {
     else if (item.changeType === 'add') actionType = 'PAGE_CREATE'
     else if (item.changeType === 'delete') actionType = 'PAGE_DELETE'
 
-    fetch(`/api/projects/${item.projectId}/logs`, {
+    fetch(apiUrl(`/projects/${item.projectId}/logs`), {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
@@ -155,7 +156,7 @@ export function recordAuditLog(item: RecordAuditLogParam): AuditLogItem {
 }
 
 export async function fetchProjectOperationLogs(): Promise<AuditLogItem[]> {
-  const res = await fetch('/api/logs/projects?page=1&pageSize=100', {
+  const res = await fetch(apiUrl('/logs/projects?page=1&pageSize=100'), {
     headers: getAuthHeaders(),
   })
   const data = await res.json().catch(() => ({}))
@@ -168,7 +169,7 @@ export async function fetchProjectOperationLogs(): Promise<AuditLogItem[]> {
 
 export async function fetchAuditLogs(projectId: number): Promise<AuditLogItem[]> {
   try {
-    const res = await fetch(`/api/projects/${projectId}/logs?page=1&pageSize=100`, {
+    const res = await fetch(apiUrl(`/projects/${projectId}/logs?page=1&pageSize=100`), {
       headers: getAuthHeaders(),
     })
     if (res.ok) {

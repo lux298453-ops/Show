@@ -66,6 +66,7 @@ import { ref, watch, onMounted } from 'vue'
 import { X, ArrowRight } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import type { AuthUser } from '../services/auth'
+import { apiUrl } from '../api/http'
 
 const props = defineProps<{
   modelValue: boolean
@@ -92,7 +93,7 @@ const feishuConfig = ref<{ feishuEnabled: boolean; authUrl?: string }>({ feishuE
 onMounted(async () => {
   try {
     const callbackUri = window.location.origin + '/auth/callback'
-    const res = await fetch(`/api/auth/feishu/config?redirectUri=${encodeURIComponent(callbackUri)}`)
+    const res = await fetch(apiUrl(`/auth/feishu/config?redirectUri=${encodeURIComponent(callbackUri)}`))
     if (res.ok) {
       const data = await res.json()
       if (data && data.data) {

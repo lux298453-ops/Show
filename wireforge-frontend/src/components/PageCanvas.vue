@@ -245,7 +245,7 @@
             @click="selectAsset(a)"
           >
             <div class="w-16 h-16 rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center border border-slate-200/70 shrink-0 p-1">
-              <img :src="a.url" :alt="a.name" class="max-w-full max-h-full object-contain" />
+              <img :src="getFileUrl(a.url)" :alt="a.name" class="max-w-full max-h-full object-contain" />
             </div>
             <span class="text-[11px] font-semibold text-slate-700 truncate max-w-[90px]" :title="a.name">{{ a.name }}</span>
             <span class="text-[9px] text-blue-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">点击替换</span>
@@ -287,7 +287,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { FileText, ChevronDown, ChevronRight, GripVertical, Plus, Lock, Image as ImageIcon } from 'lucide-vue-next'
-import { getFileUrl } from '../api/http'
+import { apiUrl, getFileUrl, withBackendFiles, withoutBackendFiles } from '../api/http'
 import { projectApi } from '../api/project'
 import type { Annotation, Element, Page } from '../types'
 import WireframeElement from './WireframeElement.vue'
@@ -437,7 +437,7 @@ watch(
 )
 
 /** 向 AI 生成的 HTML 注入运行时：跨页跳转 + 防溢出兜底 + 微调编辑器 */
-const navRuntimeHtml = computed(() => injectNavRuntime(editSourceHtml.value, !!props.interactive, !!props.readOnly))
+const navRuntimeHtml = computed(() => injectNavRuntime(withBackendFiles(editSourceHtml.value), !!props.interactive, !!props.readOnly))
 
 const htmlFrameRef = ref<HTMLIFrameElement | null>(null)
 /** 整页 HTML 的实际内容高度（由注入脚本测量后回传）；未上报时回退画布高度 */
@@ -5500,7 +5500,7 @@ async function onUploadAssetFile(e: Event) {
 function selectAsset(asset: AssetItem) {
   htmlFrameRef.value?.contentWindow?.postMessage({
     type: 'wf-replace-asset',
-    src: asset.url,
+    src: getFileUrl(asset.url),
   }, '*')
   showAssetPicker.value = false
 }
@@ -5648,7 +5648,7 @@ function onIframeMessage(e: MessageEvent) {
   } else if (d.type === 'wf-save' && typeof d.html === 'string' && d.html.length > 50) {
     isInternalSaving = true
     clearTimeout(saveResetTimer)
-    emit('saveHtml', { pageId: props.page.id, html: d.html })
+    emit('saveHtml', { pageId: props.page.id, html: withoutBackendFiles(d.html) })
     saveResetTimer = setTimeout(() => {
       isInternalSaving = false
     }, 1500)
@@ -5854,7 +5854,7 @@ const normalEls = computed(
 )
 
 function assetUrlFor(el: Element): string {
-  return el.asset_id ? `/api/assets/${el.asset_id}` : ''
+  return el.asset_id ? apiUrl(`/assets/${el.asset_id}`) : ''
 }
 
 const bgErrors = ref<Record<number, boolean>>({})
@@ -6163,7 +6163,7 @@ function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = f
   if (!html) return
   htmlFrameRef.value?.contentWindow?.postMessage({
     type: 'wf-insert-html',
-    html,
+    html: withBackendFiles(html),
     dropX,
     dropY,
     autoEditText,
