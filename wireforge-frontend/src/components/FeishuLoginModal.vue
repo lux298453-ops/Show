@@ -48,11 +48,13 @@
         <!-- Direct Jump Button to Official Feishu OAuth -->
         <button
           type="button"
-          class="w-full py-3 px-5 bg-[#3370FF] hover:bg-[#2860E1] text-white rounded-xl text-sm font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99]"
+          :disabled="fetching"
+          class="w-full py-3 px-5 bg-[#3370FF] hover:bg-[#2860E1] text-white rounded-xl text-sm font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99] disabled:opacity-60"
           @click="handleJumpOAuth"
         >
-          <span>使用飞书登录</span>
-          <ArrowRight class="w-4 h-4" />
+          <span v-if="fetching">正在获取飞书授权地址...</span>
+          <span v-else>使用飞书登录</span>
+          <ArrowRight v-if="!fetching" class="w-4 h-4" />
         </button>
 
 
@@ -82,6 +84,9 @@ watch(
   () => props.modelValue,
   (v) => {
     visible.value = v
+    if (v) {
+      loadFeishuConfig()
+    }
   }
 )
 watch(visible, (v) => {
@@ -89,8 +94,11 @@ watch(visible, (v) => {
 })
 
 const feishuConfig = ref<{ feishuEnabled: boolean; authUrl?: string }>({ feishuEnabled: false })
+const fetching = ref(false)
 
-onMounted(async () => {
+async function loadFeishuConfig(): Promise<string> {
+  if (fetching.value) return feishuConfig.value.authUrl || ''
+  fetching.value = true
   try {
     const callbackUri = window.location.origin + '/auth/callback'
     const res = await fetch(apiUrl(`/auth/feishu/config?redirectUri=${encodeURIComponent(callbackUri)}`))
@@ -98,21 +106,35 @@ onMounted(async () => {
       const data = await res.json()
       if (data && data.data) {
         feishuConfig.value = data.data
+        return data.data.authUrl || ''
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[FeishuLoginModal] Failed to load config:', err)
+  } finally {
+    fetching.value = false
+  }
+  return feishuConfig.value.authUrl || ''
+}
+
+onMounted(() => {
+  loadFeishuConfig()
 })
 
 function close() {
   visible.value = false
 }
 
-function handleJumpOAuth() {
-  if (feishuConfig.value.authUrl) {
+async function handleJumpOAuth() {
+  let authUrl = feishuConfig.value.authUrl
+  if (!authUrl) {
+    authUrl = await loadFeishuConfig()
+  }
+  if (authUrl) {
     try {
       sessionStorage.setItem('wf_return_url', window.location.pathname + window.location.search)
     } catch {}
-    window.location.href = feishuConfig.value.authUrl
+    window.location.href = authUrl
   } else {
     ElMessage.warning('飞书登录未配置或授权地址不可用')
   }
