@@ -54,3 +54,15 @@ wireforge:
     # 回修闭环：生成 HTML 后用无头 Chromium 渲染截图，对比原稿纠错（需先 playwright install chromium）
     repair: ${WIREFORGE_AI_REPAIR:true}
     repair-rounds: ${WIREFORGE_AI_REPAIR_ROUNDS:1}
+  auth:
+    # 系统管理员的飞书用户编号（open_id），多个用逗号分隔
+    admins: ${WIREFORGE_ADMINS:ou_76da1e94e7b7443acaaacba4791c4e3c}
+    # 本地开发快捷登录，线上保持关闭
+    mock-login: ${WIREFORGE_MOCK_LOGIN:false}
+  feishu:
+    # 密钥只从环境变量或 wireforge-backend/config/application.yml（不入库）读取
+    app-id: ${FEISHU_APP_ID:}
+    app-secret: ${FEISHU_APP_SECRET:}
+    redirect-uri: ${FEISHU_REDIRECT_URI:http://localhost:5173/auth/callback}
+
+

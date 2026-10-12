@@ -8,13 +8,16 @@ import com.wireforge.entity.Page;
 import com.wireforge.entity.Project;
 import com.wireforge.entity.CommentReply;
 import com.wireforge.entity.CommentThread;
+import com.wireforge.entity.ProjectMember;
 import com.wireforge.mapper.AnnotationMapper;
+import com.wireforge.mapper.ProjectMemberMapper;
 import com.wireforge.mapper.CommentReplyMapper;
 import com.wireforge.mapper.CommentThreadMapper;
 import com.wireforge.mapper.ElementMapper;
 import com.wireforge.mapper.InteractionMapper;
 import com.wireforge.mapper.PageMapper;
 import com.wireforge.mapper.ProjectMapper;
+import com.wireforge.model.AuthUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,6 +43,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import com.wireforge.model.ProjectAnalysisStatus;
+import com.wireforge.model.AuthUser;
 
 @Slf4j
 @Service
@@ -59,6 +63,12 @@ public class ProjectService {
     private final AutowireRenderService autowireRenderService;
     private final ElementGroupService elementGroupService;
     private final com.wireforge.ai.HtmlRenderer htmlRenderer;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private LogService logService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectMemberMapper projectMemberMapper;
 
     /** 分析完成后是否自动跑 Playwright 交互验证（仅记录报告，不阻断） */
     @Value("${wireforge.verify:true}")
@@ -136,17 +146,39 @@ public class ProjectService {
 
     @Transactional
     public Project createProject(String name, String description) {
+        return createProject(name, description, null, null);
+    }
+
+    @Transactional
+    public Project createProject(String name, String description, AuthUser user, String ip) {
         Project project = new Project();
         project.setName(name == null || name.isBlank() ? "未命名项目" : name.trim());
         project.setDescription(description);
         project.setCreatedAt(LocalDateTime.now());
         projectMapper.insert(project);
+        if (user != null && projectMemberMapper != null) {
+            projectMemberMapper.insert(ProjectMember.builder()
+                    .projectId(project.getId())
+                    .userId(user.getUserId())
+                    .userName(user.getUserName())
+                    .userAvatar(user.getUserAvatar() != null ? user.getUserAvatar() : "")
+                    .role(AuthService.ADMIN)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+        }
+        recordProjectOp(project.getId(), user, ip, "PROJECT_CREATE",
+                "创建了项目「" + project.getName() + "」", project.getName());
         return project;
     }
 
     /** 只更新可编辑的项目资料，保留封面、App Map 和创建时间。 */
     @Transactional
     public Project updateProject(Long id, Map<String, String> body) {
+        return updateProject(id, body, null, null);
+    }
+
+    @Transactional
+    public Project updateProject(Long id, Map<String, String> body, AuthUser user, String ip) {
         String name = body == null ? null : body.get("name");
         if (name == null || name.isBlank()) throw new IllegalStateException("请输入项目名称");
         name = name.trim();
@@ -160,6 +192,7 @@ public class ProjectService {
             throw new IllegalStateException("项目说明过长，请缩短后重试");
         }
 
+        Project before = getProject(id);
         var update = Wrappers.<Project>lambdaUpdate()
                 .eq(Project::getId, id)
                 .set(Project::getName, name);
@@ -171,6 +204,10 @@ public class ProjectService {
                 || (updateDescription && !Objects.equals(saved.getDescription(), description)))) {
             throw new IllegalStateException("项目资料未保存，请重试");
         }
+        String change = describeProjectChange(before, saved, updateDescription);
+        if (change != null) {
+            recordProjectOp(id, user, ip, "PROJECT_UPDATE", change, saved.getName());
+        }
         return saved;
     }
 
@@ -180,7 +217,14 @@ public class ProjectService {
      */
     @Transactional
     public void deleteProject(Long id) {
-        getProject(id);
+        deleteProject(id, null, null);
+    }
+
+    @Transactional
+    public void deleteProject(Long id, AuthUser user, String ip) {
+        Project project = getProject(id);
+        recordProjectOp(id, user, ip, "PROJECT_DELETE",
+                "删除了项目「" + project.getName() + "」", project.getName());
         projectMapper.selectOne(Wrappers.<Project>lambdaQuery().eq(Project::getId, id).last("FOR UPDATE"));
         interactionAutowireService.deleteProjectRecords(id);
 
@@ -212,9 +256,37 @@ public class ProjectService {
             commentReplyMapper.delete(Wrappers.<CommentReply>lambdaQuery().in(CommentReply::getThreadId, threadIds));
             commentThreadMapper.delete(Wrappers.<CommentThread>lambdaQuery().eq(CommentThread::getProjectId, id));
         }
+        if (projectMemberMapper != null) {
+            projectMemberMapper.delete(Wrappers.<ProjectMember>lambdaQuery().eq(ProjectMember::getProjectId, id));
+        }
 
         projectMapper.deleteById(id);
         log.info("项目已删除: id={}，共清理 {} 个页面及其子数据", id, pageIds.size());
+    }
+
+    private void recordProjectOp(Long projectId, AuthUser user, String ip, String actionType, String desc, String targetName) {
+        if (logService == null || projectId == null) return;
+        String userId = user != null ? user.getUserId() : null;
+        String userName = user != null ? user.getUserName() : null;
+        String avatar = user != null ? user.getUserAvatar() : null;
+        logService.record(projectId, userId, userName, avatar, actionType, desc, targetName, ip);
+    }
+
+    private String describeProjectChange(Project before, Project saved, boolean updateDescription) {
+        boolean nameChanged = !Objects.equals(before.getName(), saved.getName());
+        boolean descChanged = updateDescription && !Objects.equals(
+                Objects.requireNonNullElse(before.getDescription(), ""),
+                Objects.requireNonNullElse(saved.getDescription(), ""));
+        if (nameChanged && descChanged) {
+            return "将项目「" + before.getName() + "」改名为「" + saved.getName() + "」，并修改了说明";
+        }
+        if (nameChanged) {
+            return "将项目「" + before.getName() + "」改名为「" + saved.getName() + "」";
+        }
+        if (descChanged) {
+            return "修改了项目「" + saved.getName() + "」的说明";
+        }
+        return null;
     }
 
 
@@ -1021,13 +1093,17 @@ public class ProjectService {
      * 保存用户在整页原型上的手动微调：前端把调整后的完整 HTML 序列化回来，直接落库。
      */
     public void updatePageHtml(Long pageId, String html) {
-        updatePageHtml(pageId, html, null);
+        updatePageHtml(pageId, html, null, null);
     }
 
     /**
      * 保存用户在整页原型上的手动微调（增加页面级独占锁防覆盖校验）
      */
     public void updatePageHtml(Long pageId, String html, String clientId) {
+        updatePageHtml(pageId, html, clientId, null);
+    }
+
+    public void updatePageHtml(Long pageId, String html, String clientId, AuthUser currentUser) {
         if (html == null || html.isBlank()) {
             throw new IllegalArgumentException("HTML 内容不能为空");
         }
@@ -1436,10 +1512,19 @@ public class ProjectService {
         element.setCreatedAt(LocalDateTime.now());
 
         elementMapper.insert(element);
+        if (logService != null) {
+            logService.record(projectId, null, null, null,
+                    "ELEMENT_ADD", "添加新组件元素: " + (element.getLabel() != null ? element.getLabel() : element.getType()),
+                    page.getName(), null);
+        }
         return element;
     }
 
     public Page createPage(Long projectId, Map<String, Object> body) {
+        return createPage(projectId, body, null);
+    }
+
+    public Page createPage(Long projectId, Map<String, Object> body, AuthUser currentUser) {
         getProject(projectId);
         Page page = new Page();
         page.setProjectId(projectId);
@@ -1481,11 +1566,17 @@ public class ProjectService {
      */
     @Transactional
     public void deletePage(Long projectId, Long pageId) {
+        deletePage(projectId, pageId, null);
+    }
+
+    @Transactional
+    public void deletePage(Long projectId, Long pageId, AuthUser currentUser) {
         getProject(projectId);
         Page page = pageMapper.selectById(pageId);
         if (page == null || !projectId.equals(page.getProjectId())) {
             return;
         }
+        String deletedPageName = page.getName();
         List<Element> els = elementMapper.selectList(Wrappers.<Element>lambdaQuery().eq(Element::getPageId, pageId));
         for (Element el : els) {
             interactionMapper.delete(Wrappers.<Interaction>lambdaQuery().eq(Interaction::getElementId, el.getId()));
@@ -1548,6 +1639,10 @@ public class ProjectService {
         Double y = body.containsKey("y") ? Double.valueOf(body.get("y").toString()) : 0.0;
         String author = body.containsKey("author") && body.get("author") != null && !body.get("author").toString().isBlank()
                 ? body.get("author").toString().trim() : "我";
+        String authorId = body.containsKey("authorId") && body.get("authorId") != null
+                ? body.get("authorId").toString().trim() : null;
+        String authorAvatar = body.containsKey("authorAvatar") && body.get("authorAvatar") != null
+                ? body.get("authorAvatar").toString().trim() : null;
         String content = body.containsKey("content") && body.get("content") != null
                 ? body.get("content").toString().trim() : "";
         if (content.isBlank()) {
@@ -1560,6 +1655,8 @@ public class ProjectService {
         thread.setX(x);
         thread.setY(y);
         thread.setAuthor(author);
+        thread.setAuthorId(authorId);
+        thread.setAuthorAvatar(authorAvatar);
         thread.setResolved(false);
         thread.setCreatedAt(LocalDateTime.now());
         commentThreadMapper.insert(thread);
@@ -1567,6 +1664,8 @@ public class ProjectService {
         CommentReply firstReply = new CommentReply();
         firstReply.setThreadId(thread.getId());
         firstReply.setAuthor(author);
+        firstReply.setAuthorId(authorId);
+        firstReply.setAuthorAvatar(authorAvatar);
         firstReply.setContent(content);
         firstReply.setCreatedAt(LocalDateTime.now());
         commentReplyMapper.insert(firstReply);
@@ -1577,6 +1676,7 @@ public class ProjectService {
 
         Page page = (pageId != null && pageId > 0) ? pageMapper.selectById(pageId) : null;
         thread.setPageName(page != null ? page.getName() : "画布");
+
         return thread;
     }
 
@@ -1592,6 +1692,10 @@ public class ProjectService {
         }
         String author = body.containsKey("author") && body.get("author") != null && !body.get("author").toString().isBlank()
                 ? body.get("author").toString().trim() : "我";
+        String authorId = body.containsKey("authorId") && body.get("authorId") != null
+                ? body.get("authorId").toString().trim() : null;
+        String authorAvatar = body.containsKey("authorAvatar") && body.get("authorAvatar") != null
+                ? body.get("authorAvatar").toString().trim() : null;
         String content = body.containsKey("content") && body.get("content") != null
                 ? body.get("content").toString().trim() : "";
         if (content.isBlank()) {
@@ -1601,9 +1705,12 @@ public class ProjectService {
         CommentReply reply = new CommentReply();
         reply.setThreadId(threadId);
         reply.setAuthor(author);
+        reply.setAuthorId(authorId);
+        reply.setAuthorAvatar(authorAvatar);
         reply.setContent(content);
         reply.setCreatedAt(LocalDateTime.now());
         commentReplyMapper.insert(reply);
+
         return reply;
     }
 
@@ -1623,6 +1730,11 @@ public class ProjectService {
         thread.setResolved(resolved);
         commentThreadMapper.updateById(thread);
         return thread;
+    }
+
+    public CommentThread getCommentThread(Long projectId, Long threadId) {
+        CommentThread thread = commentThreadMapper.selectById(threadId);
+        return thread != null && projectId.equals(thread.getProjectId()) ? thread : null;
     }
 
     /**

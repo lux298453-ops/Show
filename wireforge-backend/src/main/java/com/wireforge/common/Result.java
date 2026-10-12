@@ -22,4 +22,19 @@ public class Result<T> {
         r.message = message;
         return r;
     }
+
+    public static <T> Result<T> error(int code, String message) {
+        Result<T> r = new Result<>();
+        r.code = code;
+        r.message = message;
+        return r;
+    }
+
+    public static <T> Result<T> error(int code, String message, T data) {
+        Result<T> r = new Result<>();
+        r.code = code;
+        r.message = message;
+        r.data = data;
+        return r;
+    }
 }

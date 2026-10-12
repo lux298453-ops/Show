@@ -20,8 +20,9 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Real MySQL/API checks; uses only isolated fixtures and removes them afterwards. */
 @EnabledIfSystemProperty(named = "wireforge.integration", matches = "true")
 @ActiveProfiles("dev")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"wireforge.auto-analyze=false"})
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"wireforge.auto-analyze=false", IntegrationAuth.ADMIN_PROPERTY})
 class AnnotationMysqlIntegrationTest {
+    @Autowired AuthService auth;
     @Autowired ProjectService projects;
     @Autowired PageMapper pages;
     @Autowired ElementMapper elements;
@@ -36,6 +37,7 @@ class AnnotationMysqlIntegrationTest {
     String html = "<html><body><button>兑换</button></body></html>";
 
     @BeforeEach void seed() {
+        IntegrationAuth.signInAsAdmin(http, auth);
         projectId = projects.createProject("__annotation_test__" + UUID.randomUUID(), "临时标注验证").getId();
         page = page("积分商城"); otherPage = page("兑换记录");
         element = new Element(); element.setPageId(page.getId()); element.setType("button"); element.setLabel("兑换");

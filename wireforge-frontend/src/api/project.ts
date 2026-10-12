@@ -135,9 +135,9 @@ export const projectApi = {
   // Figma 评论系统
   // ==========================================
   listComments: (id: number) => http.get<any, CommentThread[]>(`/projects/${id}/comments`),
-  createComment: (id: number, body: { pageId: number; x: number; y: number; author: string; content: string }) =>
+  createComment: (id: number, body: { pageId: number; x: number; y: number; author: string; content: string; authorId?: string; authorAvatar?: string }) =>
     http.post<any, CommentThread>(`/projects/${id}/comments`, body),
-  addReply: (id: number, threadId: number, body: { author: string; content: string }) =>
+  addReply: (id: number, threadId: number, body: { author: string; content: string; authorId?: string; authorAvatar?: string }) =>
     http.post<any, CommentReply>(`/projects/${id}/comments/${threadId}/replies`, body),
   toggleResolveComment: (id: number, threadId: number, body?: { resolved?: boolean }) =>
     http.put<any, CommentThread>(`/projects/${id}/comments/${threadId}/resolve`, body || {}),

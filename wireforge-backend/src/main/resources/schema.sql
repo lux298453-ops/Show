@@ -105,24 +105,75 @@ EXECUTE stmt_ann_order;
 DEALLOCATE PREPARE stmt_ann_order;
 
 CREATE TABLE IF NOT EXISTS `comment_thread` (
-  `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
-  `project_id`  BIGINT NOT NULL,
-  `page_id`     BIGINT NOT NULL,
-  `x`           DOUBLE NOT NULL COMMENT '画板内逻辑坐标 X',
-  `y`           DOUBLE NOT NULL COMMENT '画板内逻辑坐标 Y',
-  `author`      VARCHAR(64) DEFAULT '我',
-  `resolved`    TINYINT(1) DEFAULT 0,
-  `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `id`            BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `project_id`    BIGINT NOT NULL,
+  `page_id`       BIGINT NOT NULL,
+  `x`             DOUBLE NOT NULL COMMENT '画板内逻辑坐标 X',
+  `y`             DOUBLE NOT NULL COMMENT '画板内逻辑坐标 Y',
+  `author`        VARCHAR(64) DEFAULT '我',
+  `author_id`     VARCHAR(64),
+  `author_avatar` VARCHAR(500),
+  `resolved`      TINYINT(1) DEFAULT 0,
+  `created_at`    DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_project` (`project_id`),
   KEY `idx_page` (`page_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `comment_reply` (
-  `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
-  `thread_id`   BIGINT NOT NULL,
-  `author`      VARCHAR(64) DEFAULT '我',
-  `content`     TEXT NOT NULL,
-  `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `id`            BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `thread_id`     BIGINT NOT NULL,
+  `author`        VARCHAR(64) DEFAULT '我',
+  `author_id`     VARCHAR(64),
+  `author_avatar` VARCHAR(500),
+  `content`       TEXT NOT NULL,
+  `created_at`    DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_thread` (`thread_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `operation_log` (
+  `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `project_id`  BIGINT NOT NULL,
+  `user_id`     VARCHAR(64),
+  `user_name`   VARCHAR(64),
+  `user_avatar` VARCHAR(500),
+  `action_type` VARCHAR(32) COMMENT 'PAGE_CREATE/PAGE_EDIT/PAGE_DELETE/ELEMENT_ADD/INTERACTION_ADD/COMMENT_ADD等',
+  `action_desc` TEXT COMMENT '具体中文变更说明',
+  `target_name` VARCHAR(255) COMMENT '涉及的画板或对象名称',
+  `ip_address`  VARCHAR(64),
+  `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_project_time` (`project_id`, `created_at`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `project_member` (
+  `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `project_id`  BIGINT NOT NULL,
+  `user_id`     VARCHAR(64) NOT NULL,
+  `user_name`   VARCHAR(64) NOT NULL,
+  `user_avatar` VARCHAR(500),
+  `role`        VARCHAR(20) DEFAULT 'viewer' COMMENT 'admin / editor / viewer',
+  `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_proj_user` (`project_id`, `user_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `auth_session` (
+  `token`       VARCHAR(64) PRIMARY KEY,
+  `user_id`     VARCHAR(64) NOT NULL,
+  `user_name`   VARCHAR(64),
+  `user_avatar` VARCHAR(500),
+  `open_id`     VARCHAR(64),
+  `union_id`    VARCHAR(64),
+  `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `expires_at`  DATETIME NOT NULL,
+  KEY `idx_expires` (`expires_at`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `app_user` (
+  `user_id`       VARCHAR(64) PRIMARY KEY COMMENT '飞书 open_id',
+  `user_name`     VARCHAR(64) NOT NULL,
+  `user_avatar`   VARCHAR(500),
+  `union_id`      VARCHAR(64),
+  `last_login_at` DATETIME COMMENT '从飞书通讯录查到但未登录过时为空',
+  `updated_at`    DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
 

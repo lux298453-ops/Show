@@ -322,6 +322,8 @@ const props = withDefaults(
     draggingComponent?: boolean
     /** 交互连线模式：在原型组件右侧显示可拖拽的蓝点 */
     protoHotspot?: boolean
+    /** 只读防误触模式 (Viewer Protection) */
+    readOnly?: boolean
   }>(),
   {
     showWireframe: true,
@@ -338,6 +340,7 @@ const props = withDefaults(
     interactive: false,
     lockedByOther: null,
     protoHotspot: false,
+    readOnly: false,
   },
 )
 
@@ -374,6 +377,8 @@ const emit = defineEmits<{
   (e: 'editVector', payload: any): void
   (e: 'hotspot', payload: { x: number; y: number; w: number; h: number; label: string; uid: string }): void
   (e: 'hotspotClear'): void
+  (e: 'elementDeleted', payload: { pageId: number; count: number }): void
+  (e: 'textChanged', payload: { pageId: number; text: string }): void
 }>()
 
 // Stitch 式整页直出：页面有 AI 生成的 HTML 时只展示整页视图（无 HTML 的未分析页回退组件渲染）。
@@ -391,7 +396,7 @@ let saveResetTimer: any = null
 watch(
   () => props.page.html_content,
   (v) => {
-    if (isInternalSaving || props.editMode) {
+    if (isInternalSaving || (props.editMode && !props.readOnly)) {
       // 内部微调保存引起的变更或微调模式下，不触发 iframe srcdoc 刷新，保护历史记录
       return
     }
@@ -408,6 +413,12 @@ watch(
     sendEditMode()
   },
 )
+watch(
+  () => props.readOnly,
+  () => {
+    sendEditMode()
+  },
+)
 // 切换页面 / 强制重新生成后重置
 watch(
   () => props.page?.id,
@@ -419,14 +430,14 @@ watch(
 watch(
   () => props.page?.html_content,
   () => {
-    if (!isInternalSaving && !props.editMode) {
+    if (!isInternalSaving && (!props.editMode || props.readOnly)) {
       fitSent.value = false
     }
   },
 )
 
 /** 向 AI 生成的 HTML 注入运行时：跨页跳转 + 防溢出兜底 + 微调编辑器 */
-const navRuntimeHtml = computed(() => injectNavRuntime(editSourceHtml.value, !!props.interactive))
+const navRuntimeHtml = computed(() => injectNavRuntime(editSourceHtml.value, !!props.interactive, !!props.readOnly))
 
 const htmlFrameRef = ref<HTMLIFrameElement | null>(null)
 /** 整页 HTML 的实际内容高度（由注入脚本测量后回传）；未上报时回退画布高度 */
@@ -437,7 +448,7 @@ const fitSent = ref(false)
 const focusedLayerUid = ref('')
 
 function sendEditMode() {
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-edit', on: !!props.editMode }, '*')
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-edit', on: !props.readOnly && !!props.editMode }, '*')
 }
 
 function sendInteractiveMode() {
@@ -518,7 +529,7 @@ watch(
   },
 )
 
-function injectNavRuntime(html: string, initialInteractive = false): string {
+function injectNavRuntime(html: string, initialInteractive = false, isReadOnly = false): string {
   // 清理可能已残留的旧版本注入运行时（确保始终采用最新微调系统与通信逻辑）
   const cleanHtml = html
     .replace(/<style\b[^>]*\bdata-wf-inject[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -1003,7 +1014,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
   </style>
   <script data-wf-inject>
   (function(){
-    var EDIT = ${initialInteractive ? 'false' : 'true'}, hovered = null, touched = [], st = null, PROTO_HOTSPOT = false;
+    var EDIT = ${initialInteractive || isReadOnly ? 'false' : 'true'}, READONLY = ${isReadOnly ? 'true' : 'false'}, hovered = null, touched = [], st = null, PROTO_HOTSPOT = false;
     var panSpaceHeld = false, panGestureActive = false;
     function publishPanKey(pressed){
       if(panSpaceHeld === pressed) return;
@@ -3175,7 +3186,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     }
 
     function startTextEdit(target){
-      if(!target) return;
+      if(READONLY || !target) return;
       var t = findTextTarget(target);
       if(!t) return;
 
@@ -3224,6 +3235,10 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         pushSnapshot();
         scheduleSave();
         if(selectedEl) updateTransformBox(selectedEl);
+        try {
+          var cleanText = (t.innerText || t.textContent || '').trim().slice(0, 30);
+          window.parent.postMessage({ type: 'wf-text-changed', text: cleanText }, '*');
+        } catch(e){}
         showToast('文案已自动修改并保存');
       }
 
@@ -3835,6 +3850,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         return;
       }
       if(d.type === 'wf-edit'){
+        if(READONLY) return;
         EDIT = !!d.on;
         document.body.style.cursor = EDIT ? 'default' : '';
         document.body.classList.toggle('wf-edit-mode', EDIT);
@@ -4167,6 +4183,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           }
         }
       }else if(d.type === 'wf-start-text-edit'){
+        if(READONLY) return;
         if(selectedEl) startTextEdit(selectedEl);
       }else if(d.type === 'wf-update-text'){
         var textTargets = collectStyleTargets(d).map(function(el){ return findTextTarget(el); }).filter(Boolean);
@@ -4191,6 +4208,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           }
         }
       }else if(d.type === 'wf-delete'){
+        if(READONLY) return;
         if(selectedEl && isLayerLocked(selectedEl)){
           showToast('图层已锁定，先解锁再删除');
           return;
@@ -4551,9 +4569,10 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
 
       var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
-      if(!EDIT && !isInserted) return;
+      if((!EDIT && !isInserted) || READONLY) return;
 
       if(!EDIT && isInserted){
+        if(READONLY) return;
         EDIT = true;
         parent.postMessage({ type: 'wf-request-edit' }, '*');
       }
@@ -4568,6 +4587,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       // 如果双击的是图片或可铺图的方框/占位框/头像，唤起替换素材
       var isAssetBox = t.tagName === 'IMG' || !!(t.style && t.style.backgroundImage) || (t.classList && (t.classList.contains('wf-box') || t.classList.contains('wf-image-placeholder') || t.classList.contains('wf-avatar'))) || (t.hasAttribute && t.hasAttribute('data-wf-asset'));
       if(isAssetBox){
+        if(READONLY) return;
         var prev = document.querySelectorAll('.wf-current-asset-target');
         for(var pi = 0; pi < prev.length; pi++) prev[pi].classList.remove('wf-current-asset-target');
         var targetEl = t.tagName === 'IMG' ? t : ((t.querySelector && t.querySelector('img')) || t);
@@ -4580,7 +4600,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
       // 如果是文字或按钮标签，激活打字编辑
       var textTarget = findTextTarget(t) || t;
-      if(textTarget){
+      if(textTarget && !READONLY){
         startTextEdit(textTarget);
       }
     }, true);
@@ -4599,12 +4619,17 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
     // 接收从原子组件库拖入的 drop 事件，将方框或组件插入页面 HTML 并持久化
     document.addEventListener('dragover', function(e){
       e.preventDefault();
+      if(READONLY){
+        if(e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+        return;
+      }
       if(e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     }, true);
 
     document.addEventListener('drop', function(e){
       e.preventDefault();
       e.stopPropagation();
+      if(READONLY) return;
 
       // 仅允许从左侧/底部组件库拖入的组件插入！杜绝画板内部图片/元素拖动时产生副本！
       var isFromPalette = false;
@@ -4835,6 +4860,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
       // Alt + 点击快速删除（移除了 Shift，Shift 专用于多选）
       if(e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey){
+        if(READONLY) return;
         e.preventDefault();
         e.stopPropagation();
         var toDel = t.closest ? (t.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component,.wf-shape,.wf-shape-rect,.wf-shape-circle,.wf-shape-line,.wf-shape-card,.wf-text') || t) : t;
@@ -4849,15 +4875,17 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
           scheduleSave();
           publishLayers();
           clearHover();
+          try { window.parent.postMessage({ type: 'wf-element-deleted', count: 1 }, '*'); } catch(e){}
           showToast('已删除元素 (Ctrl+Z 可撤回)');
         }
         return;
       }
 
       var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
-      if(!EDIT && !isInserted) return;
+      if((!EDIT && !isInserted) || READONLY) return;
 
       if(!EDIT && isInserted){
+        if(READONLY) return;
         EDIT = true;
         document.body.classList.add('wf-edit-mode');
         parent.postMessage({ type: 'wf-request-edit' }, '*');
@@ -4878,7 +4906,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
 
       // 准备拖动位移：无论单选还是多选，收集 selectedEls 里的所有元素初始坐标
-      if(selectedEls.length > 0){
+      if(selectedEls.length > 0 && !READONLY){
         var items = [];
         var sX = window.pageXOffset || document.documentElement.scrollLeft || 0;
         var sY = window.pageYOffset || document.documentElement.scrollTop || 0;
@@ -5272,6 +5300,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
 
       // 快速克隆副本 (Figma Duplicate: Ctrl+D / ⌘D)
       if((e.ctrlKey || e.metaKey) && isD && !e.shiftKey){
+        if(READONLY) return;
         if(selectedEl && selectedEl !== document.body){
           e.preventDefault();
           e.stopPropagation();
@@ -5281,7 +5310,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
       }
 
       // Delete / Backspace 删除选中元素（支持单个与多选批量删除）
-      if((e.key === 'Delete' || e.key === 'Backspace') && selectedEls.length > 0 && !isEditing){
+      if((e.key === 'Delete' || e.key === 'Backspace') && !READONLY && selectedEls.length > 0 && !isEditing){
         e.preventDefault();
         var victims = [];
         for(var vi = 0; vi < selectedEls.length; vi++){
@@ -5300,6 +5329,7 @@ function injectNavRuntime(html: string, initialInteractive = false): string {
         deselect();
         scheduleSave();
         publishLayers();
+        try { window.parent.postMessage({ type: 'wf-element-deleted', count: count }, '*'); } catch(e){}
         showToast('已删除 ' + count + ' 个元素 (按 Ctrl+Z 撤回)');
         return;
       }
@@ -5476,6 +5506,10 @@ function selectAsset(asset: AssetItem) {
 }
 
 function onSlotDragOver(e: DragEvent) {
+  if (props.readOnly) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    return
+  }
   e.preventDefault()
   if (e.dataTransfer) {
     e.dataTransfer.dropEffect = 'copy'
@@ -5502,6 +5536,7 @@ function fitComponentInFrame(x: number, y: number, html: string, canvasW: number
 }
 
 function onSlotDrop(e: DragEvent) {
+  if (props.readOnly) return
   const isFromPalette = !!(window as any).__wfDraggingComponent
   const html = (window as any).__wfDraggingComponent?.html || (isFromPalette ? e.dataTransfer?.getData('text/html') : '')
   if (html && isFromPalette) {
@@ -5604,6 +5639,10 @@ function onIframeMessage(e: MessageEvent) {
     })
   } else if (d.type === 'wf-save-dirty') {
     emit('saveDirty', props.page.id)
+  } else if (d.type === 'wf-element-deleted') {
+    emit('elementDeleted', { pageId: props.page.id, count: Number((d as any).count) || 1 })
+  } else if (d.type === 'wf-text-changed') {
+    emit('textChanged', { pageId: props.page.id, text: String((d as any).text || '') })
   } else if (d.type === 'wf-save-preparation-failed') {
     emit('savePreparationFailed', props.page.id)
   } else if (d.type === 'wf-save' && typeof d.html === 'string' && d.html.length > 50) {

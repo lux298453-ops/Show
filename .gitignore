@@ -62,6 +62,7 @@ Thumbs.db
 
 # Sensitive credentials & asset inventory (DO NOT PUSH)
 .env
+wireforge-backend/config/
 doc/*账号*
 doc/*资产*
 *账号与资产*

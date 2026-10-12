@@ -4,8 +4,87 @@
       <div class="home-header-inner">
         <RouterLink to="/" class="brand" aria-label="WireForge"><img src="/favicon.svg" alt="" /><span>WireForge</span></RouterLink>
         <div class="header-actions">
-          <button class="home-button primary" @click="dialogVisible = true"><Plus :size="16" />{{ t('newProject') }}</button>
+          <button
+            class="home-button primary"
+            :disabled="!currentUser"
+            :title="!currentUser ? '请先登录飞书账号后再创建项目' : t('newProject')"
+            @click="handleOpenCreateDialog"
+          >
+            <Plus :size="16" />{{ t('newProject') }}
+          </button>
           <NavbarControls />
+
+          <!-- 【未登录状态：飞书登录按钮】 -->
+          <button
+            v-if="!currentUser"
+            type="button"
+            class="home-login-btn"
+            title="点击进行飞书登录"
+            @click="isFeishuModalOpen = true"
+          >
+            <User :size="15" />
+            <span>飞书登录</span>
+          </button>
+
+          <!-- 【已登录状态：用户身份胶囊】 -->
+          <el-dropdown v-else trigger="click" @command="handleUserMenuCommand">
+            <div
+              class="home-user-capsule"
+              :title="`当前登录：${currentUser.name}${isSystemAdmin ? '（系统管理员）' : ''}`"
+            >
+              <div class="user-avatar-wrap">
+                <img
+                  v-if="currentUser.avatar"
+                  :src="currentUser.avatar"
+                  :alt="currentUser.name"
+                  class="user-avatar-img"
+                  @error="onAvatarError"
+                />
+                <div v-else class="user-avatar-text">
+                  {{ currentUser.name.slice(0, 1).toUpperCase() }}
+                </div>
+              </div>
+              <span class="user-name">{{ currentUser.name }}</span>
+              <span v-if="isSystemAdmin" class="role-badge bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60">系统管理员</span>
+              <ChevronDown :size="13" class="chevron-icon" />
+            </div>
+
+            <template #dropdown>
+              <el-dropdown-menu class="user-profile-menu min-w-[180px]">
+                <div class="px-3 py-2 border-b border-slate-100 dark:border-[#333] mb-1">
+                  <div class="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span>{{ currentUser.name }}</span>
+                    <span v-if="isSystemAdmin" class="text-[10px] text-amber-600 dark:text-amber-400">系统管理员</span>
+                  </div>
+                  <div class="text-[10px] text-slate-400 mt-0.5 truncate">各项目里的权限进入项目后显示</div>
+                </div>
+                <el-dropdown-item v-if="isSystemAdmin" command="open-audit">
+                  <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
+                    <ScrollText :size="14" />
+                    <span>操作日志</span>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item command="copy-open-id">
+                  <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
+                    <Copy :size="14" />
+                    <span>复制我的飞书编号</span>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item command="switch-account">
+                  <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
+                    <RefreshCw :size="14" />
+                    <span>切换飞书账号</span>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>
+                  <div class="flex items-center gap-2 py-0.5 text-rose-600">
+                    <LogOut :size="14" />
+                    <span>退出登录</span>
+                  </div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </div>
     </header>
@@ -25,7 +104,7 @@
 
       <div v-if="loading" class="home-state" role="status"><span class="loading-spinner"></span><h2>{{ copy.loading }}</h2></div>
       <div v-else-if="loadError" class="home-state" role="alert"><AlertCircle :size="30" /><h2>{{ copy.loadFailed }}</h2><p>{{ copy.loadFailedDesc }}</p><button class="home-button primary" @click="load"><RotateCw :size="15" />{{ copy.retry }}</button></div>
-      <div v-else-if="projects.length === 0" class="home-state"><FolderPlus :size="32" /><h2>{{ t('noProjects') }}</h2><p>{{ copy.emptyDesc }}</p><button class="home-button primary" @click="dialogVisible = true"><Plus :size="16" />{{ t('createFirstProject') }}</button></div>
+      <div v-else-if="projects.length === 0" class="home-state"><FolderPlus :size="32" /><h2>{{ t('noProjects') }}</h2><p>{{ copy.emptyDesc }}</p><button class="home-button primary" :disabled="!currentUser" :title="!currentUser ? '请先登录飞书账号后再创建项目' : t('createFirstProject')" @click="handleOpenCreateDialog"><Plus :size="16" />{{ t('createFirstProject') }}</button></div>
       <div v-else-if="filteredProjects.length === 0" class="home-state"><Search :size="30" /><h2>{{ t('noMatches') }}</h2><p>{{ searchQuery }}</p><button class="home-button" @click="searchQuery = ''">{{ t('clearFilter') }}</button></div>
 
       <div v-else class="project-collection" :class="viewMode">
@@ -65,6 +144,13 @@
       <div class="project-form"><label><div>{{ t('projectName') }} <span>*</span></div><el-input v-model="form.name" :placeholder="t('projectNamePlaceholder')" size="large" clearable /></label><label>{{ t('projectDesc') }}<el-input v-model="form.description" type="textarea" :rows="3" :placeholder="t('projectDescPlaceholder')" /></label></div>
       <template #footer><div class="dialog-actions"><button class="home-button" @click="dialogVisible = false">{{ t('cancel') }}</button><button class="home-button primary" :disabled="creating" @click="create"><span v-if="creating" class="loading-spinner small"></span>{{ creating ? t('creating') : t('create') }}</button></div></template>
     </el-dialog>
+
+    <!-- 飞书身份登录模态框 -->
+    <FeishuLoginModal
+      v-model="isFeishuModalOpen"
+      @login-success="onLoginSuccess"
+    />
+    <AuditLogDrawer v-if="isSystemAdmin" v-model="auditOpen" scope="workspace" />
   </div>
 </template>
 
@@ -72,9 +158,12 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, FolderPlus, LayoutGrid, List, Trash2, Search, ChevronRight, Layers, MoreHorizontal, ArrowUpRight, AlertCircle, RotateCw, Pencil } from 'lucide-vue-next'
+import { Plus, FolderPlus, LayoutGrid, List, Trash2, Search, ChevronRight, Layers, MoreHorizontal, ArrowUpRight, AlertCircle, RotateCw, Pencil, User, ChevronDown, LogOut, RefreshCw, ScrollText, Copy } from 'lucide-vue-next'
 import NavbarControls from '../components/NavbarControls.vue'
 import ProjectMetadataDialog from '../components/ProjectMetadataDialog.vue'
+import FeishuLoginModal from '../components/FeishuLoginModal.vue'
+import AuditLogDrawer from '../components/AuditLogDrawer.vue'
+import { currentUser, isSystemAdmin, logout, type AuthUser } from '../services/auth'
 import { t, currentLang } from '../utils/i18n'
 import { projectApi } from '../api/project'
 import { getFileUrl } from '../api/http'
@@ -90,7 +179,7 @@ interface ProjectItem extends Project {
 const words = {
   zh: { workspace: '工作空间', myProjects: '我的项目', intro: '从设计稿到交互原型，继续你的设计工作。', sort: '按创建时间排序', view: '项目显示方式', loading: '正在加载项目', loadFailed: '项目暂时无法加载', loadFailedDesc: '请检查连接后重试，现有项目不会受到影响。', retry: '重试', emptyDesc: '创建一个项目，导入设计稿并开始构建原型。', previewUnavailable: '封面暂时无法显示', loadingPreview: '正在加载封面', noPreview: '暂无画板封面', more: '更多项目操作', noDescription: '未填写项目说明', boards: '画板', analyzed: '已识别', loadingStats: '正在加载画板信息', unknownStats: '画板信息暂不可用', created: '创建于', unknownDate: '创建日期未知', details: '项目详情', edit: '编辑原型', open: '打开项目', required: '请输入项目名称', createFailed: '创建失败，请重试', deleteFailed: '删除失败，请重试', deleteConfirm: '确定删除项目「{name}」吗？其下所有画板、元素、标注将一并删除，且不可恢复。', deleteTitle: '删除项目', deleteAction: '确定删除' },
   en: { workspace: 'WORKSPACE', myProjects: 'My projects', intro: 'Continue your design work, from reference to interactive prototype.', sort: 'Newest created first', view: 'Project view', loading: 'Loading projects', loadFailed: 'Projects could not be loaded', loadFailedDesc: 'Check your connection and try again. Your existing projects are safe.', retry: 'Retry', emptyDesc: 'Create a project, import your designs and start building a prototype.', previewUnavailable: 'Cover unavailable', loadingPreview: 'Loading cover', noPreview: 'No artboard cover', more: 'More project actions', noDescription: 'No project description', boards: 'artboards', analyzed: 'analyzed', loadingStats: 'Loading artboard details', unknownStats: 'Artboard details unavailable', created: 'Created', unknownDate: 'Creation date unknown', details: 'Project details', edit: 'Edit prototype', open: 'Open project', required: 'Enter a project name', createFailed: 'Could not create the project. Try again.', deleteFailed: 'Could not delete the project. Try again.', deleteConfirm: 'Delete project “{name}”? All its artboards, elements and annotations will be permanently deleted.', deleteTitle: 'Delete project', deleteAction: 'Delete permanently' },
-  ja: { workspace: 'ワークスペース', myProjects: 'マイプロジェクト', intro: 'デザインからインタラクティブなプロトタイプへ。作業を続けましょう。', sort: '作成日時の新しい順', view: 'プロジェクト表示', loading: 'プロジェクトを読み込み中', loadFailed: 'プロジェクトを読み込めません', loadFailedDesc: '接続を確認して再試行してください。既存のプロジェクトには影響しません。', retry: '再試行', emptyDesc: 'プロジェクトを作成し、デザインを取り込んでプロトタイプを構築しましょう。', previewUnavailable: 'カバーを表示できません', loadingPreview: 'カバーを読み込み中', noPreview: 'アートボードのカバーなし', more: 'プロジェクトのその他の操作', noDescription: 'プロジェクトの説明なし', boards: 'アートボード', analyzed: '解析済み', loadingStats: 'アートボード情報を読み込み中', unknownStats: 'アートボード情報を取得できません', created: '作成日', unknownDate: '作成日不明', details: 'プロジェクト詳細', edit: 'プロトタイプを編集', open: 'プロジェクトを開く', required: 'プロジェクト名を入力してください', createFailed: '作成できませんでした。再試行してください。', deleteFailed: '削除できませんでした。再試行してください。', deleteConfirm: 'プロジェクト「{name}」を削除しますか？すべてのアートボード、要素、注釈が削除され、復元できません。', deleteTitle: 'プロジェクトを削除', deleteAction: '完全に削除' },
+  ja: { workspace: 'ワークスペース', myProjects: 'マイプロジェクト', intro: 'デザインからインタラクティブなプロトタイプへ。作業を続けましょう。', sort: '作成日時の新しい顺', view: 'プロジェクト表示', loading: 'プロジェクトを読み込み中', loadFailed: 'プロジェクトを読み込めません', loadFailedDesc: '接続を確認して再試行してください。既存のプロジェクトには影響しません。', retry: '再試行', emptyDesc: 'プロジェクトを作成し、デザインを取り込んでプロトタイプを構築しましょう。', previewUnavailable: 'カバーを表示できません', loadingPreview: 'カバーを読み込み中', noPreview: 'アートボードのカバーなし', more: 'プロジェクトのその他の操作', noDescription: 'プロジェクトの説明なし', boards: 'アートボード', analyzed: '解析済み', loadingStats: 'アートボード情報を読み込み中', unknownStats: 'アートボード情報を取得できません', created: '作成日', unknownDate: '作成日不明', details: 'プロジェクト詳細', edit: 'プロトタイプを編集', open: 'プロジェクトを開く', required: 'プロジェクト名を入力してください', createFailed: '作成できませんでした。再試行してください。', deleteFailed: '削除できませんでした。再試行してください。', deleteConfirm: 'プロジェクト「{name}」を削除しますか？すべてのアートボード、要素、注釈が削除され、復元できません。', deleteTitle: 'プロジェクトを削除', deleteAction: '完全に削除' },
 }
 const copy = computed(() => words[currentLang.value])
 const router = useRouter()
@@ -112,6 +201,51 @@ const filteredProjects = computed(() => {
 function dateValue(value?: string) { const time = value ? Date.parse(value) : NaN; return Number.isFinite(time) ? time : 0 }
 function validDate(value?: string) { return !!value && Number.isFinite(Date.parse(value)) }
 function formatDate(value?: string) { return new Date(value!).toLocaleDateString({ zh: 'zh-CN', en: 'en-US', ja: 'ja-JP' }[currentLang.value], { year: 'numeric', month: 'short', day: 'numeric' }) }
+
+// ===== 飞书登录与用户会话管理 =====
+const isFeishuModalOpen = ref(false)
+const auditOpen = ref(false)
+
+function handleOpenCreateDialog() {
+  if (!currentUser.value) {
+    ElMessage.warning('请先登录飞书账号后再创建项目')
+    isFeishuModalOpen.value = true
+    return
+  }
+  dialogVisible.value = true
+}
+
+function onLoginSuccess(user: AuthUser) {
+  ElMessage.success(`已登录飞书账号：${user.name}`)
+}
+
+function handleUserMenuCommand(command: string) {
+  if (command === 'open-audit') {
+    auditOpen.value = true
+  } else if (command === 'copy-open-id') {
+    copyMyFeishuId()
+  } else if (command === 'switch-account') {
+    isFeishuModalOpen.value = true
+  } else if (command === 'logout') {
+    logout().then(() => ElMessage.info('已退出登录'))
+  }
+}
+
+async function copyMyFeishuId() {
+  const openId = currentUser.value?.feishuOpenId || currentUser.value?.id
+  if (!openId) return
+  try {
+    await navigator.clipboard.writeText(openId)
+    ElMessage.success(`已复制飞书编号 ${openId}，发给项目管理员即可被加入项目`)
+  } catch {
+    ElMessage.info(`你的飞书编号：${openId}`)
+  }
+}
+
+function onAvatarError(e: Event) {
+  const img = e.target as HTMLImageElement
+  if (img) img.style.display = 'none'
+}
 
 async function loadStats(p: ProjectItem, generation = loadGeneration) {
   p.statsState = 'loading'
@@ -148,6 +282,11 @@ async function load() {
 }
 async function create() {
   if (creating.value) return
+  if (!currentUser.value) {
+    ElMessage.warning('请先登录飞书账号后再创建项目')
+    isFeishuModalOpen.value = true
+    return
+  }
   if (!form.name.trim()) { ElMessage.warning(copy.value.required); return }
   creating.value = true
   try {
@@ -155,7 +294,7 @@ async function create() {
     ElMessage.success(t('projectCreated'))
     dialogVisible.value = false
     router.push(`/projects/${project.id}`)
-  } catch { ElMessage.error(copy.value.createFailed) }
+  } catch (e) { ElMessage.error((e as Error)?.message || copy.value.createFailed) }
   finally { creating.value = false }
 }
 function handleProjectCommand(command: string, p: ProjectItem) {
@@ -174,7 +313,7 @@ async function remove(p: Project) {
     await projectApi.remove(p.id)
     ElMessage.success(t('projectDeleted'))
     await load()
-  } catch { ElMessage.error(copy.value.deleteFailed) }
+  } catch (e) { ElMessage.error((e as Error)?.message || copy.value.deleteFailed) }
 }
 onMounted(load)
 onUnmounted(() => { loadGeneration++ })
@@ -193,8 +332,18 @@ onUnmounted(() => { loadGeneration++ })
 h1 { font-size: 28px; font-weight: 650; letter-spacing: -.025em; margin: 0; line-height: 1.35; }.heading-description { color: var(--home-muted); margin: 10px 0 0; line-height: 1.6; }.project-count { color: var(--home-muted); white-space: nowrap; }
 .library-toolbar, .toolbar-right { display: flex; align-items: center; gap: 16px; }.library-toolbar { justify-content: space-between; margin-bottom: 24px; }.sort-label { color: var(--home-muted); font-size: 12px; }
 .project-search { display: flex; align-items: center; gap: 9px; width: 300px; max-width: 100%; border: 1px solid var(--home-line); border-radius: 6px; background: var(--home-surface); padding: 9px 12px; color: var(--home-muted); }.project-search:focus-within { border-color: var(--home-blue); }.project-search input { min-width: 0; width: 100%; background: transparent; color: var(--home-text); outline: none; font-size: 14px; }.project-search input::placeholder { color: var(--home-muted); }
-.view-switch { display: flex; padding: 3px; border: 1px solid var(--home-line); border-radius: 6px; background: var(--home-soft); }.view-switch button { padding: 6px; border-radius: 4px; color: var(--home-muted); cursor: pointer; }.view-switch .active { background: var(--home-surface); color: var(--home-text); }
-.home-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border: 1px solid var(--home-line, #e5e8ed); border-radius: 6px; background: var(--home-surface, var(--el-bg-color, #fff)); color: var(--home-text, var(--el-text-color-primary, #17202e)); font-size: 14px; font-weight: 550; cursor: pointer; }.home-button:hover { background: var(--home-soft); }.home-button.primary { background: #096dd9; color: #fff; border-color: #096dd9; }.home-button.primary:hover { background: #075cb7; }.home-button:disabled { opacity: .6; cursor: wait; }
+.home-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border: 1px solid var(--home-line, #e5e8ed); border-radius: 6px; background: var(--home-surface, var(--el-bg-color, #fff)); color: var(--home-text, var(--el-text-color-primary, #17202e)); font-size: 14px; font-weight: 550; cursor: pointer; transition: all .15s ease; }.home-button:hover { background: var(--home-soft); }.home-button.primary { background: #096dd9; color: #fff; border-color: #096dd9; }.home-button.primary:hover { background: #075cb7; }.home-button:disabled { opacity: .45; cursor: not-allowed; }
+.home-login-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--home-line, #e5e8ed); border-radius: 6px; background: var(--home-surface, #fff); color: #3370ff; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s ease; }
+.home-login-btn:hover { background: var(--home-soft, #f0f2f5); border-color: #3370ff; }
+:global(.dark) .home-login-btn { color: #4b8cff; }
+.home-user-capsule { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 6px; border: 1px solid var(--home-line, #e5e8ed); border-radius: 9999px; background: var(--home-surface, #fff); cursor: pointer; transition: all .15s ease; user-select: none; }
+.home-user-capsule:hover { background: var(--home-soft, #f0f2f5); }
+.user-avatar-wrap { width: 24px; height: 24px; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #3370ff; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.user-avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.user-avatar-text { font-family: monospace; }
+.user-name { font-size: 13px; font-weight: 600; color: var(--home-text, #17202e); max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9999px; line-height: 1.3; }
+.chevron-icon { color: var(--home-muted, #667085); margin-left: -2px; }
 .project-collection.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }.project-card { min-width: 0; border: 1px solid var(--home-line); border-radius: 10px; background: var(--home-surface); transition: border-color .15s; }.project-card:hover { border-color: #a8b8cb; }
 .project-cover { display: flex; align-items: center; justify-content: center; aspect-ratio: 16/10; background: var(--home-soft); border-bottom: 1px solid var(--home-line); border-radius: 9px 9px 0 0; overflow: hidden; padding: 16px; text-decoration: none; }.project-cover img { max-width: 100%; width: 100%; height: 100%; object-fit: contain; border-radius: 2px; }.cover-placeholder { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--home-muted); font-size: 12px; }
 .project-content { padding: 18px 20px 0; }.project-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.project-title-row h2 { min-width: 0; font-size: 16px; font-weight: 600; margin: 0; }.project-title-row h2 a { color: var(--home-text); text-decoration: none; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }.project-title-row h2 a:hover { color: var(--home-blue); }.more-button { display: flex; padding: 5px; border-radius: 5px; color: var(--home-muted); cursor: pointer; }.more-button:hover { background: var(--home-soft); }.menu-icon { margin-right: 8px; }

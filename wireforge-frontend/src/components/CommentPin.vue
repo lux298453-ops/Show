@@ -39,9 +39,15 @@
         class="absolute bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col bg-slate-900/90 backdrop-blur-md text-white px-2.5 py-1.5 rounded-lg shadow-xl text-[11px] max-w-[200px] pointer-events-none whitespace-normal z-50 animate-in fade-in zoom-in-95 duration-100"
       >
         <div class="flex items-center gap-1.5 font-medium text-amber-300 mb-0.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-          <span>{{ firstReply.author }}</span>
-          <span v-if="thread.resolved" class="text-[9px] text-slate-400 font-normal ml-auto">(已解决)</span>
+          <img
+            v-if="firstReply.authorAvatar || thread.authorAvatar"
+            :src="firstReply.authorAvatar || thread.authorAvatar"
+            class="w-3.5 h-3.5 rounded-full object-cover border border-amber-300/40 shrink-0"
+            alt=""
+          />
+          <span v-else class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+          <span class="truncate">{{ firstReply.author }}</span>
+          <span v-if="thread.resolved" class="text-[9px] text-slate-400 font-normal ml-auto shrink-0">(已解决)</span>
         </div>
         <div class="line-clamp-2 text-slate-200 text-[10px] leading-tight break-all">
           {{ firstReply.content }}
@@ -117,8 +123,15 @@
           :key="reply.id || rIdx"
           class="flex gap-2.5 text-xs"
         >
-          <!-- 头像 -->
+          <!-- 头像 (优先展示实名飞书头像) -->
           <div
+            v-if="reply.authorAvatar"
+            class="w-6 h-6 rounded-full overflow-hidden shrink-0 shadow-sm border border-slate-200"
+          >
+            <img :src="reply.authorAvatar" class="w-full h-full object-cover" alt="" />
+          </div>
+          <div
+            v-else
             class="w-6 h-6 rounded-full text-white font-bold text-[10px] flex items-center justify-center shrink-0 shadow-sm"
             :class="getAvatarBg(reply.author)"
           >
@@ -156,9 +169,15 @@
           ></textarea>
 
           <div class="flex items-center justify-between pt-1 border-t border-slate-100">
-            <span class="text-[10px] text-slate-400">
-              以 <strong class="text-slate-600 font-medium">{{ currentUser }}</strong> 的身份
-            </span>
+            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 truncate max-w-[190px]">
+              <img
+                v-if="effectiveAvatar"
+                :src="effectiveAvatar"
+                class="w-3.5 h-3.5 rounded-full object-cover border border-slate-200 shrink-0"
+                alt=""
+              />
+              <span class="truncate">以 <strong class="text-slate-600 font-medium">{{ currentUser }}</strong> 的实名身份</span>
+            </div>
             <button
               type="button"
               class="px-3 py-1 bg-[#0D99FF] hover:bg-[#0c88e3] active:scale-95 text-white text-[11px] font-semibold rounded-lg shadow-sm transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
@@ -178,6 +197,7 @@
 import { ref, computed, nextTick, watch } from 'vue'
 import { X, Trash2, RotateCcw, Check } from 'lucide-vue-next'
 import type { CommentThread } from '../types'
+import { currentUser as authUser } from '../services/auth'
 
 const props = withDefaults(
   defineProps<{
@@ -185,10 +205,12 @@ const props = withDefaults(
     index: number
     isSelected?: boolean
     currentUser?: string
+    currentUserAvatar?: string
   }>(),
   {
     isSelected: false,
     currentUser: '我',
+    currentUserAvatar: '',
   }
 )
 
@@ -202,6 +224,8 @@ const emit = defineEmits<{
 
 const replyText = ref('')
 const replyInputRef = ref<HTMLTextAreaElement | null>(null)
+
+const effectiveAvatar = computed(() => props.currentUserAvatar || authUser.value?.avatar || '')
 
 const firstReply = computed(() => {
   return props.thread.replies && props.thread.replies.length > 0

@@ -32,12 +32,14 @@
       <!-- Center: Clean Space -->
       <div class="flex-1"></div>
 
-      <!-- Right: Preview CTA Dropdown (Figma Style) & Navbar Controls -->
+      <!-- Right: Actions, User Identity Capsule & Navbar Controls -->
       <div class="flex items-center gap-2.5">
         <span class="workbench-save-status" :class="{ 'is-error': saveStatus === 'error' }" role="status" aria-live="polite">
           <span class="save-status-dot" :class="{ 'is-saving': saveStatus === 'saving' }"></span>
           {{ saveStatusLabel }}
         </span>
+
+        <!-- Preview CTA Dropdown (Figma Style) -->
         <el-dropdown trigger="click" @command="handlePreviewCommand">
           <button
             class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white dark:text-[#38bdf8] bg-[#0d99ff] hover:bg-[#0b87e0] active:bg-[#0972bd] dark:bg-[#0d99ff]/20 dark:hover:bg-[#0d99ff]/35 dark:active:bg-[#0d99ff]/50 border border-[#0d99ff]/90 dark:border-[#0d99ff]/50 rounded-xl shadow-sm dark:shadow-[0_0_14px_rgba(13,153,255,0.25)] transition-all cursor-pointer"
@@ -81,6 +83,102 @@
 
         <!-- Appearance & Language Controls -->
         <NavbarControls />
+
+        <div class="h-4 w-[1px] bg-slate-200 dark:bg-[#383838]"></div>
+
+        <!-- 【未登录状态：简洁展示未登录与飞书登录入口】 -->
+        <button
+          v-if="!currentUser"
+          type="button"
+          class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white/90 dark:bg-[#333333] hover:bg-slate-50 dark:hover:bg-[#3d3d3d] border border-slate-200/90 dark:border-[#444] rounded-xl shadow-2xs transition-all cursor-pointer"
+          title="当前未登录，点击进行飞书登录"
+          @click="isFeishuModalOpen = true"
+        >
+          <User class="w-3.5 h-3.5 text-slate-400" />
+          <span>未登录</span>
+          <span class="text-[#3370FF] dark:text-[#4B8CFF] font-semibold ml-0.5">飞书登录</span>
+        </button>
+
+        <!-- 【已登录状态：用户身份胶囊】 -->
+        <el-dropdown v-if="currentUser" trigger="click" @command="handleUserMenuCommand">
+          <div
+            class="wf-tap inline-flex items-center gap-2 px-2.5 py-1 text-xs bg-slate-50 dark:bg-[#333333] hover:bg-slate-100 dark:hover:bg-[#3d3d3d] border border-slate-200/90 dark:border-[#444] rounded-full shadow-2xs transition-all cursor-pointer select-none"
+            :title="projectRole ? `当前登录：${currentUser.name}（在本项目：${roleLabel(projectRole)}）` : `当前登录：${currentUser.name}`"
+          >
+            <!-- 飞书头像 -->
+            <div class="relative shrink-0 flex items-center justify-center">
+              <img
+                v-if="currentUser.avatar"
+                :src="currentUser.avatar"
+                :alt="currentUser.name"
+                class="w-5 h-5 rounded-full object-cover border border-white dark:border-[#555]"
+                @error="onTopAvatarError"
+              />
+              <div
+                v-else
+                class="w-5 h-5 rounded-full bg-[#3370FF] text-white text-[9px] font-bold flex items-center justify-center font-mono"
+              >
+                {{ currentUser.name.slice(0, 1).toUpperCase() }}
+              </div>
+            </div>
+
+            <!-- 用户姓名与角色徽章 -->
+            <span class="font-bold text-xs text-slate-800 dark:text-slate-100 max-w-[80px] truncate">
+              {{ currentUser.name }}
+            </span>
+            <span
+              v-if="projectRole"
+              class="text-[10px] font-bold px-1.5 py-0.2 rounded-full leading-tight shrink-0"
+              :class="getRoleBadgeClass(projectRole)"
+            >
+              {{ roleLabel(projectRole) }}
+            </span>
+
+            <ChevronDown class="w-3 h-3 text-slate-400 -ml-0.5" />
+          </div>
+
+          <template #dropdown>
+            <el-dropdown-menu class="user-profile-menu min-w-[180px]">
+              <div class="px-3 py-2 border-b border-slate-100 dark:border-[#333] mb-1">
+                <div class="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>{{ currentUser.name }}</span>
+                  <span v-if="isSystemAdmin" class="text-[10px] text-amber-600 dark:text-amber-400">系统管理员</span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-0.5 truncate">在本项目：{{ projectRole ? roleLabel(projectRole) : '读取中…' }}</div>
+              </div>
+              <el-dropdown-item v-if="isAdmin" command="open-members">
+                <div class="flex items-center gap-2 py-0.5 text-blue-700 dark:text-blue-400">
+                  <Users class="w-3.5 h-3.5" />
+                  <span>成员与权限管理</span>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item v-if="isAdmin" command="open-audit-log">
+                <div class="flex items-center gap-2 py-0.5 text-amber-700 dark:text-amber-400">
+                  <ScrollText class="w-3.5 h-3.5" />
+                  <span>操作审计日志</span>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="copy-open-id">
+                <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
+                  <Copy class="w-3.5 h-3.5" />
+                  <span>复制我的飞书编号</span>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="switch-account">
+                <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
+                  <RefreshCw class="w-3.5 h-3.5" />
+                  <span>切换飞书账号</span>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="logout" divided>
+                <div class="flex items-center gap-2 py-0.5 text-rose-600">
+                  <LogOut class="w-3.5 h-3.5" />
+                  <span>退出登录</span>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </header>
 
@@ -253,6 +351,27 @@
         @drop.prevent="onViewportDrop"
       >
         <AiGenerationGlow :active="isReanalyzing || regeneratingIds.size > 0" :origin="aiGlowOrigin" />
+
+        <!-- ===== 只读评审模式：画板锁定保护提示胶囊 (Viewer Protection) ===== -->
+        <Transition name="fade-fast">
+          <div
+            v-if="isViewer && !projectRoleLoading"
+            class="absolute top-4 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto select-none"
+          >
+            <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 dark:bg-black/90 text-white text-xs font-medium shadow-xl backdrop-blur-md border border-slate-700/80 transition-all">
+              <Lock class="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>只读预览模式：画板已锁定保护。{{ !currentUser ? '编辑请先飞书登录' : '你在这个项目里是只读评审，需要编辑请找项目管理员' }}</span>
+              <button
+                v-if="!currentUser"
+                type="button"
+                class="ml-1 text-xs text-blue-400 hover:text-blue-300 font-semibold underline cursor-pointer"
+                @click="isFeishuModalOpen = true"
+              >
+                飞书登录
+              </button>
+            </div>
+          </div>
+        </Transition>
         <!-- ===== 多选画板批量操作悬浮条 (Figma Style) ===== -->
         <Transition name="fade-fast">
           <div
@@ -431,6 +550,7 @@
                   <RotateCw class="w-3 h-3" />
                 </button>
                 <button
+                  v-if="!isViewer"
                   class="wf-tap p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
                   title="删除此画板 (Delete / Backspace)"
                   @click.stop="confirmDeletePage(b.page)"
@@ -452,7 +572,8 @@
                 :hovered-element-id="hoveredElementId"
                 :hovered-ann-id="hoveredAnnId"
                 :show-design="true"
-                :edit-mode="mode === 'edit' && !pageEditingConflicts[b.page.id]?.conflict"
+                :edit-mode="mode === 'edit' && !isViewer && !pageEditingConflicts[b.page.id]?.conflict"
+                :read-only="isViewer"
                 :interactive="false"
                 :locked-by-other="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
                 :custom-orders="pageAnnOrders"
@@ -463,6 +584,8 @@
                 @navigate="onProtoNavigate"
                 @back="onProtoBack"
                 @save-html="onSaveHtml"
+                @element-deleted="handleElementDeleted"
+                @text-changed="handleTextChanged"
                 @save-dirty="markLocalEdit(String(id), $event)"
                 @save-preparation-failed="markLocalEdit(String(id), $event, '无法准备保存内容，请保持本页打开并再次尝试编辑')"
                 @element-click="handleElementClick"
@@ -658,7 +781,8 @@
                   :thread="th"
                   :index="getCommentIndex(th.id)"
                   :is-selected="selectedThreadId === th.id"
-                  :current-user="currentCommentUser"
+                  :current-user="currentUser?.name"
+                  :current-user-avatar="currentUser?.avatar"
                   @select="selectCommentThread(th.id)"
                   @close="selectedThreadId = null"
                   @reply="handleCommentReply(th.id, $event)"
@@ -707,7 +831,7 @@
 
                   <div class="flex items-center justify-between pt-1">
                     <span class="text-[10px] text-slate-400">
-                      以 <strong class="text-slate-700">{{ currentCommentUser }}</strong> 的身份
+                      以 <strong class="text-slate-700">{{ currentUser?.name }}</strong> 的实名身份
                     </span>
                     <div class="flex items-center gap-1.5">
                       <button
@@ -784,7 +908,8 @@
               :thread="th"
               :index="getCommentIndex(th.id)"
               :is-selected="selectedThreadId === th.id"
-              :current-user="currentCommentUser"
+              :current-user="currentUser?.name"
+              :current-user-avatar="currentUser?.avatar"
               @select="selectCommentThread(th.id)"
               @close="selectedThreadId = null"
               @reply="handleCommentReply(th.id, $event)"
@@ -832,7 +957,7 @@
 
                 <div class="flex items-center justify-between pt-1">
                   <span class="text-[10px] text-slate-400">
-                    以 <strong class="text-slate-700">{{ currentCommentUser }}</strong> 的身份
+                    以 <strong class="text-slate-700">{{ currentUser?.name }}</strong> 的实名身份
                   </span>
                   <div class="flex items-center gap-1.5">
                     <button
@@ -1085,6 +1210,8 @@
         <FigmaBottomToolbar
           v-if="mode === 'edit'"
           v-model:active-tool="activeDrawTool"
+          :workbench-mode="workbenchMode"
+          :read-only="isViewer"
           :show-annotations="showAnnotations"
           :target-page="currentFocusPage"
           :comment-count="unresolvedCommentsCount"
@@ -1092,6 +1219,8 @@
           @add-component="handleBottomAddComponent"
           @toggle-annotations="showAnnotations = !showAnnotations"
           @create-frame="handleCreateFramePreset"
+          @set-workbench-mode="setWorkbenchMode"
+          @open-pure-preview="openPurePreview"
         />
       </main>
 
@@ -1103,12 +1232,13 @@
           class="flex-1 w-full"
           :comments="comments"
           :selected-thread-id="selectedThreadId"
-          :current-user="currentCommentUser"
+          :current-user="currentUser?.name || currentCommentUser"
           @close="activeDrawTool = 'select'"
           @select-thread="selectCommentThread"
           @update-current-user="onUpdateCommentUser"
           @toggle-resolve="handleCommentResolve($event, !comments.find(c => c.id === $event)?.resolved)"
           @delete-thread="handleCommentDelete"
+          @open-auth-modal="isFeishuModalOpen = true"
         />
 
         <template v-else>
@@ -2033,6 +2163,26 @@
         </button>
       </div>
     </Teleport>
+
+    <!-- 飞书身份登录 / 预置角色切换弹窗 -->
+    <FeishuLoginModal
+      v-model="isFeishuModalOpen"
+      @login-success="onLoginSuccess"
+    />
+
+    <!-- 管理员操作审计日志抽屉 -->
+    <AuditLogDrawer
+      v-if="isAdmin"
+      v-model="isAuditLogOpen"
+      :project-id="Number(id)"
+    />
+
+    <!-- 项目成员与权限管理面板 (仅管理员可见) -->
+    <ProjectMemberDialog
+      v-if="isAdmin"
+      v-model="isMemberDialogOpen"
+      :project-id="Number(id)"
+    />
   </div>
 </template>
 
@@ -2068,6 +2218,12 @@ import {
   Zap,
   Trash2,
   ListTree,
+  ScrollText,
+  QrCode,
+  LogOut,
+  User,
+  RefreshCw,
+  Copy,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import AutowireReviewDialog from '../components/AutowireReviewDialog.vue'
@@ -2087,11 +2243,72 @@ import DesignInspector from '../components/DesignInspector.vue'
 import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
 import CommentPin from '../components/CommentPin.vue'
 import CommentPanel from '../components/CommentPanel.vue'
+import FeishuLoginModal from '../components/FeishuLoginModal.vue'
+import AuditLogDrawer from '../components/AuditLogDrawer.vue'
+import ProjectMemberDialog from '../components/ProjectMemberDialog.vue'
+import {
+  currentUser, isAdmin, isEditor, isViewer, isSystemAdmin, projectRole, projectRoleLoading,
+  loadProjectRole, clearProjectRole, roleLabel, logout, syncLoginFromStorage, loginWithFeishu, type AuthUser,
+} from '../services/auth'
+import { recordAuditLog } from '../services/auditLog'
 import VectorSubToolbar, { type VectorSubToolType } from '../components/VectorSubToolbar.vue'
 import VectorDrawOverlay from '../components/VectorDrawOverlay.vue'
 import type { VectorPathData, VectorPoint } from '../utils/vectorEngine'
 import { scalePointsAndHandles } from '../utils/vectorEngine'
 import { findInteractionByDomUids, hitInteractionElement, findElementAt, interactionDomUid, resolveNavigateElement } from '../utils/interactionHit'
+
+// ===== 飞书登录、成员管理与操作审计日志状态 =====
+const isFeishuModalOpen = ref(false)
+const isAuditLogOpen = ref(false)
+const isMemberDialogOpen = ref(false)
+
+function onLoginSuccess(user: AuthUser) {
+  ElMessage.success(`已切换登录身份：${user.name}`)
+}
+
+function handleUserMenuCommand(command: string) {
+  if (command === 'switch-account' || command === 'feishu-login') {
+    isFeishuModalOpen.value = true
+  } else if (command === 'open-members') {
+    isMemberDialogOpen.value = true
+  } else if (command === 'open-audit-log') {
+    isAuditLogOpen.value = true
+  } else if (command === 'copy-open-id') {
+    copyMyFeishuId()
+  } else if (command === 'logout') {
+    logout().then(() => ElMessage.info('已退出登录'))
+  }
+}
+
+async function copyMyFeishuId() {
+  const openId = currentUser.value?.feishuOpenId || currentUser.value?.id
+  if (!openId) return
+  try {
+    await navigator.clipboard.writeText(openId)
+    ElMessage.success(`已复制飞书编号 ${openId}，发给项目管理员即可被加入项目`)
+  } catch {
+    ElMessage.info(`你的飞书编号：${openId}`)
+  }
+}
+
+function getRoleBadgeClass(role?: string | null) {
+  if (role === 'admin') {
+    return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60'
+  }
+  if (role === 'editor') {
+    return 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-700/60'
+  }
+  return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-600'
+}
+
+watch(() => currentUser.value?.id, (now, before) => {
+  if (now !== before) loadProjectRole(id)
+})
+
+function onTopAvatarError(e: Event) {
+  const img = e.target as HTMLImageElement
+  if (img) img.style.display = 'none'
+}
 
 const activeDrawTool = ref<ActiveToolType>('select')
 const toolNames: Record<string, string> = {
@@ -2306,7 +2523,9 @@ async function submitDraftComment() {
       pageId,
       x,
       y,
-      author: currentCommentUser.value,
+      author: currentUser.value?.name || currentCommentUser.value,
+      authorId: currentUser.value?.id,
+      authorAvatar: currentUser.value?.avatar,
       content: text.trim(),
     })
     ;(thread as any).blockKey = blockKey
@@ -2314,6 +2533,21 @@ async function submitDraftComment() {
     comments.value.push(thread)
     selectedThreadId.value = thread.id
     draftComment.value = null
+
+    // 记录操作审计日志
+    const pageName = pages.value.find((p) => p.id === pageId)?.name || '画板画布'
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'comment_discuss',
+      changeType: 'add',
+      actionLabel: '发表实名评论',
+      pageName,
+      details: `在「${pageName}」发表评论：“${text.trim().slice(0, 30)}${text.trim().length > 30 ? '...' : ''}”`,
+    })
+
     ElMessage.success('评论已发表')
   } catch (err: any) {
     ElMessage.error(err.message || '发表评论失败')
@@ -2323,13 +2557,28 @@ async function submitDraftComment() {
 async function handleCommentReply(threadId: number, content: string) {
   try {
     const reply = await projectApi.addReply(id, threadId, {
-      author: currentCommentUser.value,
+      author: currentUser.value?.name || currentCommentUser.value,
+      authorId: currentUser.value?.id,
+      authorAvatar: currentUser.value?.avatar,
       content,
     })
     const thread = comments.value.find((c) => c.id === threadId)
     if (thread) {
       if (!thread.replies) thread.replies = []
       thread.replies.push(reply)
+
+      const pageName = pages.value.find((p) => p.id === thread.pageId)?.name || '画板画布'
+      recordAuditLog({
+        projectId: id,
+        userId: currentUser.value?.id || 'unknown',
+        userName: currentUser.value?.name || '匿名',
+        userAvatar: currentUser.value?.avatar,
+        actionType: 'comment_discuss',
+        changeType: 'add',
+        actionLabel: '回复评论讨论',
+        pageName,
+        details: `回复评论 #${thread.id}：“${content.trim().slice(0, 30)}${content.trim().length > 30 ? '...' : ''}”`,
+      })
     }
   } catch (err: any) {
     ElMessage.error(err.message || '回复失败')
@@ -2342,6 +2591,19 @@ async function handleCommentResolve(threadId: number, resolved: boolean) {
     const thread = comments.value.find((c) => c.id === threadId)
     if (thread) {
       thread.resolved = updated.resolved
+
+      const pageName = pages.value.find((p) => p.id === thread.pageId)?.name || '画板画布'
+      recordAuditLog({
+        projectId: id,
+        userId: currentUser.value?.id || 'unknown',
+        userName: currentUser.value?.name || '匿名',
+        userAvatar: currentUser.value?.avatar,
+        actionType: 'comment_discuss',
+        changeType: 'edit',
+        actionLabel: resolved ? '标记评论已解决' : '重新打开评论',
+        pageName,
+        details: `${resolved ? '标记解决' : '重新打开'}评论 #${thread.id}`,
+      })
     }
     ElMessage.success(resolved ? '评论已标记为已解决' : '评论已重新打开')
   } catch (err: any) {
@@ -2356,6 +2618,18 @@ async function handleCommentDelete(threadId: number) {
     if (selectedThreadId.value === threadId) {
       selectedThreadId.value = null
     }
+
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'comment_discuss',
+      changeType: 'delete',
+      actionLabel: '删除评论',
+      details: `删除了评论 #${threadId}`,
+    })
+
     ElMessage.success('评论已删除')
   } catch (err: any) {
     ElMessage.error(err.message || '删除失败')
@@ -2548,6 +2822,34 @@ function selectCanvasBlock(b: CanvasBlock, additive = false, preserveSelection =
 }
 
 const htmlSaveVersions = new Map<number, number>()
+const lastPageEditLoggedAt = new Map<number, number>()
+
+function handleElementDeleted(payload: { pageId: number; count: number }) {
+  const page = pages.value.find((p) => p.id === payload.pageId)
+  const pageName = page?.name || '画板'
+  recordAuditLog({
+    projectId: id,
+    actionType: 'page_edit',
+    changeType: 'delete',
+    actionLabel: '删除元素',
+    pageName,
+    details: `在画板「${pageName}」删除了 ${payload.count} 个元素`,
+  })
+}
+
+function handleTextChanged(payload: { pageId: number; text: string }) {
+  const page = pages.value.find((p) => p.id === payload.pageId)
+  const pageName = page?.name || '画板'
+  const textDesc = payload.text ? `：“${payload.text}”` : ''
+  recordAuditLog({
+    projectId: id,
+    actionType: 'page_edit',
+    changeType: 'edit',
+    actionLabel: '修改文本',
+    pageName,
+    details: `在画板「${pageName}」修改了文本内容${textDesc}`,
+  })
+}
 
 function onSaveHtml(p: { pageId: number; html: string }) {
   const conflict = pageEditingConflicts.value[p.pageId]?.conflict
@@ -2566,6 +2868,25 @@ function onSaveHtml(p: { pageId: number; html: string }) {
       if (htmlSaveVersions.get(p.pageId) !== version) return
       const page = proto.value?.pages.find((pg) => pg.id === p.pageId)
       if (page) page.html_content = p.html
+
+      // 3秒内同一个画板排版/样式微调智能合并记一条审计日志，防止高频保存产生冗余日志
+      const now = Date.now()
+      const lastLogged = lastPageEditLoggedAt.get(p.pageId) || 0
+      if (now - lastLogged > 3000) {
+        lastPageEditLoggedAt.set(p.pageId, now)
+        const pageName = page?.name || '画板'
+        recordAuditLog({
+          projectId: id,
+          userId: currentUser.value?.id,
+          userName: currentUser.value?.name,
+          userAvatar: currentUser.value?.avatar,
+          actionType: 'page_edit',
+          changeType: 'edit',
+          actionLabel: '画板微调',
+          pageName,
+          details: `微调保存了「${pageName}」的元素排版与样式`,
+        })
+      }
     })
     .catch((e: any) => showToast(`保存失败: ${e?.response?.data?.message || e?.message || '未知错误'}`))
 }
@@ -2589,6 +2910,7 @@ function onPaletteDragEnd() {
 }
 
 function onViewportDragOver(e: DragEvent) {
+  if (isViewer.value) return
   if (!(window as any).__wfDraggingComponent && !isDraggingComponent.value) return
   e.preventDefault()
   if (e.dataTransfer) {
@@ -2635,6 +2957,7 @@ function fitDropInFrame(x: number, y: number, html: string, canvasW: number, can
 }
 
 function onViewportDrop(e: DragEvent) {
+  if (isViewer.value) return
   if (!isDraggingComponent.value && !(window as any).__wfDraggingComponent) return
   e.preventDefault()
   e.stopPropagation()
@@ -2756,6 +3079,15 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   fineTune.value = true
   selectedNodeId.value = pageId
   focusPageId.value = pageId
+
+  recordAuditLog({
+    projectId: id,
+    actionType: 'page_edit',
+    changeType: 'add',
+    actionLabel: '添加元素',
+    pageName: page.name,
+    details: `在画板「${page.name}」添加了组件「${itemName}」`,
+  })
 
   // 1. 优先通过 PageCanvas 实例向运行中的 iframe 注入并自动触发持久化
   const inst = pageRefs.value[pageId]
@@ -3078,6 +3410,18 @@ async function doCreatePage(params: { name: string; width: number; height: numbe
       htmlContent: params.htmlContent || defaultHtml,
     })
 
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'page_edit',
+      changeType: 'add',
+      actionLabel: '新建画板',
+      pageName: newPage?.name || params.name,
+      details: `新建画板「${newPage?.name || params.name}」(${params.width}×${params.height})`,
+    })
+
     showToast(`已新建画板「${newPage?.name || params.name}」(${params.width}×${params.height})`)
     await loadData()
     if (newPage && newPage.id) {
@@ -3093,6 +3437,10 @@ async function doCreatePage(params: { name: string; width: number; height: numbe
 }
 
 async function handleCreateFramePreset(preset?: { name: string; width: number; height: number }) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法新建画板')
+    return
+  }
   const pName = preset?.name || '新画板'
   const pWidth = preset?.width || 375
   const pHeight = preset?.height || 812
@@ -3116,6 +3464,10 @@ async function handleCreateFramePreset(preset?: { name: string; width: number; h
 }
 
 async function handleCreateFrameOnCanvas(logicX: number, logicY: number, preset?: { name: string; width: number; height: number }) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法新建画板')
+    return
+  }
   const pName = preset?.name || '新画板'
   const pWidth = preset?.width || 375
   const pHeight = preset?.height || 812
@@ -3131,6 +3483,10 @@ async function handleCreateFrameOnCanvas(logicX: number, logicY: number, preset?
 }
 
 async function confirmBatchDeleteBlocks() {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法删除画板')
+    return
+  }
   if (selectedBlockKeys.value.size === 0) return
   const count = selectedBlockKeys.value.size
   try {
@@ -3176,6 +3532,18 @@ async function confirmBatchDeleteBlocks() {
     selectedBlockKeys.value = new Set()
     selectedNodeId.value = null
     selectedNodeKey.value = null
+
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'page_edit',
+      changeType: 'delete',
+      actionLabel: '批量删除画板',
+      details: `批量删除了 ${count} 个画板`,
+    })
+
     showToast(`已成功删除选中的 ${count} 个画板`)
     await loadData()
   } catch (err) {
@@ -3184,6 +3552,10 @@ async function confirmBatchDeleteBlocks() {
 }
 
 async function confirmDeleteBlock(b: CanvasBlock) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法删除画板')
+    return
+  }
   try {
     if (b.blockType === 'design') {
       await ElMessageBox.confirm(
@@ -3220,6 +3592,19 @@ async function confirmDeleteBlock(b: CanvasBlock) {
         showToast(`已删除画板「${b.title}」`)
       }
     }
+
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'page_edit',
+      changeType: 'delete',
+      actionLabel: '删除画板',
+      pageName: b.title,
+      details: `删除了「${b.title}」画板内容`,
+    })
+
     await loadData()
   } catch (err) {
     // 用户点击取消
@@ -3227,6 +3612,10 @@ async function confirmDeleteBlock(b: CanvasBlock) {
 }
 
 async function confirmDeletePage(page: Page) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法删除画板')
+    return
+  }
   try {
     await ElMessageBox.confirm(
       `确定要删除画板「${page.name}」吗？删除后画板及其包含的所有组件和交互将被移除。`,
@@ -3240,6 +3629,19 @@ async function confirmDeletePage(page: Page) {
     )
 
     await projectApi.deletePage(id, page.id)
+
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'page_edit',
+      changeType: 'delete',
+      actionLabel: '删除画板',
+      pageName: page.name,
+      details: `删除了画板「${page.name}」`,
+    })
+
     showToast(`已删除画板「${page.name}」`)
     if (pageOverrides.value[page.id]) {
       delete pageOverrides.value[page.id]
@@ -3275,6 +3677,10 @@ function handleBottomToolChange(tool: string) {
 }
 
 function handleBottomAddComponent(item: any) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法添加组件')
+    return
+  }
   const targetId = focusPageId.value || selectedNodeId.value || pages.value[0]?.id
   if (!targetId) {
     showToast('请先在画布上点击选择一个目标画板')
@@ -4700,6 +5106,10 @@ function startLiveHotspotDrag(event: MouseEvent, b: any) {
 }
 
 function startElementConnectionDrag(event: MouseEvent, b: any, el: Element) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法建立交互连线')
+    return
+  }
   event.preventDefault()
   event.stopPropagation()
 
@@ -4751,6 +5161,10 @@ const activeDragLine = computed(() => {
 })
 
 function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法建立交互连线')
+    return
+  }
   event.preventDefault()
   event.stopPropagation()
   isDraggingConnection.value = true
@@ -4873,6 +5287,19 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
       if (savedAnchor.domUid) {
         pageRefs.value[savedAnchor.pageId]?.stampElementNav?.(savedAnchor.domUid, String(targetId))
       }
+
+      recordAuditLog({
+        projectId: id,
+        userId: currentUser.value?.id || 'unknown',
+        userName: currentUser.value?.name || '匿名',
+        userAvatar: currentUser.value?.avatar,
+        actionType: 'connection_change',
+        changeType: prevConn ? 'edit' : 'add',
+        actionLabel: prevConn ? '更新连线触发器' : '建立交互连线',
+        pageName: savedAnchor.pageName,
+        details: `配置「${savedAnchor.label}」点击事件 → 跳转导航到「${getPageName(targetId)}」`,
+      })
+
       await loadData()
       selectedNodeId.value = savedAnchor.pageId
       selectConnIds([`conn-${savedAnchor.elementId}-${targetId}`])
@@ -4890,6 +5317,10 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
  * 从画板右侧手柄拉出 Figma 交互连线
  */
 function startNodeConnectionDrag(event: MouseEvent, b: any) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法建立交互连线')
+    return
+  }
   event.preventDefault()
   event.stopPropagation()
 
@@ -4917,6 +5348,10 @@ function startNodeConnectionDrag(event: MouseEvent, b: any) {
 }
 
 async function confirmCreateInteraction() {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法创建交互连线')
+    return
+  }
   if (!currentDraggingAnchor.value || !interactionForm.value.targetPageId) {
     ElMessage.warning('请选择目标页面')
     return
@@ -4952,6 +5387,10 @@ async function confirmCreateInteraction() {
 }
 
 async function removeConnection(conn: any) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法删除交互连线')
+    return
+  }
   try {
     clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId, conn.elementId)
     // 记录历史供 Ctrl+Z 撤销恢复
@@ -4990,6 +5429,19 @@ async function removeConnection(conn: any) {
       }
     }
     selectedConnIds.value = new Set()
+
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'connection_change',
+      changeType: 'delete',
+      actionLabel: '删除交互连线',
+      pageName: conn.fromPageName,
+      details: `删除了「${conn.label || '组件'}」到「${conn.toPageName || '目标页面'}」的交互连线`,
+    })
+
     await loadData()
     ElMessage.success('交互连线已删除 (按 Ctrl+Z 可随时撤销恢复)')
   } catch (err: any) {
@@ -4998,6 +5450,10 @@ async function removeConnection(conn: any) {
 }
 
 async function removeConnections(conns: ConnectionItem[]) {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法删除交互连线')
+    return
+  }
   if (!conns.length) return
   const snapshots: InteractionHistoryItem[] = conns.map((conn) => ({
     type: 'delete',
@@ -5046,6 +5502,18 @@ async function removeConnections(conns: ConnectionItem[]) {
       }
     }
     selectedConnIds.value = new Set()
+
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'connection_change',
+      changeType: 'delete',
+      actionLabel: '批量删除连线',
+      details: `批量删除了 ${conns.length} 条交互连线`,
+    })
+
     await loadData()
     ElMessage.success(`已删除 ${conns.length} 条连线 (按 Ctrl+Z 可一起恢复)`)
   } catch (err: any) {
@@ -5056,6 +5524,7 @@ async function removeConnections(conns: ConnectionItem[]) {
 let suppressBlockClick = false
 
 function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
+  if (isViewer.value) return
   if (e.button !== 0) return
   if ((e.target as HTMLElement).closest('.ann-panel, .el-button, input, textarea, select')) return
   if (e.shiftKey || e.ctrlKey || e.metaKey || pageEditingConflicts.value[b.pageId]?.conflict) return
@@ -7094,6 +7563,31 @@ watch(activeEditingPageId, (newId, oldId) => {
 })
 
 onMounted(async () => {
+  // 监听来自飞书回调子窗口的登录成功通知
+  window.addEventListener('message', (e) => {
+    if (e.origin === window.location.origin && e.data?.type === 'wf-feishu-login-success') {
+      syncLoginFromStorage().then((u) => {
+        if (u) ElMessage.success(`飞书登录成功，欢迎 ${u.name}`)
+      })
+    }
+  })
+  loadProjectRole(id)
+
+  // 若飞书直接重定向回当前画板页面并携带 ?code=
+  try {
+    const urlParams = new URLSearchParams(window.location.search)
+    const directCode = urlParams.get('code')
+    if (directCode) {
+      urlParams.delete('code')
+      urlParams.delete('state')
+      const newSearch = urlParams.toString() ? `?${urlParams.toString()}` : ''
+      window.history.replaceState({}, '', window.location.pathname + newSearch + window.location.hash)
+      loginWithFeishu(directCode).then((u: AuthUser) => {
+        ElMessage.success(`飞书登录成功，欢迎 ${u.name}`)
+      }).catch(() => {})
+    }
+  } catch {}
+
   window.addEventListener('beforeunload', onUnsavedBeforeUnload)
   window.addEventListener('resize', updatePhoneScale)
   window.addEventListener('wf-component-dragstart', () => {
@@ -7166,6 +7660,7 @@ watch(
 
 onBeforeUnmount(() => {
   workbenchDisposed = true
+  clearProjectRole()
   autowireAbort?.abort()
   persistWorkbenchView()
   if (persistViewTimer) clearTimeout(persistViewTimer)
@@ -7242,18 +7737,21 @@ function onGlobalKeydown(e: KeyboardEvent) {
     postToFocusFrame({ type: 'wf-copy-properties' })
     return
   }
-  if (!isInput && (e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V') && e.altKey && !e.shiftKey && mode.value !== 'preview') {
+  if (!isViewer.value && !isInput && (e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V') && e.altKey && !e.shiftKey && mode.value !== 'preview') {
     e.preventDefault()
     postToFocusFrame({ type: 'wf-paste-properties' })
     return
   }
-  if (!isInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && mode.value !== 'preview') {
+  if (!isViewer.value && !isInput && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && mode.value !== 'preview') {
     e.preventDefault()
     postToFocusFrame({ type: e.shiftKey ? 'wf-ungroup' : 'wf-group' })
     return
   }
   if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && mode.value !== 'preview') {
     const key = e.key.toUpperCase()
+    if (isViewer.value && ['R', 'T', 'F', 'L', 'O', 'P'].includes(key)) {
+      return
+    }
     if (key === 'V') {
       e.preventDefault()
       activeDrawTool.value = 'select'
@@ -7304,6 +7802,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
   // 3. Figma Prototype 连线删除快捷键 (Backspace / Delete)
   if ((e.key === 'Backspace' || e.key === 'Delete') && selectedConnIds.value.size > 0) {
+    if (isViewer.value) return
     const tag = (document.activeElement?.tagName || '').toLowerCase()
     if (tag === 'input' || tag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
       return
@@ -7317,6 +7816,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
   // 4. 画板 / 元素删除快捷键 (Backspace / Delete)
   if (e.key === 'Backspace' || e.key === 'Delete') {
+    if (isViewer.value) return
     const tag = (document.activeElement?.tagName || '').toLowerCase()
     if (tag === 'input' || tag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
       return

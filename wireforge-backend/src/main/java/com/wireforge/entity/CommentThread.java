@@ -19,6 +19,8 @@ public class CommentThread {
     private Double x;
     private Double y;
     private String author;
+    private String authorId;
+    private String authorAvatar;
     private Boolean resolved;
     private LocalDateTime createdAt;
 

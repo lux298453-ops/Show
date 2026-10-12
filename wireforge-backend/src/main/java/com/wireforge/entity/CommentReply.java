@@ -14,6 +14,8 @@ public class CommentReply {
     private Long id;
     private Long threadId;
     private String author;
+    private String authorId;
+    private String authorAvatar;
     private String content;
     private LocalDateTime createdAt;
 }

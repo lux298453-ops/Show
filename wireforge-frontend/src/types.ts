@@ -83,6 +83,8 @@ export interface CommentReply {
   author: string
   content: string
   createdAt: string
+  authorId?: string
+  authorAvatar?: string
 }
 
 export interface CommentThread {
@@ -96,4 +98,6 @@ export interface CommentThread {
   createdAt: string
   replies: CommentReply[]
   pageName?: string
+  authorId?: string
+  authorAvatar?: string
 }

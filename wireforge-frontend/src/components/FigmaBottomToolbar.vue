@@ -281,143 +281,146 @@
         <Hand class="w-4 h-4" />
       </button>
 
-      <!-- 2) 框架 / 画板 (Frame - F) -->
-      <button
-        type="button"
-        class="h-9 px-2 rounded-xl flex items-center gap-0.5 transition-all cursor-pointer"
-        :class="activeTool === 'frame'
-          ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
-          : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
-        title="框架 / 画板 (F)"
-        @click="onFrameToolClick"
-      >
-        <Frame class="w-4 h-4" />
-        <ChevronDown class="w-2.5 h-2.5 opacity-60" />
-      </button>
-
-      <!-- 3) 形状工具 (Shapes - R) -->
-      <button
-        type="button"
-        class="h-9 px-2 rounded-xl flex items-center gap-0.5 transition-all cursor-pointer"
-        :class="isShapeActive
-          ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
-          : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
-        title="形状工具 (R) - 点击切换矩形、卡片、圆形等"
-        @click="onShapeToolClick"
-      >
-        <component :is="activeShapeIcon" class="w-4 h-4" />
-        <ChevronDown class="w-2.5 h-2.5 opacity-60" />
-      </button>
-
-      <!-- 4) 钢笔 / 铅笔工具组 (Pen / Pencil - P / Shift+P) -->
-      <div class="relative">
+      <!-- 【破坏性绘制与编辑工具：只读评审模式下自动隐藏】 -->
+      <template v-if="!readOnly">
+        <!-- 3) 框架 / 画板 (Frame - F) -->
         <button
           type="button"
           class="h-9 px-2 rounded-xl flex items-center gap-0.5 transition-all cursor-pointer"
-          :class="isPenGroupActive
+          :class="activeTool === 'frame'
             ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
             : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
-          :title="activeTool === 'pencil' ? '铅笔工具 (Shift+P)' : '钢笔工具 (P)'"
-          @click="onPenButtonClick"
+          title="框架 / 画板 (F)"
+          @click="onFrameToolClick"
         >
-          <component :is="activePenIcon" class="w-4 h-4" />
-          <span
-            class="pen-dropdown-trigger flex items-center justify-center p-0.5 -mr-0.5 rounded transition-colors"
-            :class="isPenGroupActive ? 'hover:bg-white/20' : 'hover:bg-black/10'"
-            title="选择钢笔或铅笔"
-            @click.stop="togglePenMenu"
-          >
-            <ChevronDown class="w-2.5 h-2.5 opacity-70" />
-          </span>
+          <Frame class="w-4 h-4" />
+          <ChevronDown class="w-2.5 h-2.5 opacity-60" />
         </button>
 
-        <!-- 暗色气泡下拉菜单 (Dark Popover) -->
-        <Transition name="figma-popover">
-          <div
-            v-if="isPenMenuOpen"
-            class="pen-menu-popover absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 bg-slate-900/95 text-white backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl p-1 text-xs min-w-[210px] flex flex-col gap-0.5 z-50 pointer-events-auto"
-            @click.stop
+        <!-- 4) 形状工具 (Shapes - R) -->
+        <button
+          type="button"
+          class="h-9 px-2 rounded-xl flex items-center gap-0.5 transition-all cursor-pointer"
+          :class="isShapeActive
+            ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
+            : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
+          title="形状工具 (R) - 点击切换矩形、卡片、圆形等"
+          @click="onShapeToolClick"
+        >
+          <component :is="activeShapeIcon" class="w-4 h-4" />
+          <ChevronDown class="w-2.5 h-2.5 opacity-60" />
+        </button>
+
+        <!-- 5) 钢笔 / 铅笔工具组 (Pen / Pencil - P / Shift+P) -->
+        <div class="relative">
+          <button
+            type="button"
+            class="h-9 px-2 rounded-xl flex items-center gap-0.5 transition-all cursor-pointer"
+            :class="isPenGroupActive
+              ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
+              : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
+            :title="activeTool === 'pencil' ? '铅笔工具 (Shift+P)' : '钢笔工具 (P)'"
+            @click="onPenButtonClick"
           >
-            <!-- 钢笔 (Pen) -->
-            <button
-              type="button"
-              class="pen-option-pen w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer group"
-              :class="{ 'bg-white/15 text-white font-semibold': activeTool === 'pen' }"
-              title="用于锚点与贝塞尔曲线绘制"
-              @click="activatePen"
+            <component :is="activePenIcon" class="w-4 h-4" />
+            <span
+              class="pen-dropdown-trigger flex items-center justify-center p-0.5 -mr-0.5 rounded transition-colors"
+              :class="isPenGroupActive ? 'hover:bg-white/20' : 'hover:bg-black/10'"
+              title="选择钢笔或铅笔"
+              @click.stop="togglePenMenu"
             >
-              <div class="flex items-center gap-2">
-                <span class="w-3.5 h-3.5 flex items-center justify-center text-[#0D99FF]">
-                  <Check v-if="activeTool === 'pen'" class="w-3.5 h-3.5 stroke-[2.5]" />
-                </span>
-                <PenTool class="w-3.5 h-3.5 text-slate-300 group-hover:text-white" />
-                <span>钢笔 (Pen)</span>
-              </div>
-              <span class="text-[10px] font-mono text-slate-300 group-hover:text-white">P</span>
-            </button>
+              <ChevronDown class="w-2.5 h-2.5 opacity-70" />
+            </span>
+          </button>
 
-            <!-- 铅笔 (Pencil) -->
-            <button
-              type="button"
-              class="pen-option-pencil w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer group"
-              :class="{ 'bg-white/15 text-white font-semibold': activeTool === 'pencil' }"
-              title="用于手绘涂鸦线条"
-              @click="activatePencil"
+          <!-- 暗色气泡下拉菜单 (Dark Popover) -->
+          <Transition name="figma-popover">
+            <div
+              v-if="isPenMenuOpen"
+              class="pen-menu-popover absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 bg-slate-900/95 text-white backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl p-1 text-xs min-w-[210px] flex flex-col gap-0.5 z-50 pointer-events-auto"
+              @click.stop
             >
-              <div class="flex items-center gap-2">
-                <span class="w-3.5 h-3.5 flex items-center justify-center text-[#0D99FF]">
-                  <Check v-if="activeTool === 'pencil'" class="w-3.5 h-3.5 stroke-[2.5]" />
-                </span>
-                <Pencil class="w-3.5 h-3.5 text-slate-300 group-hover:text-white" />
-                <span>铅笔 (Pencil)</span>
-              </div>
-              <span class="text-[10px] font-mono text-slate-300 group-hover:text-white">Shift+P</span>
-            </button>
-          </div>
-        </Transition>
-      </div>
+              <!-- 钢笔 (Pen) -->
+              <button
+                type="button"
+                class="pen-option-pen w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer group"
+                :class="{ 'bg-white/15 text-white font-semibold': activeTool === 'pen' }"
+                title="用于锚点与贝塞尔曲线绘制"
+                @click="activatePen"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="w-3.5 h-3.5 flex items-center justify-center text-[#0D99FF]">
+                    <Check v-if="activeTool === 'pen'" class="w-3.5 h-3.5 stroke-[2.5]" />
+                  </span>
+                  <PenTool class="w-3.5 h-3.5 text-slate-300 group-hover:text-white" />
+                  <span>钢笔 (Pen)</span>
+                </div>
+                <span class="text-[10px] font-mono text-slate-300 group-hover:text-white">P</span>
+              </button>
 
-      <!-- 5) 文本工具 (Text - T) -->
-      <button
-        type="button"
-        class="h-9 w-9 rounded-xl flex items-center justify-center transition-all cursor-pointer"
-        :class="activeTool === 'text'
-          ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
-          : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
-        title="文本工具 (T)"
-        @click="onTextToolClick"
-      >
-        <Type class="w-4 h-4 font-bold" />
-      </button>
+              <!-- 铅笔 (Pencil) -->
+              <button
+                type="button"
+                class="pen-option-pencil w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer group"
+                :class="{ 'bg-white/15 text-white font-semibold': activeTool === 'pencil' }"
+                title="用于手绘涂鸦线条"
+                @click="activatePencil"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="w-3.5 h-3.5 flex items-center justify-center text-[#0D99FF]">
+                    <Check v-if="activeTool === 'pencil'" class="w-3.5 h-3.5 stroke-[2.5]" />
+                  </span>
+                  <Pencil class="w-3.5 h-3.5 text-slate-300 group-hover:text-white" />
+                  <span>铅笔 (Pencil)</span>
+                </div>
+                <span class="text-[10px] font-mono text-slate-300 group-hover:text-white">Shift+P</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
 
-      <!-- 6) 原子组件与插件库 (❖+ / Resources) -->
-      <button
-        type="button"
-        class="h-9 px-2 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
-        :class="isResourcesPopoverOpen
-          ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
-          : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
-        title="原子组件与插件库 (❖+ / Resources)"
-        @click="toggleResourcesPopover"
-      >
-        <Component class="w-4 h-4" />
-        <span class="text-xs font-bold leading-none -ml-0.5">+</span>
-      </button>
+        <!-- 6) 文本工具 (Text - T) -->
+        <button
+          type="button"
+          class="h-9 w-9 rounded-xl flex items-center justify-center transition-all cursor-pointer"
+          :class="activeTool === 'text'
+            ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
+            : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
+          title="文本工具 (T)"
+          @click="onTextToolClick"
+        >
+          <Type class="w-4 h-4 font-bold" />
+        </button>
 
-      <!-- 7) 业务说明 / 标注 (💬) -->
-      <button
-        type="button"
-        class="h-9 w-9 rounded-xl flex items-center justify-center transition-all cursor-pointer"
-        :class="showAnnotations
-          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-2xs'
-          : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
-        :title="showAnnotations ? '点击关闭业务说明标注' : '点击展开业务说明标注'"
-        @click="onToggleAnnotationsClick"
-      >
-        <MessageSquare class="w-4 h-4" />
-      </button>
+        <!-- 7) 原子组件与插件库 (❖+ / Resources) -->
+        <button
+          type="button"
+          class="h-9 px-2 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
+          :class="isResourcesPopoverOpen
+            ? 'bg-[#0D99FF] text-white shadow-sm shadow-[#0D99FF]/30'
+            : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
+          title="原子组件库 (Resources)"
+          @click="toggleResourcesPopover"
+        >
+          <Component class="w-4 h-4" />
+          <span class="text-xs font-bold leading-none -ml-0.5">+</span>
+        </button>
 
-      <!-- 8) Figma 评论工具 (Comment - C) -->
+        <!-- 8) 业务说明 / 标注 -->
+        <button
+          type="button"
+          class="h-9 w-9 rounded-xl flex items-center justify-center transition-all cursor-pointer"
+          :class="showAnnotations
+            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-2xs'
+            : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
+          :title="showAnnotations ? '点击关闭业务说明标注' : '点击展开业务说明标注'"
+          @click="onToggleAnnotationsClick"
+        >
+          <MessageSquare class="w-4 h-4" />
+        </button>
+      </template>
+
+      <!-- 评论工具 (Comment - C) -->
       <button
         type="button"
         class="h-9 w-9 rounded-xl flex items-center justify-center transition-all cursor-pointer relative"
@@ -434,6 +437,31 @@
         >
           {{ commentCount > 99 ? '99+' : commentCount }}
         </span>
+      </button>
+
+      <!-- 交互连线 -->
+      <button
+        type="button"
+        class="h-9 px-2.5 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
+        :class="workbenchMode === 'interactive'
+          ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30 font-semibold'
+          : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100/90'"
+        title="交互连线模式：查看与体验画板交互连线"
+        @click="toggleWorkbenchMode"
+      >
+        <Zap class="w-4 h-4" />
+        <span v-if="readOnly" class="text-xs font-semibold">交互连线</span>
+      </button>
+
+      <!-- 演示预览 (▶) -->
+      <button
+        type="button"
+        class="h-9 px-2.5 rounded-xl flex items-center gap-1 bg-[#0D99FF] hover:bg-[#0b87e0] text-white transition-all cursor-pointer shadow-sm"
+        title="演示预览 (▶)"
+        @click="onPlayClick"
+      >
+        <Play class="w-3.5 h-3.5 fill-current" />
+        <span class="text-xs font-bold">演示</span>
       </button>
     </div>
   </div>
@@ -485,6 +513,7 @@ const props = withDefaults(
   defineProps<{
     activeTool?: ActiveToolType
     workbenchMode?: WorkbenchModeType
+    readOnly?: boolean
     showAnnotations?: boolean
     targetPage?: { id: number; name: string } | null
     commentCount?: number
@@ -492,6 +521,7 @@ const props = withDefaults(
   {
     activeTool: 'select',
     workbenchMode: 'design',
+    readOnly: false,
     showAnnotations: true,
     targetPage: null,
     commentCount: 0,

@@ -18,8 +18,9 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Opt-in only: exercises the configured local development MySQL with isolated, cleaned fixtures. */
 @EnabledIfSystemProperty(named="wireforge.integration", matches="true")
 @ActiveProfiles("dev")
-@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT, properties={"wireforge.auto-analyze=false"})
+@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT, properties={"wireforge.auto-analyze=false", IntegrationAuth.ADMIN_PROPERTY})
 class AutowireMysqlIntegrationTest {
+    @Autowired AuthService auth;
     @Autowired JdbcTemplate jdbc;
     @Autowired TestRestTemplate http;
     @Autowired ObjectMapper json;
@@ -36,6 +37,7 @@ class AutowireMysqlIntegrationTest {
     Element button, card;
     String marker="独立验证布局";
     @BeforeEach void seed() {
+        IntegrationAuth.signInAsAdmin(http, auth);
         projectId=projects.createProject("__autowire_test__"+UUID.randomUUID(),"临时自动连线验证").getId();
         store=page("积分商城");records=page("兑换记录");popup=page("兑换确认弹窗");
         button=element("button","兑换记录",10,100,100,30);

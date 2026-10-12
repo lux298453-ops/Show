@@ -28,6 +28,11 @@ const http = axios.create({
 })
 
 http.interceptors.request.use(async (config: SaveConfig) => {
+  const token = localStorage.getItem('wf_token')
+  if (token) {
+    config.headers.set('Authorization', `Bearer ${token}`)
+  }
+
   config.wfSaveTicket = beginSave(config, savedConfig => http.request(savedConfig))
   if (config.wfSaveTicket?.retryable) {
     // Serialize writes to one resource so an older HTML snapshot cannot land
@@ -71,6 +76,10 @@ http.interceptors.response.use(
         const status = error.response.status
         if (status === 400) {
           msg = '请求参数有误或任务正在进行中，请稍候再试'
+        } else if (status === 401) {
+          msg = '请先登录飞书账号'
+        } else if (status === 403) {
+          msg = '当前账号没有这个操作的权限'
         } else if (status === 404) {
           msg = '请求的资源或页面不存在'
         } else if (status === 500) {

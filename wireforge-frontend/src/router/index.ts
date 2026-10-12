@@ -7,6 +7,7 @@ const router = createRouter({
     { path: '/projects/:id', name: 'project-detail', component: () => import('../views/ProjectDetail.vue') },
     { path: '/projects/:id/prototype', name: 'prototype', component: () => import('../views/PrototypeView.vue') },
     { path: '/projects/:id/preview', name: 'PurePreview', component: () => import('@/views/PurePreviewView.vue') },
+    { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackView.vue') },
   ],
 })
 

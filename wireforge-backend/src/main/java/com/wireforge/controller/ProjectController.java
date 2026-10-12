@@ -12,6 +12,8 @@ import com.wireforge.service.InteractionAutowireService;
 import com.wireforge.service.ProjectService;
 import com.wireforge.model.ProjectAnalysisStatus;
 import com.wireforge.model.AutowirePlan;
+import com.wireforge.model.AuthUser;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,27 +28,30 @@ public class ProjectController {
     private final ProjectService projectService;
     private final AnalyzeService analyzeService;
     private final InteractionAutowireService interactionAutowireService;
+    private final com.wireforge.service.AuthService authService;
 
     @GetMapping
     public Result<List<Project>> list() {
         return Result.ok(projectService.listProjects());
     }
 
+    /** 新建项目，创建人自动成为该项目的管理员 */
     @PostMapping
-    public Result<Project> create(@RequestBody Map<String, String> body) {
-        return Result.ok(projectService.createProject(body.get("name"), body.get("description")));
+    public Result<Project> create(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        return Result.ok(projectService.createProject(body.get("name"), body.get("description"),
+                authService.getCurrentUser(request), com.wireforge.service.LogService.resolveIp(request)));
     }
 
     /** 修改项目名称和说明，不影响画板、原型或交互。 */
     @PutMapping("/{id}")
-    public Result<Project> update(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        return Result.ok(projectService.updateProject(id, body));
+    public Result<Project> update(@PathVariable Long id, @RequestBody Map<String, String> body, HttpServletRequest request) {
+        return Result.ok(projectService.updateProject(id, body, authService.getCurrentUser(request), com.wireforge.service.LogService.resolveIp(request)));
     }
 
-    /** 删除项目（级联删除其页面、元素、交互、标注） */
+    /** 删除项目（级联删除其页面、元素、交互、标注）。项目操作记录保留，供主页审计查看。 */
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
-        projectService.deleteProject(id);
+    public Result<Void> delete(@PathVariable Long id, HttpServletRequest request) {
+        projectService.deleteProject(id, authService.getCurrentUser(request), com.wireforge.service.LogService.resolveIp(request));
         return Result.ok(null);
     }
 
@@ -179,9 +184,11 @@ public class ProjectController {
     public Result<Void> updatePageHtml(
             @PathVariable Long id,
             @PathVariable Long pageId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            HttpServletRequest request) {
         String clientId = body.getOrDefault("clientId", "");
-        projectService.updatePageHtml(pageId, body.get("html"), clientId);
+        AuthUser currentUser = authService != null ? authService.getCurrentUser(request) : null;
+        projectService.updatePageHtml(pageId, body.get("html"), clientId, currentUser);
         return Result.ok(null);
     }
 
@@ -190,9 +197,11 @@ public class ProjectController {
     public Result<Map<String, Object>> lockPageEditing(
             @PathVariable Long id,
             @PathVariable Long pageId,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
         String clientId = body.getOrDefault("clientId", "").toString();
-        String userName = body.getOrDefault("userName", "其他成员").toString();
+        AuthUser currentUser = authService.getCurrentUser(request);
+        String userName = currentUser != null ? currentUser.getUserName() : "其他成员";
         boolean active = Boolean.TRUE.equals(body.get("active"));
         return Result.ok(projectService.lockPageEditing(pageId, clientId, userName, active));
     }
@@ -284,8 +293,10 @@ public class ProjectController {
     @PostMapping("/{id}/pages")
     public Result<Page> createPage(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> body) {
-        return Result.ok(projectService.createPage(id, body));
+            @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+        AuthUser currentUser = authService != null ? authService.getCurrentUser(request) : null;
+        return Result.ok(projectService.createPage(id, body, currentUser));
     }
 
     /**
@@ -294,8 +305,10 @@ public class ProjectController {
     @DeleteMapping("/{id}/pages/{pageId}")
     public Result<Void> deletePage(
             @PathVariable Long id,
-            @PathVariable Long pageId) {
-        projectService.deletePage(id, pageId);
+            @PathVariable Long pageId,
+            HttpServletRequest request) {
+        AuthUser currentUser = authService != null ? authService.getCurrentUser(request) : null;
+        projectService.deletePage(id, pageId, currentUser);
         return Result.ok(null);
     }
 
@@ -317,7 +330,9 @@ public class ProjectController {
     @PostMapping("/{id}/comments")
     public Result<CommentThread> createComment(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            jakarta.servlet.http.HttpServletRequest request) {
+        enrichCommentAuthor(body, request);
         return Result.ok(projectService.createCommentThread(id, body));
     }
 
@@ -328,8 +343,20 @@ public class ProjectController {
     public Result<CommentReply> addReply(
             @PathVariable Long id,
             @PathVariable Long threadId,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            jakarta.servlet.http.HttpServletRequest request) {
+        enrichCommentAuthor(body, request);
         return Result.ok(projectService.addCommentReply(id, threadId, body));
+    }
+
+    /** 评论作者一律取当前登录的人 */
+    private void enrichCommentAuthor(Map<String, Object> body, HttpServletRequest request) {
+        if (body == null) return;
+        AuthUser user = authService.getCurrentUser(request);
+        if (user == null) return;
+        body.put("authorId", user.getUserId());
+        body.put("authorAvatar", user.getUserAvatar());
+        body.put("author", user.getUserName());
     }
 
     /**
@@ -344,13 +371,68 @@ public class ProjectController {
     }
 
     /**
-     * 删除整条评论线程
+     * 删除整条评论线程：编辑者和管理员可删任意评论，只读评审只能删自己发的
      */
     @DeleteMapping("/{id}/comments/{threadId}")
     public Result<Void> deleteCommentThread(
             @PathVariable Long id,
-            @PathVariable Long threadId) {
+            @PathVariable Long threadId,
+            HttpServletRequest request) {
+        AuthUser user = authService.getCurrentUser(request);
+        if (!com.wireforge.service.AuthService.canEdit(authService.getUserProjectRole(id, user))) {
+            CommentThread thread = projectService.getCommentThread(id, threadId);
+            if (thread != null && (user == null || !user.getUserId().equals(thread.getAuthorId()))) {
+                return Result.error(403, "只读评审只能删除自己发的评论");
+            }
+        }
         projectService.deleteCommentThread(id, threadId);
+        return Result.ok(null);
+    }
+
+    // ==========================================
+    // 项目成员与角色管理 (Project Members)
+    // ==========================================
+
+    @GetMapping("/{id}/members")
+    public Result<List<com.wireforge.entity.ProjectMember>> listMembers(@PathVariable Long id) {
+        return Result.ok(authService.listProjectMembers(id));
+    }
+
+    /** 按飞书编号查这个人叫什么，添加成员前确认用 */
+    @GetMapping("/{id}/members/lookup")
+    public Result<Map<String, Object>> lookupMember(@PathVariable Long id, @RequestParam String userId) {
+        return Result.ok(authService.lookupUser(userId.trim()));
+    }
+
+    @PostMapping("/{id}/members")
+    public Result<com.wireforge.entity.ProjectMember> saveMember(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        String userId = body.get("userId") != null ? body.get("userId").toString().trim() : "";
+        String userName = body.get("userName") != null ? body.get("userName").toString().trim() : "";
+        String userAvatar = body.get("userAvatar") != null ? body.get("userAvatar").toString() : "";
+        String role = body.get("role") != null ? body.get("role").toString() : "viewer";
+        if (userId.isEmpty()) {
+            return Result.error(400, "请填写成员的飞书用户编号");
+        }
+        return Result.ok(authService.saveOrUpdateProjectMember(id, userId, userName, userAvatar, role));
+    }
+
+    @PutMapping("/{id}/members/{userId}/role")
+    public Result<com.wireforge.entity.ProjectMember> updateMemberRole(
+            @PathVariable Long id,
+            @PathVariable String userId,
+            @RequestBody Map<String, Object> body,
+            jakarta.servlet.http.HttpServletRequest request) {
+        String role = body.getOrDefault("role", "viewer").toString();
+        return Result.ok(authService.updateMemberRole(id, userId, role, request));
+    }
+
+    @DeleteMapping("/{id}/members/{userId}")
+    public Result<Void> deleteMember(
+            @PathVariable Long id,
+            @PathVariable String userId) {
+        authService.removeProjectMember(id, userId);
         return Result.ok(null);
     }
 }

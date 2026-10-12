@@ -58,9 +58,89 @@ public class DatabaseMigrationConfig {
             addColumnIfNotExists(stmt, "annotation", "title", "VARCHAR(200) COMMENT '说明标题'");
             addColumnIfNotExists(stmt, "annotation", "source", "VARCHAR(30) COMMENT '说明来源，user=人工'");
 
+            // 评论作者信息扩展字段
+            addColumnIfNotExists(stmt, "comment_thread", "author_id", "VARCHAR(64) COMMENT '作者ID'");
+            addColumnIfNotExists(stmt, "comment_thread", "author_avatar", "VARCHAR(500) COMMENT '作者头像'");
+            addColumnIfNotExists(stmt, "comment_reply", "author_id", "VARCHAR(64) COMMENT '作者ID'");
+            addColumnIfNotExists(stmt, "comment_reply", "author_avatar", "VARCHAR(500) COMMENT '作者头像'");
+
+            // 操作审计日志表
+            executeTableCreation(stmt, "operation_log",
+                    "CREATE TABLE IF NOT EXISTS `operation_log` (" +
+                    " `id` BIGINT AUTO_INCREMENT PRIMARY KEY," +
+                    " `project_id` BIGINT NOT NULL," +
+                    " `user_id` VARCHAR(64)," +
+                    " `user_name` VARCHAR(64)," +
+                    " `user_avatar` VARCHAR(500)," +
+                    " `action_type` VARCHAR(32) COMMENT 'PAGE_CREATE/PAGE_EDIT/PAGE_DELETE/ELEMENT_ADD/INTERACTION_ADD/COMMENT_ADD等'," +
+                    " `action_desc` TEXT COMMENT '具体中文变更说明'," +
+                    " `target_name` VARCHAR(255) COMMENT '涉及的画板或对象名称'," +
+                    " `ip_address` VARCHAR(64)," +
+                    " `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP," +
+                    " INDEX `idx_project_time` (`project_id`, `created_at`)" +
+                    ") ENGINE = InnoDB DEFAULT CHARSET = utf8mb4");
+
+            // 项目成员与权限表
+            executeTableCreation(stmt, "project_member",
+                    "CREATE TABLE IF NOT EXISTS `project_member` (" +
+                    " `id` BIGINT AUTO_INCREMENT PRIMARY KEY," +
+                    " `project_id` BIGINT NOT NULL," +
+                    " `user_id` VARCHAR(64) NOT NULL," +
+                    " `user_name` VARCHAR(64) NOT NULL," +
+                    " `user_avatar` VARCHAR(500)," +
+                    " `role` VARCHAR(20) DEFAULT 'viewer' COMMENT 'admin / editor / viewer'," +
+                    " `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP," +
+                    " UNIQUE KEY `uk_proj_user` (`project_id`, `user_id`)" +
+                    ") ENGINE = InnoDB DEFAULT CHARSET = utf8mb4");
+
+            // 登录凭证表
+            executeTableCreation(stmt, "auth_session",
+                    "CREATE TABLE IF NOT EXISTS `auth_session` (" +
+                    " `token` VARCHAR(64) PRIMARY KEY," +
+                    " `user_id` VARCHAR(64) NOT NULL," +
+                    " `user_name` VARCHAR(64)," +
+                    " `user_avatar` VARCHAR(500)," +
+                    " `open_id` VARCHAR(64)," +
+                    " `union_id` VARCHAR(64)," +
+                    " `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP," +
+                    " `expires_at` DATETIME NOT NULL," +
+                    " KEY `idx_expires` (`expires_at`)" +
+                    ") ENGINE = InnoDB DEFAULT CHARSET = utf8mb4");
+
+            // 认识的人（按飞书编号显示名字）
+            executeTableCreation(stmt, "app_user",
+                    "CREATE TABLE IF NOT EXISTS `app_user` (" +
+                    " `user_id` VARCHAR(64) PRIMARY KEY COMMENT '飞书 open_id'," +
+                    " `user_name` VARCHAR(64) NOT NULL," +
+                    " `user_avatar` VARCHAR(500)," +
+                    " `union_id` VARCHAR(64)," +
+                    " `last_login_at` DATETIME COMMENT '从飞书通讯录查到但未登录过时为空'," +
+                    " `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP" +
+                    ") ENGINE = InnoDB DEFAULT CHARSET = utf8mb4");
+            // 从历史操作记录里补上已知的人；名字里带 % 的是旧版本没解码的脏数据
+            try {
+                int known = stmt.executeUpdate(
+                        "INSERT IGNORE INTO `app_user` (`user_id`, `user_name`, `user_avatar`, `updated_at`)" +
+                        " SELECT `user_id`, MAX(`user_name`), MAX(`user_avatar`), MAX(`created_at`) FROM `operation_log`" +
+                        " WHERE `user_id` LIKE 'ou\\_%' AND `user_name` IS NOT NULL AND `user_name` NOT LIKE '%\\%%'" +
+                        " GROUP BY `user_id`");
+                if (known > 0) log.info("Auto-migration: remembered {} users from operation_log", known);
+            } catch (SQLException e) {
+                log.warn("Auto-migration: backfill app_user error: {}", e.getMessage());
+            }
+
             log.info("Database schema auto-migrations completed successfully.");
         } catch (Exception e) {
             log.warn("Database schema auto-migration encountered warning: {}", e.getMessage());
+        }
+    }
+
+    private void executeTableCreation(Statement stmt, String tableName, String sql) {
+        try {
+            stmt.executeUpdate(sql);
+            log.info("Auto-migration: ensured table {}", tableName);
+        } catch (SQLException e) {
+            log.warn("Auto-migration: check table {} error: {}", tableName, e.getMessage());
         }
     }
 

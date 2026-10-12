@@ -27,3 +27,5 @@ wireforge:
   # 副本调试期间建议不开自动生成，避免每次启动都调 AI / 写入数据；
   # 需要时改为 true 或启动参数 --wireforge.auto-analyze=true
   auto-analyze: false
+  auth:
+    mock-login: true

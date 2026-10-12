@@ -16,9 +16,11 @@ import router from './router'
 import './styles/main.scss'
 import { initTheme } from './utils/theme'
 import { initLanguage } from './utils/i18n'
+import { refreshSession } from './services/auth'
 
 initTheme()
 initLanguage()
+refreshSession()
 
 const app = createApp(App)
 app.use(createPinia())
