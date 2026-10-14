@@ -1,9 +1,13 @@
 package com.wireforge.service;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wireforge.entity.StoredAsset;
+import com.wireforge.mapper.StoredAssetMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
@@ -16,6 +20,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -40,6 +45,7 @@ public class AssetService {
 
     private final ResourceLoader resourceLoader;
     private final ObjectMapper objectMapper;
+    private final StoredAssetMapper storedAssetMapper;
     private final String assetBasePath;
     /** 设计稿根目录：其下 assets/ 子目录中的文件视为用户上传素材 */
     private final String designsDir;
@@ -53,10 +59,12 @@ public class AssetService {
 
     public AssetService(ResourceLoader resourceLoader,
                         ObjectMapper objectMapper,
+                        StoredAssetMapper storedAssetMapper,
                         @Value("${wireforge.assets.path:classpath:assets/wireframe}") String assetBasePath,
                         @Value("${wireforge.designs-dir}") String designsDir) {
         this.resourceLoader = resourceLoader;
         this.objectMapper = objectMapper;
+        this.storedAssetMapper = storedAssetMapper;
         this.assetBasePath = assetBasePath.trim();
         this.designsDir = designsDir == null ? "" : designsDir.trim();
     }
@@ -104,6 +112,27 @@ public class AssetService {
     public record AssetMeta(String assetId, String category, String fileName, String description) {
     }
 
+    /** 带有文件名与 MIME 类型的内存二进制资源（用于将数据库中的 MEDIUMBLOB 转换为 Spring Resource 输出） */
+    public static class NamedByteArrayResource extends ByteArrayResource {
+        private final String filename;
+        private final String contentType;
+
+        public NamedByteArrayResource(byte[] byteArray, String filename, String contentType) {
+            super(byteArray);
+            this.filename = filename;
+            this.contentType = contentType;
+        }
+
+        @Override
+        public String getFilename() {
+            return this.filename;
+        }
+
+        public String getContentType() {
+            return this.contentType;
+        }
+    }
+
     // ===== 对外接口 =====
 
     /** 返回素材在 classpath 下的资源定位（如 classpath:assets/wireframe/icons/home.svg），不存在返回 null */
@@ -128,7 +157,7 @@ public class AssetService {
 
     /** 返回素材的对外访问 URL（/api/assets/{assetId}），不存在返回空串 */
     public String getAssetUrl(String assetId) {
-        return assets.containsKey(assetId) ? "/api/assets/" + assetId : "";
+        return (assets.containsKey(assetId) || (assetId != null && assetId.startsWith("u-"))) ? "/api/assets/" + assetId : "";
     }
 
     /**
@@ -148,6 +177,9 @@ public class AssetService {
     /** 返回全部素材列表（用于 /api/assets/list） */
     public List<Map<String, Object>> getAssetList() {
         List<Map<String, Object>> list = new ArrayList<>();
+        Set<String> seenIds = new java.util.HashSet<>();
+
+        // 1. 系统内置素材
         for (AssetMeta meta : assets.values()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("assetId", meta.assetId());
@@ -156,49 +188,135 @@ public class AssetService {
             m.put("description", meta.description());
             m.put("url", getAssetUrl(meta.assetId()));
             list.add(m);
+            seenIds.add(meta.assetId());
         }
+
+        // 2. 数据库持久化用户素材（排除 MEDIUMBLOB 大字段，轻量快速查询）
+        try {
+            List<StoredAsset> dbList = storedAssetMapper.selectList(
+                    Wrappers.<StoredAsset>lambdaQuery()
+                            .select(StoredAsset::getAssetId,
+                                    StoredAsset::getCategory,
+                                    StoredAsset::getName,
+                                    StoredAsset::getFileName,
+                                    StoredAsset::getContentType,
+                                    StoredAsset::getFileSize,
+                                    StoredAsset::getUploaderId,
+                                    StoredAsset::getUploaderName,
+                                    StoredAsset::getCreatedAt)
+                            .orderByDesc(StoredAsset::getCreatedAt)
+            );
+            if (dbList != null) {
+                for (StoredAsset sa : dbList) {
+                    if (seenIds.add(sa.getAssetId())) {
+                        Map<String, Object> m = new LinkedHashMap<>();
+                        m.put("assetId", sa.getAssetId());
+                        m.put("category", sa.getCategory());
+                        m.put("fileName", sa.getFileName());
+                        m.put("name", sa.getName());
+                        m.put("description", sa.getName());
+                        m.put("uploaded", true);
+                        m.put("fileSize", sa.getFileSize());
+                        m.put("uploaderId", sa.getUploaderId());
+                        m.put("uploaderName", sa.getUploaderName());
+                        m.put("createdAt", sa.getCreatedAt());
+                        m.put("url", "/api/assets/" + sa.getAssetId());
+                        list.add(m);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[素材库] 从数据库读取用户素材列表跳过: {}", e.getMessage());
+        }
+
+        // 3. 本地磁盘历史素材（兼容兜底）
         for (UserAsset user : scanUserAssets()) {
-            list.add(toUserAssetMap(user));
+            if (seenIds.add(user.assetId())) {
+                list.add(toUserAssetMap(user));
+            }
         }
         return list;
     }
 
     /**
-     * 把用户上传的图片存进设计稿目录的 assets/{分类}/，立刻出现在素材库列表里。
+     * 把用户上传的图片存入 TiDB 数据库表 user_asset，实现跨部署永久留存。
      */
     public Map<String, Object> saveUploadedAsset(String category, String originalFilename, byte[] bytes) throws IOException {
+        return saveUploadedAsset(category, originalFilename, bytes, null, null);
+    }
+
+    public Map<String, Object> saveUploadedAsset(String category, String originalFilename, byte[] bytes, String uploaderId, String uploaderName) throws IOException {
         if (bytes == null || bytes.length == 0) {
             throw new IllegalArgumentException("请选择一张图片");
         }
         if (bytes.length > 8 * 1024 * 1024) {
             throw new IllegalArgumentException("图片不能超过 8MB");
         }
-        if (designsDir.isBlank()) {
-            throw new IOException("未配置素材保存目录");
-        }
         String folder = UPLOAD_FOLDERS.contains(category) ? category : "uploads";
         String fileName = safeUploadName(originalFilename);
-        Path assetsRoot = Paths.get(designsDir).resolve("assets").toAbsolutePath().normalize();
-        Path dir = assetsRoot.resolve(folder).normalize();
-        if (!dir.startsWith(assetsRoot)) {
-            throw new IOException("保存路径无效");
+        String ext = getFileExtension(fileName);
+        String contentType = detectContentType(ext);
+
+        // 生成规范的全局唯一 assetId：u-{timestamp}-{salt}-{slug}
+        String baseName = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+        int salt = ThreadLocalRandom.current().nextInt(100, 999);
+        String assetId = "u-" + System.currentTimeMillis() + "-" + salt + "-" + baseName;
+        if (assetId.length() > 60) {
+            assetId = assetId.substring(0, 60);
         }
-        Files.createDirectories(dir);
-        Path target = uniquePath(dir, fileName).toAbsolutePath().normalize();
-        Files.write(target, bytes);
-        for (UserAsset user : scanUserAssets()) {
-            if (user.path().toAbsolutePath().normalize().equals(target)) {
-                return toUserAssetMap(user);
+
+        // 1. 持久化存入数据库 user_asset 表（容器销毁重建依然 100% 留存）
+        StoredAsset storedAsset = StoredAsset.builder()
+                .assetId(assetId)
+                .category(folder)
+                .name(baseName)
+                .fileName(fileName)
+                .contentType(contentType)
+                .fileSize((long) bytes.length)
+                .data(bytes)
+                .uploaderId(uploaderId)
+                .uploaderName(uploaderName)
+                .createdAt(LocalDateTime.now())
+                .build();
+        storedAssetMapper.insert(storedAsset);
+        log.info("[素材库] 新增持久化素材入库成功: id={}, assetId={}, name={}, size={}KB",
+                storedAsset.getId(), assetId, baseName, bytes.length / 1024);
+
+        // 2. 本地磁盘副本（尽力而为写入缓存）
+        if (StringUtils.hasText(designsDir)) {
+            try {
+                Path assetsRoot = Paths.get(designsDir).resolve("assets").toAbsolutePath().normalize();
+                Path dir = assetsRoot.resolve(folder).normalize();
+                if (dir.startsWith(assetsRoot)) {
+                    Files.createDirectories(dir);
+                    Path target = uniquePath(dir, fileName).toAbsolutePath().normalize();
+                    Files.write(target, bytes);
+                }
+            } catch (Exception e) {
+                log.warn("[素材库] 写入本地磁盘缓存跳过: {}", e.getMessage());
             }
         }
-        throw new IOException("图片已保存，但没能放进素材库");
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("assetId", storedAsset.getAssetId());
+        m.put("category", storedAsset.getCategory());
+        m.put("fileName", storedAsset.getFileName());
+        m.put("name", storedAsset.getName());
+        m.put("description", storedAsset.getName());
+        m.put("uploaded", true);
+        m.put("fileSize", storedAsset.getFileSize());
+        m.put("url", "/api/assets/" + storedAsset.getAssetId());
+        m.put("uploaderId", uploaderId);
+        m.put("uploaderName", uploaderName);
+        m.put("createdAt", storedAsset.getCreatedAt());
+        return m;
     }
 
     private Map<String, Object> toUserAssetMap(UserAsset user) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("assetId", user.assetId());
         m.put("category", categoryOfUserAsset(user));
-        m.put("fileName", user.path().getFileName().toString());
+        m.put("fileName", user.path() != null ? user.path().getFileName().toString() : user.name());
         m.put("name", user.name());
         m.put("description", user.name());
         m.put("uploaded", true);
@@ -208,6 +326,7 @@ public class AssetService {
 
     /** 按保存时所在的子目录归类；对不上已知分类的都算「我的上传」 */
     private String categoryOfUserAsset(UserAsset user) {
+        if (user.path() == null) return "uploads";
         if (designsDir.isBlank()) return "uploads";
         Path assetsRoot = Paths.get(designsDir).resolve("assets").toAbsolutePath().normalize();
         Path parent = user.path().getParent();
@@ -221,6 +340,21 @@ public class AssetService {
             return "uploads";
         }
         return "uploads";
+    }
+
+    private static String getFileExtension(String fileName) {
+        if (!StringUtils.hasText(fileName)) return "";
+        int dot = fileName.lastIndexOf('.');
+        return dot >= 0 ? fileName.substring(dot).toLowerCase() : "";
+    }
+
+    private static String detectContentType(String ext) {
+        if (".svg".equals(ext)) return "image/svg+xml";
+        if (".png".equals(ext)) return "image/png";
+        if (".jpg".equals(ext) || ".jpeg".equals(ext)) return "image/jpeg";
+        if (".webp".equals(ext)) return "image/webp";
+        if (".gif".equals(ext)) return "image/gif";
+        return "application/octet-stream";
     }
 
     private static String safeUploadName(String original) {
@@ -272,11 +406,33 @@ public class AssetService {
 
     /** 取素材的 Spring Resource（用于 Controller 输出二进制流），不存在返回 null */
     public Resource getAssetResource(String assetId) {
-        // 用户上传素材：从文件系统读取
-        Path userPath = findUserAssetPath(assetId);
-        if (userPath != null && Files.exists(userPath)) {
-            return new org.springframework.core.io.FileSystemResource(userPath);
+        if (!StringUtils.hasText(assetId)) return null;
+
+        // 1. 用户上传素材：优先从 TiDB 数据库中读取 MEDIUMBLOB 二进制流
+        if (assetId.startsWith("u-")) {
+            try {
+                StoredAsset storedAsset = storedAssetMapper.selectOne(
+                        Wrappers.<StoredAsset>lambdaQuery().eq(StoredAsset::getAssetId, assetId)
+                );
+                if (storedAsset != null && storedAsset.getData() != null && storedAsset.getData().length > 0) {
+                    return new NamedByteArrayResource(
+                            storedAsset.getData(),
+                            storedAsset.getFileName(),
+                            storedAsset.getContentType()
+                    );
+                }
+            } catch (Exception e) {
+                log.warn("[素材库] 从数据库读取素材 {} 异常: {}", assetId, e.getMessage());
+            }
+
+            // 2. 数据库未命中时回退到本地文件系统（兼容历史遗留文件）
+            Path userPath = findUserAssetPath(assetId);
+            if (userPath != null && Files.exists(userPath)) {
+                return new org.springframework.core.io.FileSystemResource(userPath);
+            }
         }
+
+        // 3. 系统内置静态素材 (classpath)
         AssetMeta meta = assets.get(assetId);
         if (meta == null) return null;
         return resourceLoader.getResource(assetBasePath + "/" + meta.category() + "/" + meta.fileName());
@@ -284,7 +440,20 @@ public class AssetService {
 
     /** 是否存在该素材 */
     public boolean exists(String assetId) {
-        return assets.containsKey(assetId) || findUserAssetPath(assetId) != null;
+        if (!StringUtils.hasText(assetId)) return false;
+        if (assets.containsKey(assetId)) return true;
+        if (assetId.startsWith("u-")) {
+            try {
+                Long count = storedAssetMapper.selectCount(
+                        Wrappers.<StoredAsset>lambdaQuery().eq(StoredAsset::getAssetId, assetId)
+                );
+                if (count != null && count > 0) return true;
+            } catch (Exception e) {
+                log.warn("[素材库] 检查素材存在性异常: {}", e.getMessage());
+            }
+            return findUserAssetPath(assetId) != null;
+        }
+        return false;
     }
 
     // ===== 用户上传素材（designs-dir/assets/ 子目录，动态扫描，无需重启） =====
@@ -341,16 +510,35 @@ public class AssetService {
      */
     public List<UserAsset> scanUserAssetsFor(Path pageImagePath) {
         List<UserAsset> out = new ArrayList<>();
-        if (designsDir.isBlank()) return out;
-        Path root = Paths.get(designsDir);
-        out.addAll(scanUserAssetsFrom(root.resolve("assets"), "u-", "全局"));
-        if (pageImagePath != null) {
-            Path parent = pageImagePath.toAbsolutePath().normalize().getParent();
-            if (parent != null && !parent.equals(root) && parent.startsWith(root)) {
-                String groupName = parent.getFileName() == null ? "" : parent.getFileName().toString();
-                out.addAll(scanUserAssetsFrom(parent.resolve("assets"),
-                        "u-" + groupName.replaceAll("[^\\p{L}\\p{N}]+", "-").toLowerCase() + "-",
-                        groupName));
+
+        // 1. 从 TiDB 数据库加载持久化素材（跨容器重启永不丢失）
+        try {
+            List<StoredAsset> dbAssets = storedAssetMapper.selectList(
+                    Wrappers.<StoredAsset>lambdaQuery()
+                            .select(StoredAsset::getAssetId, StoredAsset::getName, StoredAsset::getCategory)
+                            .orderByDesc(StoredAsset::getCreatedAt)
+            );
+            if (dbAssets != null) {
+                for (StoredAsset sa : dbAssets) {
+                    out.add(new UserAsset(sa.getAssetId(), sa.getName(), null, "云端素材库-" + sa.getCategory()));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[素材库] 从数据库读取用户素材列表跳过: {}", e.getMessage());
+        }
+
+        // 2. 本地磁盘历史素材
+        if (!designsDir.isBlank()) {
+            Path root = Paths.get(designsDir);
+            out.addAll(scanUserAssetsFrom(root.resolve("assets"), "u-", "全局"));
+            if (pageImagePath != null) {
+                Path parent = pageImagePath.toAbsolutePath().normalize().getParent();
+                if (parent != null && !parent.equals(root) && parent.startsWith(root)) {
+                    String groupName = parent.getFileName() == null ? "" : parent.getFileName().toString();
+                    out.addAll(scanUserAssetsFrom(parent.resolve("assets"),
+                            "u-" + groupName.replaceAll("[^\\p{L}\\p{N}]+", "-").toLowerCase() + "-",
+                            groupName));
+                }
             }
         }
         return out;

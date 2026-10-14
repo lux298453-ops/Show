@@ -2,6 +2,8 @@ package com.wireforge.controller;
 
 import com.wireforge.common.Result;
 import com.wireforge.service.AssetService;
+import com.wireforge.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
@@ -9,6 +11,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,6 +42,7 @@ import java.util.Map;
 public class AssetController {
 
     private final AssetService assetService;
+    private final AuthService authService;
 
     /** 素材二进制流（供前端 <img src="/api/assets/{assetId}"> 直接引用） */
     @GetMapping("/{assetId}")
@@ -60,20 +64,30 @@ public class AssetController {
         return Result.ok(assetService.getAssetList());
     }
 
-    /** 上传一张图片进素材库。category 为空或 all 时归到「我的上传」 */
+    /** 上传一张图片进素材库并持久化保存至数据库。category 为空或 all 时归到「我的上传」 */
     @PostMapping("/upload")
     public Result<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
-                                               @RequestParam(value = "category", defaultValue = "uploads") String category) {
+                                               @RequestParam(value = "category", defaultValue = "uploads") String category,
+                                               HttpServletRequest request) {
         if (file == null || file.isEmpty()) {
             return Result.fail("请选择一张图片");
         }
         try {
-            return Result.ok(assetService.saveUploadedAsset(category, file.getOriginalFilename(), file.getBytes()));
+            String uploaderId = null;
+            String uploaderName = null;
+            try {
+                var user = authService.getCurrentUser(request);
+                if (user != null) {
+                    uploaderId = user.getUserId();
+                    uploaderName = user.getUserName();
+                }
+            } catch (Exception ignored) {}
+            return Result.ok(assetService.saveUploadedAsset(category, file.getOriginalFilename(), file.getBytes(), uploaderId, uploaderName));
         } catch (IllegalArgumentException e) {
             return Result.fail(e.getMessage());
-        } catch (IOException e) {
-            log.warn("[素材库] 上传失败: {}", e.getMessage());
-            return Result.fail("图片没能保存，请稍后再试");
+        } catch (Exception e) {
+            log.warn("[素材库] 上传失败: {}", e.getMessage(), e);
+            return Result.fail("图片没能保存，请稍后再试: " + e.getMessage());
         }
     }
 
@@ -101,6 +115,9 @@ public class AssetController {
     }
 
     private static String resolveContentType(String assetId, Resource resource) {
+        if (resource instanceof AssetService.NamedByteArrayResource named && StringUtils.hasText(named.getContentType())) {
+            return named.getContentType();
+        }
         String name = resource.getFilename() != null ? resource.getFilename() : assetId;
         if (name.endsWith(".svg")) return MediaType.valueOf("image/svg+xml").toString();
         if (name.endsWith(".png")) return MediaType.IMAGE_PNG.toString();

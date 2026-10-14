@@ -176,4 +176,19 @@ CREATE TABLE IF NOT EXISTS `app_user` (
   `updated_at`    DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `user_asset` (
+  `id`            BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `asset_id`      VARCHAR(100) NOT NULL UNIQUE COMMENT '素材唯一标识',
+  `category`      VARCHAR(32) NOT NULL DEFAULT 'uploads' COMMENT '素材分类',
+  `name`          VARCHAR(255) NOT NULL COMMENT '显示名称',
+  `file_name`     VARCHAR(255) NOT NULL COMMENT '原始文件名',
+  `content_type`  VARCHAR(100) NOT NULL COMMENT 'MIME类型',
+  `file_size`     BIGINT NOT NULL DEFAULT 0 COMMENT '文件字节大小',
+  `data`          MEDIUMBLOB NOT NULL COMMENT '文件二进制数据',
+  `uploader_id`   VARCHAR(64) COMMENT '上传人用户ID',
+  `uploader_name` VARCHAR(64) COMMENT '上传人姓名',
+  `created_at`    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_cat_created` (`category`, `created_at`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
 

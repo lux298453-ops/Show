@@ -252,17 +252,17 @@
           @keydown.space.prevent="router.push(`/projects/${id}/prototype?page=${p.id}`)"
         >
           <!-- Thumbnail Area (Phone Frame 9:16 Aspect) -->
-          <div class="relative w-full aspect-[9/15] bg-slate-50 dark:bg-[#1a1a1a] rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 dark:border-[#383838]">
+          <div class="relative w-full aspect-[9/15] bg-slate-100 dark:bg-[#1a1a1a] rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 dark:border-[#383838]">
             <img
               v-if="p.background_image"
               :src="getFileUrl(p.background_image)"
-              class="w-full h-full object-contain group-hover:scale-[1.01] transition-transform duration-200"
+              class="w-full h-full object-contain p-2 group-hover:scale-[1.01] transition-transform duration-200"
               :alt="p.name"
               loading="lazy"
             />
             <div
               v-else-if="pagePreviewHtml(p)"
-              class="absolute inset-0 overflow-hidden bg-white dark:bg-[#1a1a1a]"
+              class="absolute inset-0 overflow-hidden bg-slate-100 dark:bg-[#1a1a1a]"
               :ref="(el) => bindHtmlThumb(el as HTMLElement | null)"
             >
               <iframe
@@ -335,7 +335,7 @@
                   <img v-if="p.background_image" :src="getFileUrl(p.background_image)" class="w-full h-full object-cover" />
                   <div
                     v-else-if="pagePreviewHtml(p)"
-                    class="absolute inset-0 overflow-hidden bg-white dark:bg-[#1a1a1a]"
+                    class="absolute inset-0 overflow-hidden bg-slate-100 dark:bg-[#1a1a1a]"
                     :ref="(el) => bindHtmlThumb(el as HTMLElement | null)"
                   >
                     <iframe
@@ -470,9 +470,16 @@ function bindHtmlThumb(el: HTMLElement | null) {
   const apply = () => {
     const pageW = Number(frame.dataset.w) || 375
     const pageH = Number(frame.dataset.h) || 812
-    const s = Math.min(el.clientWidth / pageW, el.clientHeight / pageH)
-    if (!s || !Number.isFinite(s)) return
-    frame.style.transform = `scale(${s})`
+    const boxW = el.clientWidth
+    const boxH = el.clientHeight
+    const pad = boxW < 60 ? 1 : 8
+    const s = Math.min((boxW - pad * 2) / pageW, (boxH - pad * 2) / pageH)
+    if (!s || s <= 0 || !Number.isFinite(s)) return
+    const left = (boxW - pageW * s) / 2
+    const top = (boxH - pageH * s) / 2
+    frame.style.transform = `translate(${left}px, ${top}px) scale(${s})`
+    // 阴影跟着缩放，按 1/s 放大后屏幕上才是 1~6px
+    frame.style.boxShadow = `0 0 0 ${1 / s}px rgba(15,23,42,0.08), 0 ${2 / s}px ${6 / s}px rgba(15,23,42,0.10)`
   }
   apply()
   thumbObservers.get(el)?.disconnect()
