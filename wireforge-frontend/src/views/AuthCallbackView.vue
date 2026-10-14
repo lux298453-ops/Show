@@ -58,10 +58,11 @@
           </button>
           <button
             type="button"
-            class="flex-1 py-2 px-3 text-xs font-semibold rounded-xl bg-[#3370FF] hover:bg-[#2860E1] text-white transition-colors cursor-pointer"
+            class="flex-1 py-2 px-3 text-xs font-semibold rounded-xl bg-[#3370FF] hover:bg-[#2860E1] text-white transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+            :disabled="retrying"
             @click="retryAuth"
           >
-            重新授权
+            {{ retrying ? '正在打开飞书…' : '重新授权' }}
           </button>
         </div>
       </template>
@@ -93,7 +94,7 @@ function getTargetUrl(): string {
       return saved
     }
   } catch {}
-  return '/projects/4/prototype'
+  return '/'
 }
 
 function returnToWorkspace() {
@@ -101,9 +102,23 @@ function returnToWorkspace() {
   router.push(target)
 }
 
-function retryAuth() {
-  sessionStorage.removeItem('wf_return_url')
-  router.push('/projects/4/prototype')
+const retrying = ref(false)
+
+/** 重新打开飞书授权页，原来所在的页面地址留在 sessionStorage 里，授权回来还能跳回去 */
+async function retryAuth() {
+  if (retrying.value) return
+  retrying.value = true
+  try {
+    const callbackUri = window.location.origin + '/auth/callback'
+    const res = await fetch(apiUrl(`/auth/feishu/config?redirectUri=${encodeURIComponent(callbackUri)}`))
+    const authUrl = res.ok ? (await res.json())?.data?.authUrl : ''
+    if (authUrl) {
+      window.location.href = authUrl
+      return
+    }
+  } catch {}
+  retrying.value = false
+  ElMessage.warning('飞书登录未配置或授权地址不可用')
 }
 
 onMounted(async () => {

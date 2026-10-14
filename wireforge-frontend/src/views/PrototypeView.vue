@@ -29,8 +29,19 @@
         </div>
       </div>
 
-      <!-- Center: Clean Space -->
-      <div class="flex-1"></div>
+      <!-- Center: 只读评审提示 -->
+      <div class="flex-1 min-w-0 flex justify-center px-3">
+        <Transition name="fade-fast">
+          <div
+            v-if="isViewer && !projectRoleLoading"
+            class="inline-flex items-center gap-1.5 min-w-0 max-w-full px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-500/30 text-[11px] font-medium select-none"
+            :title="`只读预览模式：画板已锁定保护。${!currentUser ? '编辑请先飞书登录' : '你在这个项目里是只读评审，需要编辑请找项目管理员'}`"
+          >
+            <Lock class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span class="truncate">只读预览模式：画板已锁定保护。{{ !currentUser ? '编辑请先飞书登录' : '你在这个项目里是只读评审，需要编辑请找项目管理员' }}</span>
+          </div>
+        </Transition>
+      </div>
 
       <!-- Right: Actions, User Identity Capsule & Navbar Controls -->
       <div class="flex items-center gap-2.5">
@@ -352,26 +363,6 @@
       >
         <AiGenerationGlow :active="isReanalyzing || regeneratingIds.size > 0" :origin="aiGlowOrigin" />
 
-        <!-- ===== 只读评审模式：画板锁定保护提示胶囊 (Viewer Protection) ===== -->
-        <Transition name="fade-fast">
-          <div
-            v-if="isViewer && !projectRoleLoading"
-            class="absolute top-4 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto select-none"
-          >
-            <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 dark:bg-black/90 text-white text-xs font-medium shadow-xl backdrop-blur-md border border-slate-700/80 transition-all">
-              <Lock class="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span>只读预览模式：画板已锁定保护。{{ !currentUser ? '编辑请先飞书登录' : '你在这个项目里是只读评审，需要编辑请找项目管理员' }}</span>
-              <button
-                v-if="!currentUser"
-                type="button"
-                class="ml-1 text-xs text-blue-400 hover:text-blue-300 font-semibold underline cursor-pointer"
-                @click="isFeishuModalOpen = true"
-              >
-                飞书登录
-              </button>
-            </div>
-          </div>
-        </Transition>
         <!-- ===== 多选画板批量操作悬浮条 (Figma Style) ===== -->
         <Transition name="fade-fast">
           <div
@@ -2230,6 +2221,7 @@ import AutowireReviewDialog from '../components/AutowireReviewDialog.vue'
 import AnnotationCreateDialog from '../components/AnnotationCreateDialog.vue'
 import type { AutowirePlan, AutowireDecisions, AutowireApplyRequest, AutowireApplyResult, AutowirePreviewRequest } from '../types/autowire'
 import { getFileUrl } from '../api/http'
+import { useProjectTitle } from '../utils/pageTitle'
 import type { Annotation, Element, Page, Prototype, CommentThread, CommentReply } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
@@ -2677,6 +2669,7 @@ onBeforeRouteLeave(async () => {
 })
 
 const proto = ref<Prototype | null>(null)
+useProjectTitle(() => proto.value?.project.name)
 const pages = computed(() => proto.value?.pages || [])
 
 const leftSidebarTab = ref<'outline' | 'layers'>('outline')

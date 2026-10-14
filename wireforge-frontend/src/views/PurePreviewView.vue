@@ -382,12 +382,14 @@ import { projectApi } from '../api/project'
 import type { Element, Page, Prototype } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
 import { findInteractionByDomUids, hitInteractionElement, findElementAt, resolveNavigateElement } from '../utils/interactionHit'
+import { useProjectTitle } from '../utils/pageTitle'
 
 const route = useRoute()
 const router = useRouter()
 const id = Number(route.params.id)
 
 const proto = ref<Prototype | null>(null)
+useProjectTitle(() => proto.value?.project.name)
 const pages = computed<Page[]>(() => proto.value?.pages || [])
 
 const currentPageId = ref<number | null>(null)

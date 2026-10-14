@@ -86,20 +86,14 @@
       </div>
     </header>
 
-    <!-- ===== Secondary Toolbar (Search, Filter, View Mode, Path Hint) ===== -->
+    <!-- ===== Secondary Toolbar (Search, Filter, View Mode) ===== -->
     <div class="relative z-10 border-b border-slate-200/70 dark:border-[#333333] bg-white/70 dark:bg-[#252525] px-6 py-2.5 transition-colors">
       <div class="w-full flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 self-start text-sm text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 py-1.5 cursor-pointer"
-          :aria-expanded="showImportSettings"
-          aria-controls="project-import-settings"
-          @click="showImportSettings = !showImportSettings"
-        >
-          <Folder class="w-4 h-4" />
-          {{ t('importSettings') }}
-          <ChevronRight class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-90': showImportSettings }" />
-        </button>
+        <div class="flex items-center gap-2 text-slate-600 dark:text-slate-300 font-medium text-xs py-1">
+          <span class="text-slate-900 dark:text-white font-semibold">{{ t('frames') }}</span>
+          <span class="text-slate-400 dark:text-slate-500">·</span>
+          <span class="text-slate-500 dark:text-slate-400">{{ pages.length }} {{ t('frames') }}</span>
+        </div>
 
         <!-- Right: Search, Status Filter & View Toggle -->
         <div class="flex items-center flex-wrap gap-2.5 shrink-0">
@@ -158,17 +152,6 @@
               <List class="w-3.5 h-3.5" />
             </button>
           </div>
-        </div>
-      </div>
-      <div v-if="showImportSettings" id="project-import-settings" class="mt-3 pt-3 border-t border-slate-200 dark:border-[#383838] text-sm">
-        <p class="text-slate-500 dark:text-slate-400 mb-2">{{ t('importSettingsHint') }}</p>
-        <div class="flex items-center gap-3 min-w-0">
-          <span class="shrink-0 text-slate-600 dark:text-slate-300">{{ t('designsDir') }}</span>
-          <code class="min-w-0 break-all text-xs text-slate-600 dark:text-slate-300">{{ designsDir }}</code>
-          <button type="button" class="shrink-0 p-1.5 rounded-md text-slate-500 hover:bg-slate-100 dark:hover:bg-[#383838] cursor-pointer" :title="t('copyPath')" :aria-label="t('copyPath')" @click="copyDirectoryPath">
-            <CheckCheck v-if="copied" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <Copy v-else class="w-4 h-4" />
-          </button>
         </div>
       </div>
     </div>
@@ -400,8 +383,6 @@ import {
   Folder,
   Check,
   Image as ImageIcon,
-  Copy,
-  CheckCheck,
   Search,
   LayoutGrid,
   List,
@@ -414,6 +395,7 @@ import NavbarControls from '../components/NavbarControls.vue'
 import AiGenerationGlow from '../components/AiGenerationGlow.vue'
 import ProjectMetadataDialog from '../components/ProjectMetadataDialog.vue'
 import { t } from '../utils/i18n'
+import { useProjectTitle } from '../utils/pageTitle'
 import type { Page, Project } from '../types'
 
 const route = useRoute()
@@ -433,6 +415,7 @@ interface PageCard {
 }
 
 const project = ref<Project | null>(null)
+useProjectTitle(() => project.value?.name)
 const metadataVisible = ref(false)
 function updateProjectMetadata(saved: Project) {
   if (project.value?.id === saved.id) { project.value.name = saved.name; project.value.description = saved.description }
@@ -445,15 +428,11 @@ const analyzing = ref(false)
 const aiGenerateButton = ref<HTMLButtonElement | null>(null)
 const analyzeProgressText = ref('')
 const entering = ref(false)
-const DEFAULT_DESIGNS_DIR = 'D:/idea/Project/html版本/html不是很好版/designs'
-const designsDir = ref(DEFAULT_DESIGNS_DIR)
 
 // Interactive toolbar state
 const searchQuery = ref('')
 const statusFilter = ref<'all' | 'analyzed' | 'pending'>('all')
 const viewMode = ref<'grid' | 'list'>('grid')
-const copied = ref(false)
-const showImportSettings = ref(false)
 const thumbObservers = new Map<HTMLElement, ResizeObserver>()
 
 function pagePreviewHtml(p: PageCard) {
@@ -506,20 +485,6 @@ const filteredPages = computed(() => {
     return true
   })
 })
-
-async function copyDirectoryPath() {
-  if (!designsDir.value) return
-  try {
-    await navigator.clipboard.writeText(designsDir.value)
-    copied.value = true
-    ElMessage.success(t('copiedDesignPath'))
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
-  } catch {
-    ElMessage.info(t('copyPathFallback', { path: designsDir.value }))
-  }
-}
 
 async function enterCanvas() {
   if (entering.value || loading.value || loadError.value) return
@@ -654,16 +619,6 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
-  try {
-    const resp = await fetch(apiUrl('/projects/' + id))
-    const body = await resp.json()
-    const dir = body?.data?.designsDir || body?.designsDir
-    if (dir) {
-      designsDir.value = dir
-    }
-  } catch {
-    /* ignore */
-  }
   await load()
   // 页面加载或刷新时，第一件事向后端核对真实分析状态：只要后端还在跑，立即进入持续 Loading 态并恢复进度显示与轮询！
   await pollAnalysisStatus()
