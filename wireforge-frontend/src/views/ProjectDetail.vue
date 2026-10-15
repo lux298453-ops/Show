@@ -89,14 +89,25 @@
     <!-- ===== Secondary Toolbar (Search, Filter, View Mode) ===== -->
     <div class="relative z-10 border-b border-slate-200/70 dark:border-[#333333] bg-white/70 dark:bg-[#252525] px-6 py-2.5 transition-colors">
       <div class="w-full flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-        <div class="flex items-center gap-2 text-slate-600 dark:text-slate-300 font-medium text-xs py-1">
-          <span class="text-slate-900 dark:text-white font-semibold">{{ t('frames') }}</span>
-          <span class="text-slate-400 dark:text-slate-500">·</span>
-          <span class="text-slate-500 dark:text-slate-400">{{ pages.length }} {{ t('frames') }}</span>
+        <!-- Left: 默认完全留白消除冗余；仅当处于搜索/过滤态时提供轻量反馈与清除按钮 -->
+        <div class="min-w-0">
+          <div
+            v-if="searchQuery.trim() || statusFilter !== 'all'"
+            class="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 select-none py-1"
+          >
+            <span>找到 <strong class="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">{{ filteredPages.length }}</strong> 个画板</span>
+            <button
+              type="button"
+              class="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium cursor-pointer ml-1"
+              @click="searchQuery = ''; statusFilter = 'all'"
+            >
+              清除筛选
+            </button>
+          </div>
         </div>
 
         <!-- Right: Search, Status Filter & View Toggle -->
-        <div class="flex items-center flex-wrap gap-2.5 shrink-0">
+        <div class="flex items-center flex-wrap gap-2.5 shrink-0 ml-auto">
           <!-- Search Box -->
           <div class="relative w-44 sm:w-52">
             <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />

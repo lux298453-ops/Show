@@ -33,6 +33,8 @@ scan-interactions.*
 wireforge-frontend/run_*.mjs
 wireforge-frontend/.env.local
 wireforge-frontend/public/*.png
+!wireforge-frontend/public/favicon*.png
+!wireforge-frontend/public/apple-touch-icon.png
 wireforge-frontend/public/*-preview*.html
 wireforge-frontend/public/*_widget.html
 wireforge-frontend/public/themes/

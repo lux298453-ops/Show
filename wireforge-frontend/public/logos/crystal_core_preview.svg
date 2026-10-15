@@ -1,0 +1,148 @@
+<svg viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background & Lighting Glow Filters -->
+    <filter id="core-glow-extreme" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="16" result="blur1" />
+      <feGaussianBlur stdDeviation="32" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="glass-specular" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Radiating Solar Core Gradients -->
+    <radialGradient id="solar-nucleus" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="1" />
+      <stop offset="25%" stop-color="#FFFBEB" stop-opacity="1" />
+      <stop offset="50%" stop-color="#FDE047" stop-opacity="0.95" />
+      <stop offset="75%" stop-color="#F59E0B" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#D97706" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="solar-corona" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.6" />
+      <stop offset="40%" stop-color="#EA580C" stop-opacity="0.35" />
+      <stop offset="80%" stop-color="#B45309" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#78350F" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Internal Glass Face Illumination from Core -->
+    <radialGradient id="internal-face-light" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#FDE047" stop-opacity="0.28" />
+      <stop offset="50%" stop-color="#F59E0B" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#0284C7" stop-opacity="0.04" />
+    </radialGradient>
+
+    <!-- Glass Refraction & Neon Edge Gradients -->
+    <linearGradient id="glass-edge-top" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#00F5FF" stop-opacity="1" />
+      <stop offset="100%" stop-color="#0284C7" stop-opacity="0.85" />
+    </linearGradient>
+
+    <linearGradient id="glass-edge-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F5FF" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#0284C7" stop-opacity="0.75" />
+      <stop offset="100%" stop-color="#0369A1" stop-opacity="0.6" />
+    </linearGradient>
+
+    <linearGradient id="glass-edge-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F5FF" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#0EA5E9" stop-opacity="0.75" />
+      <stop offset="100%" stop-color="#0284C7" stop-opacity="0.6" />
+    </linearGradient>
+  </defs>
+
+  <!-- Deep Dark Space Background Squircle -->
+  <rect width="512" height="512" rx="112" fill="#0A0D14" />
+  
+  <!-- Subtle Background Coordinate Grid -->
+  <circle cx="256" cy="256" r="180" stroke="#1E293B" stroke-width="1" stroke-dasharray="4 6" opacity="0.6" />
+  <line x1="256" y1="56" x2="256" y2="456" stroke="#1E293B" stroke-width="1" stroke-dasharray="4 6" opacity="0.4" />
+  <line x1="56" y1="256" x2="456" y2="256" stroke="#1E293B" stroke-width="1" stroke-dasharray="4 6" opacity="0.4" />
+
+  <!-- ===== 1. Volumetric Rays Radiating from the Core Outward ===== -->
+  <g opacity="0.75">
+    <!-- Diagonal Ray Beams shooting towards cube vertices -->
+    <polygon points="256,256 120,130 144,116" fill="url(#solar-corona)" />
+    <polygon points="256,256 368,116 392,130" fill="url(#solar-corona)" />
+    <polygon points="256,256 400,266 400,290" fill="url(#solar-corona)" />
+    <polygon points="256,256 368,396 392,382" fill="url(#solar-corona)" />
+    <polygon points="256,256 120,382 144,396" fill="url(#solar-corona)" />
+    <polygon points="256,256 112,266 112,290" fill="url(#solar-corona)" />
+  </g>
+
+  <!-- ===== 2. Isometric Cube Rear/Interior Glass Panels (Illuminated by Core) ===== -->
+  <!-- Top Face Interior -->
+  <polygon points="256,108 384,182 256,256 128,182" fill="url(#internal-face-light)" stroke="#00F5FF" stroke-width="1.5" stroke-opacity="0.3" />
+  <!-- Left Face Interior -->
+  <polygon points="128,182 256,256 256,404 128,330" fill="url(#internal-face-light)" stroke="#00F5FF" stroke-width="1.5" stroke-opacity="0.25" />
+  <!-- Right Face Interior -->
+  <polygon points="256,256 384,182 384,330 256,404" fill="url(#internal-face-light)" stroke="#00F5FF" stroke-width="1.5" stroke-opacity="0.25" />
+
+  <!-- ===== 3. Central Glowing Forge Star (The Radiant Primary Light Source) ===== -->
+  <!-- Outer Solar Flare Atmosphere -->
+  <circle cx="256" cy="256" r="110" fill="url(#solar-corona)" filter="url(#core-glow-extreme)" />
+  <!-- Secondary Warm Light Diffusion -->
+  <circle cx="256" cy="256" r="64" fill="url(#solar-nucleus)" filter="url(#core-glow-extreme)" />
+  <!-- Solid Radiant Sun Orb -->
+  <circle cx="256" cy="256" r="42" fill="url(#solar-nucleus)" />
+  <!-- Intense White-Hot Nucleus Point -->
+  <circle cx="256" cy="256" r="16" fill="#FFFFFF" filter="url(#glass-specular)" />
+
+  <!-- ===== 4. Front Crystal Glass Facets & Outer Chamfered Struts ===== -->
+  <!-- Outer Isometric Cube Skeleton (Passively Catching the Light) -->
+  <g filter="url(#glass-specular)">
+    <!-- Top Chamfered Struts -->
+    <line x1="256" y1="108" x2="384" y2="182" stroke="url(#glass-edge-top)" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="384" y1="182" x2="256" y2="256" stroke="url(#glass-edge-top)" stroke-width="3" stroke-linecap="round" opacity="0.85" />
+    <line x1="256" y1="256" x2="128" y2="182" stroke="url(#glass-edge-top)" stroke-width="3" stroke-linecap="round" opacity="0.85" />
+    <line x1="128" y1="182" x2="256" y2="108" stroke="url(#glass-edge-top)" stroke-width="4.5" stroke-linecap="round" />
+
+    <!-- Vertical Struts -->
+    <line x1="128" y1="182" x2="128" y2="330" stroke="url(#glass-edge-left)" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="256" y1="256" x2="256" y2="404" stroke="url(#glass-edge-top)" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="384" y1="182" x2="384" y2="330" stroke="url(#glass-edge-right)" stroke-width="4.5" stroke-linecap="round" />
+
+    <!-- Bottom Struts -->
+    <line x1="128" y1="330" x2="256" y2="404" stroke="url(#glass-edge-left)" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="256" y1="404" x2="384" y2="330" stroke="url(#glass-edge-right)" stroke-width="4.5" stroke-linecap="round" />
+  </g>
+
+  <!-- Specular Caustic Highlights on Chamfers -->
+  <g>
+    <!-- Internal warm reflection along center pillar directly facing core -->
+    <line x1="256" y1="240" x2="256" y2="272" stroke="#FFFBEB" stroke-width="3" stroke-linecap="round" opacity="0.9" />
+    <line x1="242" y1="248" x2="270" y2="264" stroke="#FFFBEB" stroke-width="2" stroke-linecap="round" opacity="0.8" />
+  </g>
+
+  <!-- ===== 5. Luminous Glass Corner Nodes (Crystal Anchors) ===== -->
+  <g>
+    <circle cx="256" cy="108" r="6" fill="#00F5FF" filter="url(#glass-specular)" />
+    <circle cx="256" cy="108" r="3" fill="#FFFFFF" />
+
+    <circle cx="384" cy="182" r="6" fill="#00F5FF" filter="url(#glass-specular)" />
+    <circle cx="384" cy="182" r="3" fill="#FFFFFF" />
+
+    <circle cx="384" cy="330" r="6" fill="#00F5FF" filter="url(#glass-specular)" />
+    <circle cx="384" cy="330" r="3" fill="#FFFFFF" />
+
+    <circle cx="256" cy="404" r="6" fill="#00F5FF" filter="url(#glass-specular)" />
+    <circle cx="256" cy="404" r="3" fill="#FFFFFF" />
+
+    <circle cx="128" cy="330" r="6" fill="#00F5FF" filter="url(#glass-specular)" />
+    <circle cx="128" cy="330" r="3" fill="#FFFFFF" />
+
+    <circle cx="128" cy="182" r="6" fill="#00F5FF" filter="url(#glass-specular)" />
+    <circle cx="128" cy="182" r="3" fill="#FFFFFF" />
+  </g>
+</svg>
