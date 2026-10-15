@@ -2968,14 +2968,20 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         // 如果当前选中的正是这个复合组件本身（用户二次点击该组件内部）：
         // 允许钻取 (Drill-down) 深入点选内部具体的子控件/文字/图片/按钮
         if(selectedEl === compRoot && compRoot.contains(t) && compRoot !== t){
-          var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, [class*="avatar"], [class*="btn"]') : null;
+          var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, .wf-text, [data-wf-text], [class*="avatar"], [class*="btn"]') : null;
+          if(!subItem && t && t !== compRoot && (!t.children || !t.children.length) && (t.innerText || t.textContent || '').trim()){
+            subItem = t;
+          }
           if(subItem && compRoot.contains(subItem) && !subItem.ownerSVGElement && subItem.tagName.toLowerCase() !== 'svg') return subItem;
           return compRoot;
         }
 
         // 如果当前选中的已经是该组件内的某个子元素，且本次点击的也是组件内的子元素：
         if(selectedEl && compRoot.contains(selectedEl) && compRoot !== selectedEl){
-          var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, [class*="avatar"], [class*="btn"]') : null;
+          var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, .wf-text, [data-wf-text], [class*="avatar"], [class*="btn"]') : null;
+          if(!subItem && t && t !== compRoot && (!t.children || !t.children.length) && (t.innerText || t.textContent || '').trim()){
+            subItem = t;
+          }
           if(subItem && compRoot.contains(subItem) && !subItem.ownerSVGElement && subItem.tagName.toLowerCase() !== 'svg') return subItem;
           return compRoot;
         }

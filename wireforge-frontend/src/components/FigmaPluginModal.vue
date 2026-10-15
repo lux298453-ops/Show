@@ -1073,8 +1073,8 @@ function applyAvatarToSelection() {
 
 function insertNewAvatarComponent() {
   const html = `
-<div class="wf-avatar-box inline-flex items-center justify-center w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-md bg-slate-100">
-  <img src="${selectedAvatarUrl.value}" alt="Avatar" class="w-full h-full object-cover" />
+<div class="wf-avatar-box" style="box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 50%; overflow: hidden; border: 2px solid #ffffff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); background-color: #f1f5f9;">
+  <img src="${selectedAvatarUrl.value}" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; display: block;" />
 </div>
 `
   emit('insertComponent', { html, name: '用户头像组件', width: 56, height: 56 })
@@ -1094,16 +1094,22 @@ function applyTextToSelection() {
 function insertUserCardComponent() {
   const u = mockUserData.value
   const html = `
-<div class="wf-user-card flex items-center gap-3.5 p-3.5 bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-[280px]">
-  <img src="${u.avatarUrl}" class="w-12 h-12 rounded-full object-cover border border-slate-100 shrink-0" />
-  <div class="min-w-0 flex-1">
-    <div class="font-bold text-slate-800 text-sm truncate">${u.name}</div>
-    <div class="text-xs text-slate-400 truncate mt-0.5">${u.title}</div>
-    <div class="text-[11px] text-slate-400 font-mono mt-1">${u.phone}</div>
+<div class="wf-user-card" style="box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: #ffffff; border-radius: 16px; border: 1px solid rgba(226, 232, 240, 0.9); box-shadow: 0 1px 3px rgba(0,0,0,0.06); width: 280px; height: 148px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div style="display: flex; align-items: center; gap: 10px;">
+    <img src="${u.avatarUrl}" alt="Avatar" style="width: 40px; height: 40px; min-width: 40px; min-height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid #e2e8f0; display: block; flex-shrink: 0;" />
+    <div style="min-width: 0; flex: 1; overflow: hidden;">
+      <div class="wf-text" style="font-weight: 700; color: #1e293b; font-size: 14px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;">${u.name}</div>
+      <div class="wf-text" style="font-size: 11px; color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;">${u.title} · ${u.department}</div>
+    </div>
+  </div>
+  <div style="padding-top: 8px; border-top: 1px solid rgba(226, 232, 240, 0.8); display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #64748b;">
+    <div class="wf-text" style="cursor: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">手机: <span style="font-family: monospace; color: #334155;">${u.phone}</span></div>
+    <div class="wf-text" style="cursor: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">邮箱: <span style="font-family: monospace; color: #334155;">${u.email}</span></div>
+    <div class="wf-text" style="cursor: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">地址: <span style="color: #334155;">${u.city}</span></div>
   </div>
 </div>
 `
-  emit('insertComponent', { html, name: `用户卡片 (${u.name})`, width: 280, height: 86 })
+  emit('insertComponent', { html, name: `个人资料卡片 (${u.name})`, width: 280, height: 148 })
   closeRunner()
 }
 
@@ -1176,13 +1182,13 @@ function applyPhotoToSelection() {
 function insertPhotoCardComponent() {
   const url = selectedPhotoUrl.value
   const html = `
-<div class="wf-photo-card rounded-2xl overflow-hidden border border-slate-200/90 shadow-sm bg-white max-w-[280px]">
-  <div class="aspect-[16/10] overflow-hidden">
-    <img src="${url}" class="w-full h-full object-cover" />
+<div class="wf-photo-card" style="box-sizing: border-box; border-radius: 16px; overflow: hidden; border: 1px solid rgba(226, 232, 240, 0.9); box-shadow: 0 1px 3px rgba(0,0,0,0.06); background: #ffffff; width: 280px; height: 230px; display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div style="width: 100%; height: 155px; overflow: hidden; flex-shrink: 0;">
+    <img src="${url}" alt="Commercial Photo" style="width: 100%; height: 100%; object-fit: cover; display: block;" />
   </div>
-  <div class="p-3">
-    <div class="text-xs font-bold text-slate-800">精选商业摄影素材</div>
-    <div class="text-[10px] text-slate-400 mt-0.5">免版权商用高清配图 · Unsplash 摄影</div>
+  <div style="padding: 12px; flex: 1; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+    <div class="wf-text" style="font-size: 12px; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;">精选商业摄影素材</div>
+    <div class="wf-text" style="font-size: 10px; color: #94a3b8; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text;">免版权商用高清配图 · Unsplash 摄影</div>
   </div>
 </div>
 `
@@ -1231,17 +1237,17 @@ function insertCodeComponent() {
   let html = ''
   if (codeType.value === 'qrcode') {
     html = `
-<div class="wf-qrcode-card p-4 bg-white rounded-2xl border border-slate-200/90 shadow-sm flex flex-col items-center text-center w-[180px]">
-  <img src="${currentQrUrl.value}" class="w-32 h-32 rounded-lg bg-white border border-slate-100 p-1" />
-  <div class="text-xs font-bold text-slate-800 mt-2">扫码预览原型</div>
-  <div class="text-[9px] text-slate-400 mt-0.5">请使用微信或手机扫码</div>
+<div class="wf-qrcode-card" style="box-sizing: border-box; padding: 16px; background: #ffffff; border-radius: 16px; border: 1px solid rgba(226, 232, 240, 0.9); box-shadow: 0 1px 3px rgba(0,0,0,0.06); display: flex; flex-direction: column; align-items: center; text-align: center; width: 180px; height: 210px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <img src="${currentQrUrl.value}" alt="QR Code" style="width: 128px; height: 128px; border-radius: 8px; background: #ffffff; border: 1px solid #f1f5f9; padding: 4px; box-sizing: border-box; display: block;" />
+  <div class="wf-text" style="font-size: 12px; font-weight: 700; color: #1e293b; margin-top: 8px; white-space: nowrap;">扫码预览原型</div>
+  <div class="wf-text" style="font-size: 9px; color: #94a3b8; margin-top: 2px; white-space: nowrap;">请使用微信或手机扫码</div>
 </div>
 `
     emit('insertComponent', { html, name: '扫码二维码组件', width: 180, height: 210 })
   } else {
     html = `
-<div class="wf-barcode-card p-3 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col items-center w-[200px]">
-  <svg viewBox="0 0 160 45" class="w-full h-10">
+<div class="wf-barcode-card" style="box-sizing: border-box; padding: 12px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.06); display: flex; flex-direction: column; align-items: center; width: 200px; height: 75px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <svg viewBox="0 0 160 45" style="width: 100%; height: 40px; display: block;">
     <rect x="5" y="0" width="3" height="40" fill="#000"/><rect x="11" y="0" width="1" height="40" fill="#000"/>
     <rect x="15" y="0" width="4" height="40" fill="#000"/><rect x="22" y="0" width="2" height="40" fill="#000"/>
     <rect x="27" y="0" width="5" height="40" fill="#000"/><rect x="35" y="0" width="2" height="40" fill="#000"/>
@@ -1256,7 +1262,7 @@ function insertCodeComponent() {
     <rect x="132" y="0" width="1" height="40" fill="#000"/><rect x="136" y="0" width="4" height="40" fill="#000"/>
     <rect x="143" y="0" width="2" height="40" fill="#000"/><rect x="148" y="0" width="4" height="40" fill="#000"/>
   </svg>
-  <div class="text-[9px] font-mono tracking-widest text-slate-700 mt-1">${qrContentInput.value.slice(0, 16)}</div>
+  <div class="wf-text" style="font-size: 9px; font-family: monospace; letter-spacing: 0.1em; color: #334155; margin-top: 4px; white-space: nowrap;">${qrContentInput.value.slice(0, 16)}</div>
 </div>
 `
     emit('insertComponent', { html, name: '条形码组件', width: 200, height: 75 })
