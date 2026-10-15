@@ -1212,6 +1212,7 @@
           @create-frame="handleCreateFramePreset"
           @set-workbench-mode="setWorkbenchMode"
           @open-pure-preview="openPurePreview"
+          @open-plugins="isPluginModalOpen = true"
         />
       </main>
 
@@ -2152,6 +2153,93 @@
           <span>解组</span>
           <span class="text-[11px] text-white/50">Ctrl+Shift+G</span>
         </button>
+
+        <div class="my-1 h-px bg-white/15"></div>
+
+        <!-- 9. 插件与组件扩展 (Plugins >) 对齐 Figma 右键菜单 -->
+        <div
+          class="relative w-full"
+          @mouseenter="openSubmenu('plugins')"
+          @mouseleave="scheduleCloseSubmenu"
+        >
+          <div
+            class="w-full h-7 px-2.5 flex items-center justify-between rounded transition-colors cursor-pointer select-none"
+            :class="activeSubmenu === 'plugins' ? 'bg-[#0D99FF] text-white' : 'text-white/90 hover:bg-[#0D99FF] hover:text-white'"
+          >
+            <div class="flex items-center gap-2">
+              <Puzzle class="w-3.5 h-3.5" />
+              <span>插件扩展</span>
+            </div>
+            <svg class="w-3.5 h-3.5 fill-current opacity-70" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z" clip-rule="evenodd" />
+            </svg>
+          </div>
+
+          <!-- 子菜单: 插件列表 (对齐 Figma 截图 1) -->
+          <div
+            v-if="activeSubmenu === 'plugins'"
+            class="absolute z-[90] w-[210px] p-1 rounded-lg bg-[#2c2c2c] text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] border border-white/10"
+            :class="[
+              submenuFlipX ? 'right-[calc(100%+4px)]' : 'left-[calc(100%+4px)]',
+              submenuFlipY ? 'bottom-0' : 'top-0'
+            ]"
+            @mouseenter="cancelCloseSubmenu"
+            @mouseleave="scheduleCloseSubmenu"
+          >
+            <div class="px-2.5 py-1 text-[10px] font-semibold text-white/40 uppercase tracking-wider">最近使用</div>
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left"
+              @click="runPluginDirectFromMenu('user-profile-avatar')"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <User class="w-3.5 h-3.5 text-blue-400" />
+                <span class="truncate">用户头像素材库</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left"
+              @click="runPluginDirectFromMenu('chinese-user-generator')"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <FileText class="w-3.5 h-3.5 text-purple-400" />
+                <span class="truncate">中文业务数据生成器</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left"
+              @click="runPluginDirectFromMenu('vector-icon-finder')"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <Search class="w-3.5 h-3.5 text-cyan-400" />
+                <span class="truncate">开源矢量图标库</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left"
+              @click="runPluginDirectFromMenu('icon-motion-effects')"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <Sparkles class="w-3.5 h-3.5 text-amber-400" />
+                <span class="truncate">组件交互微动效</span>
+              </div>
+            </button>
+
+            <div class="my-1 h-px bg-white/10"></div>
+
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left font-medium"
+              @click="openPluginModalFromMenu"
+            >
+              <span>浏览插件社区...</span>
+              <span class="text-[10px] text-white/50">Shift+I</span>
+            </button>
+          </div>
+        </div>
       </div>
     </Teleport>
 
@@ -2173,6 +2261,17 @@
       v-if="isAdmin"
       v-model="isMemberDialogOpen"
       :project-id="Number(id)"
+    />
+
+    <!-- Figma 风格插件与社区资源检索中心 -->
+    <FigmaPluginModal
+      ref="pluginModalRef"
+      v-model="isPluginModalOpen"
+      :current-page-id="focusPageId"
+      @insert-component="onPluginInsertComponent"
+      @replace-asset="onPluginReplaceAsset"
+      @update-text="onPluginUpdateText"
+      @apply-effect="onPluginApplyEffect"
     />
   </div>
 </template>
@@ -2215,6 +2314,8 @@ import {
   User,
   RefreshCw,
   Copy,
+  Puzzle,
+  Search,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import AutowireReviewDialog from '../components/AutowireReviewDialog.vue'
@@ -2238,6 +2339,7 @@ import CommentPanel from '../components/CommentPanel.vue'
 import FeishuLoginModal from '../components/FeishuLoginModal.vue'
 import AuditLogDrawer from '../components/AuditLogDrawer.vue'
 import ProjectMemberDialog from '../components/ProjectMemberDialog.vue'
+import FigmaPluginModal from '../components/FigmaPluginModal.vue'
 import {
   currentUser, isAdmin, isEditor, isViewer, isSystemAdmin, projectRole, projectRoleLoading,
   loadProjectRole, clearProjectRole, roleLabel, logout, syncLoginFromStorage, loginWithFeishu, type AuthUser,
@@ -3066,6 +3168,8 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   if (!page) return
   const htmlSnippet = typeof itemOrHtml === 'string' ? itemOrHtml : (itemOrHtml?.html || '')
   const itemName = typeof itemOrHtml === 'string' ? '原子组件' : (itemOrHtml?.name || '原子组件')
+  const itemWidth = typeof itemOrHtml === 'object' && itemOrHtml?.width ? itemOrHtml.width : undefined
+  const itemHeight = typeof itemOrHtml === 'object' && itemOrHtml?.height ? itemOrHtml.height : undefined
 
   if (!htmlSnippet) return
 
@@ -3084,8 +3188,8 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
 
   // 1. 优先通过 PageCanvas 实例向运行中的 iframe 注入并自动触发持久化
   const inst = pageRefs.value[pageId]
-  if (inst && typeof (inst as any).insertComponent === 'function') {
-    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY, autoEditText, fitInside, itemName)
+  if (inst && typeof (inst as any).insertComponent === 'function' && page.html_content) {
+    ;(inst as any).insertComponent(htmlSnippet, dropX, dropY, autoEditText, fitInside, itemName, itemWidth, itemHeight)
     showToast(`已将「${itemName}」添加至「${page.name}」(${dropX}, ${dropY})`)
     return
   }
@@ -3093,9 +3197,10 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   // 2. 如果尚未挂载 iframe，直接拼接 HTML 内容并持久化落库
   let currentHtml = page.html_content || ''
   const isModal = /wf-modal|wf-bottom-sheet/i.test(htmlSnippet)
+  const sizeStyles = `${itemWidth ? `width: ${itemWidth}px; ` : 'max-width: 335px; '}${itemHeight ? `height: ${itemHeight}px; ` : ''}`
   const wrappedSnippet = isModal
     ? htmlSnippet
-    : `<div class="wf-el wf-inserted-component" style="position: absolute; left: ${dropX}px; top: ${dropY}px; z-index: 999; max-width: 335px;">${htmlSnippet}</div>`
+    : `<div class="wf-el wf-inserted-component" style="position: absolute; left: ${dropX}px; top: ${dropY}px; z-index: 999; ${sizeStyles}">${htmlSnippet}</div>`
 
   if (currentHtml.includes('</body>')) {
     currentHtml = currentHtml.replace('</body>', `${wrappedSnippet}\n</body>`)
@@ -3505,6 +3610,8 @@ async function confirmBatchDeleteBlocks() {
         // 该页所有画板均被选中，直接删除整页
         await projectApi.deletePage(id, pid).catch(() => {})
         if (pageOverrides.value[pid]) delete pageOverrides.value[pid]
+        if (pageOverrides.value[`design-${pid}`]) delete pageOverrides.value[`design-${pid}`]
+        if (pageOverrides.value[`proto-${pid}`]) delete pageOverrides.value[`proto-${pid}`]
       } else {
         // 仅选中成对画板中的一个
         for (const sb of selectedForThisPage) {
@@ -3636,9 +3743,9 @@ async function confirmDeletePage(page: Page) {
     })
 
     showToast(`已删除画板「${page.name}」`)
-    if (pageOverrides.value[page.id]) {
-      delete pageOverrides.value[page.id]
-    }
+    if (pageOverrides.value[page.id]) delete pageOverrides.value[page.id]
+    if (pageOverrides.value[`design-${page.id}`]) delete pageOverrides.value[`design-${page.id}`]
+    if (pageOverrides.value[`proto-${page.id}`]) delete pageOverrides.value[`proto-${page.id}`]
     if (focusPageId.value === page.id) {
       focusPageId.value = null
     }
@@ -3809,9 +3916,15 @@ async function loadData() {
   try {
     proto.value = await projectApi.prototype(id)
     await loadComments()
+    loadPageOverridesFromStorage()
     for (const p of proto.value.pages) {
       if (p.canvas_x != null && p.canvas_y != null) {
-        pageOverrides.value[p.id] = { x: p.canvas_x, y: p.canvas_y }
+        if (!pageOverrides.value[p.id]) {
+          pageOverrides.value[p.id] = { x: p.canvas_x, y: p.canvas_y }
+        }
+        if (!pageOverrides.value[`design-${p.id}`]) {
+          pageOverrides.value[`design-${p.id}`] = { x: p.canvas_x, y: p.canvas_y }
+        }
       }
       // 从后端返回的数据中初始化各页面的说明排序
       if (p.annotations && p.annotations.length) {
@@ -4217,7 +4330,44 @@ function postUndoRedoToFocusPage(pageId: number, type: 'wf-undo' | 'wf-redo') {
 const fallbackW = computed(() => (showAnnotations.value ? 620 : 375))
 const fallbackH = 1000
 
-const pageOverrides = ref<Record<string | number, { x: number; y: number }>>({})
+function getPageOverridesInitial(): Record<string | number, { x: number; y: number }> {
+  try {
+    const raw = localStorage.getItem(`wf_page_overrides_${id}`)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') return parsed
+    }
+  } catch (err) {}
+  return {}
+}
+
+const pageOverrides = ref<Record<string | number, { x: number; y: number }>>(getPageOverridesInitial())
+
+function savePageOverridesToStorage() {
+  try {
+    localStorage.setItem(`wf_page_overrides_${id}`, JSON.stringify(pageOverrides.value))
+  } catch (err) {}
+}
+
+function loadPageOverridesFromStorage() {
+  try {
+    const raw = localStorage.getItem(`wf_page_overrides_${id}`)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') {
+        pageOverrides.value = { ...pageOverrides.value, ...parsed }
+      }
+    }
+  } catch (err) {}
+}
+
+watch(
+  pageOverrides,
+  () => {
+    savePageOverridesToStorage()
+  },
+  { deep: true },
+)
 
 export interface CanvasBlock {
   key: string
@@ -5534,7 +5684,10 @@ function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
   if (movingBlocks.length === 1 && b.blockType === 'design' && !pageOverrides.value[`proto-${b.pageId}`]) {
     const sibling = blocks.value.find((block) => block.key === `proto-${b.pageId}`)
     const el = sibling && document.querySelector<HTMLElement>(`[data-block-key="${sibling.key}"]`)
-    if (sibling && el) items.push({ block: sibling, el, x: sibling.x, y: sibling.y })
+    if (sibling && el) {
+      items.push({ block: sibling, el, x: sibling.x, y: sibling.y })
+      movingKeys.add(sibling.key)
+    }
   }
   const startClientX = e.clientX
   const startClientY = e.clientY
@@ -5591,17 +5744,15 @@ function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
       if (!movingKeys.has(block.key)) continue
       const pos = { x: x + dx, y: y + dy }
       patch[block.key] = pos
-      const hasDesignSibling = block.blockType === 'prototype' && blocks.value.some((item) => item.key === `design-${block.pageId}`)
-      if (!hasDesignSibling) {
-        patch[block.pageId] = pos
-        origins.set(block.pageId, { page: block.page, ...pos })
-      }
+      patch[block.pageId] = pos
+      origins.set(block.pageId, { page: block.page, ...pos })
       if (movingBlocks.length > 1 && block.blockType === 'design' && !movingKeys.has(`proto-${block.pageId}`) && !pageOverrides.value[`proto-${block.pageId}`]) {
         const sibling = blocks.value.find((item) => item.key === `proto-${block.pageId}`)
         if (sibling) patch[sibling.key] = { x: sibling.x, y: sibling.y }
       }
     }
     pageOverrides.value = { ...pageOverrides.value, ...patch }
+    savePageOverridesToStorage()
     isBlockDragging.value = false
     for (const [pageId, pos] of origins) {
       pos.page.canvas_x = pos.x
@@ -6437,7 +6588,7 @@ const layerMenu = ref<{
 } | null>(null)
 const layerMenuRef = ref<HTMLElement | null>(null)
 
-const activeSubmenu = ref<'copy_paste_as' | null>(null)
+const activeSubmenu = ref<'copy_paste_as' | 'plugins' | null>(null)
 const activeCodeSubmenu = ref<boolean>(false)
 let submenuCloseTimer: any = null
 let codeSubmenuCloseTimer: any = null
@@ -6479,7 +6630,7 @@ const codeSubmenuFlipY = computed(() => {
   return layerMenu.value.y + 120 > window.innerHeight
 })
 
-function openSubmenu(menu: 'copy_paste_as') {
+function openSubmenu(menu: 'copy_paste_as' | 'plugins') {
   if (submenuCloseTimer) {
     clearTimeout(submenuCloseTimer)
     submenuCloseTimer = null
@@ -6531,7 +6682,7 @@ function openLayerContextMenu(x: number, y: number, localX?: number, localY?: nu
     showFrameFill(pageId)
   }
   const menuW = 220
-  const menuH = 290
+  const menuH = 340
   const left = Math.max(8, Math.min(x, window.innerWidth - menuW - 8))
   const top = Math.max(8, Math.min(y, window.innerHeight - menuH - 8))
   layerMenu.value = { x: left, y: top, localX, localY, pageId }
@@ -6604,6 +6755,90 @@ function runLayerMenu(action: string) {
     postToFocusFrame({ type: 'wf-group' })
   } else if (action === 'ungroup') {
     postToFocusFrame({ type: 'wf-ungroup' })
+  }
+}
+
+// =========================================================================
+// Figma 风格插件与社区资源库交互处理
+// =========================================================================
+const isPluginModalOpen = ref(false)
+const pluginModalRef = ref<any>(null)
+const lastPluginContextPoint = ref<{ x: number; y: number; pageId?: number } | null>(null)
+
+function openPluginModalFromMenu() {
+  if (layerMenu.value) {
+    lastPluginContextPoint.value = {
+      x: layerMenu.value.localX ?? 40,
+      y: layerMenu.value.localY ?? 150,
+      pageId: layerMenu.value.pageId ?? focusPageId.value ?? currentFocusPage.value?.id,
+    }
+    if (layerMenu.value.pageId) {
+      focusPageId.value = layerMenu.value.pageId
+    }
+  }
+  closeLayerContextMenu()
+  isPluginModalOpen.value = true
+}
+
+function runPluginDirectFromMenu(pluginId: string) {
+  if (layerMenu.value) {
+    lastPluginContextPoint.value = {
+      x: layerMenu.value.localX ?? 40,
+      y: layerMenu.value.localY ?? 150,
+      pageId: layerMenu.value.pageId ?? focusPageId.value ?? currentFocusPage.value?.id,
+    }
+    if (layerMenu.value.pageId) {
+      focusPageId.value = layerMenu.value.pageId
+    }
+  }
+  closeLayerContextMenu()
+  pluginModalRef.value?.launchPluginDirect(pluginId)
+}
+
+function onPluginInsertComponent(payload: { html: string; name: string; width?: number; height?: number }) {
+  const targetId = lastPluginContextPoint.value?.pageId || focusPageId.value || currentFocusPage.value?.id || previewPageId.value || pages.value[0]?.id
+  if (!targetId) return
+  const dropX = lastPluginContextPoint.value?.x ?? 40
+  const dropY = lastPluginContextPoint.value?.y ?? 180
+  insertComponentIntoPage(targetId, { name: payload.name, html: payload.html, width: payload.width, height: payload.height }, dropX, dropY)
+}
+
+function onPluginReplaceAsset(src: string) {
+  if (hasSelectedDomElements.value) {
+    postToFocusFrame({ type: 'wf-replace-asset', src })
+    showToast('已为选中占位框替换头像')
+  } else {
+    const targetId = lastPluginContextPoint.value?.pageId || focusPageId.value || currentFocusPage.value?.id || pages.value[0]?.id
+    if (!targetId) return
+    const dropX = lastPluginContextPoint.value?.x ?? 40
+    const dropY = lastPluginContextPoint.value?.y ?? 160
+    const html = `<div class="wf-avatar-box inline-flex items-center justify-center w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-md bg-slate-100"><img src="${src}" alt="Avatar" class="w-full h-full object-cover" /></div>`
+    insertComponentIntoPage(targetId, { name: '用户头像组件', html }, dropX, dropY)
+    showToast('未选中占位框，已在画板插入全新头像组件')
+  }
+}
+
+function onPluginUpdateText(text: string) {
+  if (hasSelectedDomElements.value) {
+    postToFocusFrame({ type: 'wf-update-text', text })
+    showToast(`已将选中文本更新为: ${text}`)
+  } else {
+    const targetId = lastPluginContextPoint.value?.pageId || focusPageId.value || currentFocusPage.value?.id || pages.value[0]?.id
+    if (!targetId) return
+    const dropX = lastPluginContextPoint.value?.x ?? 40
+    const dropY = lastPluginContextPoint.value?.y ?? 160
+    const html = `<span class="wf-text text-base font-bold text-slate-800">${text}</span>`
+    insertComponentIntoPage(targetId, { name: `文本 (${text})`, html }, dropX, dropY)
+    showToast(`未选中文字，已在画板插入文本: ${text}`)
+  }
+}
+
+function onPluginApplyEffect(animationClass: string) {
+  if (hasSelectedDomElements.value) {
+    postToFocusFrame({ type: 'wf-apply-animation', animationClass })
+    showToast('微动效已成功绑定至选中的图层！')
+  } else {
+    showToast('提示：请先在画板中点击选中一个按钮或图标，再点击动效进行绑定！')
   }
 }
 
@@ -7720,6 +7955,14 @@ function onGlobalKeydown(e: KeyboardEvent) {
   // 2. 绘制工具快捷键监听 (V: 指针选择, R: 矩形方框, T: 文本落字, O: 圆形, P: 钢笔)
   const activeTag = (document.activeElement?.tagName || '').toLowerCase()
   const isInput = activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable
+
+  // 快捷键 Shift+I: 调出 Figma 风格资源与插件中心 (Resources / Plugins Modal)
+  if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && (e.key === 'I' || e.key === 'i') && mode.value !== 'preview') {
+    e.preventDefault()
+    isPluginModalOpen.value = true
+    return
+  }
+
   if (!isInput && (e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && e.shiftKey && !e.altKey && mode.value !== 'preview') {
     e.preventDefault()
     postToFocusFrame({ type: 'wf-request-png-data', requestId: 'top_' + Date.now() })

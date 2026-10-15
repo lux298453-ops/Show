@@ -546,9 +546,17 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     /* 防横向溢出：AI 生成的整页偶尔会把根容器/区块写得比 375 宽，
        手机壳 overflow:hidden 会直接裁掉右侧。这里把每个元素宽度锁在视口内，
        彻底消除"右侧显示不全"；轻微出界的装饰元素由 body overflow-x:hidden 自然裁掉。 */
-    html,body{width:100%;overflow-x:hidden}
+    html,body{margin:0;padding:0;width:100%;overflow-x:hidden}
     .wf-layer-hidden{visibility:hidden !important;pointer-events:none !important}
     .wf-layer-locked{pointer-events:none !important}
+    @keyframes wfBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    @keyframes wfPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(13, 153, 255, 0.4); } 50% { box-shadow: 0 0 0 10px rgba(13, 153, 255, 0); } }
+    @keyframes wfSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes wfBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    .wf-motion-breathe { animation: wfBreathe 2.4s ease-in-out infinite !important; }
+    .wf-motion-pulse { animation: wfPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite !important; }
+    .wf-motion-spin { animation: wfSpin 4s linear infinite !important; }
+    .wf-motion-bounce { animation: wfBounce 1.6s ease-in-out infinite !important; }
     *{max-width:100%}
     /* 文字渲染最优化：无论 AI 生成字号多少，统一保持清晰锐利的文字渲染，
        解决 iframe 内 scale 缩放后文字发虚/模糊的问题 */
@@ -561,9 +569,42 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     [class*="modal"] p,[class*="dialog"] p,[class*="popup"] p,[class*="toast"] p,[class*="sheet"] p{
       white-space:normal !important; line-height:1.6;
     }
-    /* 没写宽高的 svg 浏览器默认 300x150，按周围文字大小渲染 */
-    svg:not([width]):not([height]):not([style*="width"]){width:1em;height:1em}
+    /* 没写宽高的普通小图标浏览器默认 300x150，按周围文字大小渲染；排除已声明尺寸或百分比响应式的图表 SVG */
+    svg:not([width]):not([height]):not([style*="width"]):not([class*="w-"]):not([class*="h-"]){width:1em;height:1em}
     button svg,[data-nav] svg,nav a svg,.tab svg,[class*="btn"] svg,[class*="button"] svg{max-width:1.6em;max-height:1.6em}
+    .wf-kpi-card, .wf-chart-card, .wf-bar-card, .wf-donut-card, .wf-line-card, .wf-funnel-card {
+      background: #ffffff !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 16px !important;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05) !important;
+      box-sizing: border-box !important;
+    }
+    .wf-inserted-component, .wf-card, .wf-kpi-card, .wf-chart-card, .wf-bar-card, .wf-donut-card, .wf-line-card, .wf-funnel-card, .wf-box, .wf-container {
+      max-width: none !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+    }
+    .wf-kpi-card svg, .wf-chart-card svg, .wf-bar-card svg, .wf-donut-card svg, .wf-line-card svg, .wf-funnel-card svg {
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+      max-height: none !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+    }
+    .wf-brand-logo {
+      box-sizing: border-box !important;
+      max-width: none !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+    }
+    .wf-brand-logo svg {
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+      max-height: none !important;
+      display: block !important;
+    }
     /* 导航栏/选项卡本身作为横向 flex 容器排布各项（底部标签栏本就该左右排列） */
     nav, [class*="navbar"], [class*="tabbar"], [class*="nav"], [class*="tab"]{
       display:flex; align-items:center;
@@ -2334,7 +2375,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     }
 
     function getSelectableElements(){
-      var selector = '.wf-inserted-component, .wf-el, .wf-card, .wf-box, .wf-container, .wf-avatar, .wf-btn, .wf-search-box, .wf-text-block, .wf-shape, .wf-text, button, [role="button"]';
+      var selector = '.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-vector-shape, [data-wf-vector], .wf-el, .wf-card, .wf-box, .wf-container, .wf-avatar, .wf-btn, .wf-search-box, .wf-text-block, .wf-shape, .wf-text, button, [role="button"]';
       var list = Array.from(document.querySelectorAll(selector));
       var bodyKids = Array.from(document.body.children);
       for(var bi = 0; bi < bodyKids.length; bi++){
@@ -2348,7 +2389,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       return list.filter(function(el){
         if(!el || el === document || el === document.body || el === document.documentElement) return false;
         if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || (el.closest && el.closest('#wf-transform-box,#wf-marquee-box'))) return false;
-        var p = el.parentElement ? el.parentElement.closest('.wf-inserted-component, .wf-el, .wf-card, .wf-box, .wf-container, .wf-avatar, .wf-btn, .wf-search-box, .wf-text-block, .wf-shape') : null;
+        var p = el.parentElement ? el.parentElement.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-vector-shape, [data-wf-vector], .wf-el, .wf-card, .wf-box, .wf-container, .wf-avatar, .wf-btn, .wf-search-box, .wf-text-block, .wf-shape') : null;
         return !p;
       });
     }
@@ -2400,7 +2441,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       if(!silent) pushSnapshot();
       var isVector = target && (
         target.tagName.toLowerCase() === 'svg' ||
-        (target.classList && target.classList.contains('wf-vector-shape')) ||
+        (target.classList && (target.classList.contains('wf-vector-shape') || target.classList.contains('wf-vector-icon'))) ||
         (target.hasAttribute && target.hasAttribute('data-wf-vector'))
       );
       if(isVector){
@@ -2480,11 +2521,10 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     }
 
     function fitVectorElementBox(el){
-      if(!el || resizing) return;
-      var tag = el.tagName ? String(el.tagName).toLowerCase() : '';
-      var isVector = tag === 'svg' || (el.classList && el.classList.contains('wf-vector-shape')) || (el.hasAttribute && el.hasAttribute('data-wf-vector'));
-      if(!isVector) return;
-      var svg = tag === 'svg' ? el : (el.querySelector ? el.querySelector('svg') : null);
+      if(!el || resizing || drag) return;
+      var hasVector = (el.classList && el.classList.contains('wf-vector-shape')) || (el.hasAttribute && el.hasAttribute('data-wf-vector'));
+      if(!hasVector) return;
+      var svg = (el.tagName && el.tagName.toLowerCase() === 'svg') ? el : (el.querySelector ? el.querySelector('svg') : null);
       if(!svg) return;
       var nodes = svg.querySelectorAll('path, polygon, polyline, circle, ellipse, rect, line');
       if(!nodes.length) return;
@@ -2641,7 +2681,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       for(var i = 0; i < selectedEls.length; i++){
         var el = selectedEls[i];
         if(!el || !el.isConnected) continue;
-        if(!resizing) fitVectorElementBox(el);
+        if(!resizing && !drag) fitVectorElementBox(el);
         var r = el.getBoundingClientRect();
         var l = r.left + scrollX;
         var t = r.top + scrollY;
@@ -2881,10 +2921,29 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       markInsertedComponent(el);
     }
 
+    function isAtomicComponent(el){
+      if(!el) return false;
+      var cls = el.className || '';
+      var clsStr = typeof cls === 'string' ? cls : (el.getAttribute ? (el.getAttribute('class') || '') : '');
+      if(/wf-vector-icon|wf-brand-logo|wf-qrcode-card|wf-barcode-card|wf-vector-shape/i.test(clsStr)){
+        return true;
+      }
+      if(el.hasAttribute && (el.hasAttribute('data-wf-vector') || el.hasAttribute('data-wf-atomic'))){
+        return true;
+      }
+      var tag = el.tagName ? String(el.tagName).toLowerCase() : '';
+      if(tag === 'svg') return true;
+      return false;
+    }
+
     function resolveTargetElement(t, e){
       if(!t || t === document.body || t === document.documentElement) return null;
       if(t.id === 'wf-transform-box' || (t.closest && t.closest('#wf-transform-box'))) return null;
       if(t.id === 'wf-marquee-box' || (t.closest && t.closest('#wf-marquee-box'))) return null;
+
+      // 如果点击的是 SVG 内部的具体路径或图形节点，直接收拢到最顶层的 SVG 元素
+      var svgRoot = t.ownerSVGElement || (t.tagName && t.tagName.toLowerCase() === 'svg' ? t : (t.closest ? t.closest('svg') : null));
+      if(svgRoot) t = svgRoot;
 
       // 分组：单击永远选中整组，方便整组移动。双击才进入组内元素。
       // 已经双击选中了组内某个元素时，再按住它拖动，保持选中这个元素。
@@ -2897,23 +2956,28 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       }
 
       // 1. 优先查找当前点击是否位于某个顶级插入组件或复合模块内部
-      var compRoot = t.closest ? t.closest('.wf-inserted-component, .wf-card, .wf-box, .wf-container, .wf-ios-app-item, .wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-tab-bar, .wf-modal, .wf-nav, .wf-switch-row, .wf-search-bar') : null;
+      var compRoot = t.closest ? t.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-card, .wf-box, .wf-container, .wf-ios-app-item, .wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-tab-bar, .wf-modal, .wf-nav, .wf-switch-row, .wf-search-bar') : null;
 
       // 如果点击的目标位于某个复合组件内：
       if(compRoot && compRoot !== document.body && compRoot !== document.documentElement){
+        // 原子组件（图标、品牌Logo、条形码、二维码、SVG矢量图形等）：整体作为一个原子，严禁钻取内部散碎元素，100% 选中整体
+        if(isAtomicComponent(compRoot)){
+          return compRoot;
+        }
+
         // 如果当前选中的正是这个复合组件本身（用户二次点击该组件内部）：
         // 允许钻取 (Drill-down) 深入点选内部具体的子控件/文字/图片/按钮
         if(selectedEl === compRoot && compRoot.contains(t) && compRoot !== t){
           var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, [class*="avatar"], [class*="btn"]') : null;
-          if(subItem && compRoot.contains(subItem)) return subItem;
-          return t;
+          if(subItem && compRoot.contains(subItem) && !subItem.ownerSVGElement && subItem.tagName.toLowerCase() !== 'svg') return subItem;
+          return compRoot;
         }
 
         // 如果当前选中的已经是该组件内的某个子元素，且本次点击的也是组件内的子元素：
         if(selectedEl && compRoot.contains(selectedEl) && compRoot !== selectedEl){
           var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, [class*="avatar"], [class*="btn"]') : null;
-          if(subItem && compRoot.contains(subItem)) return subItem;
-          return t;
+          if(subItem && compRoot.contains(subItem) && !subItem.ownerSVGElement && subItem.tagName.toLowerCase() !== 'svg') return subItem;
+          return compRoot;
         }
 
         // 默认（用户首次点击该组件，或点击组件内空白处）：
@@ -2942,7 +3006,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       var comp = t.closest ? t.closest('.wf-shape,.wf-box,.wf-container,.wf-search-box,.wf-text-block,.wf-ios-story-card,.wf-ios-avatar-grid,.wf-ios-tab-bar') : null;
       if(comp && comp !== document.body && comp !== document.documentElement) return comp;
 
-      var wrap = t.closest ? t.closest('.wf-inserted-component, .wf-el') : null;
+      var wrap = t.closest ? t.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-vector-shape, .wf-el') : null;
       return wrap || t;
     }
 
@@ -2994,7 +3058,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         var parentCard = el.parentElement ? (el.parentElement.closest ? el.parentElement.closest('.wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-app-item, .wf-ios-tab-bar, .wf-container, .wf-box, .wf-card, .wf-inserted-component') : null) : null;
         var hasParentContainer = !!(parentCard && parentCard !== el && parentCard !== document.body);
 
-        var isVector = el.tagName.toLowerCase() === 'svg' || (el.classList && el.classList.contains('wf-vector-shape')) || (el.hasAttribute && el.hasAttribute('data-wf-vector'));
+        var isVector = el.tagName.toLowerCase() === 'svg' || (el.classList && (el.classList.contains('wf-vector-shape') || el.classList.contains('wf-vector-icon'))) || (el.hasAttribute && el.hasAttribute('data-wf-vector'));
         var pathEl = isVector ? (el.tagName.toLowerCase() === 'path' ? el : (el.querySelector ? el.querySelector('path') : null)) : null;
         var bgColor = cs.backgroundColor || 'transparent';
         var bWidth = parseInt(cs.borderTopWidth) || 0;
@@ -4101,6 +4165,24 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           refreshSelectionProperties();
           scheduleSave();
         }
+      }else if(d.type === 'wf-apply-animation'){
+        var animTargets = collectStyleTargets(d);
+        if(animTargets.length){
+          pushSnapshot();
+          var animClasses = ['wf-motion-breathe', 'wf-motion-pulse', 'wf-motion-spin', 'wf-motion-bounce'];
+          for(var ai = 0; ai < animTargets.length; ai++){
+            var aEl = animTargets[ai];
+            for(var aci = 0; aci < animClasses.length; aci++){
+              aEl.classList.remove(animClasses[aci]);
+            }
+            if(d.animationClass){
+              aEl.classList.add(d.animationClass);
+            }
+          }
+          refreshSelectionProperties();
+          scheduleSave();
+          showToast('微动效交互已成功应用');
+        }
       }else if(d.type === 'wf-shadow'){
         var shadowTargets = collectStyleTargets(d);
         if(shadowTargets.length){
@@ -4292,6 +4374,13 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
             newChild.style.left = targetX + 'px';
             newChild.style.top = targetY + 'px';
             newChild.style.zIndex = '999';
+            if(d.width){
+              newChild.style.width = typeof d.width === 'number' ? (d.width + 'px') : d.width;
+              newChild.style.maxWidth = 'none';
+            }
+            if(d.height){
+              newChild.style.height = typeof d.height === 'number' ? (d.height + 'px') : d.height;
+            }
             if(!newChild.style.maxWidth && !newChild.style.width){
               newChild.style.maxWidth = '335px';
             }
@@ -4688,26 +4777,131 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       return isNaN(n) ? null : n;
     }
 
+    function getElementCssPos(el){
+      if(!el) return { left: 0, top: 0, isAbsolute: false };
+      var curL = parseFloat(el.style.left);
+      var curT = parseFloat(el.style.top);
+      var pos = el.style.position || (window.getComputedStyle ? window.getComputedStyle(el).position : '');
+      var isAbs = (pos === 'absolute');
+      if(isAbs && !isNaN(curL) && !isNaN(curT)){
+        return { left: curL, top: curT, isAbsolute: true };
+      }
+      var rect = el.getBoundingClientRect();
+      var scrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      var op = el.offsetParent;
+      var opRect = (op && op !== document.body && op !== document.documentElement) ? op.getBoundingClientRect() : { left: 0, top: 0 };
+      var sX = (op === document.body || !op) ? scrollX : 0;
+      var sY = (op === document.body || !op) ? scrollY : 0;
+      var calcL = Math.round(rect.left + sX - opRect.left);
+      var calcT = Math.round(rect.top + sY - opRect.top);
+      return { left: calcL, top: calcT, isAbsolute: isAbs };
+    }
+
     function snapshotInners(root){
       var out = [];
-      if(!root || !root.querySelectorAll) return out;
-      var nodes = root.querySelectorAll('*');
-      for(var i = 0; i < nodes.length; i++){
-        var n = nodes[i];
+      if(!root) return out;
+      var allNodes = [root];
+      if(root.querySelectorAll){
+        var desc = root.querySelectorAll('*');
+        for(var d = 0; d < desc.length; d++) allNodes.push(desc[d]);
+      }
+      for(var i = 0; i < allNodes.length; i++){
+        var n = allNodes[i];
         var st = n.style;
         if(!st) continue;
+        var tag = n.tagName ? String(n.tagName).toLowerCase() : '';
+        var isSvgTag = tag === 'svg';
+        var cs = window.getComputedStyle ? window.getComputedStyle(n) : null;
+        var isRoot = (n === root);
+
+        // 1. 字体大小缩放 (优先内联 fontSize，若无则从 computedStyle 读取，确保 Tailwind 类如 text-xs 能跟随时缩放)
+        var fsVal = pxNum(st.fontSize);
+        if(fsVal == null && cs){
+          var isTextNode = /^(span|p|h[1-6]|a|button|label|b|strong|em|div)$/i.test(tag) && (n.childNodes.length > 0);
+          if(isTextNode){
+            var cFs = parseFloat(cs.fontSize);
+            if(cFs && isFinite(cFs) && cFs > 0) fsVal = cFs;
+          }
+        }
+
+        // 2. 宽度与高度判定：区分“流式/百分比/图表”与“固定图元”
+        var rawAttrW = n.getAttribute ? String(n.getAttribute('width') || '') : '';
+        var rawAttrH = n.getAttribute ? String(n.getAttribute('height') || '') : '';
+        var isPercentW = (st.width && st.width.indexOf('%') >= 0) || rawAttrW.indexOf('%') >= 0;
+        var isPercentH = (st.height && st.height.indexOf('%') >= 0) || rawAttrH.indexOf('%') >= 0;
+        // 关键：业务图表（wf-kpi-card, wf-chart-card 等）中的 SVG 必须维持 100% 流式自动响应，绝对不能强制赋死为像素数值！
+        var isChartSvg = isSvgTag && n.closest && n.closest('.wf-kpi-card, .wf-chart-card, .wf-bar-card, .wf-donut-card, .wf-line-card, .wf-funnel-card');
+
+        var nw = null;
+        if(isChartSvg){
+          // 重置图表 SVG 为 100% 流式撑满容器
+          n.style.width = '100%';
+          n.style.height = '100%';
+          n.setAttribute('width', '100%');
+          n.setAttribute('height', '100%');
+        } else if(!isPercentW && !isRoot){
+          nw = pxNum(st.width);
+          if(nw == null && isSvgTag && rawAttrW && rawAttrW.indexOf('%') < 0){
+            var parsedW = parseFloat(rawAttrW);
+            if(parsedW && isFinite(parsedW) && parsedW > 0) nw = parsedW;
+          }
+          // 对于品牌 Logo 图标容器（wf-brand-icon-wrap 或 div.w-6），记录其初始固定像素尺寸以便缩放
+          if(nw == null && (n.classList.contains('wf-brand-icon-wrap') || n.classList.contains('w-6'))){
+            if(cs && cs.width && cs.width.indexOf('px') >= 0){
+              var parsedIconW = parseFloat(cs.width);
+              if(parsedIconW && isFinite(parsedIconW) && parsedIconW > 0) nw = parsedIconW;
+            }
+          }
+        }
+
+        var nh = null;
+        if(!isChartSvg && !isPercentH && !isRoot){
+          nh = pxNum(st.height);
+          if(nh == null && isSvgTag && rawAttrH && rawAttrH.indexOf('%') < 0){
+            var parsedH = parseFloat(rawAttrH);
+            if(parsedH && isFinite(parsedH) && parsedH > 0) nh = parsedH;
+          }
+          if(nh == null && (n.classList.contains('wf-brand-icon-wrap') || n.classList.contains('h-6'))){
+            if(cs && cs.height && cs.height.indexOf('px') >= 0){
+              var parsedIconH = parseFloat(cs.height);
+              if(parsedIconH && isFinite(parsedIconH) && parsedIconH > 0) nh = parsedIconH;
+            }
+          }
+        }
+
+        // 3. 内边距与间距 (Padding & Gap)
+        var curPt = pxNum(st.paddingTop || st.padding);
+        var curPr = pxNum(st.paddingRight || st.padding);
+        var curPb = pxNum(st.paddingBottom || st.padding);
+        var curPl = pxNum(st.paddingLeft || st.padding);
+        var curGap = pxNum(st.gap);
+        if(cs && (n.classList.contains('wf-brand-logo') || n.classList.contains('wf-card') || n.classList.contains('wf-inserted-component'))){
+          if(curPt == null) curPt = parseFloat(cs.paddingTop) || null;
+          if(curPr == null) curPr = parseFloat(cs.paddingRight) || null;
+          if(curPb == null) curPb = parseFloat(cs.paddingBottom) || null;
+          if(curPl == null) curPl = parseFloat(cs.paddingLeft) || null;
+          if(curGap == null) curGap = parseFloat(cs.gap || cs.columnGap) || null;
+        }
+
         var item = {
           el: n,
-          w: pxNum(st.width),
-          h: pxNum(st.height),
-          l: pxNum(st.left),
-          t: pxNum(st.top),
-          r: pxNum(st.right),
-          b: pxNum(st.bottom),
-          fs: pxNum(st.fontSize),
-          br: pxNum(st.borderRadius)
+          isRoot: isRoot,
+          w: nw,
+          h: nh,
+          l: isRoot ? null : pxNum(st.left),
+          t: isRoot ? null : pxNum(st.top),
+          r: isRoot ? null : pxNum(st.right),
+          b: isRoot ? null : pxNum(st.bottom),
+          fs: fsVal,
+          br: pxNum(st.borderRadius),
+          pt: curPt,
+          pr: curPr,
+          pb: curPb,
+          pl: curPl,
+          gap: curGap
         };
-        if(item.w != null || item.h != null || item.l != null || item.t != null || item.r != null || item.b != null || item.fs != null || item.br != null){
+        if(item.w != null || item.h != null || item.l != null || item.t != null || item.r != null || item.b != null || item.fs != null || item.br != null || item.pt != null || item.pr != null || item.pb != null || item.pl != null || item.gap != null){
           out.push(item);
         }
       }
@@ -4721,14 +4915,31 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         var it = list[i];
         var node = it.el;
         if(!node || !node.style) continue;
-        if(it.w != null) node.style.width = Math.max(1, Math.round(it.w * sx)) + 'px';
-        if(it.h != null) node.style.height = Math.max(1, Math.round(it.h * sy)) + 'px';
-        if(it.l != null) node.style.left = Math.round(it.l * sx) + 'px';
-        if(it.r != null) node.style.right = Math.round(it.r * sx) + 'px';
-        if(it.t != null) node.style.top = Math.round(it.t * sy) + 'px';
-        if(it.b != null) node.style.bottom = Math.round(it.b * sy) + 'px';
+        if(!it.isRoot){
+          if(it.w != null) {
+            var newW = Math.max(1, Math.round(it.w * sx));
+            node.style.width = newW + 'px';
+            if(node.tagName && node.tagName.toLowerCase() === 'svg') node.setAttribute('width', String(newW));
+          }
+          if(it.h != null) {
+            var newH = Math.max(1, Math.round(it.h * sy));
+            node.style.height = newH + 'px';
+            if(node.tagName && node.tagName.toLowerCase() === 'svg') node.setAttribute('height', String(newH));
+          }
+          if(it.l != null) node.style.left = Math.round(it.l * sx) + 'px';
+          if(it.r != null) node.style.right = Math.round(it.r * sx) + 'px';
+          if(it.t != null) node.style.top = Math.round(it.t * sy) + 'px';
+          if(it.b != null) node.style.bottom = Math.round(it.b * sy) + 'px';
+        }
         if(it.fs != null) node.style.fontSize = Math.max(1, Math.round(it.fs * s)) + 'px';
         if(it.br != null) node.style.borderRadius = Math.max(0, Math.round(it.br * s)) + 'px';
+        if(it.pt != null) node.style.paddingTop = Math.max(0, Math.round(it.pt * s)) + 'px';
+        if(it.pr != null) node.style.paddingRight = Math.max(0, Math.round(it.pr * s)) + 'px';
+        if(it.pb != null) node.style.paddingBottom = Math.max(0, Math.round(it.pb * s)) + 'px';
+        if(it.pl != null) node.style.paddingLeft = Math.max(0, Math.round(it.pl * s)) + 'px';
+        if(it.gap != null) node.style.gap = Math.max(0, Math.round(it.gap * s)) + 'px';
+        node.style.minWidth = '0px';
+        node.style.minHeight = '0px';
       }
     }
 
@@ -4772,6 +4983,8 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
             mEl.style.width = Math.round(mW) + 'px';
             mEl.style.height = Math.round(mH) + 'px';
             mEl.style.maxWidth = 'none';
+            mEl.style.minWidth = '0px';
+            mEl.style.minHeight = '0px';
             mEl.style.boxSizing = 'border-box';
             prep.push({ el: mEl, left: mL, top: mT, w: mW, h: mH });
             if(mL < minL) minL = mL;
@@ -4810,15 +5023,32 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           return;
         }
 
+        var posInfo = getElementCssPos(selectedEl);
+        if(!posInfo.isAbsolute){
+          selectedEl.style.position = 'absolute';
+          selectedEl.style.left = posInfo.left + 'px';
+          selectedEl.style.top = posInfo.top + 'px';
+        }
         var rect = selectedEl.getBoundingClientRect();
+        var initW = rect.width;
+        var initH = rect.height;
+        var initL = posInfo.left;
+        var initT = posInfo.top;
+
+        selectedEl.style.minWidth = '0px';
+        selectedEl.style.minHeight = '0px';
+        selectedEl.style.maxWidth = 'none';
+        selectedEl.style.boxSizing = 'border-box';
         resizing = {
           dir: dir,
           startX: e.clientX,
           startY: e.clientY,
-          initW: rect.width,
-          initH: rect.height,
-          initLeft: rect.left + scrollX,
-          initTop: rect.top + scrollY,
+          initW: initW,
+          initH: initH,
+          initL: initL,
+          initT: initT,
+          initR: initL + initW,
+          initB: initT + initH,
           el: selectedEl,
           inners: snapshotInners(selectedEl)
         };
@@ -4881,7 +5111,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         return;
       }
 
-      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
+      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-vector-icon,.wf-brand-logo,.wf-vector-shape,[data-wf-vector],.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
       if((!EDIT && !isInserted) || READONLY) return;
 
       if(!EDIT && isInserted){
@@ -4984,28 +5214,101 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         if(resizing.multi && resizing.items){
           var multiMinW = 20;
           var multiMinH = 16;
-          if(resizing.dir.indexOf('e') !== -1) w = Math.max(multiMinW, resizing.initW + dx);
-          if(resizing.dir.indexOf('w') !== -1){
-            w = Math.max(multiMinW, resizing.initW - dx);
-            l = resizing.initLeft + (resizing.initW - w);
+          var mw = resizing.initW;
+          var mh = resizing.initH;
+          var ml = resizing.initLeft;
+          var mt = resizing.initTop;
+          var mDir = resizing.dir;
+
+          if(mDir === 'se'){
+            mw = Math.max(multiMinW, resizing.initW + dx);
+            mh = Math.max(multiMinH, resizing.initH + dy);
+            ml = resizing.initLeft;
+            mt = resizing.initTop;
+          } else if(mDir === 'ne'){
+            mw = Math.max(multiMinW, resizing.initW + dx);
+            mh = Math.max(multiMinH, resizing.initH - dy);
+            ml = resizing.initLeft;
+            mt = resizing.initTop + (resizing.initH - mh);
+          } else if(mDir === 'sw'){
+            mw = Math.max(multiMinW, resizing.initW - dx);
+            mh = Math.max(multiMinH, resizing.initH + dy);
+            ml = resizing.initLeft + (resizing.initW - mw);
+            mt = resizing.initTop;
+          } else if(mDir === 'nw'){
+            mw = Math.max(multiMinW, resizing.initW - dx);
+            mh = Math.max(multiMinH, resizing.initH - dy);
+            ml = resizing.initLeft + (resizing.initW - mw);
+            mt = resizing.initTop + (resizing.initH - mh);
+          } else if(mDir === 'e'){
+            mw = Math.max(multiMinW, resizing.initW + dx);
+            ml = resizing.initLeft;
+            mt = resizing.initTop;
+          } else if(mDir === 'w'){
+            mw = Math.max(multiMinW, resizing.initW - dx);
+            ml = resizing.initLeft + (resizing.initW - mw);
+            mt = resizing.initTop;
+          } else if(mDir === 's'){
+            mh = Math.max(multiMinH, resizing.initH + dy);
+            ml = resizing.initLeft;
+            mt = resizing.initTop;
+          } else if(mDir === 'n'){
+            mh = Math.max(multiMinH, resizing.initH - dy);
+            ml = resizing.initLeft;
+            mt = resizing.initTop + (resizing.initH - mh);
           }
-          if(resizing.dir.indexOf('s') !== -1) h = Math.max(multiMinH, resizing.initH + dy);
-          if(resizing.dir.indexOf('n') !== -1){
-            h = Math.max(multiMinH, resizing.initH - dy);
-            t = resizing.initTop + (resizing.initH - h);
+
+          if(e.shiftKey && resizing.initW > 0 && resizing.initH > 0){
+            var mRatio = resizing.initW / resizing.initH;
+            if(mDir === 'e' || mDir === 'w'){
+              mh = Math.max(multiMinH, mw / mRatio);
+            } else if(mDir === 'n' || mDir === 's'){
+              mw = Math.max(multiMinW, mh * mRatio);
+            } else {
+              var mScale = Math.max(mw / resizing.initW, mh / resizing.initH);
+              mw = Math.max(multiMinW, resizing.initW * mScale);
+              mh = Math.max(multiMinH, resizing.initH * mScale);
+            }
+            if(mDir === 'se'){
+              ml = resizing.initLeft;
+              mt = resizing.initTop;
+            } else if(mDir === 'ne'){
+              ml = resizing.initLeft;
+              mt = resizing.initTop + (resizing.initH - mh);
+            } else if(mDir === 'sw'){
+              ml = resizing.initLeft + (resizing.initW - mw);
+              mt = resizing.initTop;
+            } else if(mDir === 'nw'){
+              ml = resizing.initLeft + (resizing.initW - mw);
+              mt = resizing.initTop + (resizing.initH - mh);
+            } else if(mDir === 'w'){
+              ml = resizing.initLeft + (resizing.initW - mw);
+              mt = resizing.initTop + (resizing.initH - mh) / 2;
+            } else if(mDir === 'e'){
+              ml = resizing.initLeft;
+              mt = resizing.initTop + (resizing.initH - mh) / 2;
+            } else if(mDir === 'n'){
+              ml = resizing.initLeft + (resizing.initW - mw) / 2;
+              mt = resizing.initTop + (resizing.initH - mh);
+            } else if(mDir === 's'){
+              ml = resizing.initLeft + (resizing.initW - mw) / 2;
+              mt = resizing.initTop;
+            }
           }
           for(var ri = 0; ri < resizing.items.length; ri++){
             var rit = resizing.items[ri];
-            var nw = Math.max(2, rit.relW * w);
-            var nh = Math.max(2, rit.relH * h);
-            var nl = l + rit.relL * w;
-            var nt = t + rit.relT * h;
+            var nw = Math.max(2, rit.relW * mw);
+            var nh = Math.max(2, rit.relH * mh);
+            var nl = ml + rit.relL * mw;
+            var nt = mt + rit.relT * mh;
             rit.el.style.position = 'absolute';
             rit.el.style.left = Math.round(nl) + 'px';
             rit.el.style.top = Math.round(nt) + 'px';
             rit.el.style.width = Math.round(nw) + 'px';
             rit.el.style.height = Math.round(nh) + 'px';
             rit.el.style.maxWidth = 'none';
+            rit.el.style.minWidth = '0px';
+            rit.el.style.minHeight = '0px';
             rit.el.style.boxSizing = 'border-box';
             var sx = rit.initW > 0 ? nw / rit.initW : 1;
             var sy = rit.initH > 0 ? nh / rit.initH : 1;
@@ -5016,58 +5319,122 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         }
 
         var isLine = resizing.el.classList && resizing.el.classList.contains('wf-shape-line');
-        var minW = isLine ? 2 : 20;
-        var minH = isLine ? 2 : 16;
+        var minW = isLine ? 2 : 10;
+        var minH = isLine ? 2 : 10;
+        var dir = resizing.dir;
 
-        if(resizing.dir.indexOf('e') !== -1) w = Math.max(minW, resizing.initW + dx);
-        if(resizing.dir.indexOf('w') !== -1){
-          w = Math.max(minW, resizing.initW - dx);
-          l = resizing.initLeft + (resizing.initW - w);
-        }
-        if(resizing.dir.indexOf('s') !== -1) h = Math.max(minH, resizing.initH + dy);
-        if(resizing.dir.indexOf('n') !== -1){
+        var w = resizing.initW;
+        var h = resizing.initH;
+        var newL = resizing.initL;
+        var newT = resizing.initT;
+
+        // 1. 各方向缩放基础坐标计算（严格固定相对锚点）
+        if(dir === 'se'){
+          // 右下手柄：固定左上角 (initL, initT)，右下缩放
+          w = Math.max(minW, resizing.initW + dx);
+          h = Math.max(minH, resizing.initH + dy);
+          newL = resizing.initL;
+          newT = resizing.initT;
+        } else if(dir === 'ne'){
+          // 右上手柄：固定左下角 (initL, initB)，右上缩放
+          w = Math.max(minW, resizing.initW + dx);
           h = Math.max(minH, resizing.initH - dy);
-          t = resizing.initTop + (resizing.initH - h);
+          newL = resizing.initL;
+          newT = resizing.initB - h;
+        } else if(dir === 'sw'){
+          // 左下手柄：固定右上角 (initR, initT)，左下缩放
+          w = Math.max(minW, resizing.initW - dx);
+          h = Math.max(minH, resizing.initH + dy);
+          newL = resizing.initR - w;
+          newT = resizing.initT;
+        } else if(dir === 'nw'){
+          // 左上手柄：固定右下角 (initR, initB)，左上缩放
+          w = Math.max(minW, resizing.initW - dx);
+          h = Math.max(minH, resizing.initH - dy);
+          newL = resizing.initR - w;
+          newT = resizing.initB - h;
+        } else if(dir === 'e'){
+          // 右边手柄：固定左边 (initL)
+          w = Math.max(minW, resizing.initW + dx);
+          h = resizing.initH;
+          newL = resizing.initL;
+          newT = resizing.initT;
+        } else if(dir === 'w'){
+          // 左边手柄：固定右边 (initR)
+          w = Math.max(minW, resizing.initW - dx);
+          h = resizing.initH;
+          newL = resizing.initR - w;
+          newT = resizing.initT;
+        } else if(dir === 's'){
+          // 下边手柄：固定顶部 (initT)
+          w = resizing.initW;
+          h = Math.max(minH, resizing.initH + dy);
+          newL = resizing.initL;
+          newT = resizing.initT;
+        } else if(dir === 'n'){
+          // 上边手柄：固定底部 (initB)
+          w = resizing.initW;
+          h = Math.max(minH, resizing.initH - dy);
+          newL = resizing.initL;
+          newT = resizing.initB - h;
         }
 
-        // 头像始终正圆；纯圆仅在按住 Shift 时强制正圆
-        if(resizing.el.classList){
-          if(resizing.el.classList.contains('wf-avatar')){
-            var sideA = Math.max(w, h);
+        // 2. 比例约束：头像始终正圆；或按住 Shift 时全元素等比锁定
+        var isAvatar = resizing.el.classList && resizing.el.classList.contains('wf-avatar');
+        var keepRatio = (e.shiftKey || isAvatar) && resizing.initW > 0 && resizing.initH > 0;
+        if(keepRatio){
+          var ratio = resizing.initW / resizing.initH;
+          if(isAvatar){
+            var sideA = Math.max(minW, minH, Math.max(w, h));
             w = sideA;
             h = sideA;
-          } else if(resizing.el.classList.contains('wf-shape-circle') && e.shiftKey){
-            var sideC = Math.max(w, h);
-            w = sideC;
-            h = sideC;
+          } else if(dir === 'e' || dir === 'w'){
+            h = Math.max(minH, w / ratio);
+          } else if(dir === 'n' || dir === 's'){
+            w = Math.max(minW, h * ratio);
+          } else {
+            var scale = Math.max(w / resizing.initW, h / resizing.initH);
+            w = Math.max(minW, resizing.initW * scale);
+            h = Math.max(minH, resizing.initH * scale);
+          }
+
+          // 保持等比约束下的固定锚点
+          if(dir === 'se'){
+            newL = resizing.initL;
+            newT = resizing.initT;
+          } else if(dir === 'ne'){
+            newL = resizing.initL;
+            newT = resizing.initB - h;
+          } else if(dir === 'sw'){
+            newL = resizing.initR - w;
+            newT = resizing.initT;
+          } else if(dir === 'nw'){
+            newL = resizing.initR - w;
+            newT = resizing.initB - h;
+          } else if(dir === 'w'){
+            newL = resizing.initR - w;
+            newT = resizing.initT + (resizing.initH - h) / 2;
+          } else if(dir === 'e'){
+            newL = resizing.initL;
+            newT = resizing.initT + (resizing.initH - h) / 2;
+          } else if(dir === 'n'){
+            newL = resizing.initL + (resizing.initW - w) / 2;
+            newT = resizing.initB - h;
+          } else if(dir === 's'){
+            newL = resizing.initL + (resizing.initW - w) / 2;
+            newT = resizing.initT;
           }
         }
 
         resizing.el.style.width = Math.round(w) + 'px';
         resizing.el.style.height = Math.round(h) + 'px';
+        resizing.el.style.left = Math.round(newL) + 'px';
+        resizing.el.style.top = Math.round(newT) + 'px';
         resizing.el.style.maxWidth = 'none';
+        resizing.el.style.minWidth = '0px';
+        resizing.el.style.minHeight = '0px';
         resizing.el.style.boxSizing = 'border-box';
         applyInners(resizing.inners, resizing.initW > 0 ? w / resizing.initW : 1, resizing.initH > 0 ? h / resizing.initH : 1);
-
-        var rPos = resizing.el.style.position || (window.getComputedStyle ? window.getComputedStyle(resizing.el).position : '');
-        if(resizing.dir.indexOf('w') !== -1){
-          if(rPos === 'absolute'){
-            resizing.el.style.left = Math.round(l) + 'px';
-          } else {
-            resizing.el.style.position = 'relative';
-            var curRelL = parseFloat(resizing.el.style.left) || 0;
-            resizing.el.style.left = Math.round(curRelL + (resizing.initW - w)) + 'px';
-          }
-        }
-        if(resizing.dir.indexOf('n') !== -1){
-          if(rPos === 'absolute'){
-            resizing.el.style.top = Math.round(t) + 'px';
-          } else {
-            resizing.el.style.position = 'relative';
-            var curRelT = parseFloat(resizing.el.style.top) || 0;
-            resizing.el.style.top = Math.round(curRelT + (resizing.initH - h)) + 'px';
-          }
-        }
 
         if(selectedEls.length > 1) updateMultiTransformBox();
         else updateTransformBox(resizing.el);
@@ -5174,6 +5541,11 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         if(mBox) mBox.style.display = 'none';
         if(marquee.hasMoved && selectedEls.length > 0){
           showToast('已框选 ' + selectedEls.length + ' 个元素，可整体拖拽移动');
+          if(selectedEls.length > 1){
+            updateMultiTransformBox();
+          } else if(selectedEl){
+            updateTransformBox(selectedEl);
+          }
         }
         marquee = null;
       }
@@ -5182,6 +5554,11 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           scheduleSave();
           var count = drag.items.length;
           showToast(count > 1 ? ('已更新 ' + count + ' 个元素位置并保存') : '已更新元素位置并保存');
+          if(selectedEls.length > 1){
+            updateMultiTransformBox();
+          } else if(selectedEl){
+            updateTransformBox(selectedEl);
+          }
           if(selectedEl) notifySelectedElementInfo(selectedEl);
         }
         drag = null;
@@ -6159,7 +6536,7 @@ function cancelEdit() {
   editingAnnId.value = null
 }
 
-function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = false, fitInside = false, name = '') {
+function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = false, fitInside = false, name = '', width?: number, height?: number) {
   if (!html) return
   htmlFrameRef.value?.contentWindow?.postMessage({
     type: 'wf-insert-html',
@@ -6169,6 +6546,8 @@ function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = f
     autoEditText,
     fitInside,
     name,
+    width,
+    height,
   }, '*')
 }
 

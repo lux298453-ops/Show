@@ -25,14 +25,25 @@
             <span class="text-xs font-medium text-slate-800">{{ t('componentsTab') }}</span>
             <span class="text-[11px] text-slate-400 tabular-nums">{{ filteredItems.length }}</span>
           </div>
-          <button
-            type="button"
-            class="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
-            title="关闭面板"
-            @click="isResourcesPopoverOpen = false"
-          >
-            <X class="w-3.5 h-3.5" />
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-[#0D99FF] hover:bg-[#0D99FF]/10 rounded-md transition-colors cursor-pointer"
+              title="打开 Figma 社区插件与微件中心 (Shift+I)"
+              @click="openPluginsModal"
+            >
+              <Puzzle class="w-3 h-3" />
+              <span>插件社区</span>
+            </button>
+            <button
+              type="button"
+              class="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+              title="关闭面板"
+              @click="isResourcesPopoverOpen = false"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         <!-- Search Input -->
@@ -495,6 +506,7 @@ import {
   Search,
   Smartphone,
   Monitor,
+  Puzzle,
 } from 'lucide-vue-next'
 
 export type ActiveToolType = 'select' | 'hand' | 'frame' | 'rect' | 'circle' | 'container' | 'line' | 'text' | 'comment' | 'pen' | 'pencil'
@@ -536,6 +548,7 @@ const emit = defineEmits<{
   (e: 'openPurePreview'): void
   (e: 'toggleAnnotations'): void
   (e: 'createFrame', preset?: { name: string; width: number; height: number }): void
+  (e: 'openPlugins'): void
 }>()
 
 // Root DOM reference for click outside detection
@@ -546,6 +559,11 @@ const isResourcesPopoverOpen = ref(false)
 const isShapesMenuOpen = ref(false)
 const isFrameMenuOpen = ref(false)
 const isPenMenuOpen = ref(false)
+
+function openPluginsModal() {
+  isResourcesPopoverOpen.value = false
+  emit('openPlugins')
+}
 
 // Search & Filter in Resources
 const searchQuery = ref('')
