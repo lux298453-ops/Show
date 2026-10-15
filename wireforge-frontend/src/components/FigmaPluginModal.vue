@@ -296,14 +296,31 @@
         <!-- 插件 1: User Profile | Avatar -->
         <div v-if="activeRunningPlugin.id === 'user-profile-avatar'" class="space-y-3">
           <div class="flex items-center justify-between text-slate-500">
-            <span>选择预置真实头像:</span>
+            <!-- 性别/类型快捷筛选 -->
+            <div class="flex items-center gap-1 bg-slate-100 dark:bg-[#1f1f1f] p-0.5 rounded-lg text-[11px]">
+              <button
+                v-for="g in [
+                  { id: 'all', label: '全部' },
+                  { id: 'men', label: '男士' },
+                  { id: 'women', label: '女士' },
+                ]"
+                :key="g.id"
+                type="button"
+                class="px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer"
+                :class="selectedAvatarGender === g.id ? 'bg-white dark:bg-[#333] text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'"
+                @click="onSelectAvatarGender(g.id as any)"
+              >
+                {{ g.label }}
+              </button>
+            </div>
             <button
               type="button"
               class="inline-flex items-center gap-1 text-[#0D99FF] hover:underline font-medium cursor-pointer"
+              :disabled="isFetchingAvatars"
               @click="refreshAvatars"
             >
-              <RefreshCw class="w-3 h-3" />
-              <span>随机换一批</span>
+              <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': isFetchingAvatars }" />
+              <span>{{ isFetchingAvatars ? '正在拉取...' : '换一批新头像' }}</span>
             </button>
           </div>
 
@@ -796,6 +813,7 @@ import {
   PRESET_ICONS,
   PRESET_COMMERCIAL_IMAGES,
   fetchPicsumPhotos,
+  fetchDynamicAvatars,
   CHART_PRESETS,
   PRESET_BRAND_LOGOS,
   generateQrCodeUrl,
@@ -885,6 +903,8 @@ function onRunnerHeaderMouseDown(e: MouseEvent) {
 const recentPlugin = ref<PluginMeta | null>(BUILTIN_PLUGINS[0])
 const currentAvatars = ref<string[]>([...PRESET_AVATARS])
 const selectedAvatarUrl = ref<string>(PRESET_AVATARS[0])
+const selectedAvatarGender = ref<'all' | 'men' | 'women'>('all')
+const isFetchingAvatars = ref(false)
 const mockUserData = ref<MockUserData>(generateRandomUserData())
 const iconSearchQuery = ref('')
 
@@ -1055,10 +1075,27 @@ defineExpose({
   launchPluginDirect,
 })
 
-// 头像操作
-function refreshAvatars() {
-  currentAvatars.value = [...PRESET_AVATARS].sort(() => Math.random() - 0.5)
-  selectedAvatarUrl.value = currentAvatars.value[0]
+// 头像操作 (接入动态人像库与真实头像池)
+async function refreshAvatars() {
+  if (isFetchingAvatars.value) return
+  isFetchingAvatars.value = true
+  try {
+    const newAvatars = await fetchDynamicAvatars(12, selectedAvatarGender.value)
+    if (newAvatars && newAvatars.length > 0) {
+      currentAvatars.value = newAvatars
+      selectedAvatarUrl.value = newAvatars[0]
+      ElMessage.success('已动态换取全新一批真实头像')
+    }
+  } catch (e) {
+    ElMessage.error('拉取新头像失败，请重试')
+  } finally {
+    isFetchingAvatars.value = false
+  }
+}
+
+function onSelectAvatarGender(g: 'all' | 'men' | 'women') {
+  selectedAvatarGender.value = g
+  refreshAvatars()
 }
 
 function onPickAvatar(av: string) {

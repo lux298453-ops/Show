@@ -837,13 +837,56 @@ const CHINESE_TITLES = ['资深产品经理', '交互体验设计师', '前端�
 const CHINESE_DEPTS = ['用户体验中心 (UXD)', '核心产品研发部', '商业增长与运营部', '云原生基础架构部', '创新业务实验室']
 const CHINESE_CITIES = ['北京市海淀区中关村南大街1号', '上海市浦东新区张江高科技园区', '深圳市南山区科技园科技南一路', '杭州市余杭区文一西路969号', '成都市高新区天府大道北段']
 
+/**
+ * 动态从真实人像库拉取一批全新头像
+ * 优先通过 RandomUser 开放 API 动态获取随机真实头像；
+ * 若网络异常则从 200 张真实 CDN 人像池中无重复随机抽选，保证每次点击都能换到全新真实人像。
+ */
+export async function fetchDynamicAvatars(count = 12, gender: 'all' | 'men' | 'women' = 'all'): Promise<string[]> {
+  try {
+    const genderParam = gender === 'men' ? '&gender=male' : gender === 'women' ? '&gender=female' : ''
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 3500)
+    const res = await fetch(`https://randomuser.me/api/?results=${count}${genderParam}&inc=picture`, {
+      signal: controller.signal,
+    })
+    clearTimeout(timer)
+    if (res.ok) {
+      const data = await res.json()
+      if (Array.isArray(data.results) && data.results.length > 0) {
+        return data.results.map((r: any) => r.picture?.large || r.picture?.medium).filter(Boolean)
+      }
+    }
+  } catch (e) {
+    // 超时或失败降级
+  }
+
+  // 本地 CDN 动态备用池（200 张真实男女头像无重复随机采样）
+  const pool: string[] = []
+  const used = new Set<string>()
+  let attempts = 0
+  while (pool.length < count && attempts < 120) {
+    attempts++
+    const isMale = gender === 'men' ? true : gender === 'women' ? false : Math.random() > 0.5
+    const id = Math.floor(Math.random() * 95) + 1
+    const url = `https://randomuser.me/api/portraits/${isMale ? 'men' : 'women'}/${id}.jpg`
+    if (!used.has(url)) {
+      used.add(url)
+      pool.push(url)
+    }
+  }
+  return pool.length > 0 ? pool : PRESET_AVATARS
+}
+
 export function generateRandomUserData(): MockUserData {
   const fName = CHINESE_FIRST_NAMES[Math.floor(Math.random() * CHINESE_FIRST_NAMES.length)]
   const lName = CHINESE_LAST_NAMES[Math.floor(Math.random() * CHINESE_LAST_NAMES.length)]
   const fullName = fName + lName
   const phone = '1' + ['3', '5', '7', '8', '9'][Math.floor(Math.random() * 5)] + String(Math.floor(100000000 + Math.random() * 900000000)).slice(1)
   const pinyin = 'user_' + Math.floor(100 + Math.random() * 900)
-  const avatar = PRESET_AVATARS[Math.floor(Math.random() * PRESET_AVATARS.length)]
+  const isMale = Math.random() > 0.5
+  const avatarId = Math.floor(Math.random() * 95) + 1
+  const avatar = `https://randomuser.me/api/portraits/${isMale ? 'men' : 'women'}/${avatarId}.jpg`
 
   return {
     name: fullName,
