@@ -21,6 +21,7 @@
     <!-- ===== Top Floating Action Island (轻量浮动操作栏) ===== -->
     <header
       class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-slate-900/85 backdrop-blur-2xl border border-white/12 shadow-[0_12px_45px_rgba(0,0,0,0.65)] text-white text-xs font-medium transition-all duration-300 hover:border-white/20"
+      :class="chromeVisible ? 'opacity-100' : 'opacity-0 -translate-y-3 pointer-events-none'"
       @click.stop
     >
       <!-- Left: Project Name & Badge -->
@@ -66,7 +67,7 @@
           :class="showDeviceFrame 
             ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]' 
             : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-slate-200'"
-          title="切换 iPhone 16 Pro 钛金属机身外壳与灵动岛 (快捷键 D)"
+          title="手机画板默认套外壳。网页画板按自己的宽高显示，也可手动套上外壳 (快捷键 D)"
           @click="showDeviceFrame = !showDeviceFrame"
         >
           <Smartphone class="w-3.5 h-3.5" />
@@ -108,7 +109,7 @@
     <!-- ===== Main Viewport Stage Container ===== -->
     <main
       ref="viewportContainerRef"
-      class="flex-1 w-full h-full flex items-center justify-center p-4 sm:p-8 overflow-hidden relative"
+      class="preview-scroll flex-1 w-full min-h-0"
       @click="onViewportAreaClick"
     >
       <!-- Click Ripple Effect Layer -->
@@ -122,20 +123,15 @@
         }"
       ></div>
 
-      <!-- Centered Mobile Scaling Wrapper -->
-      <div
-        class="viewport-scaler transition-transform duration-200 ease-out origin-center flex items-center justify-center"
-        :style="{
-          transform: `scale(${phoneScale})`,
-        }"
-      >
+      <!-- 画框按真实尺寸摆放：放得下就居中，超出预览窗口的部分可以滚动 -->
+      <div class="preview-center">
         <!-- ===== High-Precision iPhone 16 Pro Chassis ===== -->
         <div
           class="phone-chassis relative transition-all duration-300 select-none"
           :class="[
             showDeviceFrame
               ? 'p-[14px] bg-[#1a1f2c] rounded-[56px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_0_3px_#272e3f,0_0_0_4px_rgba(255,255,255,0.06),0_25px_80px_-15px_rgba(0,0,0,0.9),0_0_50px_rgba(6,182,212,0.1)]'
-              : 'p-0 rounded-[32px] shadow-[0_20px_60px_-10px_rgba(0,0,0,0.85)]'
+              : 'p-0 rounded-lg shadow-[0_20px_60px_-10px_rgba(0,0,0,0.85)]'
           ]"
           @click="onChassisClick"
         >
@@ -155,11 +151,11 @@
 
           <!-- ===== Screen Glass Viewport ===== -->
           <div
-            class="phone-screen relative w-[375px] bg-black overflow-hidden flex flex-col transition-all duration-300"
+            class="phone-screen relative bg-black overflow-hidden flex flex-col transition-all duration-300"
             :class="[
-              showDeviceFrame ? 'rounded-[44px]' : 'rounded-[28px]'
+              showDeviceFrame ? 'rounded-[44px]' : 'rounded-lg'
             ]"
-            :style="{ height: `${screenHeight}px` }"
+            :style="{ width: `${screenWidth}px`, height: `${screenHeight}px` }"
             @click="onScreenClick"
           >
             <!-- iOS Status Bar & Dynamic Island (When Device Frame is ON) -->
@@ -214,7 +210,8 @@
             <transition name="fade-fast">
               <button
                 v-if="historyStack.length > 0"
-                class="wf-tap absolute top-14 left-3.5 z-40 w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-lg border border-white/20"
+                class="wf-tap absolute left-3.5 z-40 w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-lg border border-white/20"
+                :class="showDeviceFrame ? 'top-14' : 'top-3.5'"
                 title="返回上一页"
                 @click.stop="handleBack"
               >
@@ -368,7 +365,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Layers,
@@ -398,11 +395,27 @@ const currentPage = computed<Page | null>(() => {
   return pages.value.find((p) => p.id === currentPageId.value) || pages.value[0] || null
 })
 
-// 视口标准高度：兼容页面实际高度（基准 812px）
-const screenHeight = computed(() => {
-  if (!currentPage.value) return 812
-  return currentPage.value.canvas_height || 812
+/** 竖屏、宽度不超过 480 的画板按手机展示。更宽或横过来的画板按自己的宽高展示。 */
+function isPhoneArtboard(page: Page | null) {
+  const w = page?.canvas_width || 375
+  const h = page?.canvas_height || 812
+  return w <= 480 && h > w
+}
+
+// 换页后按这一页自己的尺寸决定要不要套手机壳；当前页仍可用按钮临时改
+const frameOverride = ref<boolean | null>(null)
+const showDeviceFrame = computed({
+  get() {
+    if (frameOverride.value != null) return frameOverride.value
+    return isPhoneArtboard(currentPage.value)
+  },
+  set(on: boolean) {
+    frameOverride.value = on
+  },
 })
+
+const screenWidth = computed(() => (showDeviceFrame.value ? 375 : (currentPage.value?.canvas_width || 375)))
+const screenHeight = computed(() => currentPage.value?.canvas_height || 812)
 
 // 历史导航栈与原生 Push 转场
 const historyStack = ref<number[]>([])
@@ -410,10 +423,6 @@ const transitionDirection = ref<'forward' | 'backward'>('forward')
 const pageTransitionName = computed(() =>
   transitionDirection.value === 'forward' ? 'push-forward' : 'push-backward',
 )
-
-// 浮动功能开关
-const showDeviceFrame = ref(true)
-
 
 // 实时时间
 const currentTime = ref('')
@@ -430,20 +439,14 @@ const viewportContainerRef = ref<HTMLElement | null>(null)
 const phoneScale = ref(1)
 
 function updatePhoneScale() {
-  const container = viewportContainerRef.value
-  if (!container) return
-  const PAD_X = 40
-  const PAD_Y = 100 // 为顶部浮动栏留足操作空间
-  const availW = Math.max(100, container.clientWidth - PAD_X)
-  const availH = Math.max(100, container.clientHeight - PAD_Y)
-
-  const frameW = showDeviceFrame.value ? 403 : 375
-  const frameH = (screenHeight.value || 812) + (showDeviceFrame.value ? 28 : 0)
-
-  const scaleW = availW / frameW
-  const scaleH = availH / frameH
-  phoneScale.value = Math.min(1.05, Math.max(0.4, Math.min(scaleW, scaleH)))
+  phoneScale.value = 1
 }
+
+watch(currentPageId, () => {
+  frameOverride.value = null
+  nextTick(updatePhoneScale)
+})
+watch([showDeviceFrame, screenWidth, screenHeight], () => nextTick(updatePhoneScale))
 
 // 弹层状态 (Modal / Bottom Sheet)
 interface ActiveModalState {
@@ -501,7 +504,12 @@ function onChassisClick(e: MouseEvent) {
   spawnRipple(e.clientX, e.clientY)
 }
 
+const chromeVisible = ref(true)
+
 function onViewportAreaClick(e: MouseEvent) {
+  const target = e.target as HTMLElement | null
+  if (target?.closest('.phone-chassis')) chromeVisible.value = false
+  else chromeVisible.value = true
   spawnRipple(e.clientX, e.clientY)
 }
 
@@ -709,11 +717,24 @@ async function loadData() {
   }
 }
 
+function onPreviewWheelMessage(ev: MessageEvent) {
+  if (ev.data?.type === 'wf-preview-page-click') {
+    chromeVisible.value = false
+    return
+  }
+  if (ev.data?.type !== 'wf-preview-wheel') return
+  const el = viewportContainerRef.value
+  if (!el) return
+  el.scrollLeft += Number(ev.data.dx) || 0
+  el.scrollTop += Number(ev.data.dy) || 0
+}
+
 onMounted(() => {
   updateClock()
   clockTimer = setInterval(updateClock, 10000)
   window.addEventListener('resize', updatePhoneScale)
   window.addEventListener('keydown', onGlobalKeyDown)
+  window.addEventListener('message', onPreviewWheelMessage)
   loadData()
 })
 
@@ -722,10 +743,26 @@ onBeforeUnmount(() => {
   if (toastTimer) clearTimeout(toastTimer)
   window.removeEventListener('resize', updatePhoneScale)
   window.removeEventListener('keydown', onGlobalKeyDown)
+  window.removeEventListener('message', onPreviewWheelMessage)
 })
 </script>
 
 <style scoped>
+.preview-scroll {
+  overflow: auto;
+  height: 100%;
+}
+.preview-center {
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  box-sizing: border-box;
+  min-width: 100%;
+  min-height: 100%;
+  width: max-content;
+  height: max-content;
+  padding: 32px;
+}
 /* ===== iOS Native Push Transitions ===== */
 .push-forward-enter-active,
 .push-forward-leave-active,

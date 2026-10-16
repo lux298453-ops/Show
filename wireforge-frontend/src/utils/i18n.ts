@@ -129,7 +129,7 @@ export const messages: Record<LanguageCode, Record<string, string>> = {
     interactiveMode: '交互模式',
     prototypePresent: '预览原型',
     presentFullscreen: '全屏演示',
-    presentFullscreenDesc: '独立全屏分享 · iPhone 16 Pro',
+    presentFullscreenDesc: '按画板尺寸全屏演示，手机画板仍套手机壳',
     previewDrawer: '手机预览',
     previewDrawerDesc: '在画布呈现可拖拽真机模型演示',
     // Left Sidebar (Outline & Layers)
@@ -352,7 +352,7 @@ export const messages: Record<LanguageCode, Record<string, string>> = {
     interactiveMode: 'Interactive',
     prototypePresent: 'Presentation (Present / Preview)',
     presentFullscreen: 'Present (Fullscreen)',
-    presentFullscreenDesc: 'Standalone Fullscreen · iPhone 16 Pro',
+    presentFullscreenDesc: 'Presents at the artboard size. Phone artboards keep the phone frame',
     previewDrawer: 'Preview (Mobile Drawer)',
     previewDrawerDesc: 'Draggable Device Mockup Preview',
     // Left Sidebar (Outline & Layers)
@@ -575,7 +575,7 @@ export const messages: Record<LanguageCode, Record<string, string>> = {
     interactiveMode: 'インタラクティブ',
     prototypePresent: 'プロトタイププレゼン (Present / Preview)',
     presentFullscreen: 'Present (全画面表示)',
-    presentFullscreenDesc: '単独全画面共有 · iPhone 16 Pro',
+    presentFullscreenDesc: 'アートボードのサイズで全画面表示。スマホ枠だけ端末フレーム',
     previewDrawer: 'Preview (実機ドロワー)',
     previewDrawerDesc: 'キャンバス上で実機モックアップをプレビュー',
     // Left Sidebar (Outline & Layers)

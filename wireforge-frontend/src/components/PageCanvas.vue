@@ -1107,6 +1107,14 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       e.preventDefault(); e.stopImmediatePropagation();
       parent.postMessage({ type: 'wf-pan-end' }, '*');
     }, true);
+    document.addEventListener('wheel', function(e){
+      if(EDIT) return;
+      parent.postMessage({ type: 'wf-preview-wheel', dx: e.deltaX, dy: e.deltaY }, '*');
+    }, { passive: true });
+    document.addEventListener('click', function(){
+      if(EDIT) return;
+      parent.postMessage({ type: 'wf-preview-page-click' }, '*');
+    }, true);
     var PAGE_ID = ${JSON.stringify(props.page?.id ?? 0)};
     var selectedEl = null;
     var selectedEls = [];
