@@ -82,7 +82,7 @@ public class InteractionAutowireService {
     private Snapshot snapshot(Long projectId, boolean lock) {
         Project project = projectMapper.selectOne(Wrappers.<Project>lambdaQuery().eq(Project::getId, projectId).last(lock ? "FOR UPDATE" : ""));
         if (project == null) throw new IllegalStateException("项目不存在");
-        List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId).orderByAsc(Page::getId).last(lock ? "FOR UPDATE" : ""));
+        List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId).and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)).orderByAsc(Page::getId).last(lock ? "FOR UPDATE" : ""));
         List<Long> pageIds = pages.stream().map(Page::getId).toList();
         List<Element> elements = pageIds.isEmpty() ? List.of() : elementMapper.selectList(Wrappers.<Element>lambdaQuery().in(Element::getPageId, pageIds).orderByAsc(Element::getId).last(lock ? "FOR UPDATE" : ""));
         List<Long> ids = elements.stream().map(Element::getId).toList();

@@ -54,6 +54,7 @@ public class AppMapService {
         List<Page> pages = pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
                         .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
                         .orderByAsc(Page::getSortOrder));
         if (pages.size() < 2) {
             return null;

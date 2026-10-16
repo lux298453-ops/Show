@@ -83,7 +83,9 @@ public class ProjectService {
      */
     public List<com.wireforge.ai.HtmlRenderer.CheckResult> verifyProject(long projectId) {
         List<Page> pages = pageMapper.selectList(
-                Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
+                Wrappers.<Page>lambdaQuery()
+                        .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         List<com.wireforge.ai.HtmlRenderer.CheckResult> failures = new ArrayList<>();
         int total = 0;
         for (Page p : pages) {
@@ -112,7 +114,9 @@ public class ProjectService {
     public int rebuildAppMapAndRender(long projectId) {
         var appMap = appMapService.buildAppMap(projectId);
         List<Page> pages = pageMapper.selectList(
-                Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
+                Wrappers.<Page>lambdaQuery()
+                        .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         int n = 0;
         for (Page p : pages) {
             try {
@@ -498,6 +502,7 @@ public class ProjectService {
         List<Page> pending = pageMapper.selectList(
                 Wrappers.<Page>lambdaQuery()
                         .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
                         .and(w -> w.isNull(Page::getAnalyzed).or().eq(Page::getAnalyzed, 0))
                         .orderByAsc(Page::getSortOrder));
         if (pending.isEmpty()) {
@@ -546,6 +551,7 @@ public class ProjectService {
         List<Page> pending = pageMapper.selectList(
                 Wrappers.<Page>lambdaQuery()
                         .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
                         .and(w -> w.isNull(Page::getAnalyzed).or().eq(Page::getAnalyzed, 0))
                         .orderByAsc(Page::getSortOrder));
         if (pending.isEmpty()) {
@@ -561,7 +567,7 @@ public class ProjectService {
     public List<Map<String, Object>> reanalyzePage(Long projectId, Long pageId, boolean force) {
         getProject(projectId);
         Page page = pageMapper.selectById(pageId);
-        if (page == null || !projectId.equals(page.getProjectId())) {
+        if (page == null || !projectId.equals(page.getProjectId()) || (page.getIsDeleted() != null && page.getIsDeleted() == 1)) {
             throw new IllegalArgumentException("页面不存在: id=" + pageId);
         }
         if (!force && unchangedSinceLastAnalyze(page)) {
@@ -602,6 +608,7 @@ public class ProjectService {
         List<Page> all = pageMapper.selectList(
                 Wrappers.<Page>lambdaQuery()
                         .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
                         .orderByAsc(Page::getSortOrder));
         if (all.isEmpty()) {
             return Collections.emptyList();
@@ -643,6 +650,7 @@ public class ProjectService {
             List<Page> allPages = pageMapper.selectList(
                     Wrappers.<Page>lambdaQuery()
                             .eq(Page::getProjectId, projectId)
+                            .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
                             .orderByAsc(Page::getSortOrder));
 
             List<String> pageNames = analyzeService.buildPageNames(allPages);
@@ -780,6 +788,7 @@ public class ProjectService {
         List<Page> pages = pageMapper.selectList(
                 Wrappers.<Page>lambdaQuery()
                         .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
                         .orderByAsc(Page::getSortOrder));
 
         if (pages.isEmpty()) {
@@ -1530,7 +1539,8 @@ public class ProjectService {
         page.setProjectId(projectId);
 
         Long pageCount = pageMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Page>()
-                .eq(Page::getProjectId, projectId));
+                .eq(Page::getProjectId, projectId)
+                .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         String defaultName = "画板 " + (pageCount + 1);
         String name = body.get("name") != null ? body.get("name").toString().trim() : defaultName;
         page.setName(name.isEmpty() ? defaultName : name);
@@ -1576,14 +1586,51 @@ public class ProjectService {
         if (page == null || !projectId.equals(page.getProjectId())) {
             return;
         }
-        String deletedPageName = page.getName();
-        List<Element> els = elementMapper.selectList(Wrappers.<Element>lambdaQuery().eq(Element::getPageId, pageId));
-        for (Element el : els) {
-            interactionMapper.delete(Wrappers.<Interaction>lambdaQuery().eq(Interaction::getElementId, el.getId()));
-            elementMapper.deleteById(el.getId());
+        page.setIsDeleted(1);
+        pageMapper.updateById(page);
+
+        if (logService != null) {
+            logService.record(projectId, currentUser, "PAGE_DELETE",
+                    "删除了画板「" + page.getName() + "」", page.getName());
         }
-        annotationMapper.delete(Wrappers.<Annotation>lambdaQuery().eq(Annotation::getPageId, pageId));
-        pageMapper.deleteById(pageId);
+    }
+
+    /**
+     * 撤销恢复已删除的画板 (Ctrl+Z)
+     */
+    @Transactional
+    public Page restorePage(Long projectId, Long pageId, AuthUser currentUser) {
+        getProject(projectId);
+        Page page = pageMapper.selectById(pageId);
+        if (page == null || !projectId.equals(page.getProjectId())) {
+            return null;
+        }
+        page.setIsDeleted(0);
+        pageMapper.updateById(page);
+
+        if (logService != null) {
+            logService.record(projectId, currentUser, "PAGE_RESTORE",
+                    "撤销恢复了画板「" + page.getName() + "」", page.getName());
+        }
+        return page;
+    }
+
+    /**
+     * 更新画板底图（支持清空或恢复）
+     */
+    @Transactional
+    public void updatePageBackground(Long projectId, Long pageId, String bg) {
+        getProject(projectId);
+        Page page = pageMapper.selectById(pageId);
+        if (page == null || !projectId.equals(page.getProjectId())) {
+            return;
+        }
+        String newBg = (bg != null && !bg.isBlank()) ? bg : null;
+        page.setBackgroundImage(newBg);
+        pageMapper.update(null,
+                Wrappers.<Page>lambdaUpdate()
+                        .eq(Page::getId, pageId)
+                        .set(Page::getBackgroundImage, newBg));
     }
 
     // ==========================================

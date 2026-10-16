@@ -1,6 +1,8 @@
 package com.wireforge.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -14,6 +16,7 @@ public class Page {
     private Long id;
     private Long projectId;
     private String name;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String backgroundImage;
     private Integer canvasWidth;
     private Integer canvasHeight;
@@ -28,5 +31,7 @@ public class Page {
     private String imageHash;
     /** Stitch 式整页直出：AI 生成的完整 HTML/CSS 页面（高保真视图，null=未生成） */
     private String htmlContent;
+    /** 软删除标记：0=正常 1=已删除（支持Ctrl+Z撤回） */
+    private Integer isDeleted;
     private LocalDateTime createdAt;
 }

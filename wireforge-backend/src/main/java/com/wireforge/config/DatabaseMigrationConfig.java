@@ -146,6 +146,9 @@ public class DatabaseMigrationConfig {
                 log.warn("Auto-migration: backfill app_user error: {}", e.getMessage());
             }
 
+            // 支持画板软删除与 Ctrl+Z 撤回
+            addColumnIfNotExists(stmt, "page", "is_deleted", "TINYINT DEFAULT 0 COMMENT '0=正常, 1=已删除'");
+
             log.info("Database schema auto-migrations completed successfully.");
         } catch (Exception e) {
             log.warn("Database schema auto-migration encountered warning: {}", e.getMessage());

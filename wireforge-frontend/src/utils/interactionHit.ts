@@ -32,6 +32,7 @@ export function findInteractionByDomUids(page: Page | null | undefined, uids?: s
   if (!page || !uids?.length) return null
   for (const uid of uids) {
     if (!uid) continue
+    if (page.html_content && !page.html_content.includes(uid)) continue
     for (const el of page.elements || []) {
       if (interactionDomUid(el) !== uid) continue
       const target = el.interaction?.target_page_id
@@ -55,6 +56,13 @@ export function hitInteractionElement(page: Page | null | undefined, x: number, 
     if (!target) continue
     const action = el.interaction?.action
     if (action && action !== 'navigate') continue
+
+    // 防御孤儿热区：若交互绑定了 DOM UID，但当前 HTML 内容中已无该 UID，说明已被删除，绝不触发跳转
+    const domUid = interactionDomUid(el)
+    if (domUid && page.html_content && !page.html_content.includes(domUid)) {
+      continue
+    }
+
     const box = hotspotBox(el)
     if (box.w < 4 || box.h < 4) continue
     if (x < box.x - slop || x > box.x + box.w + slop || y < box.y - slop || y > box.y + box.h + slop) continue
@@ -88,6 +96,7 @@ export function findElementAt(
   if (uids?.length) {
     for (const uid of uids) {
       if (!uid) continue
+      if (page.html_content && !page.html_content.includes(uid)) continue
       for (const el of page.elements || []) {
         if (interactionDomUid(el) === uid) return el
       }
@@ -97,6 +106,8 @@ export function findElementAt(
     let best: Element | null = null
     let bestArea = Infinity
     for (const el of page.elements || []) {
+      const domUid = interactionDomUid(el)
+      if (domUid && page.html_content && !page.html_content.includes(domUid)) continue
       const w = el.width || 0
       const h = el.height || 0
       if (w < 4 || h < 4) continue

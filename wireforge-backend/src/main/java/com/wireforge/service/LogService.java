@@ -131,6 +131,11 @@ public class LogService {
         return record(projectId, userId, userName, userAvatar, actionType, actionDesc, targetName, ipAddress);
     }
 
+    public OperationLog record(Long projectId, AuthUser user, String actionType,
+                               String actionDesc, String targetName) {
+        return record(projectId, user, actionType, actionDesc, targetName, null);
+    }
+
     /**
      * 页面上报的操作日志。操作人一律取当前登录的人，请求体里的身份字段不采信；
      * 项目的创建、修改、删除只由服务器自己记。

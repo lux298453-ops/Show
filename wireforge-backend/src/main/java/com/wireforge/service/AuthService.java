@@ -489,7 +489,17 @@ public class AuthService {
                         .eq(ProjectMember::getProjectId, projectId)
                         .eq(ProjectMember::getUserId, user.getUserId())
         );
-        return member != null && isValidRole(member.getRole()) ? member.getRole() : VIEWER;
+        if (member != null && isValidRole(member.getRole())) {
+            return member.getRole();
+        }
+        Long count = projectMemberMapper.selectCount(
+                Wrappers.<ProjectMember>lambdaQuery().eq(ProjectMember::getProjectId, projectId)
+        );
+        if (count == null || count == 0) {
+            saveOrUpdateProjectMember(projectId, user.getUserId(), user.getUserName(), user.getUserAvatar(), ADMIN);
+            return ADMIN;
+        }
+        return VIEWER;
     }
 
     /**

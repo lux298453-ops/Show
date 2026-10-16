@@ -312,6 +312,31 @@ public class ProjectController {
         return Result.ok(null);
     }
 
+    /**
+     * 撤销恢复已删除的画板 (Ctrl+Z)
+     */
+    @PostMapping("/{id}/pages/{pageId}/restore")
+    public Result<Page> restorePage(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            HttpServletRequest request) {
+        AuthUser currentUser = authService != null ? authService.getCurrentUser(request) : null;
+        Page page = projectService.restorePage(id, pageId, currentUser);
+        return Result.ok(page);
+    }
+
+    /**
+     * 更新画板底图（支持清空或恢复）
+     */
+    @PutMapping("/{id}/pages/{pageId}/background")
+    public Result<Void> updatePageBackground(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @RequestBody(required = false) Map<String, String> body) {
+        projectService.updatePageBackground(id, pageId, body != null ? body.get("backgroundImage") : null);
+        return Result.ok();
+    }
+
     // ==========================================
     // Figma 风格评论系统 (Comment Thread & Reply)
     // ==========================================

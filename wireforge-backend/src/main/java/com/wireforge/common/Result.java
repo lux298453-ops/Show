@@ -16,6 +16,10 @@ public class Result<T> {
         return r;
     }
 
+    public static <T> Result<T> ok() {
+        return ok(null);
+    }
+
     public static <T> Result<T> fail(String message) {
         Result<T> r = new Result<>();
         r.code = 1;

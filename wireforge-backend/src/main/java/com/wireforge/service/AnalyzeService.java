@@ -177,7 +177,8 @@ public class AnalyzeService {
     public String renderTemplateHtml(Page page) {
         List<Page> pages = pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
-                        .eq(Page::getProjectId, page.getProjectId()));
+                        .eq(Page::getProjectId, page.getProjectId())
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         Map<Long, String> nameById = new HashMap<>();
         Map<Long, TemplateHtmlRenderer.PageBundle> bundles = new HashMap<>();
         for (Page p : pages) {
@@ -216,7 +217,8 @@ public class AnalyzeService {
     public int regroupProject(long projectId) {
         List<Page> pages = pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
-                        .eq(Page::getProjectId, projectId));
+                        .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         int groups = 0;
         for (Page page : pages) {
             groups += elementGroupService.groupPage(page);
@@ -595,7 +597,8 @@ public class AnalyzeService {
     public void resolvePendingTargets(long projectId, Map<String, Long> originalNameToId) {
         List<Page> projectPages = pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
-                        .eq(Page::getProjectId, projectId));
+                        .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         if (projectPages.isEmpty()) return;
 
         Map<String, Long> pageIdByName = new HashMap<>();
@@ -656,7 +659,8 @@ public class AnalyzeService {
     public void alignVariantPages(long projectId) {
         List<Page> pages = pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
-                        .eq(Page::getProjectId, projectId));
+                        .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         if (pages.size() < 2) return;
 
         // 1. 同源变体聚类（最长公共子串 LCS 聚类 + 关键词聚类）
@@ -812,6 +816,7 @@ public class AnalyzeService {
         List<Page> pages = pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
                         .eq(Page::getProjectId, projectId)
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
                         .orderByAsc(Page::getSortOrder));
         if (pages.isEmpty()) return 0;
 
@@ -975,7 +980,8 @@ public class AnalyzeService {
         Map<String, Long> pageIdByName = new HashMap<>();
         for (Page p : pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
-                        .eq(Page::getProjectId, page.getProjectId()))) {
+                        .eq(Page::getProjectId, page.getProjectId())
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)))) {
             pageIdByName.put(p.getName(), p.getId());
         }
 

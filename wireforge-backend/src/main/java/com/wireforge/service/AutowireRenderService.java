@@ -76,7 +76,7 @@ public class AutowireRenderService {
 
     /** Called inside the manual-edit transaction; the scheduler runs it only after commit. */
     public void enqueueManual(long projectId, Element element, List<Interaction> oldLines) {
-        List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
+        List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId).and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         String jobId = UUID.randomUUID().toString();
         try {
             jdbc.update("INSERT INTO autowire_render_job(id,project_id,page_ids,bindings_json,status) VALUES(?,?,?,?, 'pending')",
@@ -102,7 +102,7 @@ public class AutowireRenderService {
         try {
             List<Binding> changes = json.readValue(job.get("bindings_json").toString(), new TypeReference<>() {});
             long projectId = ((Number) job.get("project_id")).longValue();
-            List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
+            List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId).and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
             // Refresh persisted binding commands from current relations so a delayed retry cannot restore stale lines.
             List<Binding> refreshed = new ArrayList<>();
             Map<Long,List<NavigationPlanner.Entry>> navigationByPage = new HashMap<>();

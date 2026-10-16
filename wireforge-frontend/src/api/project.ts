@@ -121,6 +121,11 @@ export const projectApi = {
   ) => http.post<any, Page>(`/projects/${id}/pages`, data),
   /** 删除画板/页面 */
   deletePage: (id: number, pageId: number) => http.delete<any, void>(`/projects/${id}/pages/${pageId}`),
+  /** 撤销恢复已删除的画板 (Ctrl+Z) */
+  restorePage: (id: number, pageId: number) => http.post<any, Page>(`/projects/${id}/pages/${pageId}/restore`),
+  /** 更新画板底图（清空或恢复） */
+  updatePageBackground: (id: number, pageId: number, backgroundImage: string | null) =>
+    http.put<any, void>(`/projects/${id}/pages/${pageId}/background`, { backgroundImage: backgroundImage || '' }),
   /** 获取素材库列表 */
   getAssets: () => http.get<any, any[]>('/assets/list'),
   /** 上传一张图片进素材库，category 为 avatars/products/icons/backgrounds/effects/uploads */

@@ -377,7 +377,20 @@ const emit = defineEmits<{
   (e: 'editVector', payload: any): void
   (e: 'hotspot', payload: { x: number; y: number; w: number; h: number; label: string; uid: string }): void
   (e: 'hotspotClear'): void
-  (e: 'elementDeleted', payload: { pageId: number; count: number }): void
+  (e: 'elementDeleted', payload: {
+    pageId: number
+    count: number
+    items?: Array<{
+      uid?: string
+      subUids?: string[]
+      box?: { x: number; y: number; w: number; h: number }
+      elementId?: number
+      text?: string
+      tag?: string
+    }>
+  }): void
+  (e: 'canvasUndo', pageId: number): void
+  (e: 'canvasRedo', pageId: number): void
   (e: 'textChanged', payload: { pageId: number; text: string }): void
 }>()
 
@@ -485,9 +498,9 @@ function sendProtoHotspot() {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-proto-hotspot', on: !!props.protoHotspot }, '*')
 }
 
-function stampElementNav(uid: string, pageName: string | null) {
+function stampElementNav(uid: string, pageName: string | null, silent?: boolean) {
   if (!uid) return
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-set-nav', uid, page: pageName || '' }, '*')
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-set-nav', uid, page: pageName || '', silent: !!silent }, '*')
 }
 
 function removeElementNav(uid?: string | null, targetPageName?: string | null, targetPageId?: number | null, elementId?: number) {
@@ -1033,6 +1046,12 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     .wf-handle:hover {
       background: #0D99FF;
     }
+    body.wf-interactive .wf-handle,
+    body.wf-proto-hotspot .wf-handle,
+    #wf-transform-box.wf-proto-active .wf-handle {
+      display: none !important;
+      pointer-events: none !important;
+    }
     #wf-transform-box { overflow: visible; max-width: none; }
     #wf-dim-badge {
       position: absolute;
@@ -1167,6 +1186,13 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         history.push(html);
         if(history.length > MAX_HIST) history.shift();
         hIdx = history.length - 1;
+        try {
+          window.parent.postMessage({
+            type: 'wf-snapshot-pushed',
+            pageId: PAGE_ID,
+            timestamp: Date.now()
+          }, '*');
+        } catch(err){}
       }catch(e){}
     }
 
@@ -1206,6 +1232,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         scheduleSave();
         publishLayers();
         showToast('已撤回操作 (Ctrl+Z)');
+        try { window.parent.postMessage({ type: 'wf-canvas-undo', pageId: PAGE_ID }, '*'); } catch(e){}
       }catch(e){}
     }
 
@@ -1219,6 +1246,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         scheduleSave();
         publishLayers();
         showToast('已重做 (Ctrl+Y)');
+        try { window.parent.postMessage({ type: 'wf-canvas-redo', pageId: PAGE_ID }, '*'); } catch(e){}
       }
     }
 
@@ -1231,6 +1259,50 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       uid = 'wf-' + Date.now().toString(36) + '-' + uidSeq;
       try { el.setAttribute('data-wf-uid', uid); } catch(e){}
       return uid;
+    }
+
+    function extractDeletedItemInfo(el){
+      if(!el) return null;
+      var uid = '';
+      try {
+        uid = (el.getAttribute && (el.getAttribute('data-wf-uid') || el.getAttribute('id'))) || '';
+      } catch(e) {}
+      var subUids = [];
+      if(el.querySelectorAll){
+        try {
+          var children = el.querySelectorAll('[data-wf-uid], [id], [data-nav], [data-modal]');
+          for(var ci = 0; ci < children.length; ci++){
+            var c = children[ci];
+            var cUid = (c.getAttribute && (c.getAttribute('data-wf-uid') || c.getAttribute('id'))) || '';
+            if(cUid && subUids.indexOf(cUid) === -1) subUids.push(cUid);
+          }
+        } catch(e) {}
+      }
+      var r = null;
+      try { r = el.getBoundingClientRect ? el.getBoundingClientRect() : null; } catch(e) {}
+      var box = r ? {
+        x: Math.round(r.left + (window.scrollX || 0)),
+        y: Math.round(r.top + (window.scrollY || 0)),
+        w: Math.round(r.width),
+        h: Math.round(r.height)
+      } : { x: 0, y: 0, w: 0, h: 0 };
+      var rawText = '';
+      try {
+        rawText = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('alt') || '').replace(/\s+/g, ' ').trim();
+      } catch(e) {}
+      var elemId = undefined;
+      try {
+        var elIdStr = el.getAttribute ? (el.getAttribute('data-wf-element-id') || el.getAttribute('data-element-id')) : null;
+        if(elIdStr) elemId = parseInt(elIdStr, 10);
+      } catch(e) {}
+      return {
+        uid: uid,
+        subUids: subUids,
+        box: box,
+        elementId: elemId,
+        text: rawText.slice(0, 30),
+        tag: (el.tagName || '').toLowerCase()
+      };
     }
 
     function isLayerLocked(el){
@@ -2329,20 +2401,16 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         b.id = 'wf-transform-box';
         b.setAttribute('data-wf-inject', 'true');
 
-        var dirs = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+        var dirs = ['nw', 'ne', 'se', 'sw'];
         var cursors = {
-          nw: 'nwse-resize', n: 'ns-resize', ne: 'nesw-resize', e: 'ew-resize',
-          se: 'nwse-resize', s: 'ns-resize', sw: 'nesw-resize', w: 'ew-resize'
+          nw: 'nwse-resize', ne: 'nesw-resize',
+          se: 'nwse-resize', sw: 'nesw-resize'
         };
         var positions = {
           nw: 'left:-3px;top:-3px;',
-          n:  'left:calc(50% - 3px);top:-3px;',
           ne: 'right:-3px;top:-3px;',
-          e:  'right:-3px;top:calc(50% - 3px);',
           se: 'right:-3px;bottom:-3px;',
-          s:  'left:calc(50% - 3px);bottom:-3px;',
-          sw: 'left:-3px;bottom:-3px;',
-          w:  'left:-3px;top:calc(50% - 3px);'
+          sw: 'left:-3px;bottom:-3px;'
         };
 
         dirs.forEach(function(dir){
@@ -2595,14 +2663,13 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
 
     function layoutHandles(box, w, h){
       var handles = box.querySelectorAll('.wf-handle');
-      var compact = w < 56 || h < 36;
       for(var i = 0; i < handles.length; i++){
         var dir = handles[i].getAttribute('data-dir') || '';
-        // Small objects still need corner handles; only omit crowded edge handles.
-        var hide = compact && dir.length === 1;
-        if(!hide && w < 72 && (dir === 'n' || dir === 's')) hide = true;
-        if(!hide && h < 48 && (dir === 'e' || dir === 'w')) hide = true;
-        handles[i].style.display = hide ? 'none' : 'block';
+        if(PROTO_HOTSPOT){
+          handles[i].style.display = 'none';
+          continue;
+        }
+        handles[i].style.display = 'block';
         if(dir.length === 2){
           var gapX = w < 16 ? 8 : 3;
           var gapY = h < 16 ? 8 : 3;
@@ -2735,11 +2802,43 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         updateTransformBox(selectedEl);
         notifySelectedElementInfo(selectedEl);
         publishSelection();
+        if(PROTO_HOTSPOT && selectedEl && selectedEl.isConnected){
+          var hr1 = selectedEl.getBoundingClientRect();
+          var hraw1 = (selectedEl.innerText || selectedEl.getAttribute('aria-label') || selectedEl.getAttribute('alt') || '').replace(/\s+/g, ' ').trim();
+          try {
+            parent.postMessage({
+              type: 'wf-hotspot',
+              pageId: PAGE_ID,
+              x: Math.round(hr1.left + (window.scrollX || 0)),
+              y: Math.round(hr1.top + (window.scrollY || 0)),
+              w: Math.round(hr1.width),
+              h: Math.round(hr1.height),
+              label: hraw1.slice(0, 24),
+              uid: ensureUid(selectedEl)
+            }, '*');
+          } catch(err) {}
+        }
       } else {
         selectedEl = selectedEls[selectedEls.length - 1];
         updateMultiTransformBox();
         notifySelectedElementInfo(selectedEl);
         publishSelection();
+        if(PROTO_HOTSPOT && selectedEl && selectedEl.isConnected){
+          var hrM = selectedEl.getBoundingClientRect();
+          var hrawM = (selectedEl.innerText || selectedEl.getAttribute('aria-label') || selectedEl.getAttribute('alt') || '').replace(/\s+/g, ' ').trim();
+          try {
+            parent.postMessage({
+              type: 'wf-hotspot',
+              pageId: PAGE_ID,
+              x: Math.round(hrM.left + (window.scrollX || 0)),
+              y: Math.round(hrM.top + (window.scrollY || 0)),
+              w: Math.round(hrM.width),
+              h: Math.round(hrM.height),
+              label: hrawM.slice(0, 24),
+              uid: ensureUid(selectedEl)
+            }, '*');
+          } catch(err) {}
+        }
       }
       publishLayers();
     }
@@ -3855,8 +3954,34 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       }
       if(d.type === 'wf-proto-hotspot'){
         PROTO_HOTSPOT = !!d.on;
+        if(document.body){
+          document.body.classList.toggle('wf-proto-hotspot', PROTO_HOTSPOT);
+        }
+        var tb = document.getElementById('wf-transform-box');
+        if(tb){
+          tb.classList.toggle('wf-proto-active', PROTO_HOTSPOT);
+          var tbHandles = tb.querySelectorAll('.wf-handle');
+          for(var thi = 0; thi < tbHandles.length; thi++){
+            tbHandles[thi].style.display = PROTO_HOTSPOT ? 'none' : 'block';
+          }
+        }
         if(!PROTO_HOTSPOT){
           try { parent.postMessage({ type: 'wf-hotspot-clear', pageId: PAGE_ID }, '*'); } catch(err) {}
+        } else if(selectedEl && selectedEl.isConnected){
+          var hrH = selectedEl.getBoundingClientRect();
+          var hrawH = (selectedEl.innerText || selectedEl.getAttribute('aria-label') || selectedEl.getAttribute('alt') || '').replace(/\s+/g, ' ').trim();
+          try {
+            parent.postMessage({
+              type: 'wf-hotspot',
+              pageId: PAGE_ID,
+              x: Math.round(hrH.left + (window.scrollX || 0)),
+              y: Math.round(hrH.top + (window.scrollY || 0)),
+              w: Math.round(hrH.width),
+              h: Math.round(hrH.height),
+              label: hrawH.slice(0, 24),
+              uid: ensureUid(selectedEl)
+            }, '*');
+          } catch(err) {}
         }
         return;
       }
@@ -3872,7 +3997,9 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         } else {
           navEl.removeAttribute('data-nav');
         }
-        scheduleSave();
+        if(!d.silent){
+          scheduleSave();
+        }
         return;
       }
       if(d.type === 'wf-remove-nav'){
@@ -3925,7 +4052,6 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         document.body.style.cursor = EDIT ? 'default' : '';
         document.body.classList.toggle('wf-edit-mode', EDIT);
         if(EDIT){
-          pushSnapshot();
           showToast('微调模式已开启：点击选框缩放/移动，双击改文案，拖入新组件');
         } else {
           deselect();
@@ -4304,10 +4430,12 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         if(selectedEl && selectedEl !== document.body){
           pushSnapshot();
           var toDel = selectedEl;
+          var dInfo = extractDeletedItemInfo(toDel);
           deselect();
           if(toDel.parentNode) toDel.parentNode.removeChild(toDel);
           scheduleSave();
           publishLayers();
+          try { window.parent.postMessage({ type: 'wf-element-deleted', pageId: PAGE_ID, count: 1, items: dInfo ? [dInfo] : [] }, '*'); } catch(e){}
           showToast('已删除元素 (Ctrl+Z 可撤回)');
         }
       }else if(d.type === 'wf-open-asset-picker'){
@@ -4463,10 +4591,12 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         var vEl = findVectorElement(d.elementUid);
         if(vEl && vEl.parentNode){
           pushSnapshot();
+          var dInfo = extractDeletedItemInfo(vEl);
           if(selectedEl === vEl) deselect();
           vEl.parentNode.removeChild(vEl);
           scheduleSave();
           publishLayers();
+          try { window.parent.postMessage({ type: 'wf-element-deleted', pageId: PAGE_ID, count: 1, items: dInfo ? [dInfo] : [] }, '*'); } catch(e){}
         }
       }else if(d.type === 'wf-replace-vector-original'){
         var vEl = findVectorElement(d.elementUid);
@@ -4554,20 +4684,67 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
 
     // 交互连线：鼠标停在组件上时，把这块的位置报给画布，用来画右侧蓝点
     function pickHotspotEl(node){
+      if(!node) return null;
       var el = node;
+
+      // 1. 如果鼠标落在了选中框（#wf-transform-box）或其边框、把手、尺寸徽章上，穿透直接识别为当前选中的元素
+      if(el.id === 'wf-transform-box' || el.id === 'wf-dim-badge' || (el.classList && el.classList.contains('wf-handle')) || (el.closest && el.closest('#wf-transform-box'))){
+        if(selectedEl && selectedEl.isConnected) return selectedEl;
+        if(selectedEls && selectedEls.length > 0 && selectedEls[selectedEls.length - 1].isConnected){
+          return selectedEls[selectedEls.length - 1];
+        }
+        return null;
+      }
+
+      // 2. 如果当前有选中的元素，且光标落在该选中元素或其子节点内部，优先将交互连线绑定到该选中元素
+      if(selectedEl && selectedEl.isConnected && (el === selectedEl || (selectedEl.contains && selectedEl.contains(el)))){
+        return selectedEl;
+      }
+      if(selectedEls && selectedEls.length > 0){
+        var lastSel = selectedEls[selectedEls.length - 1];
+        if(lastSel && lastSel.isConnected && (el === lastSel || (lastSel.contains && lastSel.contains(el)))){
+          return lastSel;
+        }
+      }
+
+      // 3. 逐层向上查找适合建立交互的元素
       var control = null;
       var card = null;
       var viewW = window.innerWidth || 375;
       var viewH = window.innerHeight || 812;
       while(el && el !== document.body && el !== document.documentElement){
-        if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast') return null;
+        if(el.id === 'wf-transform-box' || el.id === 'wf-dim-badge' || (el.classList && el.classList.contains('wf-handle'))){
+          if(selectedEl && selectedEl.isConnected) return selectedEl;
+          if(selectedEls && selectedEls.length > 0 && selectedEls[selectedEls.length - 1].isConnected){
+            return selectedEls[selectedEls.length - 1];
+          }
+          return null;
+        }
+        if(el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast') return null;
         var r = el.getBoundingClientRect();
-        if(r.width >= 18 && r.height >= 14 && r.width <= viewW * 0.96 && r.height <= viewH * 0.7){
+        if(r.width >= 16 && r.height >= 14 && r.width <= viewW * 0.98 && r.height <= viewH * 0.85){
           var tag = (el.tagName || '').toLowerCase();
           var clickable = tag === 'button' || tag === 'a' || tag === 'input' || el.getAttribute('role') === 'button' || el.hasAttribute('data-nav');
-          if(clickable && r.width <= 300 && r.height <= 120) return el;
-          if(!control && r.width <= 260 && r.height <= 88) control = el;
-          if(!card && r.height <= 160) card = el;
+          if(clickable) return el;
+
+          var isComponentOrLayer = el.classList && (
+            el.classList.contains('wf-inserted-component') ||
+            el.classList.contains('wf-card') ||
+            el.classList.contains('wf-box') ||
+            el.classList.contains('wf-container') ||
+            el.classList.contains('wf-btn') ||
+            el.classList.contains('wf-avatar') ||
+            el.classList.contains('wf-text-block') ||
+            el.classList.contains('wf-shape') ||
+            el.classList.contains('wf-vector-shape') ||
+            el.classList.contains('wf-el') ||
+            el.hasAttribute('data-wf-vector') ||
+            el.hasAttribute('data-wf-uid')
+          );
+          if(isComponentOrLayer) return el;
+
+          if(!control && r.width <= 320 && r.height <= 120) control = el;
+          if(!card && r.height <= 400) card = el;
         }
         el = el.parentElement;
       }
@@ -4965,7 +5142,6 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         if(handleLocked) return;
         e.preventDefault();
         e.stopPropagation();
-        pushSnapshot();
 
         var dir = handle.getAttribute('data-dir');
         var scrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
@@ -5024,7 +5200,8 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
             initTop: minT,
             multi: true,
             items: items,
-            el: selectedEl
+            el: selectedEl,
+            hasMoved: false
           };
           return;
         }
@@ -5056,7 +5233,8 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           initR: initL + initW,
           initB: initT + initH,
           el: selectedEl,
-          inners: snapshotInners(selectedEl)
+          inners: snapshotInners(selectedEl),
+          hasMoved: false
         };
         return;
       }
@@ -5105,13 +5283,15 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           return;
         }
         pushSnapshot();
+        var dInfo = extractDeletedItemInfo(toDel);
         deselect();
         if(toDel && toDel.parentNode){
           toDel.parentNode.removeChild(toDel);
           scheduleSave();
+          pushSnapshot();
           publishLayers();
           clearHover();
-          try { window.parent.postMessage({ type: 'wf-element-deleted', count: 1 }, '*'); } catch(e){}
+          try { window.parent.postMessage({ type: 'wf-element-deleted', pageId: PAGE_ID, count: 1, items: dInfo ? [dInfo] : [] }, '*'); } catch(e){}
           showToast('已删除元素 (Ctrl+Z 可撤回)');
         }
         return;
@@ -5211,6 +5391,10 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       if(resizing){
         var dx = e.clientX - resizing.startX;
         var dy = e.clientY - resizing.startY;
+        if(!resizing.hasMoved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)){
+          pushSnapshot();
+          resizing.hasMoved = true;
+        }
         var w = resizing.initW;
         var h = resizing.initH;
         var l = resizing.initLeft;
@@ -5530,15 +5714,18 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     document.addEventListener('mouseup', function(){
       if(resizing){
         var rEl = resizing.el;
-        scheduleSave();
-        if(resizing.multi){
-          showToast('已调整 ' + (resizing.items ? resizing.items.length : selectedEls.length) + ' 个元素尺寸并保存');
-          if(selectedEls.length > 1) updateMultiTransformBox();
-          else if(rEl) updateTransformBox(rEl);
-          if(selectedEl) notifySelectedElementInfo(selectedEl);
-        } else if(rEl){
-          showToast('已调整尺寸: ' + Math.round(rEl.offsetWidth) + ' × ' + Math.round(rEl.offsetHeight) + ' 并保存');
-          notifySelectedElementInfo(rEl);
+        if(resizing.hasMoved){
+          scheduleSave();
+          pushSnapshot();
+          if(resizing.multi){
+            showToast('已调整 ' + (resizing.items ? resizing.items.length : selectedEls.length) + ' 个元素尺寸并保存');
+            if(selectedEls.length > 1) updateMultiTransformBox();
+            else if(rEl) updateTransformBox(rEl);
+            if(selectedEl) notifySelectedElementInfo(selectedEl);
+          } else if(rEl){
+            showToast('已调整尺寸: ' + Math.round(rEl.offsetWidth) + ' × ' + Math.round(rEl.offsetHeight) + ' 并保存');
+            notifySelectedElementInfo(rEl);
+          }
         }
         resizing = null;
       }
@@ -5558,6 +5745,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       if(drag){
         if(drag.hasMoved){
           scheduleSave();
+          pushSnapshot();
           var count = drag.items.length;
           showToast(count > 1 ? ('已更新 ' + count + ' 个元素位置并保存') : '已更新元素位置并保存');
           if(selectedEls.length > 1){
@@ -5593,11 +5781,20 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
 
       var isZ = e.key === 'z' || e.key === 'Z';
       var isY = e.key === 'y' || e.key === 'Y';
-      if((e.ctrlKey || e.metaKey) && isZ && !e.shiftKey && !isEditing){
-        e.preventDefault(); undo(); return;
-      }
-      if((e.ctrlKey || e.metaKey) && (isY || (isZ && e.shiftKey)) && !isEditing){
-        e.preventDefault(); redo(); return;
+      if((e.ctrlKey || e.metaKey) && (isZ || isY) && !isEditing){
+        if(e.repeat) return;
+        var wantUndo = isZ && !e.shiftKey;
+        var wantRedo = isY || (isZ && e.shiftKey);
+        e.preventDefault();
+        try {
+          parent.postMessage({
+            type: 'wf-delegate-undo-redo',
+            wantUndo: wantUndo,
+            wantRedo: wantRedo,
+            pageId: PAGE_ID
+          }, '*');
+        } catch(err) {}
+        return;
       }
 
       if(isEditing) return;
@@ -5705,14 +5902,18 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         }
         pushSnapshot();
         var count = victims.length;
+        var deletedItems = [];
         for(var di = 0; di < victims.length; di++){
           var it = victims[di];
+          var dInfo = extractDeletedItemInfo(it);
+          if(dInfo) deletedItems.push(dInfo);
           if(it && it.parentNode) it.parentNode.removeChild(it);
         }
         deselect();
         scheduleSave();
+        pushSnapshot();
         publishLayers();
-        try { window.parent.postMessage({ type: 'wf-element-deleted', count: count }, '*'); } catch(e){}
+        try { window.parent.postMessage({ type: 'wf-element-deleted', pageId: PAGE_ID, count: count, items: deletedItems }, '*'); } catch(e){}
         showToast('已删除 ' + count + ' 个元素 (按 Ctrl+Z 撤回)');
         return;
       }
@@ -6023,7 +6224,15 @@ function onIframeMessage(e: MessageEvent) {
   } else if (d.type === 'wf-save-dirty') {
     emit('saveDirty', props.page.id)
   } else if (d.type === 'wf-element-deleted') {
-    emit('elementDeleted', { pageId: props.page.id, count: Number((d as any).count) || 1 })
+    emit('elementDeleted', {
+      pageId: Number((d as any).pageId) || props.page.id,
+      count: Number((d as any).count) || 1,
+      items: Array.isArray((d as any).items) ? (d as any).items : []
+    })
+  } else if (d.type === 'wf-canvas-undo') {
+    emit('canvasUndo', Number((d as any).pageId) || props.page.id)
+  } else if (d.type === 'wf-canvas-redo') {
+    emit('canvasRedo', Number((d as any).pageId) || props.page.id)
   } else if (d.type === 'wf-text-changed') {
     emit('textChanged', { pageId: props.page.id, text: String((d as any).text || '') })
   } else if (d.type === 'wf-save-preparation-failed') {

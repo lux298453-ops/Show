@@ -344,8 +344,9 @@
 
       <!-- ===== Right: Infinite Workbench Canvas ===== -->
       <main
-        class="canvas-viewport isolate flex-1 overflow-hidden relative cursor-default"
+        class="canvas-viewport isolate flex-1 overflow-hidden relative cursor-default outline-none"
         ref="viewportRef"
+        tabindex="-1"
         :class="{
           '!cursor-grab': (activeDrawTool === 'hand' || isSpacePressed) && !isAnyDragging,
           '!cursor-grabbing': (activeDrawTool === 'hand' || isSpacePressed) && isAnyDragging,
@@ -531,16 +532,6 @@
                   <span>生成原型图</span>
                 </button>
                 <button
-                  v-if="b.page.html_content"
-                  class="wf-tap p-1 rounded-md text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
-                  :class="{ 'animate-spin pointer-events-none': regeneratingIds.has(b.page.id) }"
-                  title="更新原型预览"
-                  @click.stop="onRegenerateHtml(b.page.id, $event)"
-                  @mousedown.stop
-                >
-                  <RotateCw class="w-3 h-3" />
-                </button>
-                <button
                   v-if="!isViewer"
                   class="wf-tap p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
                   title="删除此画板 (Delete / Backspace)"
@@ -576,6 +567,8 @@
                 @back="onProtoBack"
                 @save-html="onSaveHtml"
                 @element-deleted="handleElementDeleted"
+                @canvas-undo="handleCanvasUndo"
+                @canvas-redo="handleCanvasRedo"
                 @text-changed="handleTextChanged"
                 @save-dirty="markLocalEdit(String(id), $event)"
                 @save-preparation-failed="markLocalEdit(String(id), $event, '无法准备保存内容，请保持本页打开并再次尝试编辑')"
@@ -2290,7 +2283,6 @@ import {
   Maximize2,
   Crosshair,
   Play,
-  RotateCw,
   GripVertical,
   MousePointer,
   Smartphone,
@@ -2323,7 +2315,7 @@ import AnnotationCreateDialog from '../components/AnnotationCreateDialog.vue'
 import type { AutowirePlan, AutowireDecisions, AutowireApplyRequest, AutowireApplyResult, AutowirePreviewRequest } from '../types/autowire'
 import { getFileUrl } from '../api/http'
 import { useProjectTitle } from '../utils/pageTitle'
-import type { Annotation, Element, Page, Prototype, CommentThread, CommentReply } from '../types'
+import type { Annotation, Element, Interaction, Page, Prototype, CommentThread, CommentReply } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
@@ -2781,6 +2773,12 @@ const showFloatingPreview = ref(false)
 const workbenchMode = ref<'design' | 'interactive'>('design')
 
 function setWorkbenchMode(m: 'design' | 'interactive') {
+  if (m === 'interactive') {
+    // 切换到交互模式前，先强制提交保存任何尚未防抖入库的画板微调，确保最新修改绝不丢失
+    for (const ref of Object.values(pageRefs.value)) {
+      try { (ref as any)?.flushPendingSave?.() } catch (e) {}
+    }
+  }
   workbenchMode.value = m
   if (m === 'interactive') {
     if (!activeInteractionPageId.value || !pages.value.some((p) => p.id === activeInteractionPageId.value)) {
@@ -2919,7 +2917,29 @@ function selectCanvasBlock(b: CanvasBlock, additive = false, preserveSelection =
 const htmlSaveVersions = new Map<number, number>()
 const lastPageEditLoggedAt = new Map<number, number>()
 
-function handleElementDeleted(payload: { pageId: number; count: number }) {
+interface ElementDeletionRecord {
+  pageId: number
+  elementId: number
+  interaction: Interaction
+  domUid?: string
+  label?: string
+}
+
+const elementDeletionUndoStack = ref<ElementDeletionRecord[][]>([])
+const elementDeletionRedoStack = ref<ElementDeletionRecord[][]>([])
+
+async function handleElementDeleted(payload: {
+  pageId: number
+  count: number
+  items?: Array<{
+    uid?: string
+    subUids?: string[]
+    box?: { x: number; y: number; w: number; h: number }
+    elementId?: number
+    text?: string
+    tag?: string
+  }>
+}) {
   const page = pages.value.find((p) => p.id === payload.pageId)
   const pageName = page?.name || '画板'
   recordAuditLog({
@@ -2930,6 +2950,180 @@ function handleElementDeleted(payload: { pageId: number; count: number }) {
     pageName,
     details: `在画板「${pageName}」删除了 ${payload.count} 个元素`,
   })
+
+  if (!page || !payload.items || payload.items.length === 0) return
+
+  const toRemoveInteractions: ElementDeletionRecord[] = []
+
+  for (const item of payload.items) {
+    const allUids = new Set<string>()
+    if (item.uid) allUids.add(item.uid)
+    if (item.subUids) {
+      item.subUids.forEach((u) => { if (u) allUids.add(u) })
+    }
+
+    const itemBox = item.box || { x: 0, y: 0, w: 0, h: 0 }
+    const hasValidBox = itemBox.w >= 4 && itemBox.h >= 4
+    const itemCenterX = itemBox.x + itemBox.w / 2
+    const itemCenterY = itemBox.y + itemBox.h / 2
+
+    for (const el of (page.elements || [])) {
+      if (!el.interaction || !el.interaction.target_page_id) continue
+
+      let isMatch = false
+      const elDomUid = interactionDomUid(el)
+
+      // 1. UID 匹配（主 UID 或包含在子元素 UID 中）
+      if (elDomUid && allUids.has(elDomUid)) {
+        isMatch = true
+      }
+
+      // 2. elementId 匹配
+      if (!isMatch && item.elementId && el.id === item.elementId) {
+        isMatch = true
+      }
+
+      // 3. 几何包围盒重叠匹配（防止没有 UID 的历史连线留在空白处）
+      if (!isMatch && hasValidBox) {
+        let elBox = { x: el.x || 0, y: el.y || 0, w: el.width || 0, h: el.height || 0 }
+        if (el.interaction.params) {
+          try {
+            const p = JSON.parse(el.interaction.params)
+            if (p.hit && p.hit.w >= 4) {
+              elBox = {
+                x: Number(p.hit.x) || elBox.x,
+                y: Number(p.hit.y) || elBox.y,
+                w: Number(p.hit.w) || elBox.w,
+                h: Number(p.hit.h) || elBox.h,
+              }
+            }
+          } catch {}
+        }
+        if (elBox.w >= 4 && elBox.h >= 4) {
+          const elCenterX = elBox.x + elBox.w / 2
+          const elCenterY = elBox.y + elBox.h / 2
+          const dist = Math.hypot(elCenterX - itemCenterX, elCenterY - itemCenterY)
+          const xOverlap = Math.max(0, Math.min(itemBox.x + itemBox.w, elBox.x + elBox.w) - Math.max(itemBox.x, elBox.x))
+          const yOverlap = Math.max(0, Math.min(itemBox.y + itemBox.h, elBox.y + elBox.y) - Math.max(itemBox.y, elBox.y))
+          const overlapArea = xOverlap * yOverlap
+          const minArea = Math.min(itemBox.w * itemBox.h, elBox.w * elBox.h)
+          if (dist <= 35 || (minArea > 0 && overlapArea / minArea > 0.4)) {
+            isMatch = true
+          }
+        }
+      }
+
+      if (isMatch) {
+        if (!toRemoveInteractions.some((entry) => entry.elementId === el.id)) {
+          toRemoveInteractions.push({
+            pageId: payload.pageId,
+            elementId: el.id,
+            interaction: { ...el.interaction },
+            domUid: elDomUid || item.uid,
+            label: el.label || item.text || '组件',
+          })
+        }
+      }
+    }
+  }
+
+  if (toRemoveInteractions.length > 0) {
+    elementDeletionUndoStack.value.push(toRemoveInteractions)
+    clearAllRedoStacks()
+
+    for (const record of toRemoveInteractions) {
+      clearStampedNav(record.interaction.params, record.pageId, undefined, record.interaction.target_page_id, record.elementId)
+      if (record.interaction.id) {
+        await projectApi.deleteInteraction(id, record.interaction.id).catch(() => {})
+      } else {
+        await projectApi.saveInteraction(id, {
+          elementId: record.elementId,
+          pageId: record.pageId,
+          targetPageId: null,
+        }).catch(() => {})
+      }
+      const targetEl = page.elements?.find((e) => e.id === record.elementId)
+      if (targetEl) {
+        delete targetEl.interaction
+      }
+    }
+
+    selectedConnIds.value = new Set()
+
+    recordAuditLog({
+      projectId: id,
+      actionType: 'connection_change',
+      changeType: 'delete',
+      actionLabel: '随组件级联删除连线',
+      pageName,
+      details: `组件被删除，已自动清理 ${toRemoveInteractions.length} 条关联交互连线`,
+    })
+
+    ElMessage.info(`已随组件自动移除关联的交互连线 (Ctrl+Z 可恢复)`)
+  }
+}
+
+async function handleCanvasUndo(pageId: number) {
+  if (elementDeletionUndoStack.value.length === 0) return
+  const lastIndex = elementDeletionUndoStack.value.length - 1
+  const records = elementDeletionUndoStack.value[lastIndex]
+  if (!records || records.length === 0 || records[0].pageId !== pageId) {
+    return
+  }
+  elementDeletionUndoStack.value.pop()
+  elementDeletionRedoStack.value.push(records)
+
+  const page = pages.value.find((p) => p.id === pageId)
+  for (const record of records) {
+    await projectApi.saveInteraction(id, {
+      elementId: record.elementId,
+      pageId: record.pageId,
+      targetPageId: record.interaction.target_page_id,
+      triggerType: record.interaction.trigger || 'click',
+      actionType: record.interaction.action || 'navigate',
+      params: record.interaction.params,
+    }).catch(() => {})
+
+    if (page) {
+      const el = page.elements?.find((e) => e.id === record.elementId)
+      if (el) {
+        el.interaction = { ...record.interaction }
+      }
+    }
+  }
+  ElMessage.success(`已联动恢复组件的交互连线`)
+}
+
+async function handleCanvasRedo(pageId: number) {
+  if (elementDeletionRedoStack.value.length === 0) return
+  const lastIndex = elementDeletionRedoStack.value.length - 1
+  const records = elementDeletionRedoStack.value[lastIndex]
+  if (!records || records.length === 0 || records[0].pageId !== pageId) {
+    return
+  }
+  elementDeletionRedoStack.value.pop()
+  elementDeletionUndoStack.value.push(records)
+
+  const page = pages.value.find((p) => p.id === pageId)
+  for (const record of records) {
+    clearStampedNav(record.interaction.params, record.pageId, undefined, record.interaction.target_page_id, record.elementId)
+    if (record.interaction.id) {
+      await projectApi.deleteInteraction(id, record.interaction.id).catch(() => {})
+    } else {
+      await projectApi.saveInteraction(id, {
+        elementId: record.elementId,
+        pageId: record.pageId,
+        targetPageId: null,
+      }).catch(() => {})
+    }
+    if (page) {
+      const el = page.elements?.find((e) => e.id === record.elementId)
+      if (el) {
+        delete el.interaction
+      }
+    }
+  }
+  ElMessage.info(`已联动重做删除交互连线`)
 }
 
 function handleTextChanged(payload: { pageId: number; text: string }) {
@@ -3208,6 +3402,11 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
     currentHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=375"><style>body{margin:0;padding:16px;background:#f8fafc;font-family:sans-serif;}</style></head><body>${currentHtml}\n${wrappedSnippet}</body></html>`
   }
   onSaveHtml({ pageId, html: currentHtml })
+  pageEditUndoStack.value.push({
+    pageId,
+    timestamp: Date.now(),
+  })
+  clearAllRedoStacks()
   showToast(`已将「${itemName}」添加至「${page.name}」`)
 }
 
@@ -3507,6 +3706,7 @@ async function doCreatePage(params: { name: string; width: number; height: numbe
       y: params.y,
       htmlContent: params.htmlContent || defaultHtml,
     })
+    clearAllRedoStacks()
 
     recordAuditLog({
       projectId: id,
@@ -3580,6 +3780,170 @@ async function handleCreateFrameOnCanvas(logicX: number, logicY: number, preset?
   activeDrawTool.value = 'select'
 }
 
+export interface PageDeletionItem {
+  pageId: number
+  type: 'delete_page' | 'clear_html' | 'clear_bg'
+  savedHtml?: string | null
+  savedBg?: string | null
+  pageName?: string
+  overrides?: Record<string, any>
+}
+
+export interface PageDeletionUndoRecord {
+  type: 'single_page' | 'single_block' | 'batch'
+  items: PageDeletionItem[]
+  description: string
+  timestamp?: number
+}
+
+const pageDeletionUndoStack = ref<PageDeletionUndoRecord[]>([])
+const pageDeletionRedoStack = ref<PageDeletionUndoRecord[]>([])
+
+export interface PageEditUndoRecord {
+  pageId: number
+  timestamp: number
+}
+
+const pageEditUndoStack = ref<PageEditUndoRecord[]>([])
+const pageEditRedoStack = ref<PageEditUndoRecord[]>([])
+
+// ===== 连线撤销与重做历史记录栈 (支持 Ctrl+Z / Ctrl+Y) =====
+export interface InteractionHistoryItem {
+  type: 'delete' | 'connect' | 'delete-many'
+  elementId?: number
+  pageId: number
+  targetPageId?: number | null
+  prevTargetPageId?: number | null
+  triggerType: string
+  actionType: string
+  params?: string
+  label: string
+  fromPageName: string
+  toPageName?: string
+  prevToPageName?: string
+  items?: InteractionHistoryItem[]
+  timestamp?: number
+}
+
+const interactionUndoStack = ref<InteractionHistoryItem[]>([])
+const interactionRedoStack = ref<InteractionHistoryItem[]>([])
+
+/**
+ * 产生任何新的写操作时，清空所有 Redo 栈（对齐 Figma 历史分支管理规则：新操作截断所有历史重做，杜绝跨操作类型串扰）
+ */
+function clearAllRedoStacks() {
+  pageDeletionRedoStack.value = []
+  interactionRedoStack.value = []
+  pageEditRedoStack.value = []
+  elementDeletionRedoStack.value = []
+}
+
+async function undoPageDeletion(): Promise<boolean> {
+  if (pageDeletionUndoStack.value.length === 0) return false
+  const record = pageDeletionUndoStack.value.pop()!
+  record.timestamp = Date.now()
+  pageDeletionRedoStack.value.push(record)
+
+  try {
+    for (const item of record.items) {
+      if (!item.pageId) continue
+      if (item.type === 'delete_page') {
+        await projectApi.restorePage(id, item.pageId)
+      } else if (item.type === 'clear_html') {
+        await projectApi.saveHtml(id, item.pageId, item.savedHtml || '')
+        const p = pages.value.find((pg) => pg.id === item.pageId)
+        if (p) p.html_content = item.savedHtml || null
+      } else if (item.type === 'clear_bg') {
+        await projectApi.updatePageBackground(id, item.pageId, item.savedBg || null)
+        const p = pages.value.find((pg) => pg.id === item.pageId)
+        if (p) p.background_image = item.savedBg || ''
+      }
+      if (item.overrides) {
+        Object.assign(pageOverrides.value, item.overrides)
+      }
+    }
+
+    await loadData()
+
+    if (record.items.length === 1) {
+      const pid = record.items[0].pageId
+      focusPage(pid)
+      selectedNodeId.value = pid
+    }
+
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'page_edit',
+      changeType: 'add',
+      actionLabel: '撤回删除画板',
+      pageName: record.items[0]?.pageName || '画板',
+      details: `撤回恢复了：${record.description}`,
+    })
+
+    showToast(`已撤回恢复：${record.description}`)
+    return true
+  } catch (err: any) {
+    // 失败时回滚撤销栈，确保后续按 Ctrl+Z 仍可恢复
+    pageDeletionRedoStack.value.pop()
+    pageDeletionUndoStack.value.push(record)
+    ElMessage.error(`撤回恢复画板失败: ${err?.message || '网络错误'}`)
+    return false
+  }
+}
+
+async function redoPageDeletion(): Promise<boolean> {
+  if (pageDeletionRedoStack.value.length === 0) return false
+  const record = pageDeletionRedoStack.value.pop()!
+  record.timestamp = Date.now()
+  pageDeletionUndoStack.value.push(record)
+
+  try {
+    for (const item of record.items) {
+      if (!item.pageId) continue
+      if (item.type === 'delete_page') {
+        const pageExists = pages.value.some((p) => p.id === item.pageId)
+        if (pageExists) {
+          await projectApi.deletePage(id, item.pageId)
+        }
+      } else if (item.type === 'clear_html') {
+        await projectApi.saveHtml(id, item.pageId, '')
+        const p = pages.value.find((pg) => pg.id === item.pageId)
+        if (p) p.html_content = null
+      } else if (item.type === 'clear_bg') {
+        await projectApi.updatePageBackground(id, item.pageId, null)
+        const p = pages.value.find((pg) => pg.id === item.pageId)
+        if (p) p.background_image = ''
+      }
+    }
+
+    await loadData()
+
+    recordAuditLog({
+      projectId: id,
+      userId: currentUser.value?.id || 'unknown',
+      userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar,
+      actionType: 'page_edit',
+      changeType: 'delete',
+      actionLabel: '重做删除画板',
+      pageName: record.items[0]?.pageName || '画板',
+      details: `重做删除了：${record.description}`,
+    })
+
+    showToast(`已重做删除：${record.description}`)
+    return true
+  } catch (err: any) {
+    // 失败时回滚重做栈
+    pageDeletionUndoStack.value.pop()
+    pageDeletionRedoStack.value.push(record)
+    ElMessage.error(`重做删除画板失败: ${err?.message || '网络错误'}`)
+    return false
+  }
+}
+
 async function confirmBatchDeleteBlocks() {
   if (isViewer.value) {
     ElMessage.warning('只读评审模式下画板已锁定保护，无法删除画板')
@@ -3589,7 +3953,7 @@ async function confirmBatchDeleteBlocks() {
   const count = selectedBlockKeys.value.size
   try {
     await ElMessageBox.confirm(
-      `确定要批量删除已选中的 ${count} 个画板吗？此操作无法撤销。`,
+      `确定要批量删除已选中的 ${count} 个画板吗？（按 Ctrl+Z 可随时撤回恢复）`,
       '批量删除画板确认',
       {
         confirmButtonText: '确定删除',
@@ -3601,13 +3965,24 @@ async function confirmBatchDeleteBlocks() {
 
     const blocksToDelete = blocks.value.filter((b) => selectedBlockKeys.value.has(b.key))
     const pageIds = Array.from(new Set(blocksToDelete.map((b) => b.pageId)))
+    const undoItems: PageDeletionItem[] = []
 
     for (const pid of pageIds) {
       const pageBlocks = blocks.value.filter((b) => b.pageId === pid)
       const selectedForThisPage = blocksToDelete.filter((b) => b.pageId === pid)
 
       if (selectedForThisPage.length >= pageBlocks.length) {
-        // 该页所有画板均被选中，直接删除整页
+        // 该页所有画板均被选中，直接软删除整页
+        undoItems.push({
+          pageId: pid,
+          type: 'delete_page',
+          pageName: selectedForThisPage[0]?.page?.name || `画板 #${pid}`,
+          overrides: {
+            [pid]: pageOverrides.value[pid],
+            [`design-${pid}`]: pageOverrides.value[`design-${pid}`],
+            [`proto-${pid}`]: pageOverrides.value[`proto-${pid}`],
+          },
+        })
         await projectApi.deletePage(id, pid).catch(() => {})
         if (pageOverrides.value[pid]) delete pageOverrides.value[pid]
         if (pageOverrides.value[`design-${pid}`]) delete pageOverrides.value[`design-${pid}`]
@@ -3616,9 +3991,21 @@ async function confirmBatchDeleteBlocks() {
         // 仅选中成对画板中的一个
         for (const sb of selectedForThisPage) {
           if (sb.blockType === 'design') {
-            await projectApi.createElement(id, pid, { action: 'clear_bg' }).catch(() => {})
+            undoItems.push({
+              pageId: pid,
+              type: 'clear_bg',
+              savedBg: sb.page.background_image,
+              pageName: sb.page.name,
+            })
+            await projectApi.updatePageBackground(id, pid, null).catch(() => {})
             sb.page.background_image = ''
           } else if (sb.blockType === 'prototype') {
+            undoItems.push({
+              pageId: pid,
+              type: 'clear_html',
+              savedHtml: sb.page.html_content,
+              pageName: sb.page.name,
+            })
             await projectApi.saveHtml(id, pid, '').catch(() => {})
             sb.page.html_content = null
           }
@@ -3627,6 +4014,16 @@ async function confirmBatchDeleteBlocks() {
       selectedForThisPage.forEach((sb) => {
         delete pageOverrides.value[sb.key]
       })
+    }
+
+    if (undoItems.length > 0) {
+      pageDeletionUndoStack.value.push({
+        type: 'batch',
+        items: undoItems,
+        description: `选中的 ${count} 个画板`,
+        timestamp: Date.now(),
+      })
+      clearAllRedoStacks()
     }
 
     selectedBlockKeys.value = new Set()
@@ -3644,7 +4041,7 @@ async function confirmBatchDeleteBlocks() {
       details: `批量删除了 ${count} 个画板`,
     })
 
-    showToast(`已成功删除选中的 ${count} 个画板`)
+    showToast(`已成功删除选中的 ${count} 个画板 (按 Ctrl+Z 可撤回恢复)`)
     await loadData()
   } catch (err) {
     // 用户取消
@@ -3656,40 +4053,131 @@ async function confirmDeleteBlock(b: CanvasBlock) {
     ElMessage.warning('只读评审模式下画板已锁定保护，无法删除画板')
     return
   }
+  const pageName = b.page.name || b.title
+
   try {
     if (b.blockType === 'design') {
-      await ElMessageBox.confirm(
-        `确定要删除设计稿画板「${b.title}」吗？右侧的原型图将完整保留。`,
-        '删除设计稿确认',
-        { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
-      )
-      // 如果该页有原型，只清空设计稿背景图，保留该页及原型
       if (b.page.html_content) {
-        // 更新数据库背景图为空
-        await projectApi.createElement(id, b.pageId, { action: 'clear_bg' }).catch(() => {})
-        // 前端置空
+        // 成对画板中的设计底图：右侧原型图保留
+        await ElMessageBox.confirm(
+          `确定要删除设计稿「${pageName}」吗？右侧的原型图将完整保留。（按 Ctrl+Z 可随时撤回恢复）`,
+          '删除设计稿确认',
+          {
+            confirmButtonText: '删除设计稿',
+            cancelButtonText: '取消',
+            confirmButtonClass: 'el-button--danger',
+            type: 'warning',
+          }
+        )
+        const savedBg = b.page.background_image
+        pageDeletionUndoStack.value.push({
+          type: 'single_block',
+          items: [{
+            pageId: b.pageId,
+            type: 'clear_bg',
+            savedBg,
+            pageName,
+          }],
+          description: `设计稿「${pageName}」`,
+          timestamp: Date.now(),
+        })
+        clearAllRedoStacks()
+
+        await projectApi.updatePageBackground(id, b.pageId, null).catch(() => {})
         b.page.background_image = ''
-        showToast(`已删除设计稿「${b.title}」，原型图已保留`)
+        showToast(`已删除设计稿「${pageName}」，原型图已完整保留 (Ctrl+Z 可撤回)`)
       } else {
-        // 纯设计稿无原型，直接删除该画板
+        // 纯设计底图无原型：直接删除画板
+        await ElMessageBox.confirm(
+          `确定要删除画板「${pageName}」吗？删除后该画板将被移除。（按 Ctrl+Z 可随时撤回恢复）`,
+          '删除画板确认',
+          {
+            confirmButtonText: '删除画板',
+            cancelButtonText: '取消',
+            confirmButtonClass: 'el-button--danger',
+            type: 'warning',
+          }
+        )
+        pageDeletionUndoStack.value.push({
+          type: 'single_page',
+          items: [{
+            pageId: b.pageId,
+            type: 'delete_page',
+            pageName,
+            overrides: {
+              [b.pageId]: pageOverrides.value[b.pageId],
+              [`design-${b.pageId}`]: pageOverrides.value[`design-${b.pageId}`],
+            },
+          }],
+          description: `画板「${pageName}」`,
+          timestamp: Date.now(),
+        })
+        clearAllRedoStacks()
+
         await projectApi.deletePage(id, b.pageId)
-        showToast(`已删除画板「${b.title}」`)
+        showToast(`已删除画板「${pageName}」(Ctrl+Z 可撤回)`)
       }
     } else {
-      await ElMessageBox.confirm(
-        `确定要删除原型图画板「${b.title}」吗？左侧的设计稿将完整保留。`,
-        '删除原型图确认',
-        { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
-      )
-      // 如果该页有设计稿，只清空原型内容，保留设计稿
+      // blockType === 'prototype'
       if (b.page.background_image) {
+        // 从图片拆分的成对原型图：左侧设计底图完整保留
+        await ElMessageBox.confirm(
+          `确定要删除「${pageName}」的原型图内容吗？左侧的设计稿底图将完整保留。（按 Ctrl+Z 可随时撤回恢复）`,
+          '删除原型图确认',
+          {
+            confirmButtonText: '删除原型图',
+            cancelButtonText: '取消',
+            confirmButtonClass: 'el-button--danger',
+            type: 'warning',
+          }
+        )
+        const savedHtml = b.page.html_content
+        pageDeletionUndoStack.value.push({
+          type: 'single_block',
+          items: [{
+            pageId: b.pageId,
+            type: 'clear_html',
+            savedHtml,
+            pageName,
+          }],
+          description: `原型图「${pageName}」`,
+          timestamp: Date.now(),
+        })
+        clearAllRedoStacks()
+
         await projectApi.saveHtml(id, b.pageId, '')
         b.page.html_content = null
-        showToast(`已删除原型图「${b.title}」，设计稿已保留`)
+        showToast(`已删除「${pageName}」原型图，设计稿已完整保留 (Ctrl+Z 可撤回)`)
       } else {
-        // 纯原型画框（如新建空白画框），直接删除画板
+        // 单开画框 / 自建原型画框（无设计底图）：直接删除画板及其组件和连线
+        await ElMessageBox.confirm(
+          `确定要删除画板「${pageName}」吗？删除后画板及其包含的组件和交互将被移除。（按 Ctrl+Z 可随时撤回恢复）`,
+          '删除画板确认',
+          {
+            confirmButtonText: '删除画板',
+            cancelButtonText: '取消',
+            confirmButtonClass: 'el-button--danger',
+            type: 'warning',
+          }
+        )
+        pageDeletionUndoStack.value.push({
+          type: 'single_page',
+          items: [{
+            pageId: b.pageId,
+            type: 'delete_page',
+            pageName,
+            overrides: {
+              [b.pageId]: pageOverrides.value[b.pageId],
+              [`proto-${b.pageId}`]: pageOverrides.value[`proto-${b.pageId}`],
+            },
+          }],
+          description: `画板「${pageName}」`,
+          timestamp: Date.now(),
+        })
+        clearAllRedoStacks()
+
         await projectApi.deletePage(id, b.pageId)
-        showToast(`已删除画板「${b.title}」`)
+        showToast(`已删除画板「${pageName}」(Ctrl+Z 可撤回)`)
       }
     }
 
@@ -3701,8 +4189,8 @@ async function confirmDeleteBlock(b: CanvasBlock) {
       actionType: 'page_edit',
       changeType: 'delete',
       actionLabel: '删除画板',
-      pageName: b.title,
-      details: `删除了「${b.title}」画板内容`,
+      pageName,
+      details: `删除了「${pageName}」内容`,
     })
 
     await loadData()
@@ -3718,7 +4206,7 @@ async function confirmDeletePage(page: Page) {
   }
   try {
     await ElMessageBox.confirm(
-      `确定要删除画板「${page.name}」吗？删除后画板及其包含的所有组件和交互将被移除。`,
+      `确定要删除画板「${page.name}」吗？删除后画板及其包含的所有组件和交互将被移除。（按 Ctrl+Z 可随时撤回恢复）`,
       '删除画板确认',
       {
         confirmButtonText: '删除画板',
@@ -3727,6 +4215,23 @@ async function confirmDeletePage(page: Page) {
         type: 'warning',
       }
     )
+
+    pageDeletionUndoStack.value.push({
+      type: 'single_page',
+      items: [{
+        pageId: page.id,
+        type: 'delete_page',
+        pageName: page.name,
+        overrides: {
+          [page.id]: pageOverrides.value[page.id],
+          [`design-${page.id}`]: pageOverrides.value[`design-${page.id}`],
+          [`proto-${page.id}`]: pageOverrides.value[`proto-${page.id}`],
+        },
+      }],
+      description: `画板「${page.name}」`,
+      timestamp: Date.now(),
+    })
+    clearAllRedoStacks()
 
     await projectApi.deletePage(id, page.id)
 
@@ -3742,7 +4247,7 @@ async function confirmDeletePage(page: Page) {
       details: `删除了画板「${page.name}」`,
     })
 
-    showToast(`已删除画板「${page.name}」`)
+    showToast(`已删除画板「${page.name}」(按 Ctrl+Z 可撤回恢复)`)
     if (pageOverrides.value[page.id]) delete pageOverrides.value[page.id]
     if (pageOverrides.value[`design-${page.id}`]) delete pageOverrides.value[`design-${page.id}`]
     if (pageOverrides.value[`proto-${page.id}`]) delete pageOverrides.value[`proto-${page.id}`]
@@ -3856,6 +4361,7 @@ async function onGeneratePrototypeForDesign(b: { page: Page; x: number; y: numbe
       y: newY,
       htmlContent: html,
     })
+    clearAllRedoStacks()
 
     showToast(`已成功为「${b.page.name}」在右侧生成独立原型画框！`)
     await loadData()
@@ -4113,6 +4619,52 @@ function clearStampedNav(params?: string | null, pageId?: number, toPageName?: s
     if (elementId) {
       const elementRegex = new RegExp(`(<[^>]+data-wf-element-id=["']${elementId}["'][^>]*?)(\\s+data-(?:nav|modal|action)=["'][^"']*["'])([^>]*>)`, 'gi')
       updated = updated.replace(elementRegex, '$1$3')
+    }
+    if (updated !== sourcePage.html_content) {
+      sourcePage.html_content = updated
+    }
+  }
+}
+
+function restoreStampedNav(params?: string | null, pageId?: number, toPageName?: string, toPageId?: number | null, elementId?: number) {
+  if (!pageId) return
+  if (!toPageName && toPageId) {
+    const targetPage = pages.value.find((p) => p.id === toPageId)
+    if (targetPage) toPageName = targetPage.name
+  }
+  const navVal = toPageName || (toPageId ? String(toPageId) : '')
+  if (!navVal) return
+
+  let domUid: string | null = null
+  try {
+    const parsed = params ? JSON.parse(params) : null
+    if (parsed?.domUid) domUid = String(parsed.domUid)
+  } catch {}
+
+  // 1. 通知画板实时写回 data-nav 导航属性并恢复手型光标（静默模式，不产生二次脏快照）
+  if (domUid) {
+    pageRefs.value[pageId]?.stampElementNav?.(domUid, navVal, true)
+  }
+
+  // 2. 同步更新内存中的 html_content
+  const sourcePage = pages.value.find((p) => p.id === pageId)
+  if (sourcePage && sourcePage.html_content) {
+    let updated = sourcePage.html_content
+    if (domUid) {
+      const escapedUid = domUid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const hasNavRegex = new RegExp(`(<[^>]+data-wf-uid=["']${escapedUid}["'][^>]*?)\\s+data-nav=["'][^"']*["']([^>]*>)`, 'gi')
+      if (hasNavRegex.test(updated)) {
+        updated = updated.replace(hasNavRegex, `$1 data-nav="${navVal}"$2`)
+      } else {
+        const addNavRegex = new RegExp(`(<[^>]+data-wf-uid=["']${escapedUid}["'])([^>]*>)`, 'gi')
+        updated = updated.replace(addNavRegex, `$1 data-nav="${navVal}"$2`)
+      }
+    }
+    if (elementId) {
+      const elementRegex = new RegExp(`(<[^>]+data-wf-element-id=["']${elementId}["'][^>]*?)([^>]*>)`, 'gi')
+      if (!new RegExp(`data-wf-element-id=["']${elementId}["'][^>]*data-nav=`, 'i').test(updated)) {
+        updated = updated.replace(elementRegex, `$1 data-nav="${navVal}"$2`)
+      }
     }
     if (updated !== sourcePage.html_content) {
       sourcePage.html_content = updated
@@ -4699,7 +5251,14 @@ const animationOptions = [
  * 3. 针对按钮附带角标/小文本也指向同目标页的情况，仅保留主按钮，避免多余杂线。
  */
 function getPrimaryInteractiveElements(page: Page): Element[] {
-  const raw = (page.elements || []).filter((e) => e.interaction && e.interaction.target_page_id)
+  const raw = (page.elements || []).filter((e) => {
+    if (!e.interaction || !e.interaction.target_page_id) return false
+    const domUid = interactionDomUid(e)
+    if (domUid && page.html_content && !page.html_content.includes(domUid)) {
+      return false
+    }
+    return true
+  })
   const result: Element[] = []
 
   for (const el of raw) {
@@ -4818,6 +5377,14 @@ function clearSelection() {
   selectedNodeKey.value = null
   selectedElementId.value = null
   selectedConnIds.value = new Set()
+  focusPageId.value = null
+  activeInteractionPageId.value = null
+  activeSelectedElementInfo.value = null
+  selectedDomLayerUid.value = null
+  selectedDomLayerUids.value = []
+  ;(document.activeElement as HTMLElement)?.blur?.()
+  window.focus()
+  viewportRef.value?.focus?.()
 }
 const hoveredNodeId = ref<number | null>(null)
 
@@ -4917,6 +5484,11 @@ const connections = computed<ConnectionItem[]>(() => {
     for (const el of primaryEls) {
       const targetId = el.interaction!.target_page_id
       if (!targetId) continue
+
+      const domUid = interactionDomUid(el)
+      if (domUid && b.page.html_content && !b.page.html_content.includes(domUid)) {
+        continue
+      }
 
       const toNode = nodeMap.get(targetId)
       if (!toNode) continue
@@ -5037,29 +5609,24 @@ function getPageName(pageId?: number | null): string {
   return pages.value.find((p) => p.id === pageId)?.name || '目标画板'
 }
 
-// ===== 连线撤销与重做历史记录栈 (支持 Ctrl+Z / Ctrl+Y) =====
-interface InteractionHistoryItem {
-  type: 'delete' | 'connect' | 'delete-many'
-  elementId?: number
-  pageId: number
-  targetPageId?: number | null
-  prevTargetPageId?: number | null
-  triggerType: string
-  actionType: string
-  params?: string
-  label: string
-  fromPageName: string
-  toPageName?: string
-  prevToPageName?: string
-  items?: InteractionHistoryItem[]
-}
-
-const interactionUndoStack = ref<InteractionHistoryItem[]>([])
-const interactionRedoStack = ref<InteractionHistoryItem[]>([])
+// 仅在切换项目时重置全局撤销/重做栈，项目内部刷新与操作严格保留历史
+watch(
+  () => route.params.id,
+  (newId, oldId) => {
+    if (newId && newId !== oldId) {
+      pageEditUndoStack.value = []
+      pageDeletionUndoStack.value = []
+      interactionUndoStack.value = []
+      elementDeletionUndoStack.value = []
+      clearAllRedoStacks()
+    }
+  }
+)
 
 async function undoInteraction(): Promise<boolean> {
   if (interactionUndoStack.value.length === 0) return false
   const item = interactionUndoStack.value.pop()!
+  item.timestamp = Date.now()
   interactionRedoStack.value.push(item)
 
   try {
@@ -5072,7 +5639,11 @@ async function undoInteraction(): Promise<boolean> {
         actionType: item.actionType,
         params: item.params,
       })
+      restoreStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId, item.elementId)
       await loadData()
+      workbenchMode.value = 'interactive'
+      activeInteractionPageId.value = item.pageId
+      selectedNodeId.value = item.pageId
       selectConnIds([`conn-${item.elementId}-${item.targetPageId}`])
       ElMessage.success(`已撤销删除：已恢复「${item.label} ➔ ${item.toPageName || '目标画板'}」连线`)
       return true
@@ -5086,8 +5657,14 @@ async function undoInteraction(): Promise<boolean> {
           actionType: one.actionType,
           params: one.params,
         })
+        restoreStampedNav(one.params, one.pageId, one.toPageName, one.targetPageId, one.elementId)
       }
       await loadData()
+      workbenchMode.value = 'interactive'
+      if (item.items[0]?.pageId) {
+        activeInteractionPageId.value = item.items[0].pageId
+        selectedNodeId.value = item.items[0].pageId
+      }
       selectConnIds(item.items.map((one) => `conn-${one.elementId}-${one.targetPageId}`))
       ElMessage.success(`已恢复 ${item.items.length} 条连线`)
       return true
@@ -5101,6 +5678,11 @@ async function undoInteraction(): Promise<boolean> {
           actionType: item.actionType,
           params: item.params,
         })
+        restoreStampedNav(item.params, item.pageId, item.prevToPageName, item.prevTargetPageId, item.elementId)
+        await loadData()
+        workbenchMode.value = 'interactive'
+        activeInteractionPageId.value = item.pageId
+        selectedNodeId.value = item.pageId
         selectConnIds([`conn-${item.elementId}-${item.prevTargetPageId}`])
         ElMessage.success(`已撤销连线：已恢复为「${item.label} ➔ ${item.prevToPageName || '原目标画板'}」`)
       } else {
@@ -5111,12 +5693,14 @@ async function undoInteraction(): Promise<boolean> {
           targetPageId: null,
         })
         selectedConnIds.value = new Set()
+        await loadData()
         ElMessage.success(`已撤销新建连线`)
       }
-      await loadData()
       return true
     }
   } catch (err: any) {
+    interactionRedoStack.value.pop()
+    interactionUndoStack.value.push(item)
     ElMessage.error(err?.message || '撤销连线失败')
   }
   return false
@@ -5125,6 +5709,7 @@ async function undoInteraction(): Promise<boolean> {
 async function redoInteraction(): Promise<boolean> {
   if (interactionRedoStack.value.length === 0) return false
   const item = interactionRedoStack.value.pop()!
+  item.timestamp = Date.now()
   interactionUndoStack.value.push(item)
 
   try {
@@ -5161,12 +5746,18 @@ async function redoInteraction(): Promise<boolean> {
         actionType: item.actionType,
         params: item.params,
       })
+      restoreStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId, item.elementId)
       await loadData()
+      workbenchMode.value = 'interactive'
+      activeInteractionPageId.value = item.pageId
+      selectedNodeId.value = item.pageId
       selectConnIds([`conn-${item.elementId}-${item.targetPageId}`])
       ElMessage.success(`已重做连线：「${item.label} ➔ ${item.toPageName || '目标画板'}」`)
       return true
     }
   } catch (err: any) {
+    interactionUndoStack.value.pop()
+    interactionRedoStack.value.push(item)
     ElMessage.error(err?.message || '重做连线失败')
   }
   return false
@@ -5416,8 +6007,9 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
         fromPageName: savedAnchor.pageName,
         toPageName: getPageName(targetId),
         prevToPageName: prevConn ? getPageName(prevConn.toId) : undefined,
+        timestamp: Date.now(),
       })
-      interactionRedoStack.value = []
+      clearAllRedoStacks()
 
       await projectApi.saveInteraction(id, {
         elementId: savedAnchor.elementId,
@@ -5548,8 +6140,9 @@ async function removeConnection(conn: any) {
       label: conn.label || '组件',
       fromPageName: conn.fromPageName || '源页面',
       toPageName: conn.toPageName || '目标页面',
+      timestamp: Date.now(),
     })
-    interactionRedoStack.value = []
+    clearAllRedoStacks()
 
     if (conn.interactionId) {
       await projectApi.deleteInteraction(id, conn.interactionId)
@@ -5609,6 +6202,7 @@ async function removeConnections(conns: ConnectionItem[]) {
     label: conn.label || '组件',
     fromPageName: conn.fromPageName || '源页面',
     toPageName: conn.toPageName || '目标页面',
+    timestamp: Date.now(),
   }))
   interactionUndoStack.value.push({
     type: 'delete-many',
@@ -5618,8 +6212,9 @@ async function removeConnections(conns: ConnectionItem[]) {
     label: `${conns.length} 条连线`,
     fromPageName: '',
     items: snapshots,
+    timestamp: Date.now(),
   })
-  interactionRedoStack.value = []
+  clearAllRedoStacks()
   try {
     for (const conn of conns) {
       clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId, conn.elementId)
@@ -6098,6 +6693,12 @@ function onMouseDown(e: MouseEvent) {
       selectedNodeId.value = null
       selectedNodeKey.value = null
       selectedConnIds.value = new Set()
+      focusPageId.value = null
+      activeInteractionPageId.value = null
+      // 夺回浏览器焦点到全局画布，防止焦点留在某个画板的 iframe 内部
+      ;(document.activeElement as HTMLElement)?.blur?.()
+      window.focus()
+      viewportRef.value?.focus?.()
     }
     if (activeSelectedElementInfo.value && focusPageId.value) {
       iframeForPage(focusPageId.value)?.contentWindow?.postMessage({ type: 'wf-select-uids', uids: [] }, '*')
@@ -6190,6 +6791,9 @@ function onMouseDown(e: MouseEvent) {
             activeInteractionPageId.value = firstBlock.pageId
             showFrameFill(firstBlock.pageId)
           }
+        } else {
+          focusPageId.value = null
+          activeInteractionPageId.value = null
         }
       }
     }
@@ -6205,6 +6809,11 @@ function onMouseDown(e: MouseEvent) {
   if (workbenchMode.value !== 'interactive') {
     selectedBlockKeys.value = new Set()
     selectedNodeId.value = null
+    focusPageId.value = null
+    activeInteractionPageId.value = null
+    ;(document.activeElement as HTMLElement)?.blur?.()
+    window.focus()
+    viewportRef.value?.focus?.()
   }
   isDragging.value = true
   dragStart = { x: e.clientX, y: e.clientY }
@@ -7604,10 +8213,166 @@ async function writePngDataUrlToClipboard(dataUrl: string) {
   }
 }
 
+/** 全局分层撤回逻辑：严格对齐 Figma 单一全局时间线，跨画板平滑自动流转 */
+async function handleGlobalUndo(): Promise<boolean> {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法执行撤回')
+    return false
+  }
+
+  // 清理可能已不存在的画板编辑栈记录
+  while (pageEditUndoStack.value.length > 0) {
+    const topEdit = pageEditUndoStack.value[pageEditUndoStack.value.length - 1]
+    const pageExists = pages.value.some((p) => p.id === topEdit.pageId)
+    if (!pageExists) {
+      pageEditUndoStack.value.pop()
+    } else {
+      break
+    }
+  }
+
+  // 获取三大全局撤销栈顶部的最新操作记录
+  const lastPageDeletion = pageDeletionUndoStack.value[pageDeletionUndoStack.value.length - 1]
+  const lastInteraction = interactionUndoStack.value[interactionUndoStack.value.length - 1]
+  const lastPageEdit = pageEditUndoStack.value[pageEditUndoStack.value.length - 1]
+
+  const tPage = lastPageDeletion?.timestamp || 0
+  const tConn = lastInteraction?.timestamp || 0
+  const tEdit = lastPageEdit?.timestamp || 0
+
+  // 1. 严格按照全局时间线倒序执行撤销（Figma Global Timeline）
+  if (lastPageDeletion || lastInteraction || lastPageEdit) {
+    if (tPage >= tConn && tPage >= tEdit && lastPageDeletion) {
+      return await undoPageDeletion()
+    } else if (tConn >= tPage && tConn >= tEdit && lastInteraction) {
+      return await undoInteraction()
+    } else if (lastPageEdit) {
+      const record = pageEditUndoStack.value.pop()!
+      record.timestamp = Date.now()
+      pageEditRedoStack.value.push(record)
+
+      // 跨画板撤回时平滑将视口平移聚焦到该画板；同画板连续撤回时保持视口稳定
+      if (focusPageId.value !== record.pageId) {
+        focusPage(record.pageId)
+      } else {
+        selectedNodeId.value = record.pageId
+        showFrameFill(record.pageId)
+      }
+      postUndoRedoToFocusPage(record.pageId, 'wf-undo')
+      return true
+    }
+  }
+
+  // 2. 兜底逻辑：若全局时间线已为空，但当前聚焦了画板，向该画板发送一次撤销指令
+  const fallbackPid = focusPageId.value || (activeSelectedElementInfo.value ? selectedNodeId.value : null)
+  if (fallbackPid && mode.value === 'edit') {
+    postUndoRedoToFocusPage(fallbackPid, 'wf-undo')
+    return true
+  }
+
+  return false
+}
+
+/** 全局分层重做逻辑：严格按照 Figma 单一全局时间线执行重做 */
+async function handleGlobalRedo(): Promise<boolean> {
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法执行重做')
+    return false
+  }
+
+  // 清理可能已不存在的画板重做栈记录
+  while (pageEditRedoStack.value.length > 0) {
+    const topEdit = pageEditRedoStack.value[pageEditRedoStack.value.length - 1]
+    const pageExists = pages.value.some((p) => p.id === topEdit.pageId)
+    if (!pageExists) {
+      pageEditRedoStack.value.pop()
+    } else {
+      break
+    }
+  }
+
+  // 清理可能已不存在的画板删除重做记录
+  while (pageDeletionRedoStack.value.length > 0) {
+    const topDeletion = pageDeletionRedoStack.value[pageDeletionRedoStack.value.length - 1]
+    const allDeletedAndMissing = topDeletion.items.every(
+      (item) => item.type === 'delete_page' && !pages.value.some((p) => p.id === item.pageId)
+    )
+    if (allDeletedAndMissing) {
+      pageDeletionRedoStack.value.pop()
+    } else {
+      break
+    }
+  }
+
+  const lastPageRedo = pageDeletionRedoStack.value[pageDeletionRedoStack.value.length - 1]
+  const lastInteractionRedo = interactionRedoStack.value[interactionRedoStack.value.length - 1]
+  const lastPageEditRedo = pageEditRedoStack.value[pageEditRedoStack.value.length - 1]
+
+  const tPage = lastPageRedo?.timestamp || 0
+  const tConn = lastInteractionRedo?.timestamp || 0
+  const tEdit = lastPageEditRedo?.timestamp || 0
+
+  if (lastPageRedo || lastInteractionRedo || lastPageEditRedo) {
+    if (tPage >= tConn && tPage >= tEdit && lastPageRedo) {
+      return await redoPageDeletion()
+    } else if (tConn >= tPage && tConn >= tEdit && lastInteractionRedo) {
+      return await redoInteraction()
+    } else if (lastPageEditRedo) {
+      const record = pageEditRedoStack.value.pop()!
+      record.timestamp = Date.now()
+      pageEditUndoStack.value.push(record)
+
+      if (focusPageId.value !== record.pageId) {
+        focusPage(record.pageId)
+      } else {
+        selectedNodeId.value = record.pageId
+        showFrameFill(record.pageId)
+      }
+      postUndoRedoToFocusPage(record.pageId, 'wf-redo')
+      return true
+    }
+  }
+
+  const fallbackPid = focusPageId.value || (activeSelectedElementInfo.value ? selectedNodeId.value : null)
+  if (fallbackPid && mode.value === 'edit') {
+    postUndoRedoToFocusPage(fallbackPid, 'wf-redo')
+    return true
+  }
+
+  return false
+}
+
 function onSimMessage(ev: MessageEvent) {
   if (!ev.data) return
   if (ev.data.type === 'wf-canvas-mousedown') {
     closeLayerContextMenu()
+    return
+  }
+  if (ev.data.type === 'wf-frame-focus' && ev.data.pageId) {
+    const pid = Number(ev.data.pageId)
+    const b = blocks.value.find((bb) => bb.page.id === pid && (workbenchMode.value === 'interactive' ? bb.blockType === 'prototype' : true)) || blocks.value.find((bb) => bb.page.id === pid)
+    const blockKey = b?.key || (ev.data.blockKey || `proto-${pid}`)
+    onPrototypeFrameFocus(pid, blockKey)
+    return
+  }
+  if (ev.data.type === 'wf-snapshot-pushed' && ev.data.pageId) {
+    const pid = Number(ev.data.pageId)
+    pageEditUndoStack.value.push({
+      pageId: pid,
+      timestamp: Number(ev.data.timestamp) || Date.now(),
+    })
+    if (pageEditUndoStack.value.length > 100) {
+      pageEditUndoStack.value.shift()
+    }
+    clearAllRedoStacks()
+    return
+  }
+  if (ev.data.type === 'wf-delegate-undo-redo') {
+    if (ev.data.wantUndo) {
+      handleGlobalUndo()
+    } else if (ev.data.wantRedo) {
+      handleGlobalRedo()
+    }
     return
   }
   if (ev.data.type === 'wf-tool-key' && ev.data.key === 'H') {
@@ -7920,7 +8685,7 @@ watch(
   },
 )
 
-function onGlobalKeydown(e: KeyboardEvent) {
+async function onGlobalKeydown(e: KeyboardEvent) {
   if (isVectorMode.value) {
     // 矢量编辑模式下，由 VectorDrawOverlay 捕获拦截消费，避免画板被误删或工具状态错乱
     if (['Escape', 'Enter', 'Delete', 'Backspace'].includes(e.key) || ['v', 'l', 'b', 'x', 'e'].includes(e.key.toLowerCase())) {
@@ -8113,42 +8878,27 @@ function onGlobalKeydown(e: KeyboardEvent) {
     return
   }
 
-  // 3. 撤销 / 重做：有选中元素时只向焦点页发 wf-undo/redo；无选中时才走连线撤销栈；回退时也不广播全部 iframe
+  // 3. 撤销 / 重做快捷键 (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z)
   const isZ = e.key === 'z' || e.key === 'Z'
   const isY = e.key === 'y' || e.key === 'Y'
   if ((e.ctrlKey || e.metaKey) && (isZ || isY)) {
+    if (e.repeat) return
     const tag = (document.activeElement?.tagName || '').toLowerCase()
     if (tag === 'input' || tag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
       return
     }
 
-    const focusId = focusPageId.value ?? currentFocusPage.value?.id
     const wantUndo = isZ && !e.shiftKey
     const wantRedo = isY || (isZ && e.shiftKey)
 
-    // 选中了画面里的零件：只撤回这一页里的修改，不碰页面之间的连线
-    if (activeSelectedElementInfo.value && focusId) {
+    if (wantUndo) {
       e.preventDefault()
-      postUndoRedoToFocusPage(focusId, wantUndo ? 'wf-undo' : 'wf-redo')
+      await handleGlobalUndo()
       return
     }
-
-    // 没选中零件时，优先撤回连线
-    if (wantUndo && interactionUndoStack.value.length > 0) {
+    if (wantRedo) {
       e.preventDefault()
-      undoInteraction()
-      return
-    }
-    if (wantRedo && interactionRedoStack.value.length > 0) {
-      e.preventDefault()
-      redoInteraction()
-      return
-    }
-
-    // 没有连线可撤时，只撤回当前这一页，不要把别的画板一起撤掉
-    if (focusId && fineTune.value && mode.value === 'edit') {
-      e.preventDefault()
-      postUndoRedoToFocusPage(focusId, wantUndo ? 'wf-undo' : 'wf-redo')
+      await handleGlobalRedo()
       return
     }
   }
