@@ -98,7 +98,7 @@
       </div>
 
       <!-- Main Logs Timeline -->
-      <div class="flex-1 overflow-y-auto p-5 custom-scrollbar">
+      <div ref="timelineScrollRef" class="flex-1 overflow-y-auto p-5 custom-scrollbar">
         <!-- Loading State -->
         <div v-if="loading" class="py-12 flex flex-col items-center justify-center space-y-3">
           <div class="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
@@ -209,19 +209,40 @@
         </div>
       </div>
 
-      <!-- Drawer Bottom Status Bar -->
-      <div class="px-5 py-3 border-t border-slate-100 dark:border-[#333] bg-slate-50 dark:bg-[#1a1a1a] flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-        <span class="flex items-center gap-1.5">
-          <ShieldAlert class="w-3.5 h-3.5 text-emerald-500" />
-          <span>共 {{ filteredLogs.length }} 条记录</span>
-        </span>
-        <button
-          type="button"
-          class="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-          @click="keyword = ''; selectedActionType = 'all'"
-        >
-          重置筛选
-        </button>
+      <!-- Drawer Bottom Status Bar & Pagination -->
+      <div class="px-5 py-3 border-t border-slate-100 dark:border-[#333] bg-slate-50/90 dark:bg-[#1a1a1a] flex items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+        <div class="flex items-center gap-2 shrink-0">
+          <ShieldAlert class="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+          <span>
+            共 <strong class="text-slate-800 dark:text-slate-200">{{ totalLogs }}</strong> 条
+            <span v-if="totalPages > 1" class="text-slate-400 dark:text-slate-500">（第 {{ currentPage }}/{{ totalPages }} 页）</span>
+            <span v-if="hasActiveFilter" class="text-amber-600 dark:text-amber-400 ml-1 font-medium">（已筛选）</span>
+          </span>
+          <!-- 只要有筛选条件，就常驻提供重置筛选按钮，绝不会因翻页器而隐藏 -->
+          <button
+            v-if="hasActiveFilter"
+            type="button"
+            class="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-0.5 ml-1 font-medium"
+            title="清空搜索词与分类筛选，回到全部记录"
+            @click="resetFilter"
+          >
+            <span>重置筛选</span>
+          </button>
+        </div>
+
+        <!-- Pagination Controls (仅在存在多页时展示分页翻页器，不翻页时不加载后续数据) -->
+        <div v-if="totalPages > 1" class="flex items-center gap-2">
+          <el-pagination
+            :current-page="currentPage"
+            :page-size="pageSize"
+            :total="totalLogs"
+            layout="prev, pager, next"
+            :pager-count="5"
+            size="small"
+            class="audit-pagination"
+            @current-change="handlePageChange"
+          />
+        </div>
       </div>
     </div>
   </el-drawer>
@@ -272,7 +293,8 @@ watch(
   (v) => {
     visible.value = v
     if (v) {
-      loadLogs()
+      currentPage.value = 1
+      loadLogs(1)
     }
   },
   { immediate: true }
@@ -284,7 +306,24 @@ watch(visible, (v) => {
 const loading = ref(false)
 const keyword = ref('')
 const selectedActionType = ref<'all' | AuditActionType | AuditChangeType>('all')
-const workspaceLogs = ref<AuditLogItem[]>([])
+
+// 分页状态管理：默认只加载第1页（最新50条），用户翻页时才触发对应分页的后端请求
+const currentPage = ref(1)
+const pageSize = ref(50)
+const totalLogs = ref(0)
+const totalPages = ref(1)
+const pageRecords = ref<AuditLogItem[]>([])
+const categoryCounts = ref<Record<string, number>>({})
+const timelineScrollRef = ref<HTMLElement | null>(null)
+
+// 是否有激活的筛选条件
+const hasActiveFilter = computed(() => !!keyword.value.trim() || selectedActionType.value !== 'all')
+
+function resetFilter() {
+  keyword.value = ''
+  selectedActionType.value = 'all'
+}
+
 const isWorkspace = computed(() => props.scope === 'workspace')
 const drawerTitle = computed(() => (isWorkspace.value ? '项目操作日志' : '项目操作审计日志'))
 const drawerSubtitle = computed(() =>
@@ -293,10 +332,9 @@ const drawerSubtitle = computed(() =>
     : '记录团队全量画板变更、连线调整与评论讨论'
 )
 
-// 画布里仍看当前项目的内存记录；主页看跨项目的项目级记录
-const logs = computed<AuditLogItem[]>(() => {
-  if (isWorkspace.value) return workspaceLogs.value
-  return props.projectId == null ? [] : (auditLogsMap.value[props.projectId] || [])
+// 当前页的审计记录列表（由服务端全量搜索与分类过滤直接提供）
+const filteredLogs = computed<AuditLogItem[]>(() => {
+  return pageRecords.value
 })
 
 const actionFilters = [
@@ -317,13 +355,47 @@ const workspaceFilters = [
 
 const visibleFilters = computed(() => (isWorkspace.value ? workspaceFilters : actionFilters))
 
-async function loadLogs() {
+// 关键词搜索服务端全量防抖联动
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(keyword, () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadLogs(1)
+  }, 300)
+})
+
+// 分类切换直接触发服务端全量检索
+watch(selectedActionType, () => {
+  currentPage.value = 1
+  loadLogs(1)
+})
+
+async function loadLogs(page = 1) {
   loading.value = true
   try {
+    currentPage.value = page
+    const kw = keyword.value.trim()
+    const at = selectedActionType.value
     if (isWorkspace.value) {
-      workspaceLogs.value = await fetchProjectOperationLogs()
+      const res = await fetchProjectOperationLogs(page, pageSize.value, kw, at)
+      pageRecords.value = res.records
+      totalLogs.value = res.total
+      totalPages.value = res.pages
+      if (res.counts && Object.keys(res.counts).length > 0) {
+        categoryCounts.value = { ...categoryCounts.value, ...res.counts }
+      }
     } else if (props.projectId != null) {
-      await fetchAuditLogs(props.projectId)
+      const res = await fetchAuditLogs(props.projectId, page, pageSize.value, kw, at)
+      pageRecords.value = res.records
+      totalLogs.value = res.total
+      totalPages.value = res.pages
+      if (res.counts && Object.keys(res.counts).length > 0) {
+        categoryCounts.value = { ...categoryCounts.value, ...res.counts }
+      }
+    }
+    if (timelineScrollRef.value) {
+      timelineScrollRef.value.scrollTo({ top: 0, behavior: 'smooth' })
     }
   } catch (err: any) {
     ElMessage.error(err.message || '加载操作日志失败')
@@ -332,8 +404,13 @@ async function loadLogs() {
   }
 }
 
+function handlePageChange(newPage: number) {
+  if (newPage === currentPage.value) return
+  loadLogs(newPage)
+}
+
 async function handleRefresh() {
-  await loadLogs()
+  await loadLogs(currentPage.value)
   ElMessage.success('操作日志已刷新最新变动')
 }
 
@@ -341,31 +418,14 @@ function close() {
   visible.value = false
 }
 
-function getCountForType(type: 'all' | AuditActionType | AuditChangeType) {
-  if (type === 'all') return logs.value.length
-  if (isWorkspace.value) return logs.value.filter((l) => l.changeType === type).length
-  return logs.value.filter((l) => l.actionType === type).length
+// 分类徽标读取后端全局真实统计总数，绝不因当前页无对应类型而误显为 0
+function getCountForType(type: string) {
+  if (categoryCounts.value[type] !== undefined) {
+    return categoryCounts.value[type]
+  }
+  if (type === 'all') return totalLogs.value
+  return 0
 }
-
-const filteredLogs = computed(() => {
-  let list = logs.value
-  if (selectedActionType.value !== 'all') {
-    list = isWorkspace.value
-      ? list.filter((l) => l.changeType === selectedActionType.value)
-      : list.filter((l) => l.actionType === selectedActionType.value)
-  }
-  if (keyword.value.trim()) {
-    const q = keyword.value.trim().toLowerCase()
-    list = list.filter(
-      (l) =>
-        l.userName.toLowerCase().includes(q) ||
-        (l.pageName && l.pageName.toLowerCase().includes(q)) ||
-        l.details.toLowerCase().includes(q) ||
-        l.actionLabel.toLowerCase().includes(q)
-    )
-  }
-  return list
-})
 
 function getChangeBadgeClass(changeType: AuditChangeType) {
   switch (changeType) {
@@ -467,7 +527,8 @@ function onAvatarError(e: Event) {
 
 onMounted(() => {
   if (props.modelValue) {
-    loadLogs()
+    currentPage.value = 1
+    loadLogs(1)
   }
 })
 </script>
@@ -489,5 +550,20 @@ onMounted(() => {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+.audit-pagination :deep(.btn-prev),
+.audit-pagination :deep(.btn-next),
+.audit-pagination :deep(.el-pager li) {
+  background: transparent !important;
+  font-size: 11px;
+  min-width: 22px;
+  height: 22px;
+  line-height: 22px;
+  border-radius: 6px;
+}
+.audit-pagination :deep(.el-pager li.is-active) {
+  background: #2563eb !important;
+  color: #fff !important;
+  font-weight: 700;
 }
 </style>

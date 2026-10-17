@@ -155,8 +155,28 @@ export function recordAuditLog(item: RecordAuditLogParam): AuditLogItem {
   return fullItem
 }
 
-export async function fetchProjectOperationLogs(): Promise<AuditLogItem[]> {
-  const res = await fetch(apiUrl('/logs/projects?page=1&pageSize=100'), {
+export interface AuditLogPageResult {
+  records: AuditLogItem[]
+  total: number
+  page: number
+  pageSize: number
+  pages: number
+  counts?: Record<string, number>
+}
+
+export async function fetchProjectOperationLogs(
+  page: number = 1,
+  pageSize: number = 50,
+  keyword?: string,
+  actionType?: string
+): Promise<AuditLogPageResult> {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('pageSize', String(pageSize))
+  if (keyword && keyword.trim()) params.set('keyword', keyword.trim())
+  if (actionType && actionType !== 'all') params.set('actionType', actionType)
+
+  const res = await fetch(apiUrl(`/logs/projects?${params.toString()}`), {
     headers: getAuthHeaders(),
   })
   const data = await res.json().catch(() => ({}))
@@ -164,25 +184,62 @@ export async function fetchProjectOperationLogs(): Promise<AuditLogItem[]> {
     throw new Error(data?.message || '加载项目操作日志失败')
   }
   const records = data.data?.records
-  return Array.isArray(records) ? records.map(mapBackendLogToItem) : []
+  const remoteList = Array.isArray(records) ? records.map(mapBackendLogToItem) : []
+  return {
+    records: remoteList,
+    total: Number(data.data?.total) || remoteList.length,
+    page: Number(data.data?.page) || page,
+    pageSize: Number(data.data?.pageSize) || pageSize,
+    pages: Number(data.data?.pages) || 1,
+    counts: data.data?.counts || {},
+  }
 }
 
-export async function fetchAuditLogs(projectId: number): Promise<AuditLogItem[]> {
+export async function fetchAuditLogs(
+  projectId: number,
+  page: number = 1,
+  pageSize: number = 50,
+  keyword?: string,
+  actionType?: string
+): Promise<AuditLogPageResult> {
   try {
-    const res = await fetch(apiUrl(`/projects/${projectId}/logs?page=1&pageSize=100`), {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(pageSize))
+    if (keyword && keyword.trim()) params.set('keyword', keyword.trim())
+    if (actionType && actionType !== 'all') params.set('actionType', actionType)
+
+    const res = await fetch(apiUrl(`/projects/${projectId}/logs?${params.toString()}`), {
       headers: getAuthHeaders(),
     })
     if (res.ok) {
       const data = await res.json()
       if (data && data.code === 0 && data.data && Array.isArray(data.data.records)) {
         const remoteList = data.data.records.map(mapBackendLogToItem)
-        auditLogsMap.value[projectId] = remoteList
-        return remoteList
+        if (page === 1 && !keyword && (!actionType || actionType === 'all')) {
+          auditLogsMap.value[projectId] = remoteList
+        }
+        return {
+          records: remoteList,
+          total: Number(data.data.total) || remoteList.length,
+          page: Number(data.data.page) || page,
+          pageSize: Number(data.data.pageSize) || pageSize,
+          pages: Number(data.data.pages) || 1,
+          counts: data.data.counts || {},
+        }
       }
     }
   } catch (err) {
     console.warn('[AuditLog] Failed to fetch remote audit logs', err)
   }
-  return auditLogsMap.value[projectId] || []
+  const fallbackList = auditLogsMap.value[projectId] || []
+  return {
+    records: fallbackList,
+    total: fallbackList.length,
+    page: 1,
+    pageSize: 50,
+    pages: 1,
+    counts: {},
+  }
 }
 

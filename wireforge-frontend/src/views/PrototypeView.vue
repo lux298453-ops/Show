@@ -1506,11 +1506,19 @@
       <header class="h-14 px-6 bg-slate-900/60 border-b border-white/10 flex items-center justify-between text-white shrink-0">
         <div class="flex items-center gap-3">
           <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-            <Smartphone class="w-4 h-4" />
+            <Smartphone v-if="isCurrentPhone" class="w-4 h-4" />
+            <Monitor v-else class="w-4 h-4" />
           </div>
           <div>
-            <div class="text-sm font-bold tracking-tight">真机原型预览</div>
-            <div class="text-xs text-slate-300">当前页面: {{ previewPage?.name }}</div>
+            <div class="text-sm font-bold tracking-tight">
+              {{ isCurrentPhone ? '真机原型预览' : '网页画板说明预览' }}
+            </div>
+            <div class="text-xs text-slate-300 flex items-center gap-2">
+              <span>当前页面: {{ previewPage?.name }}</span>
+              <span v-if="!isCurrentPhone && previewPage" class="text-slate-400 font-mono text-[11px]">
+                ({{ previewPage.canvas_width || 1440 }} × {{ previewPage.canvas_height || 900 }})
+              </span>
+            </div>
           </div>
         </div>
 
@@ -1529,7 +1537,7 @@
               {{ simAnnList.length }}
             </span>
           </button>
-          <el-select v-model="previewPageId" size="default" style="width: 170px" placeholder="切换页面">
+          <el-select v-model="previewPageId" size="default" style="width: 170px" placeholder="切换页面" @change="backStack = []">
             <el-option v-for="p in pages" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
           <button
@@ -1550,244 +1558,356 @@
         </div>
       </header>
 
-      <!-- Simulator Device Frame Area -->
-      <div class="flex-1 overflow-hidden flex items-center justify-center p-4 select-none" ref="deviceRef">
-        <div class="flex items-center justify-center gap-6 max-h-full max-w-full">
-          <!-- Clean Mobile Viewport Frame Container -->
-          <div :style="{ width: `${375 * phoneScale}px`, height: `${previewHeight * phoneScale}px`, position: 'relative' }" class="shrink-0">
-            <div :style="{ transform: `scale(${phoneScale})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }">
-              <div
-                class="relative w-[375px] bg-white rounded-[32px] shadow-[0_25px_70px_-15px_rgba(0,0,0,0.8),0_0_0_10px_#1e293b,0_0_0_11px_rgba(255,255,255,0.12)] border border-slate-700/60 overflow-hidden"
-                :class="slideClass"
-                :style="{ height: `${previewHeight}px` }"
-              >
-                <!-- Back Navigator Floating Action Button -->
-                <button
-                  v-if="previewPageId !== pages[0]?.id"
-                  class="wf-tap absolute top-4 left-4 z-30 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-md border border-white/20"
-                  title="返回上一页"
-                  @click="onProtoBack"
+      <!-- Unified Artboard & Spec Drawer Split View (统一左侧 3/4 舞台呈现画板 + 右侧 1/4 业务说明栏) -->
+      <div class="flex-1 overflow-hidden flex flex-row min-h-0 relative select-none" ref="deviceRef">
+        <!-- 左侧 3/4 独立视窗舞台 (支持防截顶平滑滚动与 iframe 滚轮穿透) -->
+        <div
+          ref="webScrollRef"
+          class="preview-scroll relative overflow-auto h-full transition-all duration-300 custom-scrollbar flex-1 min-w-0"
+          :class="showSimDrawer ? 'w-3/4' : 'w-full'"
+        >
+          <!-- 悬浮返回上一页按钮 (仅当存在前驱跳转历史时出现) -->
+          <button
+            v-if="!isCurrentPhone && canProtoBack"
+            class="wf-tap fixed top-20 left-8 z-30 w-10 h-10 rounded-full bg-slate-900/85 hover:bg-slate-900 text-white flex items-center justify-center transition-all cursor-pointer shadow-xl border border-white/20 backdrop-blur-md"
+            title="返回上一页"
+            @click="onProtoBack"
+          >
+            <ArrowLeft class="w-5 h-5" />
+          </button>
+
+          <!-- 真实物理像素安全居中/防截顶外层 -->
+          <div class="preview-center">
+            <!-- A. 移动端画板 (isCurrentPhone: 宽度 <= 480px)：以精致 iPhone 外壳在左侧 3/4 舞台正中央呈现 -->
+            <div
+              v-if="isCurrentPhone"
+              class="shrink-0 transition-all duration-300 relative"
+              :style="{ width: `${375 * phoneScale}px`, height: `${previewHeight * phoneScale}px` }"
+            >
+              <div :style="{ transform: `scale(${phoneScale})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }">
+                <div
+                  class="relative w-[375px] bg-white rounded-[32px] shadow-[0_25px_70px_-15px_rgba(0,0,0,0.8),0_0_0_10px_#1e293b,0_0_0_11px_rgba(255,255,255,0.12)] border border-slate-700/60 overflow-hidden"
+                  :class="slideClass"
+                  :style="{ height: `${previewHeight}px` }"
                 >
-                  <ArrowLeft class="w-4 h-4" />
-                </button>
+                  <!-- 手机端内部悬浮返回上一页按钮 (仅当存在前驱跳转历史时出现) -->
+                  <button
+                    v-if="canProtoBack"
+                    class="wf-tap absolute top-4 left-4 z-30 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-md border border-white/20"
+                    title="返回上一页"
+                    @click="onProtoBack"
+                  >
+                    <ArrowLeft class="w-4 h-4" />
+                  </button>
 
-                <!-- Page View Container (Zero Padding, Full Screen Fit) -->
-                <div ref="simScrollRef" class="w-[375px] overflow-x-hidden overflow-y-auto custom-scrollbar relative" :style="{ height: `${previewHeight}px` }">
-                  <div class="relative min-w-[375px]">
-                    <PageCanvas
-                      v-if="previewPage"
-                      :page="previewPage"
-                      :all-pages="pages"
-                      :show-wireframe="true"
-                      :show-design="false"
-                      :show-annotations="false"
-                      :edit-mode="false"
-                      :interactive="true"
-                      :box-w="0"
-                      :gap="0"
-                      @navigate="onProtoNavigate"
-                      @back="onProtoBack"
-                      @miss-click="onPreviewHotspotClick"
-                      @save-html="onSaveHtml"
-                      @element-click="handlePreviewClick"
-                    />
+                  <!-- 内部 Page View 滚动容器 -->
+                  <div ref="simScrollRef" class="w-[375px] overflow-x-hidden overflow-y-auto custom-scrollbar relative" :style="{ height: `${previewHeight}px` }">
+                    <div class="relative min-w-[375px]">
+                      <PageCanvas
+                        v-if="previewPage"
+                        :page="previewPage"
+                        :all-pages="pages"
+                        :show-wireframe="true"
+                        :show-design="false"
+                        :show-annotations="false"
+                        :edit-mode="false"
+                        :interactive="true"
+                        :box-w="0"
+                        :gap="0"
+                        @navigate="onProtoNavigate"
+                        @back="onProtoBack"
+                        @miss-click="onPreviewHotspotClick"
+                        @save-html="onSaveHtml"
+                        @element-click="handlePreviewClick"
+                      />
 
-                    <!-- 业务说明元素聚光灯与呼吸高亮框 -->
-                    <transition name="fade-fast">
-                      <div
-                        v-if="displaySpotlightRect"
-                        class="sim-spotlight-box pointer-events-none absolute z-40 transition-all duration-300"
-                        :style="{
-                          left: `${displaySpotlightRect.x - 3}px`,
-                          top: `${displaySpotlightRect.y - 3}px`,
-                          width: `${displaySpotlightRect.width + 6}px`,
-                          height: `${displaySpotlightRect.height + 6}px`,
-                        }"
-                      >
-                        <!-- 呼吸外发光光圈 -->
-                        <div class="absolute inset-0 rounded-lg border-2 sim-breathing-ring"></div>
-                        <!-- 轻微脉冲半透明高亮填充 -->
-                        <div class="absolute inset-0 rounded-lg bg-emerald-400/15 animate-pulse"></div>
-                        <!-- 悬浮组件名称标签 -->
+                      <!-- 业务说明元素聚光灯与呼吸高亮框 -->
+                      <transition name="fade-fast">
                         <div
-                          class="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-lg flex items-center gap-1.5 whitespace-nowrap"
+                          v-if="displaySpotlightRect"
+                          class="sim-spotlight-box pointer-events-none absolute z-40 transition-all duration-300"
+                          :style="{
+                            left: `${displaySpotlightRect.x - 3}px`,
+                            top: `${displaySpotlightRect.y - 3}px`,
+                            width: `${displaySpotlightRect.width + 6}px`,
+                            height: `${displaySpotlightRect.height + 6}px`,
+                          }"
                         >
-                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-200 animate-ping"></span>
-                          <span>{{ activeSimAnnTitle || '目标组件' }}</span>
+                          <!-- 呼吸外发光光圈 -->
+                          <div class="absolute inset-0 rounded-lg border-2 sim-breathing-ring"></div>
+                          <!-- 轻微脉冲半透明高亮填充 -->
+                          <div class="absolute inset-0 rounded-lg bg-emerald-400/15 animate-pulse"></div>
+                          <!-- 悬浮组件名称标签 -->
+                          <div
+                            class="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-lg flex items-center gap-1.5 whitespace-nowrap"
+                          >
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-200 animate-ping"></span>
+                            <span>{{ activeSimAnnTitle || '目标组件' }}</span>
+                          </div>
                         </div>
-                      </div>
-                    </transition>
+                      </transition>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Simulator Spec Drawer (业务说明与交互逻辑侧栏) -->
-          <transition name="drawer-fade">
+            <!-- B. 网页端大画板 (!isCurrentPhone: 宽度 > 480px)：1:1 真实物理像素画板在左侧 3/4 舞台正中央呈现 -->
             <div
-              v-if="showSimDrawer"
-              class="w-80 md:w-96 rounded-2xl bg-slate-900/90 backdrop-blur-2xl border border-slate-700/70 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col text-slate-200 overflow-hidden shrink-0 transition-all duration-300"
-              :style="{ height: `${Math.min(previewHeight * phoneScale, 780)}px` }"
+              v-else
+              class="relative bg-white rounded-xl shadow-[0_20px_60px_-10px_rgba(0,0,0,0.85),0_0_0_1px_rgba(255,255,255,0.12)] border border-slate-700/60 overflow-hidden shrink-0 transition-all duration-300"
+              :class="slideClass"
+              :style="{
+                width: `${previewPage?.canvas_width || 1440}px`,
+                height: `${previewHeight}px`,
+              }"
             >
-              <!-- Drawer Header -->
-              <div class="px-4 py-3.5 border-b border-slate-800/80 bg-slate-950/50 flex items-center justify-between shrink-0">
-                <div class="flex items-center gap-2.5 overflow-hidden">
-                  <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-                    <FileText class="w-4 h-4" />
-                  </div>
-                  <div class="overflow-hidden">
-                    <div class="text-xs font-bold text-white truncate flex items-center gap-2">
-                      <span class="truncate">{{ previewPage?.name || '页面说明' }}</span>
-                      <span
-                        v-if="previewPage && pageEditingConflicts[previewPage.id]?.conflict"
-                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-semibold animate-pulse border border-amber-500/30 shrink-0"
-                        :title="`${pageEditingConflicts[previewPage.id]?.editor || '其他成员'} 正在编辑该页面`"
-                      >
-                        <AlertTriangle class="w-3 h-3 text-amber-400" />
-                        <span>当前有人正在编辑</span>
-                      </span>
-                    </div>
-                    <div class="text-[11px] text-slate-300 flex items-center gap-2">
-                      <span>{{ simAnnList.length }} 条说明</span>
-                      <span v-if="simInteractiveCount" class="text-emerald-400 font-medium">{{ simInteractiveCount }} 项交互</span>
-                    </div>
+              <PageCanvas
+                v-if="previewPage"
+                :page="previewPage"
+                :all-pages="pages"
+                :show-wireframe="true"
+                :show-design="false"
+                :show-annotations="false"
+                :edit-mode="false"
+                :interactive="true"
+                :box-w="0"
+                :gap="0"
+                @navigate="onProtoNavigate"
+                @back="onProtoBack"
+                @miss-click="onPreviewHotspotClick"
+                @save-html="onSaveHtml"
+                @element-click="handlePreviewClick"
+              />
+
+              <!-- 业务说明元素聚光灯与呼吸高亮框 (网页大画板完全复用精准聚光定位) -->
+              <transition name="fade-fast">
+                <div
+                  v-if="displaySpotlightRect"
+                  class="sim-spotlight-box pointer-events-none absolute z-40 transition-all duration-300"
+                  :style="{
+                    left: `${displaySpotlightRect.x - 3}px`,
+                    top: `${displaySpotlightRect.y - 3}px`,
+                    width: `${displaySpotlightRect.width + 6}px`,
+                    height: `${displaySpotlightRect.height + 6}px`,
+                  }"
+                >
+                  <!-- 呼吸外发光光圈 -->
+                  <div class="absolute inset-0 rounded-lg border-2 sim-breathing-ring"></div>
+                  <!-- 轻微脉冲半透明高亮填充 -->
+                  <div class="absolute inset-0 rounded-lg bg-emerald-400/15 animate-pulse"></div>
+                  <!-- 悬浮组件名称标签 -->
+                  <div
+                    class="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-lg flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-200 animate-ping"></span>
+                    <span>{{ activeSimAnnTitle || '目标组件' }}</span>
                   </div>
                 </div>
-                <button type="button" class="p-1.5 text-emerald-400 hover:bg-white/10 rounded-lg" title="添加说明标注" :disabled="!previewPage" @click="openAnnotationCreate(previewPage?.id)"><Plus class="w-4 h-4" /></button>
+              </transition>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧 1/4 业务说明与交互逻辑侧栏 (不贴右侧边，上下留 32px 间距与左侧画板对齐) -->
+        <transition name="drawer-fade">
+          <div
+            v-if="showSimDrawer"
+            class="w-1/4 min-w-[320px] max-w-[420px] h-full py-8 pr-8 flex flex-col shrink-0 select-none transition-all duration-300"
+          >
+            <div
+              class="w-full h-full rounded-2xl bg-white/95 backdrop-blur-2xl border border-slate-200/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.06)] flex flex-col text-slate-800 overflow-hidden shrink-0"
+            >
+            <!-- Drawer Header -->
+            <div class="px-4 py-3.5 border-b border-slate-200/80 bg-slate-50/90 flex items-center justify-between shrink-0">
+              <div class="flex items-center gap-2.5 overflow-hidden">
+                <div class="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0 shadow-2xs">
+                  <FileText class="w-4 h-4" />
+                </div>
+                <div class="overflow-hidden">
+                  <div class="text-xs font-bold text-slate-900 truncate flex items-center gap-2">
+                    <span class="truncate">{{ previewPage?.name || '页面说明' }}</span>
+                    <span
+                      v-if="previewPage && pageEditingConflicts[previewPage.id]?.conflict"
+                      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold animate-pulse border border-amber-200 shrink-0"
+                      :title="`${pageEditingConflicts[previewPage.id]?.editor || '其他成员'} 正在编辑该页面`"
+                    >
+                      <AlertTriangle class="w-3 h-3 text-amber-500" />
+                      <span>当前有人正在编辑</span>
+                    </span>
+                  </div>
+                  <div class="text-[11px] text-slate-500 flex items-center gap-2">
+                    <span>{{ simAnnList.length }} 条说明</span>
+                    <span v-if="simInteractiveCount" class="text-emerald-600 font-semibold">{{ simInteractiveCount }} 项交互</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1">
                 <button
-                  class="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                  type="button"
+                  class="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                  title="添加说明标注"
+                  :disabled="!previewPage"
+                  @click="openAnnotationCreate(previewPage?.id)"
+                >
+                  <Plus class="w-4 h-4" />
+                </button>
+                <button
+                  class="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
                   title="收起说明抽屉"
                   @click="showSimDrawer = false"
                 >
                   <X class="w-4 h-4" />
                 </button>
               </div>
+            </div>
 
-              <!-- Drawer List Content -->
-              <div class="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
-                <div v-if="!simAnnList.length" class="h-44 flex flex-col items-center justify-center text-slate-300 text-xs">
-                  <FileText class="w-8 h-8 opacity-30 mb-2" />
-                  <span>当前页面暂无业务逻辑标注说明</span>
-                  <button type="button" class="mt-3 text-emerald-400 hover:text-emerald-300" @click="openAnnotationCreate(previewPage?.id)">添加第一条说明</button>
+            <!-- Drawer List Content -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar-light bg-slate-50/50">
+              <div v-if="!simAnnList.length" class="h-44 flex flex-col items-center justify-center text-slate-400 text-xs">
+                <FileText class="w-8 h-8 opacity-30 mb-2 text-slate-400" />
+                <span>当前页面暂无业务逻辑标注说明</span>
+                <button type="button" class="mt-3 text-emerald-600 hover:text-emerald-700 font-medium" @click="openAnnotationCreate(previewPage?.id)">添加第一条说明</button>
+              </div>
+              <div
+                v-for="item in simAnnList"
+                :key="item.id"
+                :id="`sim-ann-${item.id}`"
+                class="p-3.5 rounded-xl border transition-all cursor-pointer relative group select-none shadow-xs"
+                :class="[
+                  selectedSimAnnId === item.id 
+                    ? 'bg-emerald-50/90 border-emerald-500 ring-2 ring-emerald-500/20 shadow-[0_4px_16px_rgba(16,185,129,0.12)]' 
+                    : 'bg-white hover:bg-slate-50 border-slate-200/90 hover:border-slate-300',
+                  dragOverAnnId === item.id ? 'border-t-2 !border-t-emerald-500 -translate-y-0.5' : '',
+                  draggingAnnId === item.id ? 'opacity-40 scale-[0.98]' : '',
+                  editingSimAnnId === item.id ? '!border-emerald-500 !bg-white ring-2 ring-emerald-500/20' : ''
+                ]"
+                :draggable="editingSimAnnId !== item.id"
+                @dblclick.stop="openAnnotationEditById(item.id)"
+                title="双击修改或删除说明"
+                @dragstart="onSimDragStart($event, item.id)"
+                @dragover.prevent="onSimDragOver($event, item.id)"
+                @dragleave="onSimDragLeave($event, item.id)"
+                @drop.prevent="onSimDrop($event, item.id)"
+                @dragend="onSimDragEnd"
+                @click="onSimCardClick(item)"
+              >
+                <!-- Edit Form Mode -->
+                <div v-if="editingSimAnnId === item.id" class="space-y-2.5 text-xs" @click.stop @mousedown.stop>
+                  <div class="space-y-1">
+                    <span class="text-[10px] font-semibold text-slate-500">组件标题</span>
+                    <input
+                      ref="simTitleInputRef"
+                      v-model="editSimTitle"
+                      class="w-full bg-white border border-slate-300 focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 outline-none focus:ring-1 focus:ring-emerald-400 transition-all"
+                      placeholder="组件名称..."
+                      @keydown.enter.prevent="saveSimEdit(item)"
+                      @keydown.esc.stop="cancelSimEdit"
+                    />
+                  </div>
+                  <div class="space-y-1">
+                    <span class="text-[10px] font-semibold text-slate-500">业务说明详情</span>
+                    <textarea
+                      v-model="editSimText"
+                      rows="3"
+                      class="w-full bg-white border border-slate-300 focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 outline-none focus:ring-1 focus:ring-emerald-400 leading-relaxed resize-none transition-all"
+                      placeholder="业务说明详情..."
+                      @keydown.ctrl.enter.prevent="saveSimEdit(item)"
+                      @keydown.esc.stop="cancelSimEdit"
+                    ></textarea>
+                  </div>
+                  <div class="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      class="px-2.5 py-1 rounded-md text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium transition-colors cursor-pointer"
+                      @click.stop="cancelSimEdit"
+                    >
+                      取消
+                    </button>
+                    <button
+                      class="px-3 py-1 rounded-md text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors cursor-pointer shadow-xs"
+                      @click.stop="saveSimEdit(item)"
+                    >
+                      保存
+                    </button>
+                  </div>
                 </div>
-                <div
-                  v-for="item in simAnnList"
-                  :key="item.id"
-                  :id="`sim-ann-${item.id}`"
-                  class="p-3 rounded-xl border transition-all cursor-pointer relative group select-none"
-                  :class="[
-                    selectedSimAnnId === item.id 
-                      ? 'bg-emerald-950/50 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.25)] ring-1 ring-emerald-500/50' 
-                      : 'bg-slate-800/50 hover:bg-slate-800/80 border-slate-700/50 hover:border-slate-600/80',
-                    dragOverAnnId === item.id ? 'border-t-2 !border-t-emerald-400 -translate-y-0.5' : '',
-                    draggingAnnId === item.id ? 'opacity-40 scale-[0.98]' : '',
-                    editingSimAnnId === item.id ? '!border-emerald-500/90 !bg-slate-800' : ''
-                  ]"
-                  :draggable="editingSimAnnId !== item.id"
-                  @dblclick.stop="openAnnotationEditById(item.id)"
-                  title="双击修改或删除说明"
-                  @dragstart="onSimDragStart($event, item.id)"
-                  @dragover.prevent="onSimDragOver($event, item.id)"
-                  @dragleave="onSimDragLeave($event, item.id)"
-                  @drop.prevent="onSimDrop($event, item.id)"
-                  @dragend="onSimDragEnd"
-                  @click="onSimCardClick(item)"
-                >
-                  <!-- Edit Form Mode -->
-                  <div v-if="editingSimAnnId === item.id" class="space-y-2 text-xs" @click.stop @mousedown.stop>
-                    <div class="space-y-1">
-                      <span class="text-[10px] font-semibold text-slate-300">组件标题</span>
-                      <input
-                        ref="simTitleInputRef"
-                        v-model="editSimTitle"
-                        class="w-full bg-slate-900 border border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-300 outline-none focus:ring-1 focus:ring-emerald-400"
-                        placeholder="组件名称..."
-                        @keydown.enter.prevent="saveSimEdit(item)"
-                        @keydown.esc.stop="cancelSimEdit"
-                      />
-                    </div>
-                    <div class="space-y-1">
-                      <span class="text-[10px] font-semibold text-slate-300">业务说明详情</span>
-                      <textarea
-                        v-model="editSimText"
-                        rows="3"
-                        class="w-full bg-slate-900 border border-emerald-500 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-300 outline-none focus:ring-1 focus:ring-emerald-400 leading-relaxed resize-none"
-                        placeholder="业务说明详情..."
-                        @keydown.ctrl.enter.prevent="saveSimEdit(item)"
-                        @keydown.esc.stop="cancelSimEdit"
-                      ></textarea>
-                    </div>
-                    <div class="flex items-center justify-end gap-2 pt-1">
-                      <button
-                        class="px-2.5 py-1 rounded-md text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium transition-colors cursor-pointer"
-                        @click.stop="cancelSimEdit"
+
+                <!-- Normal Display Mode -->
+                <template v-else>
+                  <!-- Card Header -->
+                  <div class="flex items-center justify-between gap-2 mb-1.5">
+                    <div class="flex items-center gap-1.5 overflow-hidden flex-1">
+                      <!-- Drag Handle Indicator -->
+                      <span
+                        class="text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 -ml-1 rounded hover:bg-slate-100"
+                        title="长按或拖拽调整顺序"
+                        @mousedown.stop
                       >
-                        取消
+                        <GripVertical class="w-3.5 h-3.5" />
+                      </span>
+                      <span class="font-bold text-xs text-slate-900 truncate" :title="item.title">{{ item.title }}</span>
+                    </div>
+                    <!-- Interaction Capsule -->
+                    <span
+                      v-if="item.interactionType"
+                      class="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs"
+                      :class="{
+                        'bg-teal-50 text-teal-700 border border-teal-200': item.interactionType === 'navigate',
+                        'bg-sky-50 text-sky-700 border border-sky-200': item.interactionType === 'modal',
+                        'bg-amber-50 text-amber-700 border border-amber-200': item.interactionType === 'toggle',
+                      }"
+                    >
+                      <span>{{ item.interactionType === 'navigate' ? '跳转' : (item.interactionType === 'modal' ? '弹窗' : '切换') }}</span>
+                    </span>
+                  </div>
+
+                  <!-- Target Destination Hint -->
+                  <div
+                    v-if="item.interactionTarget"
+                    class="mb-2 px-2 py-1 rounded-md bg-slate-100/90 border border-slate-200/80 text-[11px] text-slate-600 flex items-center justify-between gap-1"
+                  >
+                    <span class="truncate text-slate-500">去向: <span class="text-emerald-700 font-semibold">{{ item.interactionTarget }}</span></span>
+                    <ChevronRight v-if="item.interactionType === 'navigate'" class="w-3 h-3 text-emerald-600 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+
+                  <!-- Description Text -->
+                  <div class="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap word-break font-normal">
+                    {{ item.text || '暂无业务描述' }}
+                  </div>
+
+                  <!-- Interactive Action Tip -->
+                  <div v-if="item.elementId" class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                    <span class="text-slate-400 group-hover:text-emerald-600 transition-colors flex items-center gap-1">
+                      <Crosshair class="w-3 h-3" />
+                      <span>点击聚光灯查看目标位置</span>
+                    </span>
+                    <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        class="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
+                        title="编辑说明"
+                        @click.stop="openAnnotationEditById(item.id)"
+                      >
+                        <Pencil class="w-3 h-3" />
                       </button>
                       <button
-                        class="px-3 py-1 rounded-md text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors cursor-pointer shadow-xs"
-                        @click.stop="saveSimEdit(item)"
+                        class="p-1 text-rose-400 hover:text-rose-600 rounded hover:bg-rose-50"
+                        title="删除说明"
+                        @click.stop="deleteAnnotation(item.id)"
                       >
-                        保存
+                        <Trash2 class="w-3 h-3" />
                       </button>
                     </div>
                   </div>
-
-                  <!-- Normal Display Mode -->
-                  <template v-else>
-                    <!-- Card Header -->
-                    <div class="flex items-center justify-between gap-2 mb-1.5">
-                      <div class="flex items-center gap-1.5 overflow-hidden flex-1">
-                        <!-- Drag Handle Indicator -->
-                        <span
-                          class="text-slate-300 hover:text-white cursor-grab active:cursor-grabbing shrink-0 transition-colors p-0.5 -ml-1 rounded"
-                          title="长按或拖拽调整顺序"
-                          @mousedown.stop
-                        >
-                          <GripVertical class="w-3.5 h-3.5" />
-                        </span>
-                        <span class="font-semibold text-xs text-white truncate" :title="item.title">{{ item.title }}</span>
-                      </div>
-                      <!-- Interaction Capsule -->
-                      <span
-                        v-if="item.interactionType"
-                        class="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs"
-                        :class="{
-                          'bg-teal-500/20 text-teal-300 border border-teal-500/30': item.interactionType === 'navigate',
-                          'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30': item.interactionType === 'modal',
-                          'bg-amber-500/20 text-amber-300 border border-amber-500/30': item.interactionType === 'toggle',
-                        }"
-                      >
-                        <span>{{ item.interactionType === 'navigate' ? '跳转' : (item.interactionType === 'modal' ? '弹窗' : '切换') }}</span>
-                      </span>
-                    </div>
-
-                    <!-- Target Destination Hint -->
-                    <div
-                      v-if="item.interactionTarget"
-                      class="mb-2 px-2 py-1 rounded-md bg-slate-950/40 border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between gap-1"
-                    >
-                      <span class="truncate text-slate-300">去向: <span class="text-emerald-300 font-medium">{{ item.interactionTarget }}</span></span>
-                      <ChevronRight v-if="item.interactionType === 'navigate'" class="w-3 h-3 text-emerald-400 shrink-0 group-hover:translate-x-0.5 transition-transform" />
-                    </div>
-
-                    <!-- Description Text -->
-                    <div class="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap word-break">
-                      {{ item.text || '暂无业务描述' }}
-                    </div>
-
-                    <!-- Interactive Action Tip -->
-                    <div v-if="item.interactionType === 'navigate'" class="mt-2 pt-1.5 border-t border-slate-700/40 text-[10px] text-emerald-400/80 flex items-center gap-1">
-                      <Compass class="w-3 h-3" />
-                      <span>在真机屏幕中点击该组件即可体验跳转</span>
-                    </div>
-                  </template>
-                </div>
+                  <div v-if="item.interactionType === 'navigate'" class="mt-2 pt-1.5 border-t border-slate-100 text-[10px] text-emerald-600 flex items-center gap-1 font-medium">
+                    <Compass class="w-3 h-3" />
+                    <span>在画板中点击该组件即可体验跳转</span>
+                  </div>
+                </template>
               </div>
             </div>
-          </transition>
+          </div>
         </div>
+      </transition>
       </div>
 
       <!-- Floating Toast Notifications -->
@@ -2286,6 +2406,8 @@ import {
   GripVertical,
   MousePointer,
   Smartphone,
+  Monitor,
+  Globe,
   Sparkles,
   X,
   FileText,
@@ -4300,10 +4422,10 @@ const mode = ref<'edit' | 'preview'>('edit')
 const deviceRef = ref<HTMLElement | null>(null)
 const phoneScale = ref(1)
 function updatePhoneScale() {
-  const el = deviceRef.value
+  const el = webScrollRef.value || deviceRef.value
   if (!el) return
-  const PAD_X = 32
-  const PAD_Y = 48
+  const PAD_X = 64
+  const PAD_Y = 64
   const availW = Math.max(80, el.clientWidth - PAD_X)
   const availH = Math.max(80, el.clientHeight - PAD_Y)
   const phoneW = 375
@@ -4582,6 +4704,7 @@ async function onReanalyzeChecked(event?: MouseEvent) {
   }
 }
 const backStack = ref<number[]>([])
+const canProtoBack = computed(() => backStack.value.length > 0)
 
 function onPreviewHotspotClick(pos?: { x: number; y: number; uids?: string[] }) {
   if (!pos || !previewPage.value) return
@@ -7070,7 +7193,15 @@ const previewPage = computed<Page | null>(() => {
   return pages.value.find((p) => p.id === previewPageId.value) || null
 })
 
-// 预览手机壳高度：忠实呈现页面的设计稿画布高度，杜绝人为裁切导致底部内容丢失
+/** 竖屏、宽度不超过 480 的画板按手机展示。更宽或横过来的画板默认以 1:1 真实物理像素在左侧 3/4 呈现。 */
+function isPhoneArtboard(page: Page | null) {
+  const w = page?.canvas_width || 375
+  const h = page?.canvas_height || 812
+  return w <= 480 && h > w
+}
+const isCurrentPhone = computed(() => isPhoneArtboard(previewPage.value))
+
+// 预览高度：忠实呈现页面的设计稿画布高度，杜绝人为裁切导致底部内容丢失
 const previewHeight = computed(() => {
   if (!previewPage.value) return 812
   return previewPage.value.canvas_height || 812
@@ -7079,13 +7210,20 @@ const previewHeight = computed(() => {
 watch(previewPageId, () => {
   selectedSimAnnId.value = null
   clearSpotlightInIframe()
-  nextTick(updatePhoneScale)
+  nextTick(() => {
+    updatePhoneScale()
+    if (webScrollRef.value) {
+      webScrollRef.value.scrollTop = 0
+      webScrollRef.value.scrollLeft = 0
+    }
+  })
 })
 
 function openPreview() {
   if (!pages.value.length) return
   const active = focusPageId.value || pages.value[0].id
   previewPageId.value = active
+  backStack.value = []
   mode.value = 'preview'
 }
 
@@ -7887,7 +8025,12 @@ function onVectorToolbarCancel() {
 }
 
 const simScrollRef = ref<HTMLElement | null>(null)
+const webScrollRef = ref<HTMLElement | null>(null)
 const showSimDrawer = ref(true)
+watch(showSimDrawer, () => {
+  nextTick(updatePhoneScale)
+  setTimeout(updatePhoneScale, 320)
+})
 const selectedSimAnnId = ref<number | null>(null)
 
 // 按页面持久化记录业务说明卡片的排序偏好
@@ -8100,21 +8243,40 @@ const displaySpotlightRect = computed(() => {
   return null
 })
 
-function scrollToSimulatorY(y: number, height: number) {
-  if (!simScrollRef.value) return
-  nextTick(() => {
+function scrollToSimulatorY(y: number, height: number, x?: number, width?: number) {
+  if (isCurrentPhone.value) {
     if (!simScrollRef.value) return
-    const targetTop = Math.max(0, y - previewHeight.value / 2 + height / 2)
-    simScrollRef.value.scrollTo({
-      top: targetTop,
-      behavior: 'smooth',
+    nextTick(() => {
+      if (!simScrollRef.value) return
+      const targetTop = Math.max(0, y - previewHeight.value / 2 + height / 2)
+      simScrollRef.value.scrollTo({
+        top: targetTop,
+        behavior: 'smooth',
+      })
     })
-  })
+  } else {
+    if (!webScrollRef.value) return
+    nextTick(() => {
+      if (!webScrollRef.value) return
+      const containerH = webScrollRef.value.clientHeight || 800
+      const containerW = webScrollRef.value.clientWidth || 1200
+      // 桌面画板在 preview-center 中的内边距 32px
+      const topOffset = 32 + y
+      const leftOffset = 32 + (x ?? 0)
+      const targetTop = Math.max(0, topOffset - containerH / 2 + height / 2)
+      const targetLeft = Math.max(0, leftOffset - containerW / 2 + (width ?? 0) / 2)
+      webScrollRef.value.scrollTo({
+        top: targetTop,
+        left: targetLeft,
+        behavior: 'smooth',
+      })
+    })
+  }
 }
 
 function scrollToElementInSimulator(el: Element | null) {
   if (!el) return
-  scrollToSimulatorY(el.y, el.height)
+  scrollToSimulatorY(el.y, el.height, el.x, el.width)
 }
 
 function sendSpotlightToIframe(item: SimAnnItem, targetEl: Element | null) {
@@ -8344,6 +8506,20 @@ async function handleGlobalRedo(): Promise<boolean> {
 
 function onSimMessage(ev: MessageEvent) {
   if (!ev.data) return
+  if (ev.data.type === 'wf-preview-wheel') {
+    if (isCurrentPhone.value) {
+      if (simScrollRef.value) {
+        simScrollRef.value.scrollTop += Number(ev.data.dy) || 0
+        simScrollRef.value.scrollLeft += Number(ev.data.dx) || 0
+      }
+    } else {
+      if (webScrollRef.value) {
+        webScrollRef.value.scrollTop += Number(ev.data.dy) || 0
+        webScrollRef.value.scrollLeft += Number(ev.data.dx) || 0
+      }
+    }
+    return
+  }
   if (ev.data.type === 'wf-canvas-mousedown') {
     closeLayerContextMenu()
     return
@@ -8385,7 +8561,7 @@ function onSimMessage(ev: MessageEvent) {
     if (!selectedSimAnnId.value || !activeSimAnn.value) return
     if (ev.data.pageId && ev.data.pageId !== previewPageId.value) return
     activeSpotlightRect.value = ev.data.rect
-    scrollToSimulatorY(ev.data.rect.y, ev.data.rect.height)
+    scrollToSimulatorY(ev.data.rect.y, ev.data.rect.height, ev.data.rect.x, ev.data.rect.width)
   }
   if (ev.data.type === 'wf-element-copied' && ev.data.data) {
     copiedElementCount.value = ev.data.data.items?.length || 1
@@ -9326,6 +9502,39 @@ onUnmounted(() => {
       background: rgba(255, 255, 255, 0.25);
     }
   }
+}
+
+.custom-scrollbar-light {
+  &::-webkit-scrollbar {
+    width: 5px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.14);
+    border-radius: 999px;
+    &:hover {
+      background: rgba(0, 0, 0, 0.25);
+    }
+  }
+}
+
+.preview-scroll {
+  overflow: auto;
+  height: 100%;
+}
+
+.preview-center {
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  box-sizing: border-box;
+  min-width: 100%;
+  min-height: 100%;
+  width: max-content;
+  height: max-content;
+  padding: 32px;
 }
 
 /* 业务说明联动：模拟器组件呼吸发光外圈 */

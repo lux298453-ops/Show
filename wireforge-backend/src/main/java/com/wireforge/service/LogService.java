@@ -35,8 +35,16 @@ public class LogService {
         LambdaQueryWrapper<OperationLog> wrapper = Wrappers.lambdaQuery();
         wrapper.eq(OperationLog::getProjectId, projectId);
 
-        if (StringUtils.hasText(actionType)) {
-            wrapper.eq(OperationLog::getActionType, actionType.trim());
+        if (StringUtils.hasText(actionType) && !"all".equalsIgnoreCase(actionType.trim())) {
+            String at = actionType.trim().toLowerCase();
+            switch (at) {
+                case "page_edit" -> wrapper.likeRight(OperationLog::getActionType, "PAGE_");
+                case "connection_change" -> wrapper.likeRight(OperationLog::getActionType, "INTERACTION_");
+                case "comment_discuss" -> wrapper.likeRight(OperationLog::getActionType, "COMMENT_");
+                case "member_change" -> wrapper.likeRight(OperationLog::getActionType, "MEMBER_");
+                case "project_manage" -> wrapper.likeRight(OperationLog::getActionType, "PROJECT_");
+                default -> wrapper.eq(OperationLog::getActionType, actionType.trim().toUpperCase());
+            }
         }
 
         if (StringUtils.hasText(keyword)) {
@@ -52,12 +60,25 @@ public class LogService {
         Page<OperationLog> pageParam = new Page<>(safePage, safeSize);
         IPage<OperationLog> pageResult = operationLogMapper.selectPage(pageParam, wrapper);
 
+        Map<String, Long> counts = new LinkedHashMap<>();
+        try {
+            counts.put("all", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getProjectId, projectId)));
+            counts.put("page_edit", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getProjectId, projectId).likeRight(OperationLog::getActionType, "PAGE_")));
+            counts.put("connection_change", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getProjectId, projectId).likeRight(OperationLog::getActionType, "INTERACTION_")));
+            counts.put("comment_discuss", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getProjectId, projectId).likeRight(OperationLog::getActionType, "COMMENT_")));
+            counts.put("member_change", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getProjectId, projectId).likeRight(OperationLog::getActionType, "MEMBER_")));
+            counts.put("project_manage", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getProjectId, projectId).likeRight(OperationLog::getActionType, "PROJECT_")));
+        } catch (Exception e) {
+            log.warn("统计日志各分类总数异常: {}", e.getMessage());
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("records", pageResult.getRecords());
         result.put("total", pageResult.getTotal());
         result.put("page", pageResult.getCurrent());
         result.put("pageSize", pageResult.getSize());
         result.put("pages", pageResult.getPages());
+        result.put("counts", counts);
         return result;
     }
 
@@ -70,11 +91,24 @@ public class LogService {
         List<String> projectActions = List.of("PROJECT_CREATE", "PROJECT_UPDATE", "PROJECT_DELETE");
 
         LambdaQueryWrapper<OperationLog> wrapper = Wrappers.lambdaQuery();
-        if (StringUtils.hasText(actionType) && projectActions.contains(actionType.trim())) {
-            wrapper.eq(OperationLog::getActionType, actionType.trim());
+        if (StringUtils.hasText(actionType) && !"all".equalsIgnoreCase(actionType.trim())) {
+            String at = actionType.trim().toLowerCase();
+            switch (at) {
+                case "add" -> wrapper.eq(OperationLog::getActionType, "PROJECT_CREATE");
+                case "edit" -> wrapper.eq(OperationLog::getActionType, "PROJECT_UPDATE");
+                case "delete" -> wrapper.eq(OperationLog::getActionType, "PROJECT_DELETE");
+                default -> {
+                    if (projectActions.contains(actionType.trim().toUpperCase())) {
+                        wrapper.eq(OperationLog::getActionType, actionType.trim().toUpperCase());
+                    } else {
+                        wrapper.in(OperationLog::getActionType, projectActions);
+                    }
+                }
+            }
         } else {
             wrapper.in(OperationLog::getActionType, projectActions);
         }
+
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
             wrapper.and(w -> w.like(OperationLog::getActionDesc, kw)
@@ -85,12 +119,24 @@ public class LogService {
 
         Page<OperationLog> pageParam = new Page<>(safePage, safeSize);
         IPage<OperationLog> pageResult = operationLogMapper.selectPage(pageParam, wrapper);
+
+        Map<String, Long> counts = new LinkedHashMap<>();
+        try {
+            counts.put("all", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().in(OperationLog::getActionType, projectActions)));
+            counts.put("add", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getActionType, "PROJECT_CREATE")));
+            counts.put("edit", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getActionType, "PROJECT_UPDATE")));
+            counts.put("delete", operationLogMapper.selectCount(Wrappers.<OperationLog>lambdaQuery().eq(OperationLog::getActionType, "PROJECT_DELETE")));
+        } catch (Exception e) {
+            log.warn("统计工作区操作日志分类总数异常: {}", e.getMessage());
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("records", pageResult.getRecords());
         result.put("total", pageResult.getTotal());
         result.put("page", pageResult.getCurrent());
         result.put("pageSize", pageResult.getSize());
         result.put("pages", pageResult.getPages());
+        result.put("counts", counts);
         return result;
     }
 
