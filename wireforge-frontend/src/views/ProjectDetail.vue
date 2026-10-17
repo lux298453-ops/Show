@@ -248,7 +248,7 @@
           <!-- Thumbnail Area (Phone Frame 9:16 Aspect) -->
           <div class="relative w-full aspect-[9/15] bg-slate-100 dark:bg-[#1a1a1a] rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 dark:border-[#383838]">
             <img
-              v-if="p.background_image"
+              v-if="p.background_image && p.background_image.trim()"
               :src="getFileUrl(p.background_image)"
               class="w-full h-full object-contain p-2 group-hover:scale-[1.01] transition-transform duration-200"
               :alt="p.name"
@@ -256,7 +256,7 @@
             />
             <div
               v-else-if="pagePreviewHtml(p)"
-              class="absolute inset-0 overflow-hidden bg-slate-100 dark:bg-[#1a1a1a]"
+              class="absolute inset-0 overflow-hidden bg-slate-100 dark:bg-[#1a1a1a] [contain:strict]"
               :ref="(el) => bindHtmlThumb(el as HTMLElement | null)"
             >
               <iframe
@@ -264,8 +264,9 @@
                 :data-w="p.canvas_width || 375"
                 :data-h="p.canvas_height || 812"
                 :style="{ width: (p.canvas_width || 375) + 'px', height: (p.canvas_height || 812) + 'px' }"
-                :srcdoc="withBackendFiles(p.html_content || '')"
+                :srcdoc="getThumbnailSrcDoc(p.html_content || '')"
                 sandbox=""
+                loading="lazy"
                 tabindex="-1"
                 title=""
               />
@@ -326,10 +327,10 @@
               <!-- Thumbnail -->
               <td class="py-2 px-4">
                 <div class="w-7 h-11 bg-slate-100 dark:bg-[#1a1a1a] rounded border border-slate-200 dark:border-[#383838] overflow-hidden flex items-center justify-center shrink-0 relative">
-                  <img v-if="p.background_image" :src="getFileUrl(p.background_image)" class="w-full h-full object-cover" />
+                  <img v-if="p.background_image && p.background_image.trim()" :src="getFileUrl(p.background_image)" class="w-full h-full object-cover" />
                   <div
                     v-else-if="pagePreviewHtml(p)"
-                    class="absolute inset-0 overflow-hidden bg-slate-100 dark:bg-[#1a1a1a]"
+                    class="absolute inset-0 overflow-hidden bg-slate-100 dark:bg-[#1a1a1a] [contain:strict]"
                     :ref="(el) => bindHtmlThumb(el as HTMLElement | null)"
                   >
                     <iframe
@@ -337,8 +338,9 @@
                       :data-w="p.canvas_width || 375"
                       :data-h="p.canvas_height || 812"
                       :style="{ width: (p.canvas_width || 375) + 'px', height: (p.canvas_height || 812) + 'px' }"
-                      :srcdoc="withBackendFiles(p.html_content || '')"
+                      :srcdoc="getThumbnailSrcDoc(p.html_content || '')"
                       sandbox=""
+                      loading="lazy"
                       tabindex="-1"
                       title=""
                     />
@@ -447,10 +449,22 @@ const viewMode = ref<'grid' | 'list'>('grid')
 const thumbObservers = new Map<HTMLElement, ResizeObserver>()
 
 function pagePreviewHtml(p: PageCard) {
+  if (!p) return false
   const html = p.html_content || ''
+  if (!html.trim()) return false
   const body = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html
   const visible = body.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '')
-  return /<[a-z][\s\S]*>/i.test(visible)
+  return /<[a-z][\s\S]*>/i.test(visible) || /<body[\s\S]*>/i.test(html)
+}
+
+function getThumbnailSrcDoc(html: string | null | undefined): string {
+  if (!html) return ''
+  const base = withBackendFiles(html)
+  const noScrollCss = '<style>::-webkit-scrollbar{display:none !important;}html,body{overflow:hidden !important;pointer-events:none !important;user-select:none !important;margin:0 !important;}</style>'
+  if (base.includes('</head>')) {
+    return base.replace('</head>', `${noScrollCss}</head>`)
+  }
+  return noScrollCss + base
 }
 
 function bindHtmlThumb(el: HTMLElement | null) {

@@ -276,9 +276,42 @@
               @click="focusPage(p.id, true)"
             >
               <!-- Thumbnail -->
-              <div class="w-9 h-12 rounded-lg bg-slate-100 dark:bg-[#1e1e1e] overflow-hidden border border-slate-200/80 dark:border-[#383838] shrink-0 flex items-center justify-center shadow-2xs">
-                <img v-if="p.background_image" :src="getFileUrl(p.background_image)" class="w-full h-full object-cover" />
-                <div v-else class="text-[9px] text-slate-400 dark:text-slate-500">{{ t('noImage') }}</div>
+              <div
+                class="relative w-9 h-12 rounded-lg bg-slate-100 dark:bg-[#1e1e1e] overflow-hidden border border-slate-200/80 dark:border-[#383838] shrink-0 flex items-center justify-center shadow-2xs"
+                :title="p.name"
+              >
+                <!-- 1. 有设计稿底图：显示底图 -->
+                <img
+                  v-if="p.background_image && p.background_image.trim()"
+                  :src="getFileUrl(p.background_image)"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <!-- 2. 自己画的页面/有原型 HTML：直接渲染微缩预览图 -->
+                <div
+                  v-else-if="pagePreviewHtml(p)"
+                  :key="'thumb_' + p.id + '_' + (p.canvas_width || 375) + '_' + (p.canvas_height || 812)"
+                  class="absolute inset-0 overflow-hidden bg-white dark:bg-[#141414] flex items-center justify-center [contain:strict]"
+                  :ref="(el) => bindSidebarThumb(el as HTMLElement | null)"
+                >
+                  <iframe
+                    class="absolute top-0 left-0 origin-top-left pointer-events-none border-0 bg-white"
+                    :data-w="p.canvas_width || 375"
+                    :data-h="p.canvas_height || 812"
+                    :style="{ width: (p.canvas_width || 375) + 'px', height: (p.canvas_height || 812) + 'px' }"
+                    :srcdoc="getThumbnailSrcDoc(p.html_content)"
+                    sandbox=""
+                    loading="lazy"
+                    tabindex="-1"
+                    aria-hidden="true"
+                    title=""
+                  />
+                </div>
+                <!-- 3. 无底图且无内容：显示画板占位图标与无预览文案 -->
+                <div v-else class="text-[9px] text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center gap-0.5 select-none">
+                  <Layout class="w-3.5 h-3.5 text-slate-300 dark:text-slate-600" />
+                  <span class="text-[8px] scale-90">{{ t('noPreview') }}</span>
+                </div>
               </div>
 
               <!-- Meta Info -->
@@ -2396,6 +2429,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft,
   Layers,
+  Layout,
   Tag,
   SlidersHorizontal,
   Minus,
@@ -2435,7 +2469,7 @@ import { projectApi } from '../api/project'
 import AutowireReviewDialog from '../components/AutowireReviewDialog.vue'
 import AnnotationCreateDialog from '../components/AnnotationCreateDialog.vue'
 import type { AutowirePlan, AutowireDecisions, AutowireApplyRequest, AutowireApplyResult, AutowirePreviewRequest } from '../types/autowire'
-import { getFileUrl } from '../api/http'
+import { getFileUrl, withBackendFiles } from '../api/http'
 import { useProjectTitle } from '../utils/pageTitle'
 import type { Annotation, Element, Interaction, Page, Prototype, CommentThread, CommentReply } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
@@ -2887,6 +2921,53 @@ onBeforeRouteLeave(async () => {
 const proto = ref<Prototype | null>(null)
 useProjectTitle(() => proto.value?.project.name)
 const pages = computed(() => proto.value?.pages || [])
+
+// ===== 左侧边栏画板缩略图生命周期与微缩实时渲染 =====
+const sidebarThumbObservers = new Map<HTMLElement, ResizeObserver>()
+
+function pagePreviewHtml(p: Page) {
+  if (!p) return false
+  const html = p.html_content || ''
+  if (!html.trim()) return false
+  const body = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html
+  const visible = body.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '')
+  return /<[a-z][\s\S]*>/i.test(visible) || /<body[\s\S]*>/i.test(html)
+}
+
+function getThumbnailSrcDoc(html: string | null | undefined): string {
+  if (!html) return ''
+  const base = withBackendFiles(html)
+  const noScrollCss = '<style>::-webkit-scrollbar{display:none !important;}html,body{overflow:hidden !important;pointer-events:none !important;user-select:none !important;margin:0 !important;}</style>'
+  if (base.includes('</head>')) {
+    return base.replace('</head>', `${noScrollCss}</head>`)
+  }
+  return noScrollCss + base
+}
+
+function bindSidebarThumb(el: HTMLElement | null) {
+  if (!el) return
+  const frame = el.querySelector('iframe') as HTMLIFrameElement | null
+  if (!frame) return
+  const apply = () => {
+    const pageW = Number(frame.dataset.w) || 375
+    const pageH = Number(frame.dataset.h) || 812
+    const boxW = el.clientWidth || 36
+    const boxH = el.clientHeight || 48
+    const pad = 1
+    const s = Math.min((boxW - pad * 2) / pageW, (boxH - pad * 2) / pageH)
+    if (!s || s <= 0 || !Number.isFinite(s)) return
+    const left = (boxW - pageW * s) / 2
+    const top = (boxH - pageH * s) / 2
+    frame.style.transform = `translate(${left}px, ${top}px) scale(${s})`
+    frame.style.transformOrigin = 'top left'
+    frame.style.boxShadow = `0 0 0 ${1 / s}px rgba(15,23,42,0.12), 0 ${2 / s}px ${6 / s}px rgba(15,23,42,0.15)`
+  }
+  apply()
+  sidebarThumbObservers.get(el)?.disconnect()
+  const ro = new ResizeObserver(apply)
+  ro.observe(el)
+  sidebarThumbObservers.set(el, ro)
+}
 
 const leftSidebarTab = ref<'outline' | 'layers'>('outline')
 const rightSidebarTab = ref<'design' | 'components'>('design')
@@ -8592,6 +8673,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('message', onSimMessage)
+  sidebarThumbObservers.forEach((ro) => ro.disconnect())
+  sidebarThumbObservers.clear()
 })
 
 const simInteractiveCount = computed(() => simAnnList.value.filter((a) => !!a.interactionType).length)
