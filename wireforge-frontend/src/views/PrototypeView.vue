@@ -5143,8 +5143,8 @@ const ANN_CLEAR = 300
 
 function blockShowsAnnotations(b: { blockType: 'design' | 'prototype'; page: Page }) {
   if (!showAnnotations.value || !b.page.annotations?.length) return false
-  // 左右两块都在时，说明只挂在左边设计稿上，避免和右边原型各画一套
-  if (b.blockType === 'prototype' && b.page.background_image) return false
+  // 当同时存在设计稿和原型图时，业务说明统一挂在右侧的原型图上，设计稿上不挂
+  if (b.blockType === 'design' && (b.page.html_content || !b.page.background_image)) return false
   return true
 }
 
@@ -5166,7 +5166,7 @@ const blocks = computed<CanvasBlock[]>(() => {
     const hasProto = !!p.html_content || !p.background_image
 
     if (hasDesign && hasProto) {
-      // 核心解耦：既有设计稿又有原型图的页面，拆分成两个完全独立的单画框左右并列摆放
+      // 既有设计稿又有原型图的页面：设计稿在左，原型图紧靠在右，业务说明外挂在原型图右侧
       const designKey = `design-${p.id}`
       const protoKey = `proto-${p.id}`
 
@@ -5176,13 +5176,9 @@ const blocks = computed<CanvasBlock[]>(() => {
       const dx = designOv ? designOv.x : curX
       const dy = designOv ? designOv.y : curY
 
-      // 说明打开时，把右侧原型推到说明面板外面，避免盖住说明
-      const lane = blockShowsAnnotations({ blockType: 'design', page: p }) ? ANN_CLEAR : pairGap
-      const storedPx = protoOv ? protoOv.x : (dx + pageW + pairGap)
+      // 原型图固定摆放在设计稿右侧（间距 pairGap），与设计稿紧靠
+      const px = protoOv ? protoOv.x : (dx + pageW + pairGap)
       const py = protoOv ? protoOv.y : dy
-      const minPx = dx + pageW + lane
-      const beside = Math.abs(py - dy) < pageH * 0.75
-      const px = lane > pairGap && beside && storedPx < minPx ? minPx : storedPx
 
       list.push({
         key: designKey,
@@ -5210,8 +5206,8 @@ const blocks = computed<CanvasBlock[]>(() => {
         h: pageH,
       })
 
-      const annShift = Math.max(0, px - storedPx)
-      curX += pageW * 2 + pairGap + annShift + groupGapX
+      const hasAnn = blockShowsAnnotations({ blockType: 'prototype', page: p })
+      curX += pageW * 2 + pairGap + groupGapX + (hasAnn ? Math.max(0, ANN_CLEAR - groupGapX) : 0)
     } else if (hasDesign) {
       // 只有设计稿的画框
       const designKey = `design-${p.id}`
@@ -5228,7 +5224,8 @@ const blocks = computed<CanvasBlock[]>(() => {
         w: pageW,
         h: pageH,
       })
-      curX += pageW + groupGapX + (blockShowsAnnotations({ blockType: 'design', page: p }) ? Math.max(0, ANN_CLEAR - groupGapX) : 0)
+      const hasAnn = blockShowsAnnotations({ blockType: 'design', page: p })
+      curX += pageW + groupGapX + (hasAnn ? Math.max(0, ANN_CLEAR - groupGapX) : 0)
     } else {
       // 纯原型图或新建的空白画框
       const protoKey = `proto-${p.id}`
@@ -5245,7 +5242,8 @@ const blocks = computed<CanvasBlock[]>(() => {
         w: pageW,
         h: pageH,
       })
-      curX += pageW + groupGapX + (blockShowsAnnotations({ blockType: 'prototype', page: p }) ? Math.max(0, ANN_CLEAR - groupGapX) : 0)
+      const hasAnn = blockShowsAnnotations({ blockType: 'prototype', page: p })
+      curX += pageW + groupGapX + (hasAnn ? Math.max(0, ANN_CLEAR - groupGapX) : 0)
     }
 
     col++
@@ -5256,7 +5254,7 @@ const blocks = computed<CanvasBlock[]>(() => {
     }
   })
 
-  // 说明打开后，按整组右边缘往后让：后面的设计稿排到「说明 + 原型」外面，避免原型跨到下一张设计稿上
+  // 说明打开后，按整组右边缘往后让：后面的设计稿排到「原型图 + 说明」外面，避免说明盖住下一张设计稿
   if (showAnnotations.value) {
     const sameRow = (a: CanvasBlock, b: CanvasBlock) =>
       a.y < b.y + b.h - 8 && b.y < a.y + a.h - 8
@@ -5268,7 +5266,7 @@ const blocks = computed<CanvasBlock[]>(() => {
         if (host.blockType === 'design') {
           const ownProto = list.find((b) => b.key === `proto-${host.pageId}`)
           if (ownProto && sameRow(host, ownProto) && ownProto.x >= host.x) {
-            reservedR = Math.max(reservedR, ownProto.x + ownProto.w)
+            reservedR = Math.max(reservedR, ownProto.x + ownProto.w + ANN_CLEAR)
           }
         }
         const followers = list
