@@ -32,6 +32,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
     private static final List<Rule> RULES = List.of(
             new Rule("*", "/api/auth/**", Need.OPEN),
+            new Rule("*", "/api/projects/{id}/sync-elfship-interactions", Need.OPEN),
             new Rule("GET", "/api/logs/**", Need.SYSTEM_ADMIN),
             new Rule("GET", "/api/projects/{id}/logs", Need.PROJECT_ADMIN),
             new Rule("POST", "/api/projects/{id}/logs", Need.LOGIN),

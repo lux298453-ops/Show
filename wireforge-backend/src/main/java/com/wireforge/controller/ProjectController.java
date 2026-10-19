@@ -29,6 +29,7 @@ public class ProjectController {
     private final AnalyzeService analyzeService;
     private final InteractionAutowireService interactionAutowireService;
     private final com.wireforge.service.AuthService authService;
+    private final com.wireforge.service.ElfShipInteractionSyncService elfShipInteractionSyncService;
 
     @GetMapping
     public Result<List<Project>> list() {
@@ -274,6 +275,14 @@ public class ProjectController {
             @PathVariable Long interactionId) {
         projectService.deleteInteraction(id, interactionId);
         return Result.ok(null);
+    }
+
+    /**
+     * 一键同步补全 ElfShip 原型完整交互跳转连线
+     */
+    @PostMapping("/{id}/sync-elfship-interactions")
+    public Result<Map<String, Object>> syncElfShipInteractions(@PathVariable Long id) {
+        return Result.ok(elfShipInteractionSyncService.syncProject(id));
     }
 
     /**
