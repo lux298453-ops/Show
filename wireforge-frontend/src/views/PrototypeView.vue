@@ -6,7 +6,7 @@
       <div class="flex items-center gap-3">
         <button
           class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-white/70 dark:bg-[#383838] hover:bg-white dark:hover:bg-[#444444] border border-slate-200/80 dark:border-[#484848] rounded-xl shadow-2xs transition-all cursor-pointer"
-          @click="router.push(`/projects/${id}`)"
+          @click="handleBackToProjects"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
           <span>{{ t('backToProjects') }}</span>
@@ -588,8 +588,7 @@
                 :hovered-element-id="hoveredElementId"
                 :hovered-ann-id="hoveredAnnId"
                 :show-design="true"
-                :edit-mode="activeEditingPageId === b.page.id && !isViewer && !pageEditingConflicts[b.page.id]?.conflict"
-                :load-editor="pagesWithEditor.includes(b.page.id)"
+                :edit-mode="mode === 'edit' && !isViewer && !pageEditingConflicts[b.page.id]?.conflict"
                 :read-only="isViewer"
                 :interactive="false"
                 :locked-by-other="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
@@ -1467,25 +1466,6 @@
             </div>
           </div>
 
-          <section class="p-3 border-b border-slate-200 dark:border-[#383838] space-y-2.5">
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5"><FileText class="w-3.5 h-3.5" />说明标注 <span class="text-slate-400 font-normal">{{ currentFocusPage?.annotations.length || 0 }}</span></span>
-              <button type="button" class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 rounded px-1.5 py-1 hover:bg-blue-50 dark:hover:bg-white/5 disabled:opacity-40" :disabled="!currentFocusPage" @click="openAnnotationCreate(currentFocusPage?.id)"><Plus class="w-3.5 h-3.5" />添加说明</button>
-            </div>
-            <p class="text-[11px] text-slate-400 truncate">{{ currentFocusPage?.name || '先新建或选择一个画板' }}</p>
-            <div v-if="currentFocusPage?.annotations.length" class="max-h-44 overflow-y-auto space-y-1.5">
-              <div v-for="ann in currentFocusPage.annotations" :key="ann.id" class="rounded-lg border border-slate-200/80 dark:border-white/10 p-2 text-xs">
-                <button type="button" class="block w-full min-w-0 text-left" title="双击修改或删除说明"
-                  @click="handleAnnClick(ann.id)" @dblclick.stop="openAnnotationEdit(currentFocusPage!.id, ann)"
-                  @keydown.enter.prevent="openAnnotationEdit(currentFocusPage!.id, ann)">
-                  <span class="block truncate font-medium text-slate-700 dark:text-slate-200">{{ annotationTitle(currentFocusPage, ann) }}</span>
-                  <span class="block truncate text-[11px] text-slate-400 mt-1">{{ ann.text }}</span>
-                </button>
-              </div>
-            </div>
-            <p v-else class="text-[11px] leading-relaxed text-slate-400">为页面或某个元素补充用途、操作条件和业务规则。</p>
-          </section>
-
           <DesignInspector
             :current-page="currentFocusPage"
             :selected-element="selectedElementObj"
@@ -2304,6 +2284,29 @@
 
         <div class="my-1 h-px bg-white/15"></div>
 
+        <!-- 水平翻转与垂直翻转 (排在插件扩展的上面) -->
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
+          @click="runLayerMenu('flip-horizontal')"
+        >
+          <span>水平翻转</span>
+          <span class="text-[11px] text-white/50">Shift+H</span>
+        </button>
+
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
+          @click="runLayerMenu('flip-vertical')"
+        >
+          <span>垂直翻转</span>
+          <span class="text-[11px] text-white/50">Shift+V</span>
+        </button>
+
+        <div class="my-1 h-px bg-white/15"></div>
+
         <!-- 9. 插件与组件扩展 (Plugins >) 对齐 Figma 右键菜单 -->
         <div
           class="relative w-full"
@@ -2910,32 +2913,47 @@ function onUnsavedBeforeUnload(event: BeforeUnloadEvent) {
   }
 }
 
-onBeforeRouteLeave(async () => {
-  // 1. 若当前聚焦画板有未发出的待保存内容，先强制保存当前页并等待写入 page.html_content 与落库
-  const curPid = focusPageId.value || currentFocusPage.value?.id
-  if (curPid) {
-    await flushPageSave(curPid)
-  }
-  // 2. 检查是否有待保存状态，等待落库
-  if (hasUnsavedChanges.value) {
-    try {
-      await waitForSaved(String(id), { timeoutMs: 3000, quietMs: 100 })
-    } catch (e) {}
-  }
-  // 3. 保存写入成功且没有未保存项：直接离开，绝不弹窗打扰！
-  if (!hasUnsavedChanges.value) return true
+function handleBackToProjects() {
+  const targetId = Number(route.params.id) || proto.value?.project?.id || id
+  const targetPath = targetId ? `/projects/${targetId}` : '/'
+  router.push(targetPath).catch((err: any) => {
+    if (!err || !err.toString().includes('NavigationAborted')) {
+      window.location.href = targetPath
+    }
+  })
+}
 
-  // 4. 仅当保存仍未成功时才弹窗询问
+onBeforeRouteLeave(async () => {
   try {
-    await ElMessageBox.confirm('部分更改未能成功保存到服务器。离开后，未保存的内容可能丢失。', '离开工作台', {
-      confirmButtonText: '仍然离开',
-      cancelButtonText: '继续编辑',
-      type: 'warning',
-    })
-    discardSaveState(String(id))
+    // 1. 若当前聚焦画板有未发出的待保存内容，先强制保存当前页并等待写入 page.html_content 与落库
+    const curPid = focusPageId.value || currentFocusPage.value?.id
+    if (curPid) {
+      await flushPageSave(curPid)
+    }
+    // 2. 检查是否有待保存状态，等待落库（最多短等 600ms，避免卡死）
+    if (hasUnsavedChanges.value) {
+      try {
+        await waitForSaved(String(id), { timeoutMs: 600, quietMs: 50 })
+      } catch (e) {}
+    }
+    // 3. 保存写入成功且没有未保存项：直接离开，绝不弹窗打扰！
+    if (!hasUnsavedChanges.value) return true
+
+    // 4. 仅当保存仍未成功时才弹窗询问
+    try {
+      await ElMessageBox.confirm('部分更改未能成功保存到服务器。离开后，未保存的内容可能丢失。', '离开工作台', {
+        confirmButtonText: '仍然离开',
+        cancelButtonText: '继续编辑',
+        type: 'warning',
+      })
+      discardSaveState(String(id))
+      return true
+    } catch {
+      return false
+    }
+  } catch (err) {
+    console.warn('[PrototypeView] onBeforeRouteLeave 异常，自动放行:', err)
     return true
-  } catch {
-    return false
   }
 })
 
@@ -3416,7 +3434,10 @@ async function flushPageSave(pageId: number): Promise<boolean> {
   const refInst = pageRefs.value[pageId]
   if (refInst && typeof (refInst as any).flushPendingSave === 'function') {
     try {
-      await (refInst as any).flushPendingSave()
+      await Promise.race([
+        (refInst as any).flushPendingSave(),
+        new Promise((resolve) => setTimeout(resolve, 800)),
+      ])
     } catch (err) {
       console.warn(`[Save] 画板 ${pageId} flushPendingSave 异常:`, err)
     }
@@ -3424,7 +3445,10 @@ async function flushPageSave(pageId: number): Promise<boolean> {
   const pendingPromise = pageSavePromises.get(pageId)
   if (pendingPromise) {
     try {
-      await pendingPromise
+      await Promise.race([
+        pendingPromise,
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ])
     } catch (err) {
       console.warn(`[Save] 等待画板 ${pageId} 保存入库异常:`, err)
       return false
@@ -7172,8 +7196,13 @@ async function focusPage(pageId: number, fitGroup = false) {
   selectedNodeKey.value = b.key
   const switched = focusPageId.value !== pageId
   if (switched && focusPageId.value) {
+    const prevPid = focusPageId.value
     // 换页之前，立刻保存上一页！
-    await flushPageSave(focusPageId.value)
+    await flushPageSave(prevPid)
+    // 焦点离开时通知上一页画板关掉 8 个缩放点
+    const prevInst = pageRefs.value[prevPid] as any
+    const prevFrame = prevInst?.htmlFrameRef || iframeForPage(prevPid)
+    prevFrame?.contentWindow?.postMessage({ type: 'wf-select-uids', uids: [] }, '*')
   }
   focusPageId.value = pageId
   selectedNodeId.value = pageId
@@ -8096,7 +8125,7 @@ function openLayerContextMenu(x: number, y: number, localX?: number, localY?: nu
     showFrameFill(pageId)
   }
   const menuW = 220
-  const menuH = 340
+  const menuH = 480
   const left = Math.max(8, Math.min(x, window.innerWidth - menuW - 8))
   const top = Math.max(8, Math.min(y, window.innerHeight - menuH - 8))
   layerMenu.value = { x: left, y: top, localX, localY, pageId }
@@ -8169,6 +8198,10 @@ function runLayerMenu(action: string) {
     postToFocusFrame({ type: 'wf-group' })
   } else if (action === 'ungroup') {
     postToFocusFrame({ type: 'wf-ungroup' })
+  } else if (action === 'flip-horizontal') {
+    postToFocusFrame({ type: 'wf-flip', direction: 'horizontal' })
+  } else if (action === 'flip-vertical') {
+    postToFocusFrame({ type: 'wf-flip', direction: 'vertical' })
   }
 }
 
@@ -8287,7 +8320,7 @@ function onSelectDomLayer(uid: string, uids: string[] = []) {
 function postToFocusFrame(msg: Record<string, unknown>) {
   const pid = focusPageId.value ?? currentFocusPage.value?.id
   if (!pid) return
-  const iframe = (pageRefs.value[pid] as any)?.$el?.querySelector?.('iframe.html-frame') as HTMLIFrameElement | null
+  const iframe = iframeForPage(pid) || ((pageRefs.value[pid] as any)?.$el?.querySelector?.('iframe.html-frame') as HTMLIFrameElement | null)
   iframe?.contentWindow?.postMessage(msg, '*')
 }
 
@@ -9627,7 +9660,20 @@ async function onGlobalKeydown(e: KeyboardEvent) {
     postToFocusFrame({ type: e.shiftKey ? 'wf-ungroup' : 'wf-group' })
     return
   }
-  if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && mode.value !== 'preview') {
+  // 快捷键 Shift+H (水平翻转) 与 Shift+V (垂直翻转)
+  if (!isViewer.value && !isInput && !e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && mode.value !== 'preview') {
+    if (e.key === 'H' || e.key === 'h') {
+      e.preventDefault()
+      postToFocusFrame({ type: 'wf-flip', direction: 'horizontal' })
+      return
+    }
+    if (e.key === 'V' || e.key === 'v') {
+      e.preventDefault()
+      postToFocusFrame({ type: 'wf-flip', direction: 'vertical' })
+      return
+    }
+  }
+  if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && mode.value !== 'preview') {
     const key = e.key.toUpperCase()
     if (isViewer.value && ['R', 'T', 'F', 'L', 'O', 'P'].includes(key)) {
       return

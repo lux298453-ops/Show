@@ -484,7 +484,7 @@ let lastInternalSavedHtml = ''
 let saveResetTimer: any = null
 
 // 初始是否装载编辑器：若直接为微调页或父级指定了装载，则直接装载；否则以薄页面启动（节省 95% 脚本开销与内存）
-const initialIncludeEditor = !props.readOnly && (!!props.loadEditor || !!props.editMode)
+const initialIncludeEditor = !props.readOnly
 let hasLoadedEditorState = initialIncludeEditor
 const hasLoadedEditor = ref(initialIncludeEditor)
 
@@ -582,7 +582,6 @@ const navRuntimeHtml = computed(() =>
     withBackendFiles(editSourceHtml.value),
     !!props.interactive,
     !!props.readOnly,
-    hasLoadedEditorState,
   ),
 )
 
@@ -708,9 +707,6 @@ function removeElementNav(uid?: string | null, targetPageName?: string | null, t
 
 
 function onFrameLoad() {
-  if (hasLoadedEditorState || props.loadEditor || props.editMode) {
-    hydrateEditorInFrame()
-  }
   sendEditMode()
   sendInteractiveMode()
   sendProtoHotspot()
@@ -4059,6 +4055,86 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       else if(selectedEl) updateTransformBox(selectedEl);
     }
 
+    function toggleFlip(el, axis){
+      if(!el || el === document.body || el === document.documentElement || isLayerLocked(el)) return;
+      var cur = el.style.transform || '';
+      var isFlippedX = el.getAttribute('data-wf-flip-x') === 'true' || /scaleX\(-1\)/i.test(cur) || /scale\(-1\s*,/i.test(cur) || /scale\(-1\s*\)/i.test(cur);
+      var isFlippedY = el.getAttribute('data-wf-flip-y') === 'true' || /scaleY\(-1\)/i.test(cur) || /scale\([^,]+,\s*-1\s*\)/i.test(cur);
+
+      if(axis === 'horizontal'){
+        isFlippedX = !isFlippedX;
+      } else if(axis === 'vertical'){
+        isFlippedY = !isFlippedY;
+      }
+
+      var base = cur
+        .replace(/scaleX\([^)]*\)/gi, '')
+        .replace(/scaleY\([^)]*\)/gi, '')
+        .replace(/scale\([^)]*\)/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      var scaleParts = [];
+      if(base) scaleParts.push(base);
+      if(isFlippedX) scaleParts.push('scaleX(-1)');
+      if(isFlippedY) scaleParts.push('scaleY(-1)');
+
+      var newTransform = scaleParts.join(' ');
+      el.style.transform = newTransform;
+      if(newTransform){
+        el.style.transformOrigin = 'center';
+      } else {
+        el.style.removeProperty('transform');
+        if(!el.style.transformOrigin || el.style.transformOrigin === 'center'){
+          el.style.removeProperty('transform-origin');
+        }
+      }
+
+      if(isFlippedX){
+        el.setAttribute('data-wf-flip-x', 'true');
+      } else {
+        el.removeAttribute('data-wf-flip-x');
+      }
+
+      if(isFlippedY){
+        el.setAttribute('data-wf-flip-y', 'true');
+      } else {
+        el.removeAttribute('data-wf-flip-y');
+      }
+
+      try {
+        var cs = window.getComputedStyle(el);
+        if(cs && cs.display === 'inline'){
+          el.style.display = 'inline-block';
+        }
+      } catch(e){}
+    }
+
+    function flipSelection(axis){
+      if(READONLY) return;
+      var raw = selectedEls && selectedEls.length ? selectedEls.slice() : (selectedEl ? [selectedEl] : []);
+      var els = [];
+      for(var i = 0; i < raw.length; i++){
+        var el = raw[i];
+        if(!el || !el.parentNode || isChromeNode(el) || isLayerLocked(el)) continue;
+        if(el === document.body || el === document.documentElement) continue;
+        els.push(el);
+      }
+      if(!els.length) return;
+
+      pushSnapshot();
+      for(var j = 0; j < els.length; j++){
+        toggleFlip(els[j], axis);
+      }
+      if(selectedEls.length > 1) updateMultiTransformBox();
+      else if(selectedEl) updateTransformBox(selectedEl);
+      if(selectedEl) notifySelectedElementInfo(selectedEl);
+      scheduleSave();
+      pushSnapshot();
+      var label = axis === 'horizontal' ? '水平翻转 (Shift+H)' : '垂直翻转 (Shift+V)';
+      showToast(els.length > 1 ? (label + ' (' + els.length + ' 个元素)') : label);
+    }
+
     function effectNum(v){
       var n = Number(v);
       return isNaN(n) ? 0 : n;
@@ -4577,7 +4653,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               if(!isAbsolute){
                 oneEl.style.position = 'relative';
               }
-              oneEl.style.zIndex = '99';
 
               // 临时清除可能存在的 transition 避免位移缓动
               var origTrans = oneEl.style.transition;
@@ -4648,7 +4723,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               if(!cIsAbsolute){
                 cEl.style.position = 'relative';
               }
-              cEl.style.zIndex = '99';
 
               if(alignType === 'left' || alignType === 'center-h' || alignType === 'right'){
                 cEl.style.left = Math.round(cCurL + mdx) + 'px';
@@ -5086,6 +5160,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         reorderLayer(d.uid, d.targetUid, d.place === 'before' ? 'before' : 'after');
       }else if(d.type === 'wf-restack'){
         restackSelection(d.edge === 'back' ? 'back' : 'front');
+      }else if(d.type === 'wf-flip'){
+        flipSelection(d.direction === 'vertical' ? 'vertical' : 'horizontal');
       }else if(d.type === 'wf-hide-vector-original'){
         var vEl = findVectorElement(d.elementUid);
         if(vEl){
@@ -6203,7 +6279,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             if(!it.isAbsolute){
               it.el.style.position = 'relative';
             }
-            it.el.style.zIndex = '999';
             it.origTransition = it.el.style.transition;
             it.el.style.setProperty('transition', 'none', 'important');
           }
@@ -6327,7 +6402,23 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         return;
       }
 
-      if(!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'h' || e.key === 'H')){
+      // 快捷键 Shift+H (水平翻转) 与 Shift+V (垂直翻转)
+      if(!READONLY && !e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey){
+        if(e.key === 'H' || e.key === 'h'){
+          e.preventDefault();
+          e.stopPropagation();
+          flipSelection('horizontal');
+          return;
+        }
+        if(e.key === 'V' || e.key === 'v'){
+          e.preventDefault();
+          e.stopPropagation();
+          flipSelection('vertical');
+          return;
+        }
+      }
+
+      if(!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'h' || e.key === 'H')){
         e.preventDefault();
         try { parent.postMessage({ type: 'wf-tool-key', key: 'H' }, '*'); } catch(err) {}
         return;
@@ -6846,12 +6937,29 @@ function stopCanvasPan() {
 onUnmounted(() => { for (const resolve of saveFlushes.values()) resolve() })
 function flushPendingSave(): Promise<void> {
   const frame = htmlFrameRef.value?.contentWindow
-  if (!frame) return Promise.resolve()
-  return new Promise((resolve, reject) => {
-    const requestId = crypto.randomUUID()
-    const timeout = setTimeout(() => { saveFlushes.delete(requestId); reject(new Error(`「${props.page.name}」原型尚未就绪，请稍后重试检查`)) }, 3000)
-    saveFlushes.set(requestId, () => { clearTimeout(timeout); saveFlushes.delete(requestId); resolve() })
-    frame.postMessage({ type: 'wf-flush-save', requestId }, '*')
+  if (!frame || props.readOnly) {
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    const requestId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+      ? crypto.randomUUID()
+      : ('flush_' + Date.now() + '_' + Math.random().toString(36).slice(2))
+    const timeout = setTimeout(() => {
+      saveFlushes.delete(requestId)
+      resolve()
+    }, 600)
+    saveFlushes.set(requestId, () => {
+      clearTimeout(timeout)
+      saveFlushes.delete(requestId)
+      resolve()
+    })
+    try {
+      frame.postMessage({ type: 'wf-flush-save', requestId }, '*')
+    } catch (e) {
+      clearTimeout(timeout)
+      saveFlushes.delete(requestId)
+      resolve()
+    }
   })
 }
 
