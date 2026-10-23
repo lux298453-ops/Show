@@ -467,9 +467,9 @@
           </div>
         </Transition>
 
-        <!-- Full-viewport transparent overlay during drag to shield iframes and eliminate hit-testing cost -->
+        <!-- Full-viewport transparent overlay during drag/zoom to shield iframes and eliminate hit-testing cost -->
         <div
-          v-if="isAnyDragging || isDraggingConnection || selectionMarquee"
+          v-if="isAnyDragging || isDraggingConnection || selectionMarquee || isWheelZooming"
           class="fixed inset-0 z-[9999] select-none"
           :class="[
             isDraggingConnection
@@ -579,6 +579,7 @@
               <PageCanvas
                 :ref="(el: any) => setPageRef(b.page.id, el, b.blockType)"
                 :page="b.page"
+                :active="isBlockActive(b)"
                 :all-pages="pages"
                 :show-wireframe="showWireframe"
                 :show-annotations="blockShowsAnnotations(b)"
@@ -587,7 +588,8 @@
                 :hovered-element-id="hoveredElementId"
                 :hovered-ann-id="hoveredAnnId"
                 :show-design="true"
-                :edit-mode="mode === 'edit' && !isViewer && !pageEditingConflicts[b.page.id]?.conflict"
+                :edit-mode="activeEditingPageId === b.page.id && !isViewer && !pageEditingConflicts[b.page.id]?.conflict"
+                :load-editor="pagesWithEditor.includes(b.page.id)"
                 :read-only="isViewer"
                 :interactive="false"
                 :locked-by-other="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
@@ -2897,6 +2899,11 @@ async function retrySaving() {
 
 function onUnsavedBeforeUnload(event: BeforeUnloadEvent) {
   persistWorkbenchView()
+  const curPid = focusPageId.value || currentFocusPage.value?.id
+  if (curPid) {
+    const refInst = pageRefs.value[curPid]
+    refInst?.flushPendingSave?.()
+  }
   if (hasUnsavedChanges.value) {
     event.preventDefault()
     event.returnValue = ''
@@ -2904,9 +2911,23 @@ function onUnsavedBeforeUnload(event: BeforeUnloadEvent) {
 }
 
 onBeforeRouteLeave(async () => {
+  // 1. 若当前聚焦画板有未发出的待保存内容，先强制保存当前页并等待写入 page.html_content 与落库
+  const curPid = focusPageId.value || currentFocusPage.value?.id
+  if (curPid) {
+    await flushPageSave(curPid)
+  }
+  // 2. 检查是否有待保存状态，等待落库
+  if (hasUnsavedChanges.value) {
+    try {
+      await waitForSaved(String(id), { timeoutMs: 3000, quietMs: 100 })
+    } catch (e) {}
+  }
+  // 3. 保存写入成功且没有未保存项：直接离开，绝不弹窗打扰！
   if (!hasUnsavedChanges.value) return true
+
+  // 4. 仅当保存仍未成功时才弹窗询问
   try {
-    await ElMessageBox.confirm('还有尚未保存的更改。离开后，当前编辑内容可能丢失。', '离开工作台', {
+    await ElMessageBox.confirm('部分更改未能成功保存到服务器。离开后，未保存的内容可能丢失。', '离开工作台', {
       confirmButtonText: '仍然离开',
       cancelButtonText: '继续编辑',
       type: 'warning',
@@ -3009,6 +3030,39 @@ const showWireframe = ref(true)
 const showAnnotations = ref(false)
 /** 整页原型微调与编辑模式：8点控制盒调整大小 / 双击改文案 / 拖动位移 / Del 删除 / 自动落库 */
 const fineTune = ref(true)
+/** 最多保留在内存中的编辑器页面数量（LRU 窗口容量，确保无论浏览多少页，编辑器内存绝不膨胀） */
+const MAX_EDITOR_PAGES = 2
+/** 已装载微调编辑器的页面 ID 列表（有序 LRU：越靠近末尾表示最近越常使用） */
+const pagesWithEditor = ref<number[]>([])
+
+function requestPageEditor(pageId?: number | null) {
+  if (isViewer.value || !pageId) return
+
+  // 1. 如果已在列表中，将其移到末尾（标记为最近使用）
+  const idx = pagesWithEditor.value.indexOf(pageId)
+  if (idx !== -1) {
+    pagesWithEditor.value.splice(idx, 1)
+    pagesWithEditor.value.push(pageId)
+    return
+  }
+
+  // 2. 如果已达容量上限，淘汰最老且非当前微调焦点的画板
+  while (pagesWithEditor.value.length >= MAX_EDITOR_PAGES) {
+    const candidateIdx = pagesWithEditor.value.findIndex((pid) => pid !== pageId && pid !== activeEditingPageId.value)
+    if (candidateIdx !== -1) {
+      const [evictedPageId] = pagesWithEditor.value.splice(candidateIdx, 1)
+      const refInst = pageRefs.value[evictedPageId]
+      if (refInst && typeof (refInst as any).unloadEditor === 'function') {
+        (refInst as any).unloadEditor()
+      }
+    } else {
+      break
+    }
+  }
+
+  // 3. 将新画板加入最近使用末尾
+  pagesWithEditor.value.push(pageId)
+}
 
 watch(rightSidebarTab, (tab) => {
   if (tab === 'components') {
@@ -3082,6 +3136,8 @@ function onPageBlockClick(e: MouseEvent, b: any) {
 }
 
 function selectCanvasBlock(b: CanvasBlock, additive = false, preserveSelection = false) {
+  openBlockImmediately(b.key)
+  if (b.pageId) openBlockImmediately(`proto-${b.pageId}`)
   const previousPageId = focusPageId.value
   if (activeSelectedElementInfo.value && previousPageId) {
     iframeForPage(previousPageId)?.contentWindow?.postMessage({ type: 'wf-select-uids', uids: [] }, '*')
@@ -3343,7 +3399,74 @@ function handleTextChanged(payload: { pageId: number; text: string }) {
   })
 }
 
-function onSaveHtml(p: { pageId: number; html: string }) {
+/** 每个页面的当前保存世代（saveEpoch，初始为 0；发生撤回/重做时递增，用于废弃拖拽未完成的旧延迟保存） */
+const pageSaveEpochs = ref<Record<number, number>>({})
+function getPageSaveEpoch(pageId: number): number {
+  return pageSaveEpochs.value[pageId] || 0
+}
+function incrementPageSaveEpoch(pageId: number): number {
+  const next = (pageSaveEpochs.value[pageId] || 0) + 1
+  pageSaveEpochs.value = { ...pageSaveEpochs.value, [pageId]: next }
+  return next
+}
+
+const pageSavePromises = new Map<number, Promise<void>>()
+
+async function flushPageSave(pageId: number): Promise<boolean> {
+  const refInst = pageRefs.value[pageId]
+  if (refInst && typeof (refInst as any).flushPendingSave === 'function') {
+    try {
+      await (refInst as any).flushPendingSave()
+    } catch (err) {
+      console.warn(`[Save] 画板 ${pageId} flushPendingSave 异常:`, err)
+    }
+  }
+  const pendingPromise = pageSavePromises.get(pageId)
+  if (pendingPromise) {
+    try {
+      await pendingPromise
+    } catch (err) {
+      console.warn(`[Save] 等待画板 ${pageId} 保存入库异常:`, err)
+      return false
+    }
+  }
+  return true
+}
+
+async function handleSaveCurrentPage() {
+  const pid = focusPageId.value || currentFocusPage.value?.id
+  if (!pid) return
+  const page = pages.value.find((p) => p.id === pid)
+  const pageName = page?.name || '当前画板'
+  try {
+    await flushPageSave(pid)
+    showToast(`已保存「${pageName}」`)
+  } catch (err: any) {
+    showToast(`保存失败: ${err?.message || '未知错误'}`)
+  }
+}
+
+function onSaveHtml(p: { pageId: number; html: string; saveEpoch?: number }) {
+  const currentEpoch = getPageSaveEpoch(p.pageId)
+  if (typeof p.saveEpoch === 'number') {
+    // 消息里的 saveEpoch 小于该页当前的 saveEpoch，直接丢掉
+    if (p.saveEpoch < currentEpoch) {
+      return
+    }
+  } else {
+    // 没有带 saveEpoch 的旧保存，在该页 saveEpoch 已经大于 0 时同样丢掉
+    if (currentEpoch > 0) {
+      return
+    }
+  }
+
+  // 核心：一旦通过 saveEpoch 校验，立刻在外层将这份移动后的最新 HTML 同步写入 page.html_content！
+  // 确保换页、失焦或退出路由在读取 page.html_content 时，读到的已经是移动后的最新状态
+  const page = proto.value?.pages.find((pg) => pg.id === p.pageId)
+  if (page) {
+    page.html_content = p.html
+  }
+
   const conflict = pageEditingConflicts.value[p.pageId]?.conflict
   if (conflict) {
     const editor = pageEditingConflicts.value[p.pageId]?.editor || '其他成员'
@@ -3354,7 +3477,7 @@ function onSaveHtml(p: { pageId: number; html: string }) {
   }
   const version = (htmlSaveVersions.get(p.pageId) || 0) + 1
   htmlSaveVersions.set(p.pageId, version)
-  projectApi
+  const savePromise = projectApi
     .saveHtml(id, p.pageId, p.html, clientId.value)
     .then(() => {
       if (htmlSaveVersions.get(p.pageId) !== version) return
@@ -3380,7 +3503,13 @@ function onSaveHtml(p: { pageId: number; html: string }) {
         })
       }
     })
-    .catch((e: any) => showToast(`保存失败: ${e?.response?.data?.message || e?.message || '未知错误'}`))
+    .catch((e: any) => {
+      showToast(`保存失败: ${e?.response?.data?.message || e?.message || '未知错误'}`)
+      throw e
+    })
+
+  pageSavePromises.set(p.pageId, savePromise)
+  return savePromise
 }
 
 // ===== 原子组件库拖拽放置与快捷添加系统 =====
@@ -3571,6 +3700,9 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   if (!htmlSnippet) return
 
   fineTune.value = true
+  if (!isViewer.value && pageId) {
+    requestPageEditor(pageId)
+  }
   selectedNodeId.value = pageId
   focusPageId.value = pageId
 
@@ -3593,6 +3725,7 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
 
   // 2. 如果尚未挂载 iframe，直接拼接 HTML 内容并持久化落库
   let currentHtml = page.html_content || ''
+  const prevHtml = currentHtml
   const isModal = /wf-modal|wf-bottom-sheet/i.test(htmlSnippet)
   const sizeStyles = `${itemWidth ? `width: ${itemWidth}px; ` : 'max-width: 335px; '}${itemHeight ? `height: ${itemHeight}px; ` : ''}`
   const wrappedSnippet = isModal
@@ -3604,12 +3737,23 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
   } else {
     currentHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=375"><style>body{margin:0;padding:16px;background:#f8fafc;font-family:sans-serif;}</style></head><body>${currentHtml}\n${wrappedSnippet}</body></html>`
   }
-  onSaveHtml({ pageId, html: currentHtml })
+  // 记下加上之前的整页 html，以便能够撤回
+  pageEditUndoStack.value.push({
+    pageId,
+    timestamp: Date.now() - 1,
+    html: prevHtml,
+  })
   pageEditUndoStack.value.push({
     pageId,
     timestamp: Date.now(),
+    html: currentHtml,
+    prevHtml: prevHtml,
   })
+  if (pageEditUndoStack.value.length > 100) {
+    pageEditUndoStack.value.splice(0, pageEditUndoStack.value.length - 100)
+  }
   clearAllRedoStacks()
+  onSaveHtml({ pageId, html: currentHtml })
   showToast(`已将「${itemName}」添加至「${page.name}」`)
 }
 
@@ -4005,6 +4149,8 @@ const pageDeletionRedoStack = ref<PageDeletionUndoRecord[]>([])
 export interface PageEditUndoRecord {
   pageId: number
   timestamp: number
+  html: string
+  prevHtml?: string
 }
 
 const pageEditUndoStack = ref<PageEditUndoRecord[]>([])
@@ -4452,6 +4598,8 @@ async function confirmDeletePage(page: Page) {
 
     showToast(`已删除画板「${page.name}」(按 Ctrl+Z 可撤回恢复)`)
     if (pageOverrides.value[page.id]) delete pageOverrides.value[page.id]
+    const delIdx = pagesWithEditor.value.indexOf(page.id)
+    if (delIdx !== -1) pagesWithEditor.value.splice(delIdx, 1)
     if (pageOverrides.value[`design-${page.id}`]) delete pageOverrides.value[`design-${page.id}`]
     if (pageOverrides.value[`proto-${page.id}`]) delete pageOverrides.value[`proto-${page.id}`]
     if (focusPageId.value === page.id) {
@@ -5041,6 +5189,7 @@ function onProtoNavigate(pageName: string, uids?: string[], pos?: { x?: number; 
 
 // ===== 无限画布状态（translate + scale） =====
 const view = ref({ x: 0, y: 0, k: 1 })
+/** 全貌全览模式（临界阈值 k < 0.25）：真页面停止 GPU 重绘，表面展示 1:1 原型快照，大幅提升百页漫游帧率 */
 const isDragging = ref(false)
 const isBlockDragging = ref(false)
 const isAnyDragging = computed(() => isDragging.value || isBlockDragging.value)
@@ -5062,6 +5211,166 @@ function setPageRef(pageId: number, el: InstanceType<typeof PageCanvas> | null, 
   // 同一页会同时挂设计稿和原型两个画板。属性修改必须打到带 iframe 的原型，不能被设计稿覆盖。
   if (blockType === 'design' && pageRefs.value[pageId]) return
   pageRefs.value[pageId] = el
+}
+
+let isGlobalUndoingRedoing = false
+
+/** 将 snapshotHtml 的轻量格式还原为完整的 HTML 字符串 */
+function snapshotToFullHtml(snapshot: string, baseHtml: string): string {
+  if (!snapshot.startsWith('WFBG:')) return snapshot
+  const nl = snapshot.indexOf('\n')
+  const head = nl >= 0 ? snapshot.slice(5, nl) : snapshot.slice(5)
+  const bodyContent = nl >= 0 ? snapshot.slice(nl + 1) : ''
+  const bits = head.split('|')
+  let bodyBg = ''
+  try { bodyBg = decodeURIComponent(bits[0] || '') } catch (e) {}
+
+  let html = baseHtml || '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>'
+  if (/<body\b[^>]*>/i.test(html)) {
+    html = html.replace(/<body(\b[^>]*)>[\s\S]*?<\/body>/i, (match, attrs) => {
+      let newAttrs = attrs
+      if (bodyBg) {
+        if (/style\s*=\s*["'][^"']*["']/i.test(newAttrs)) {
+          newAttrs = newAttrs.replace(/style\s*=\s*(["'])([^"']*)(\1)/i, (m: string, q: string, s: string) => {
+            return `style=${q}${s}; background: ${bodyBg};${q}`
+          })
+        } else {
+          newAttrs = `${newAttrs} style="background: ${bodyBg};"`
+        }
+      }
+      return `<body${newAttrs}>${bodyContent}</body>`
+    })
+    return html
+  }
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="background: ${bodyBg};">${bodyContent}</body></html>`
+}
+
+/** 将快照写回指定画板：无论开没开，都立刻更新 page.html_content 并落库；正开着的画板额外发送 wf-restore-snapshot 原地更新画面 */
+function applyHtmlToPage(pageId: number, snapshot: string) {
+  const page = pages.value.find((p) => p.id === pageId)
+  if (!page || !snapshot) return
+
+  // 1. 撤回或重做时先把该页 saveEpoch 加 1
+  const newEpoch = incrementPageSaveEpoch(pageId)
+
+  // 2. 无论这一页开没开，都先用 snapshotToFullHtml 算出完整 html，立刻写入 page.html_content
+  const fullHtml = snapshotToFullHtml(snapshot, page.html_content || '')
+  page.html_content = fullHtml
+
+  // 3. 这一页正开着：仍发 wf-restore-snapshot 原地换画面，带上新的 saveEpoch
+  const inst = pageRefs.value[pageId] as any
+  const frame = (inst?.htmlFrameRef as HTMLIFrameElement | undefined) || iframeForPage(pageId)
+  if (frame && frame.contentWindow) {
+    frame.contentWindow.postMessage({
+      type: 'wf-restore-snapshot',
+      html: snapshot,
+      saveEpoch: newEpoch,
+    }, '*')
+  }
+
+  // 4. 同时用新世代调用 onSaveHtml 把退回后的内容存上（这次保存不入栈、不记新快照）
+  onSaveHtml({ pageId, html: fullHtml, saveEpoch: newEpoch })
+}
+
+/** 跨画板时间线画板编辑撤回 (Ctrl+Z) */
+async function undoPageEdit(): Promise<boolean> {
+  if (pageEditUndoStack.value.length === 0) return false
+  isGlobalUndoingRedoing = true
+  try {
+    while (pageEditUndoStack.value.length > 0) {
+      const topRecord = pageEditUndoStack.value[pageEditUndoStack.value.length - 1]
+
+      // 1. 优先使用 record 本身记录的 prevHtml
+      let targetHtml: string | null = topRecord.prevHtml || null
+
+      // 2. 兼容兜底：向后寻找属于 topRecord.pageId 的上一步快照
+      if (!targetHtml) {
+        for (let i = pageEditUndoStack.value.length - 2; i >= 0; i--) {
+          if (pageEditUndoStack.value[i].pageId === topRecord.pageId) {
+            targetHtml = pageEditUndoStack.value[i].html
+            break
+          }
+        }
+      }
+
+      // 如果当前项就是最初基准快照，无前序可退：
+      if (!targetHtml) {
+        // 检查栈中是否还有属于其他页面的修改可撤销
+        const hasOtherUndoable = pageEditUndoStack.value.some((rec, idx) => {
+          if (rec.pageId === topRecord.pageId) return false
+          if (rec.prevHtml) return true
+          for (let j = idx - 1; j >= 0; j--) {
+            if (pageEditUndoStack.value[j].pageId === rec.pageId) return true
+          }
+          return false
+        })
+        if (!hasOtherUndoable) {
+          showToast('已是最初状态，无更多可撤回')
+          return false
+        }
+        // 如果还有其他画板的修改，弹出当前已无前序的基准快照，继续循环寻找其他画板的修改
+        pageEditUndoStack.value.pop()
+        continue
+      }
+
+      // 找到了上一步快照 targetHtml：弹出最新一步
+      const current = pageEditUndoStack.value.pop()!
+      current.timestamp = Date.now()
+      current.prevHtml = targetHtml
+
+      // 将本次被撤销的修改压入 Redo 栈
+      pageEditRedoStack.value.push(current)
+
+      // 先写回 html 并保存，再移动焦点（确保焦点离开上一页时，editSourceHtml 去读 html_content 读到的已经是退回后的样子）
+      applyHtmlToPage(current.pageId, targetHtml)
+
+      // 那一页不在眼前时，移动焦点至该页
+      if (focusPageId.value !== current.pageId) {
+        focusPage(current.pageId)
+      } else {
+        selectedNodeId.value = current.pageId
+        showFrameFill(current.pageId)
+      }
+
+      showToast('已撤回画板修改 (Ctrl+Z)')
+      return true
+    }
+    showToast('已是最初状态，无更多可撤回')
+    return false
+  } finally {
+    setTimeout(() => {
+      isGlobalUndoingRedoing = false
+    }, 400)
+  }
+}
+
+/** 跨画板时间线画板编辑重做 (Ctrl+Y) */
+async function redoPageEdit(): Promise<boolean> {
+  if (pageEditRedoStack.value.length === 0) return false
+  isGlobalUndoingRedoing = true
+  try {
+    const record = pageEditRedoStack.value.pop()!
+    record.timestamp = Date.now()
+    pageEditUndoStack.value.push(record)
+
+    // 5. 先把要重做的 html 写入 page.html_content 并保存，再移动焦点
+    applyHtmlToPage(record.pageId, record.html)
+
+    // 移动焦点
+    if (focusPageId.value !== record.pageId) {
+      focusPage(record.pageId)
+    } else {
+      selectedNodeId.value = record.pageId
+      showFrameFill(record.pageId)
+    }
+
+    showToast('已重做画板修改 (Ctrl+Y)')
+    return true
+  } finally {
+    setTimeout(() => {
+      isGlobalUndoingRedoing = false
+    }, 400)
+  }
 }
 
 /** 仅向当前焦点页的单个 iframe 发送撤销/重做，避免 querySelectorAll 广播所有画板 */
@@ -5170,7 +5479,8 @@ const blocks = computed<CanvasBlock[]>(() => {
       const designKey = `design-${p.id}`
       const protoKey = `proto-${p.id}`
 
-      const designOv = pageOverrides.value[designKey] || (pageOverrides.value[p.id] ? { x: pageOverrides.value[p.id].x, y: pageOverrides.value[p.id].y } : null)
+      // 成对画板各读各的：设计稿读 design-页面号，原型图读 proto-页面号；两份都没有时才用自动排版
+      const designOv = pageOverrides.value[designKey]
       const protoOv = pageOverrides.value[protoKey]
 
       const dx = designOv ? designOv.x : curX
@@ -6534,20 +6844,82 @@ function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
     if (!moved) return
     suppressBlockClick = true
     setTimeout(() => (suppressBlockClick = false), 0)
-    const patch: Record<string, { x: number; y: number }> = {}
+    const patch: Record<string | number, { x: number; y: number }> = {}
     const origins = new Map<number, { page: Page; x: number; y: number }>()
-    for (const { block, el, x, y } of items) {
+
+    // 1. 各画板物理 DOM 坐标就位
+    for (const { el, x, y } of items) {
       settle(el, x + dx, y + dy)
-      if (!movingKeys.has(block.key)) continue
-      const pos = { x: x + dx, y: y + dy }
-      patch[block.key] = pos
-      patch[block.pageId] = pos
-      origins.set(block.pageId, { page: block.page, ...pos })
-      if (movingBlocks.length > 1 && block.blockType === 'design' && !movingKeys.has(`proto-${block.pageId}`) && !pageOverrides.value[`proto-${block.pageId}`]) {
-        const sibling = blocks.value.find((item) => item.key === `proto-${block.pageId}`)
-        if (sibling) patch[sibling.key] = { x: sibling.x, y: sibling.y }
+    }
+
+    // 2. 按页面归类本次实际移动的画框
+    const movedByPage = new Map<number, {
+      page: Page
+      design?: { block: CanvasBlock; pos: { x: number; y: number } }
+      proto?: { block: CanvasBlock; pos: { x: number; y: number } }
+    }>()
+
+    for (const item of items) {
+      if (!movingKeys.has(item.block.key)) continue
+      const pos = { x: item.x + dx, y: item.y + dy }
+      let entry = movedByPage.get(item.block.pageId)
+      if (!entry) {
+        entry = { page: item.block.page }
+        movedByPage.set(item.block.pageId, entry)
+      }
+      if (item.block.blockType === 'design') {
+        entry.design = { block: item.block, pos }
+      } else {
+        entry.proto = { block: item.block, pos }
       }
     }
+
+    // 3. 按照规则逐页计算 patch 与落库坐标
+    for (const [pageId, entry] of movedByPage) {
+      const designKey = `design-${pageId}`
+      const protoKey = `proto-${pageId}`
+      const hasDesignBlock = blocks.value.some((b) => b.key === designKey)
+      const hasProtoBlock = blocks.value.some((b) => b.key === protoKey)
+      const isPaired = hasDesignBlock && hasProtoBlock
+
+      if (isPaired) {
+        if (entry.proto && !entry.design) {
+          // 只拖原型图：只更新 proto-页面号。如果这时还没有 design-页面号，先把设计稿当前算出来的坐标写进 design-页面号，再保存原型图的新坐标。共用的 页面号 不要改成原型图的落点。
+          if (!pageOverrides.value[designKey] && !patch[designKey]) {
+            const currentDesign = blocks.value.find((b) => b.key === designKey)
+            if (currentDesign) {
+              patch[designKey] = { x: currentDesign.x, y: currentDesign.y }
+            }
+          }
+          patch[protoKey] = entry.proto.pos
+          // 共用的 pageId 不写为原型图落点，origins 也不加入，避免原型图落点污染设计稿与共用坐标
+        } else if (entry.design) {
+          // 拖设计稿、原型图还没单独放过：保持现在这样，原型图跟着一起走。两份都要记下，design-页面号 用设计稿的落点，proto-页面号 用原型图的落点。共用的 页面号 跟设计稿走，不要被后面写上的原型图坐标盖掉。
+          patch[designKey] = entry.design.pos
+          patch[pageId] = entry.design.pos
+          origins.set(pageId, { page: entry.page, ...entry.design.pos })
+
+          if (entry.proto) {
+            patch[protoKey] = entry.proto.pos
+          } else if (!pageOverrides.value[protoKey] && !patch[protoKey]) {
+            // 多选时若仅拖拽了设计稿、原型图未跟随：固定原型图在当前位置，避免跳动
+            const currentProto = blocks.value.find((b) => b.key === protoKey)
+            if (currentProto) {
+              patch[protoKey] = { x: currentProto.x, y: currentProto.y }
+            }
+          }
+        }
+      } else {
+        // 非成对画板（纯原型图项目如 ElfShip，或纯设计稿画板）
+        const single = entry.proto || entry.design
+        if (single) {
+          patch[single.block.key] = single.pos
+          patch[pageId] = single.pos
+          origins.set(pageId, { page: entry.page, ...single.pos })
+        }
+      }
+    }
+
     pageOverrides.value = { ...pageOverrides.value, ...patch }
     savePageOverridesToStorage()
     isBlockDragging.value = false
@@ -6575,12 +6947,214 @@ function onBlockClickCapture(e: MouseEvent) {
 
 const contentStyle = computed(() => {
   const v = view.value
+  const snappedX = Math.round(v.x)
+  const snappedY = Math.round(v.y)
   return {
-    transform: `translate(${v.x}px, ${v.y}px) scale(${v.k})`,
+    transform: `translate3d(${snappedX}px, ${snappedY}px, 0) scale(${v.k})`,
+    transformOrigin: '0 0',
   }
 })
 
 const focusPageId = ref<number | null>(null)
+
+// ==========================================
+// 渐进式阶梯水合引擎 (Progressive One-Way Hydration)
+// 核心原则：
+// 1. 只增不减，打开后永久常驻，绝不再卸载（状态、滚动、弹窗、Undo 永不丢失）；
+// 2. 视野优先排队，每 60ms 平滑补齐一页，彻底消除并发卡顿与白屏；
+// 3. 点选、双击、聚焦时立即插队秒开。
+// ==========================================
+const openedBlockKeys = ref<Set<string>>(new Set())
+let pendingQueue: string[] = []
+let queueTimer: any = null
+let viewportObserver: ResizeObserver | null = null
+
+const viewportWidth = ref(1920)
+const viewportHeight = ref(1080)
+
+function onWindowResize() { updateViewportDims(); scheduleQueueUpdate(); }
+function updateViewportDims(rect?: { width: number; height: number }) {
+  if (rect && rect.width > 0 && rect.height > 0) {
+    viewportWidth.value = rect.width
+    viewportHeight.value = rect.height
+    return
+  }
+  if (viewportRef.value) {
+    const r = viewportRef.value.getBoundingClientRect()
+    if (r.width > 0) viewportWidth.value = r.width
+    if (r.height > 0) viewportHeight.value = r.height
+  }
+}
+
+/** 立即打开指定画板（点选、双击、聚焦时插队顶格秒开） */
+function openBlockImmediately(blockKey?: string | null) {
+  if (!blockKey) return
+  if (!openedBlockKeys.value.has(blockKey)) {
+    openedBlockKeys.value.add(blockKey)
+    openedBlockKeys.value = new Set(openedBlockKeys.value)
+  }
+  pendingQueue = pendingQueue.filter((k) => k !== blockKey)
+}
+
+/** 启动/推进 60ms 队列，一页一页平滑打开，绝不一次性涌入造成卡顿 */
+function startQueuePump() {
+  if (queueTimer) return
+  pumpNextInQueue()
+}
+
+function pumpNextInQueue() {
+  // 拖拽或滚轮中暂停往后台补页，把 GPU 留给平移与缩放
+  if (isAnyDragging.value || isWheelZooming.value) {
+    queueTimer = null
+    return
+  }
+  if (pendingQueue.length === 0) {
+    queueTimer = null
+    return
+  }
+  const nextKey = pendingQueue.shift()!
+  if (!openedBlockKeys.value.has(nextKey)) {
+    openedBlockKeys.value.add(nextKey)
+    openedBlockKeys.value = new Set(openedBlockKeys.value)
+  }
+  queueTimer = setTimeout(() => {
+    queueTimer = null
+    pumpNextInQueue()
+  }, 60)
+}
+
+/** 调度并排定打开队列（眼前看得到的排前面，视野外的排后面） */
+function scheduleQueueUpdate() {
+  // 拖拽或滚轮期间暂停调度
+  if (isAnyDragging.value || isWheelZooming.value) return
+
+  const v = view.value
+  const w = viewportWidth.value
+  const h = viewportHeight.value
+  const margin = 500
+  const minX = -v.x / v.k - margin
+  const maxX = (w - v.x) / v.k + margin
+  const minY = -v.y / v.k - margin
+  const maxY = (h - v.y) / v.k + margin
+
+  // 找出所有还未打开的原型画板
+  const unopened = blocks.value.filter((b) => b.blockType === 'prototype' && !openedBlockKeys.value.has(b.key))
+  if (unopened.length === 0) return
+
+  const inView: CanvasBlock[] = []
+  const outView: CanvasBlock[] = []
+
+  unopened.forEach((b) => {
+    const isIn = b.x + b.w >= minX && b.x <= maxX && b.y + b.h >= minY && b.y <= maxY
+    if (isIn) inView.push(b)
+    else outView.push(b)
+  })
+
+  // 眼前的画板：距离视口中心越近的排在越前面
+  const centerX = -v.x / v.k + w / (2 * v.k)
+  const centerY = -v.y / v.k + h / (2 * v.k)
+  inView.sort((a, b) => {
+    const distA = Math.hypot(a.x + a.w / 2 - centerX, a.y + a.h / 2 - centerY)
+    const distB = Math.hypot(b.x + b.w / 2 - centerX, b.y + b.h / 2 - centerY)
+    return distA - distB
+  })
+
+  // 如果眼前有未打开的，直接先把最靠近的 1~2 个立刻打开（避免首屏第一眼看到骨架）
+  const immediateBatch = inView.splice(0, 2)
+  if (immediateBatch.length > 0) {
+    let added = false
+    immediateBatch.forEach((b) => {
+      if (!openedBlockKeys.value.has(b.key)) {
+        openedBlockKeys.value.add(b.key)
+        added = true
+      }
+    })
+    if (added) openedBlockKeys.value = new Set(openedBlockKeys.value)
+  }
+
+  // 剩余的眼前画板在前，视野外的在后，排入队列
+  pendingQueue = [...inView.map((b) => b.key), ...outView.map((b) => b.key)]
+  startQueuePump()
+}
+
+watch([() => view.value.x, () => view.value.y, () => view.value.k], () => {
+  scheduleQueueUpdate()
+}, { immediate: true })
+
+watch([isAnyDragging, isWheelZooming], ([dragging, zooming]) => {
+  if (!dragging && !zooming) {
+    scheduleQueueUpdate()
+  }
+})
+
+watch(
+  () => blocks.value,
+  (newBlocks) => {
+    const validKeys = new Set(newBlocks.map((b) => b.key))
+    let changed = false
+    openedBlockKeys.value.forEach((k) => {
+      if (!validKeys.has(k)) {
+        openedBlockKeys.value.delete(k)
+        changed = true
+      }
+    })
+    if (changed) {
+      openedBlockKeys.value = new Set(openedBlockKeys.value)
+    }
+    scheduleQueueUpdate()
+  },
+  { deep: false },
+)
+
+/**
+ * 判定画板是否挂载活体 iframe：
+ * 1. 设计稿画框 (blockType === 'design')：由 PageCanvas 内部原生 img 渲染，无 iframe 负担，始终为 true
+ * 2. 核心工作画板优先保障：当前聚焦、选中或正在编辑的画板绝对常驻活体
+ * 3. 只增不减：只要进入了 openedBlockKeys 集合，就永远保持常驻，绝不再卸载！
+ */
+
+
+watch(
+  () => selectedBlockKeys.value,
+  (keys) => {
+    keys.forEach((key) => {
+      openBlockImmediately(key)
+      if (key.startsWith('design-')) {
+        const pid = key.replace('design-', '')
+        openBlockImmediately(`proto-${pid}`)
+      }
+    })
+  },
+  { deep: true, immediate: true },
+)
+
+/**
+ * 判定画板是否挂载活体 iframe：
+ * 1. 设计稿画框 (blockType === 'design')：由 PageCanvas 内部原生 img 渲染，无 iframe 负担，始终为 true
+ * 2. 凡是因为当前页、焦点、选中、微调编辑或交互模式而打开的原型，当时就立即持久记入 openedBlockKeys！
+ *    绝不允许“只在选中时开、切走后被拆掉”从而丢掉未保存修改、滚动位置与 Undo 栈！
+ * 3. 其余画板：只增不减，只要在 openedBlockKeys 列表中，就永远保持常驻，绝不再卸载！
+ */
+function isBlockActive(b: CanvasBlock): boolean {
+  if (b.blockType === 'design') {
+    return true
+  }
+  if (
+    focusPageId.value === b.page.id ||
+    selectedBlockKeys.value.has(b.key) ||
+    activeEditingPageId.value === b.page.id ||
+    selectedNodeId.value === b.page.id ||
+    activeInteractionPageId.value === b.page.id
+  ) {
+    if (!openedBlockKeys.value.has(b.key)) {
+      openedBlockKeys.value.add(b.key)
+      pendingQueue = pendingQueue.filter((k) => k !== b.key)
+    }
+    return true
+  }
+  return openedBlockKeys.value.has(b.key)
+}
+
 
 function viewportSize() {
   if (!viewportRef.value) return { w: 1200, h: 800 }
@@ -6588,7 +7162,8 @@ function viewportSize() {
   return { w: r.width, h: r.height }
 }
 
-function focusPage(pageId: number, fitGroup = false) {
+async function focusPage(pageId: number, fitGroup = false) {
+  openBlockImmediately(`proto-${pageId}`)
   const b = (workbenchMode.value === 'interactive'
     ? blocks.value.find((bb) => bb.page.id === pageId && bb.blockType === 'prototype')
     : null) || blocks.value.find((bb) => bb.page.id === pageId)
@@ -6596,6 +7171,10 @@ function focusPage(pageId: number, fitGroup = false) {
   selectedBlockKeys.value = new Set([b.key])
   selectedNodeKey.value = b.key
   const switched = focusPageId.value !== pageId
+  if (switched && focusPageId.value) {
+    // 换页之前，立刻保存上一页！
+    await flushPageSave(focusPageId.value)
+  }
   focusPageId.value = pageId
   selectedNodeId.value = pageId
   activeInteractionPageId.value = pageId
@@ -7063,7 +7642,7 @@ function zoomAt(cx: number, cy: number, factor: number) {
   const px = cx - rect.left
   const py = cy - rect.top
   const v = view.value
-  const newK = Math.min(3, Math.max(0.15, v.k * factor))
+  const newK = Math.min(3, Math.max(0.04, v.k * factor))
   view.value = {
     k: newK,
     x: px - ((px - v.x) * newK) / v.k,
@@ -7101,7 +7680,7 @@ function fitAll() {
   const availW = Math.max(120, w - padX * 2)
   const availH = Math.max(120, h - padY * 2)
 
-  const scale = Math.min(1.5, Math.max(0.15, Math.min(availW / totalW, availH / totalH)))
+  const scale = Math.min(1.5, Math.max(0.04, Math.min(availW / totalW, availH / totalH)))
   const targetCenterX = minX + totalW / 2
   const targetCenterY = minY + totalH / 2
 
@@ -7358,8 +7937,17 @@ const currentFocusDomLayers = computed(() => {
   return pageDomLayers.value[pid] || []
 })
 
-function onPrototypeFrameFocus(pageId: number, blockKey: string) {
+async function onPrototypeFrameFocus(pageId: number, blockKey: string) {
+  openBlockImmediately(blockKey || `proto-${pageId}`)
+  openBlockImmediately(`proto-${pageId}`)
+  if (!isViewer.value && pageId) {
+    requestPageEditor(pageId)
+  }
   const switched = focusPageId.value !== pageId
+  if (switched && focusPageId.value) {
+    // 换页之前，立刻保存上一页！
+    await flushPageSave(focusPageId.value)
+  }
   focusPageId.value = pageId
   selectedNodeId.value = pageId
   activeInteractionPageId.value = pageId
@@ -7848,11 +8436,22 @@ function onInspectorUpdatePosition(payload: { key: 'x' | 'y'; val: number }) {
         const nextX = payload.key === 'x' ? payload.val : block.x
         const nextY = payload.key === 'y' ? payload.val : block.y
         pageOverrides.value = { ...pageOverrides.value, [block.key]: { x: nextX, y: nextY } }
-        page.canvas_x = nextX
-        page.canvas_y = nextY
-        projectApi.updatePagePosition(id, page.id, { canvasX: nextX, canvasY: nextY }).catch((err: any) => {
-          ElMessage.error(`保存画板位置失败: ${err?.response?.data?.message || err?.message || '网络错误'}`)
-        })
+        const hasDesign = !!block.page.background_image
+        if (block.blockType === 'prototype' && hasDesign) {
+          const designKey = `design-${page.id}`
+          if (!pageOverrides.value[designKey]) {
+            const currentDesign = blocks.value.find((b) => b.key === designKey)
+            if (currentDesign) {
+              pageOverrides.value = { ...pageOverrides.value, [designKey]: { x: currentDesign.x, y: currentDesign.y } }
+            }
+          }
+        } else {
+          page.canvas_x = nextX
+          page.canvas_y = nextY
+          projectApi.updatePagePosition(id, page.id, { canvasX: nextX, canvasY: nextY }).catch((err: any) => {
+            ElMessage.error(`保存画板位置失败: ${err?.response?.data?.message || err?.message || '网络错误'}`)
+          })
+        }
       }
     }
   }
@@ -8488,29 +9087,11 @@ async function handleGlobalUndo(): Promise<boolean> {
     } else if (tConn >= tPage && tConn >= tEdit && lastInteraction) {
       return await undoInteraction()
     } else if (lastPageEdit) {
-      const record = pageEditUndoStack.value.pop()!
-      record.timestamp = Date.now()
-      pageEditRedoStack.value.push(record)
-
-      // 跨画板撤回时平滑将视口平移聚焦到该画板；同画板连续撤回时保持视口稳定
-      if (focusPageId.value !== record.pageId) {
-        focusPage(record.pageId)
-      } else {
-        selectedNodeId.value = record.pageId
-        showFrameFill(record.pageId)
-      }
-      postUndoRedoToFocusPage(record.pageId, 'wf-undo')
-      return true
+      return await undoPageEdit()
     }
   }
 
-  // 2. 兜底逻辑：若全局时间线已为空，但当前聚焦了画板，向该画板发送一次撤销指令
-  const fallbackPid = focusPageId.value || (activeSelectedElementInfo.value ? selectedNodeId.value : null)
-  if (fallbackPid && mode.value === 'edit') {
-    postUndoRedoToFocusPage(fallbackPid, 'wf-undo')
-    return true
-  }
-
+  showToast('已是最初状态，无更多可撤回')
   return false
 }
 
@@ -8559,27 +9140,11 @@ async function handleGlobalRedo(): Promise<boolean> {
     } else if (tConn >= tPage && tConn >= tEdit && lastInteractionRedo) {
       return await redoInteraction()
     } else if (lastPageEditRedo) {
-      const record = pageEditRedoStack.value.pop()!
-      record.timestamp = Date.now()
-      pageEditUndoStack.value.push(record)
-
-      if (focusPageId.value !== record.pageId) {
-        focusPage(record.pageId)
-      } else {
-        selectedNodeId.value = record.pageId
-        showFrameFill(record.pageId)
-      }
-      postUndoRedoToFocusPage(record.pageId, 'wf-redo')
-      return true
+      return await redoPageEdit()
     }
   }
 
-  const fallbackPid = focusPageId.value || (activeSelectedElementInfo.value ? selectedNodeId.value : null)
-  if (fallbackPid && mode.value === 'edit') {
-    postUndoRedoToFocusPage(fallbackPid, 'wf-redo')
-    return true
-  }
-
+  showToast('已是最新状态，无更多可重做')
   return false
 }
 
@@ -8611,10 +9176,26 @@ function onSimMessage(ev: MessageEvent) {
     return
   }
   if (ev.data.type === 'wf-snapshot-pushed' && ev.data.pageId) {
+    if (isGlobalUndoingRedoing) return
     const pid = Number(ev.data.pageId)
+    const html = String(ev.data.html || '')
+    if (!html) return
+    const top = pageEditUndoStack.value[pageEditUndoStack.value.length - 1]
+    if (top && top.pageId === pid && top.html === html) {
+      return
+    }
+    let prevHtml: string | undefined = undefined
+    for (let i = pageEditUndoStack.value.length - 1; i >= 0; i--) {
+      if (pageEditUndoStack.value[i].pageId === pid) {
+        prevHtml = pageEditUndoStack.value[i].html
+        break
+      }
+    }
     pageEditUndoStack.value.push({
       pageId: pid,
       timestamp: Number(ev.data.timestamp) || Date.now(),
+      html: html,
+      prevHtml: prevHtml,
     })
     if (pageEditUndoStack.value.length > 100) {
       pageEditUndoStack.value.shift()
@@ -8670,6 +9251,15 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (viewportObserver) {
+    viewportObserver.disconnect()
+    viewportObserver = null
+  }
+  if (queueTimer) {
+    clearTimeout(queueTimer)
+    queueTimer = null
+  }
+  window.removeEventListener('resize', onWindowResize)
   window.removeEventListener('message', onSimMessage)
   sidebarThumbObservers.forEach((ro) => ro.disconnect())
   sidebarThumbObservers.clear()
@@ -8762,6 +9352,25 @@ const activeEditingPageId = computed<number | null>(() => {
   return null
 })
 
+function ensurePageProtoOpened(pageId?: number | null) {
+  if (!pageId) return
+  openBlockImmediately(`proto-${pageId}`)
+}
+
+watch(
+  [focusPageId, selectedNodeId, activeEditingPageId, activeInteractionPageId],
+  ([focusId, selId, editId, interId]) => {
+    ensurePageProtoOpened(focusId)
+    ensurePageProtoOpened(selId)
+    ensurePageProtoOpened(editId)
+    ensurePageProtoOpened(interId)
+    if (!isViewer.value && editId) {
+      requestPageEditor(editId)
+    }
+  },
+  { immediate: true },
+)
+
 const activeEditingPage = computed(() => {
   if (!activeEditingPageId.value) return null
   return pages.value.find((p) => p.id === activeEditingPageId.value) || null
@@ -8813,6 +9422,19 @@ watch(activeEditingPageId, (newId, oldId) => {
 })
 
 onMounted(async () => {
+  updateViewportDims()
+  window.addEventListener('resize', onWindowResize, { passive: true })
+  if (viewportRef.value && typeof ResizeObserver !== 'undefined') {
+    viewportObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect) {
+          updateViewportDims(entry.contentRect)
+          scheduleQueueUpdate()
+        }
+      }
+    })
+    viewportObserver.observe(viewportRef.value)
+  }
   // 监听来自飞书回调子窗口的登录成功通知
   window.addEventListener('message', (e) => {
     if (e.origin === window.location.origin && e.data?.type === 'wf-feishu-login-success') {
@@ -9132,6 +9754,18 @@ async function onGlobalKeydown(e: KeyboardEvent) {
   if (e.shiftKey && (e.key === '2' || e.key === '@')) {
     e.preventDefault()
     focusPage(focusPageId.value ?? (blocks.value[0]?.page.id ?? 0))
+    return
+  }
+
+  // 0. 保存快捷键 (Ctrl+S / Cmd+S)：全局任何位置第一时间拦截浏览器「另存为」
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault()
+    e.stopPropagation()
+    const activeEl = document.activeElement as HTMLElement | null
+    if (activeEl && typeof activeEl.blur === 'function') {
+      try { activeEl.blur() } catch (err) {}
+    }
+    await handleSaveCurrentPage()
     return
   }
 
@@ -9522,10 +10156,16 @@ onUnmounted(() => {
   &.is-dragging {
     pointer-events: none;
   }
+
+  &.is-dragging iframe,
+  &.is-moving iframe {
+    pointer-events: none !important;
+  }
 }
 
 .page-block {
   transform-origin: 0 0;
+  contain: layout;
 }
 
 .slide-in-right {

@@ -3131,8 +3131,8 @@ public class TemplateHtmlRenderer {
                        font-size:13px;color:#6B7280;border-radius:8px;min-width:0;
                        white-space:nowrap;overflow:hidden}
                   .wf-segs span.on{background:var(--seg-bg, #FFF);color:var(--seg-ink, %s);box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:600}
-                  .wf-sw{display:block;cursor:pointer;transition:all 0.2s ease}
-                  .wf-sw-k{transition:all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1)}
+                  .wf-sw{display:block;cursor:pointer;transition:background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, filter 0.15s ease}
+                  .wf-sw-k{transition:left 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), right 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease}
                   .wf-ck{cursor:pointer;transition:opacity 0.15s ease}
                   .wf-ck:active{opacity:0.8}
                   .wf-rate{user-select:none}

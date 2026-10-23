@@ -42,7 +42,7 @@
     >
       <!-- Stitch 式整页直出视图：AI 生成的完整 HTML/CSS 页面（唯一展示形态，支持 data-nav 跨页跳转） -->
       <iframe
-        v-if="htmlMode"
+        v-if="htmlMode && active"
         ref="htmlFrameRef"
         class="html-frame"
         :class="{ 'pointer-events-none': draggingComponent }"
@@ -52,6 +52,76 @@
         title="prototype-html"
         @load="onFrameLoad"
       ></iframe>
+
+      <!-- 排队待水合轻量骨架占位层（未挂载时统一展示清晰骨架，绝不用旧设计稿充数） -->
+      <div
+        v-else-if="htmlMode && !active"
+        class="html-frame-lod-placeholder w-full h-full bg-white dark:bg-[#1e1e1e] flex flex-col items-center justify-center select-none overflow-hidden relative border border-slate-200/60 dark:border-[#383838] rounded-xl shadow-2xs"
+        :style="{ width: `${Math.round(canvasW * scale)}px`, height: `${Math.round(canvasH * scale)}px` }"
+      >
+        <div class="w-full h-full flex flex-col items-center justify-between p-4 text-center text-slate-400 dark:text-slate-500 bg-gradient-to-b from-slate-50/80 via-white to-slate-100/50 dark:from-[#242424] dark:to-[#181818]">
+          <!-- 网页端顶部浏览器标题栏 -->
+          <div v-if="canvasW >= 768" class="w-full flex items-center gap-1.5 px-3 py-1.5 bg-slate-100/80 dark:bg-[#282828] rounded-lg border border-slate-200/60 dark:border-[#383838]">
+            <div class="flex items-center gap-1">
+              <div class="w-2 h-2 rounded-full bg-rose-400/80"></div>
+              <div class="w-2 h-2 rounded-full bg-amber-400/80"></div>
+              <div class="w-2 h-2 rounded-full bg-emerald-400/80"></div>
+            </div>
+            <div class="flex-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate px-2 text-left">{{ page.name }}</div>
+            <div class="text-[10px] font-mono text-slate-400">{{ canvasW }} × {{ canvasH }}</div>
+          </div>
+          <!-- 移动端顶部状态指示 -->
+          <div v-else class="w-full flex items-center justify-between px-2 pt-1 opacity-50">
+            <span class="text-[10px] font-mono font-medium">9:41</span>
+            <div class="w-10 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full"></div>
+            <span class="text-[10px] font-mono font-medium">100%</span>
+          </div>
+
+          <!-- 网页端排版骨架：侧边栏 + 主内容表格/卡片 -->
+          <div v-if="canvasW >= 768" class="w-full flex-1 flex gap-3 my-3 overflow-hidden">
+            <div class="w-32 h-full bg-slate-100/80 dark:bg-[#252525] rounded-lg p-2 flex flex-col gap-2 shrink-0 border border-slate-200/40 dark:border-slate-800">
+              <div class="h-3 w-16 bg-slate-300 dark:bg-slate-600 rounded"></div>
+              <div class="h-2 w-full bg-slate-200 dark:bg-slate-700 rounded mt-2"></div>
+              <div class="h-2 w-5/6 bg-slate-200 dark:bg-slate-700 rounded"></div>
+              <div class="h-2 w-4/6 bg-slate-200 dark:bg-slate-700 rounded"></div>
+              <div class="h-2 w-full bg-slate-200 dark:bg-slate-700 rounded mt-2"></div>
+              <div class="h-2 w-3/4 bg-slate-200 dark:bg-slate-700 rounded"></div>
+            </div>
+            <div class="flex-1 flex flex-col gap-2.5">
+              <div class="flex items-center justify-between">
+                <div class="h-3.5 w-36 bg-slate-300 dark:bg-slate-600 rounded"></div>
+                <div class="h-3.5 w-16 bg-emerald-500/30 rounded"></div>
+              </div>
+              <div class="grid grid-cols-3 gap-2">
+                <div class="h-12 bg-slate-100 dark:bg-[#252525] rounded-lg border border-slate-200/50 dark:border-slate-800"></div>
+                <div class="h-12 bg-slate-100 dark:bg-[#252525] rounded-lg border border-slate-200/50 dark:border-slate-800"></div>
+                <div class="h-12 bg-slate-100 dark:bg-[#252525] rounded-lg border border-slate-200/50 dark:border-slate-800"></div>
+              </div>
+              <div class="flex-1 bg-slate-100/60 dark:bg-[#222] rounded-lg border border-slate-200/50 dark:border-slate-800 p-2 space-y-2">
+                <div class="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-full"></div>
+                <div class="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-full"></div>
+                <div class="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-full"></div>
+                <div class="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-4/5"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 移动端居中骨架 -->
+          <div v-else class="flex flex-col items-center justify-center my-auto">
+            <div class="w-12 h-12 rounded-2xl bg-white dark:bg-[#2c2c2c] shadow-xs border border-slate-200/90 dark:border-[#404040] flex items-center justify-center mb-2.5">
+              <Smartphone class="w-6 h-6 text-emerald-600/70 dark:text-emerald-400/70 stroke-[1.5]" />
+            </div>
+            <div class="text-xs font-bold text-slate-700 dark:text-slate-200 max-w-[220px] truncate px-2">{{ page.name }}</div>
+            <div class="text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-1">{{ canvasW }} × {{ canvasH }}</div>
+            <div class="w-40 space-y-2 mt-4 opacity-35">
+              <div class="h-2 bg-slate-300 dark:bg-slate-600 rounded-full w-full"></div>
+              <div class="h-2 bg-slate-200 dark:bg-slate-700 rounded-full w-4/5 mx-auto"></div>
+              <div class="h-2 bg-slate-200 dark:bg-slate-700 rounded-full w-3/5 mx-auto"></div>
+            </div>
+          </div>
+          <div v-if="canvasW < 768" class="w-20 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mb-1 opacity-60"></div>
+        </div>
+      </div>
 
       <div
         v-else
@@ -284,9 +354,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { FileText, ChevronDown, ChevronRight, GripVertical, Plus, Lock, Image as ImageIcon } from 'lucide-vue-next'
+import { FileText, ChevronDown, ChevronRight, GripVertical, Plus, Lock, Image as ImageIcon, Smartphone, Monitor } from 'lucide-vue-next'
 import { apiUrl, getFileUrl, withBackendFiles, withoutBackendFiles } from '../api/http'
 import { projectApi } from '../api/project'
 import type { Annotation, Element, Page } from '../types'
@@ -308,6 +378,8 @@ const props = withDefaults(
     canvasScale?: number
     /** 整页原型微调模式：iframe 内可拖动元素 / 滚轮调字号 / Del 隐藏 */
     editMode?: boolean
+    /** 是否装载完整可视化编辑器套件（薄页面模式下为 false，仅在微调或激活时为 true，装一次就留着） */
+    loadEditor?: boolean
     /** 是否处于真机原型预览交互模式：true 时才响应跳转、开关、勾选、Tab 切换等操作；false 时为纯静态视图（保护画布微调） */
     interactive?: boolean
     /** 全局所有页面列表，用于解析交互跳转的目标页面名称 */
@@ -324,6 +396,8 @@ const props = withDefaults(
     protoHotspot?: boolean
     /** 只读防误触模式 (Viewer Protection) */
     readOnly?: boolean
+    /** 是否激活挂载内部重型 iframe（为 false 时渲染轻量骨架/快照占位，零内存占用） */
+    active?: boolean
   }>(),
   {
     showWireframe: true,
@@ -337,10 +411,12 @@ const props = withDefaults(
     gap: 16,
     canvasScale: 1,
     editMode: false,
+    loadEditor: false,
     interactive: false,
     lockedByOther: null,
     protoHotspot: false,
     readOnly: false,
+    active: true,
   },
 )
 
@@ -355,7 +431,7 @@ const emit = defineEmits<{
   (e: 'annOrderChange', pageId: number, order: number[]): void
   (e: 'navigate', pageName: string, uids?: string[], pos?: { x?: number; y?: number; uid?: string }): void
   (e: 'back'): void
-  (e: 'saveHtml', payload: { pageId: number; html: string }): void
+  (e: 'saveHtml', payload: { pageId: number; html: string; saveEpoch?: number }): void
   (e: 'saveDirty', pageId: number): void
   (e: 'savePreparationFailed', pageId: number): void
   (e: 'autowireUnmapped', pageId: number): void
@@ -404,24 +480,82 @@ const htmlMode = computed(() => !!props.page.html_content)
  */
 const editSourceHtml = ref(props.page.html_content || '')
 let isInternalSaving = false
+let lastInternalSavedHtml = ''
 let saveResetTimer: any = null
+
+// 初始是否装载编辑器：若直接为微调页或父级指定了装载，则直接装载；否则以薄页面启动（节省 95% 脚本开销与内存）
+const initialIncludeEditor = !props.readOnly && (!!props.loadEditor || !!props.editMode)
+let hasLoadedEditorState = initialIncludeEditor
+const hasLoadedEditor = ref(initialIncludeEditor)
 
 watch(
   () => props.page.html_content,
-  (v) => {
-    if (isInternalSaving || (props.editMode && !props.readOnly)) {
-      // 内部微调保存引起的变更或微调模式下，不触发 iframe srcdoc 刷新，保护历史记录
+  (v, oldV) => {
+    // 1. 原型被清空：必须换整页（移除原型，展示空占位）
+    if (!v || !v.trim()) {
+      editSourceHtml.value = ''
+      fitSent.value = false
       return
     }
-    editSourceHtml.value = v || ''
+
+    // 2. 撤回清空/恢复整页（之前为空，现恢复完整 HTML）：必须换整页展示
+    if (!oldV || !oldV.trim()) {
+      editSourceHtml.value = v
+      fitSent.value = false
+      return
+    }
+
+    // 3. 画板当前正显示在屏幕上（props.active 为 true）：
+    // 自动保存引起的外层 page.html_content 变更，绝对不要触发整页重新打开（防白屏闪烁与位置回弹）
+    // 撤回靠画板内部换回原来的样子，不靠整页重开
+    if (props.active) {
+      if (isInternalSaving || v === lastInternalSavedHtml) {
+        // 来自当前画板微调的自动保存：画面中已经是最新 DOM，不重换 iframe
+        return
+      }
+      // 故意换整页情况之一：AI 重新生成这一页或外部数据整体更新
+      editSourceHtml.value = v
+      fitSent.value = false
+      return
+    }
+
+    // 4. 当前画板不在视口内（!props.active 占位阶段）：直接在内存中同步最新 HTML
+    editSourceHtml.value = v
+    fitSent.value = false
   },
 )
+
+// 画板重新出现/重新挂载时（从 !active 变为 active）：
+// 必须用 page.html_content 里最新的那份来画第一帧，防止用初次打开时的旧内容导致元素弹回移动前的位置
 watch(
-  () => props.editMode,
-  (on, old) => {
-    if (!on && old) {
-      // 退出微调模式时同步最新内容
+  () => props.active,
+  (nowActive, prevActive) => {
+    if (nowActive && !prevActive) {
       editSourceHtml.value = props.page.html_content || ''
+      fitSent.value = false
+    }
+  },
+)
+
+watch(
+  () => [props.editMode, props.loadEditor],
+  ([em, le], oldVal) => {
+    const oldEm = oldVal ? oldVal[0] : false
+    const oldLe = oldVal ? oldVal[1] : false
+    if ((em || le) && !props.readOnly) {
+      if (!hasLoadedEditorState) {
+        hasLoadedEditorState = true
+        hasLoadedEditor.value = true
+        hydrateEditorInFrame()
+      }
+    } else if (!le && oldLe) {
+      // 当被淘汰出 LRU 活跃编辑器队列时，自动卸载退回薄页面，释放撤销栈与控制盒内存
+      unloadEditorInFrame()
+    }
+    if (!em && oldEm) {
+      // 焦点从这一页离开、editMode 从 true 变 false 时：
+      // 只要该页还在画布上开着，绝不用未同步的旧内容重换 iframe，保持内存与画面同步
+      flushPendingSave().catch(() => {})
     }
     sendEditMode()
   },
@@ -437,20 +571,20 @@ watch(
   () => props.page?.id,
   () => {
     fitSent.value = false
+    lastInternalSavedHtml = ''
     editSourceHtml.value = props.page.html_content || ''
   },
 )
-watch(
-  () => props.page?.html_content,
-  () => {
-    if (!isInternalSaving && (!props.editMode || props.readOnly)) {
-      fitSent.value = false
-    }
-  },
-)
 
-/** 向 AI 生成的 HTML 注入运行时：跨页跳转 + 防溢出兜底 + 微调编辑器 */
-const navRuntimeHtml = computed(() => injectNavRuntime(withBackendFiles(editSourceHtml.value), !!props.interactive, !!props.readOnly))
+/** 向 AI 生成的 HTML 注入运行时：跨页跳转 + 防溢出兜底 + 微调编辑器（按需加载） */
+const navRuntimeHtml = computed(() =>
+  injectNavRuntime(
+    withBackendFiles(editSourceHtml.value),
+    !!props.interactive,
+    !!props.readOnly,
+    hasLoadedEditorState,
+  ),
+)
 
 const htmlFrameRef = ref<HTMLIFrameElement | null>(null)
 /** 整页 HTML 的实际内容高度（由注入脚本测量后回传）；未上报时回退画布高度 */
@@ -462,6 +596,65 @@ const focusedLayerUid = ref('')
 
 function sendEditMode() {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-edit', on: !props.readOnly && !!props.editMode }, '*')
+}
+
+function hydrateEditorInFrame() {
+  if (props.readOnly) return
+  hasLoadedEditorState = true
+  hasLoadedEditor.value = true
+
+  const frame = htmlFrameRef.value
+  if (!frame) return
+  const doc = frame.contentDocument
+  if (!doc || !doc.body) return
+
+  // 避免重复注入
+  if (doc.querySelector('style[data-wf-editor]') || doc.getElementById('wf-transform-box')) {
+    sendEditMode()
+    return
+  }
+
+  const editorHtml = buildEditorPayload(!!props.interactive, !!props.readOnly)
+  const styleMatch = editorHtml.match(/<style[^>]*data-wf-inject[^>]*>([\s\S]*?)<\/style>/i)
+  const scriptMatch = editorHtml.match(/<script[^>]*data-wf-inject[^>]*>([\s\S]*?)<\/script>/i)
+
+  if (styleMatch && styleMatch[1]) {
+    const s = doc.createElement('style')
+    s.setAttribute('data-wf-inject', 'editor')
+    s.setAttribute('data-wf-editor', 'true')
+    s.textContent = styleMatch[1]
+    ;(doc.head || doc.body).appendChild(s)
+  }
+
+  if (scriptMatch && scriptMatch[1]) {
+    const sc = doc.createElement('script')
+    sc.setAttribute('data-wf-inject', 'editor')
+    sc.setAttribute('data-wf-editor', 'true')
+    sc.textContent = scriptMatch[1]
+    doc.body.appendChild(sc)
+  }
+
+  sendEditMode()
+}
+
+async function unloadEditorInFrame() {
+  try {
+    await flushPendingSave()
+  } catch (e) {}
+  hasLoadedEditorState = false
+  hasLoadedEditor.value = false
+
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-unload-editor' }, '*')
+
+  const doc = htmlFrameRef.value?.contentDocument
+  if (doc) {
+    try {
+      const injectedStyles = doc.querySelectorAll('style[data-wf-editor]')
+      injectedStyles.forEach((s) => s.parentNode?.removeChild(s))
+      const injectedScripts = doc.querySelectorAll('script[data-wf-editor]')
+      injectedScripts.forEach((s) => s.parentNode?.removeChild(s))
+    } catch (e) {}
+  }
 }
 
 function sendInteractiveMode() {
@@ -513,7 +706,11 @@ function removeElementNav(uid?: string | null, targetPageName?: string | null, t
   }, '*')
 }
 
+
 function onFrameLoad() {
+  if (hasLoadedEditorState || props.loadEditor || props.editMode) {
+    hydrateEditorInFrame()
+  }
   sendEditMode()
   sendInteractiveMode()
   sendProtoHotspot()
@@ -542,7 +739,7 @@ watch(
   },
 )
 
-function injectNavRuntime(html: string, initialInteractive = false, isReadOnly = false): string {
+function injectNavRuntime(html: string, initialInteractive = false, isReadOnly = false, includeEditor = true): string {
   // 清理可能已残留的旧版本注入运行时（确保始终采用最新微调系统与通信逻辑）
   const cleanHtml = html
     .replace(/<style\b[^>]*\bdata-wf-inject[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -639,6 +836,19 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       transform: scale(0.96) !important;
       transition: transform 0.06s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
+    /* 开关组件过渡属性纠正：严禁对位置使用 transition: all，杜绝微调拖动时把 left/top 也算入 0.2s 延缓滑行。
+       位置必须立刻跟上鼠标，仅对背景颜色、投影以及白点自身的切换位置做过渡 */
+    .wf-sw {
+      transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, filter 0.15s ease !important;
+    }
+    .wf-sw-k {
+      transition: left 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), right 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease !important;
+    }
+    /* 拖拽微调期间强行禁用所有元素的 transition，确保移动元素时 100% 紧贴鼠标，松手立刻到位，杜绝任何迟滞感 */
+    body.wf-dragging,
+    body.wf-dragging * {
+      transition: none !important;
+    }
     /* 业务说明联动发光呼吸框 */
     .wf-spotlight-target {
       outline: 2.5px solid #0d99ff !important;
@@ -690,10 +900,62 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     }
   </style>`
   const runtime = `<script data-wf-inject>(function(){
+    var PAGE_ID = ${JSON.stringify(props.page?.id ?? 0)};
     var isInteractive = ${initialInteractive ? 'true' : 'false'};
     if (isInteractive) {
       document.body.classList.add('wf-interactive');
     }
+
+    // 画布快捷平移与聚焦监听（薄页面与编辑器共用，确保空间键/中键/滚轮/点击在所有画板均平滑响应）
+    if (!window.__wfPanActive) {
+      window.__wfPanActive = true;
+      var panSpaceHeld = false, panGestureActive = false;
+      function publishPanKey(pressed){
+        if(panSpaceHeld === pressed) return;
+        panSpaceHeld = pressed;
+        parent.postMessage({ type: 'wf-pan-key', pressed: pressed }, '*');
+      }
+      document.addEventListener('keydown', function(e){
+        if(e.code !== 'Space' || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || document.body.classList.contains('wf-interactive')) return;
+        var t = e.target;
+        if(t && (t.isContentEditable || (t.closest && t.closest('input,textarea,select,[data-wf-editing-text="true"]')))) return;
+        e.preventDefault(); publishPanKey(true);
+      }, true);
+      document.addEventListener('keyup', function(e){ if(e.code === 'Space') publishPanKey(false); }, true);
+      window.addEventListener('blur', function(){ publishPanKey(false); });
+      document.addEventListener('mousedown', function(e){
+        if(e.button === 0){
+          try {
+            var tUid = e.target && e.target.getAttribute ? (e.target.getAttribute('data-wf-uid') || '') : '';
+            parent.postMessage({ type: 'wf-frame-focus', pageId: PAGE_ID, targetUid: tUid }, '*');
+          } catch(err) {}
+        }
+        if(document.body.classList.contains('wf-interactive') || (e.button !== 1 && !(panSpaceHeld && e.button === 0))) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        panGestureActive = true;
+        parent.postMessage({ type: 'wf-pan-start', clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY, button: e.button }, '*');
+      }, true);
+      document.addEventListener('mousemove', function(e){
+        if(!panGestureActive) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        parent.postMessage({ type: 'wf-pan-move', screenX: e.screenX, screenY: e.screenY, buttons: e.buttons }, '*');
+      }, true);
+      document.addEventListener('mouseup', function(e){
+        if(!panGestureActive) return;
+        panGestureActive = false;
+        e.preventDefault(); e.stopImmediatePropagation();
+        parent.postMessage({ type: 'wf-pan-end' }, '*');
+      }, true);
+      document.addEventListener('wheel', function(e){
+        if(document.body.classList.contains('wf-edit-mode')) return;
+        parent.postMessage({ type: 'wf-preview-wheel', dx: e.deltaX, dy: e.deltaY }, '*');
+      }, { passive: true });
+      document.addEventListener('click', function(){
+        if(document.body.classList.contains('wf-edit-mode')) return;
+        parent.postMessage({ type: 'wf-preview-page-click' }, '*');
+      }, true);
+    }
+
     window.addEventListener('message', function(ev){
       if(!ev.data) return;
       if(ev.data.type === 'wf-interactive'){
@@ -990,8 +1252,17 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     window.addEventListener('resize',report);
   })();
   <\/script>`
-  // 微调编辑器：选中与8点缩放控制盒、双击/点按钮编辑文字、替换图片、Del/Backspace删除、Ctrl+Z撤回、Ctrl+Y重做、方向键微调、拖动移动、自动落库
-  const editor = `<style data-wf-inject>
+  const editor = includeEditor ? buildEditorPayload(initialInteractive, isReadOnly) : ''
+  const payload = guard + runtime + sizer + editor
+  if (/<\/body>/i.test(cleanHtml)) {
+    return cleanHtml.replace(/<\/body>/i, `${payload}</body>`)
+  }
+  return cleanHtml + payload
+}
+
+// 微调编辑器：选中与8点缩放控制盒、双击/点按钮编辑文字、替换图片、Del/Backspace删除、Ctrl+Z撤回、Ctrl+Y重做、方向键微调、拖动移动、自动落库
+function buildEditorPayload(initialInteractive = false, isReadOnly = false): string {
+  return `<style data-wf-inject data-wf-editor>
     /* 彻底杜绝浏览器原生图片拖出副本与文字选区拖蓝 */
     body.wf-edit-mode img,
     body.wf-edit-mode a,
@@ -1016,6 +1287,12 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     body.wf-edit-mode textarea {
       -webkit-user-select: text !important;
       user-select: text !important;
+    }
+    body.wf-edit-mode .wf-sw {
+      transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, filter 0.15s ease !important;
+    }
+    body.wf-edit-mode .wf-sw-k {
+      transition: left 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), right 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease !important;
     }
 
     #wf-transform-box {
@@ -1075,8 +1352,10 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   <script data-wf-inject>
   (function(){
     var EDIT = ${initialInteractive || isReadOnly ? 'false' : 'true'}, READONLY = ${isReadOnly ? 'true' : 'false'}, hovered = null, touched = [], st = null, PROTO_HOTSPOT = false;
-    var panSpaceHeld = false, panGestureActive = false;
-    function publishPanKey(pressed){
+    if (!window.__wfPanActive) {
+      window.__wfPanActive = true;
+      var panSpaceHeld = false, panGestureActive = false;
+      function publishPanKey(pressed){
       if(panSpaceHeld === pressed) return;
       panSpaceHeld = pressed;
       parent.postMessage({ type: 'wf-pan-key', pressed: pressed }, '*');
@@ -1115,6 +1394,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       if(EDIT) return;
       parent.postMessage({ type: 'wf-preview-page-click' }, '*');
     }, true);
+    }
     var PAGE_ID = ${JSON.stringify(props.page?.id ?? 0)};
     var selectedEl = null;
     var selectedEls = [];
@@ -1122,7 +1402,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     var resizing = null;
     var drag = null;
     var marquee = null;
-    var history = [], hIdx = -1, MAX_HIST = 30;
+    var history = [], hIdx = -1, MAX_HIST = 30, suppressSnapshot = false, currentSaveEpoch = 0;
 
     function findVectorElement(uid){
       if(!uid) return null;
@@ -1187,6 +1467,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     }
 
     function pushSnapshot(){
+      if(suppressSnapshot) return;
       try{
         var html = snapshotHtml();
         if(hIdx < history.length - 1) history = history.slice(0, hIdx + 1);
@@ -1198,7 +1479,8 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           window.parent.postMessage({
             type: 'wf-snapshot-pushed',
             pageId: PAGE_ID,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            html: html
           }, '*');
         } catch(err){}
       }catch(e){}
@@ -1491,6 +1773,68 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         if((parseFloat(cs.borderTopLeftRadius) || 0) > 0) return true;
       }catch(e){}
       return false;
+    }
+
+    /**
+     * 寻找元素所属的“外面那层画框 / 容器”（Parent Frame）
+     * 行为严格对齐 Figma：
+     * 1. 优先寻找包裹它的最近卡片、容器、画框（wf-card, wf-container, wf-box, wf-frame, [data-wf-frame], [data-wf-component] 等）；
+     * 2. 若祖先具有独立视觉画框特征（非透明底色、边框、阴影、圆角），亦作为画框；
+     * 3. 跳过纯排布无样式的布局包裹层（isLayoutShell）；
+     * 4. 若元素直接挂在整页或无更小画框，才以整页画板（document.body）为基准。
+     */
+    function findParentFrame(el){
+      if(!el || !el.parentElement) return document.body;
+      var p = el.parentElement;
+      var fallbackParent = null;
+
+      while(p && p !== document.body && p !== document.documentElement){
+        // 1. 明确的画框 / 卡片 / 容器标记或类名
+        if(p.hasAttribute && (
+          p.hasAttribute('data-wf-frame') ||
+          p.hasAttribute('data-wf-container') ||
+          p.hasAttribute('data-wf-card') ||
+          p.hasAttribute('data-wf-box') ||
+          p.hasAttribute('data-wf-component') ||
+          p.hasAttribute('data-wf-group')
+        )){
+          return p;
+        }
+
+        var cls = '';
+        try { cls = typeof p.className === 'string' ? p.className : ''; } catch(e) {}
+        if(/\b(wf-card|wf-container|wf-box|wf-frame|wf-nav|wf-modal|wf-dialog|wf-bottom-sheet|wf-profile-header|card|container|box|frame|panel)\b/i.test(cls)){
+          return p;
+        }
+
+        var tag = (p.tagName || '').toUpperCase();
+        if(/^(SECTION|ARTICLE|HEADER|FOOTER|NAV|FORM|ASIDE|MAIN)$/.test(tag)){
+          return p;
+        }
+
+        // 2. 具有自身实体视觉盒特征（有底色、边框、阴影、圆角等）
+        if(hasOwnBox(p)){
+          return p;
+        }
+
+        // 3. 兜底候选：跳过无样式的 pure flex layout shell，记录第一个具有实体宽高的容器
+        if(!fallbackParent && !isLayoutShell(p) && p.offsetWidth >= 40 && p.offsetHeight >= 20){
+          fallbackParent = p;
+        }
+
+        p = p.parentElement;
+      }
+
+      if(fallbackParent && fallbackParent !== document.body && fallbackParent !== document.documentElement){
+        var bodyW = document.body.clientWidth || 375;
+        var bodyH = document.body.clientHeight || 812;
+        // 若不是满屏的根包装层，将其作为局部画框
+        if(fallbackParent.offsetWidth < bodyW * 0.98 || fallbackParent.offsetHeight < bodyH * 0.95){
+          return fallbackParent;
+        }
+      }
+
+      return document.body;
     }
 
     function boxLayerKind(el){
@@ -2374,8 +2718,10 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       }
     }
 
+    var isDirty = false;
     function doExport(){
       clearTimeout(st); st = null;
+      isDirty = false;
       try{
         var clone = document.documentElement.cloneNode(true);
         var bad = clone.querySelectorAll('[data-wf-inject],#wf-edit-toast,#wf-transform-box,#wf-marquee-box,[data-wf-editing-text]');
@@ -2397,10 +2743,10 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
             hiddenVectors[hvi].style.visibility = '';
           }
         }
-        parent.postMessage({ type: 'wf-save', html: '<!DOCTYPE html>\\n' + clone.outerHTML }, '*');
+        parent.postMessage({ type: 'wf-save', html: '<!DOCTYPE html>\\n' + clone.outerHTML, saveEpoch: currentSaveEpoch }, '*');
       }catch(e){ parent.postMessage({ type: 'wf-save-preparation-failed' }, '*'); }
     }
-    function scheduleSave(){ parent.postMessage({ type: 'wf-save-dirty' }, '*'); clearTimeout(st); st = setTimeout(doExport, 500); }
+    function scheduleSave(){ isDirty = true; parent.postMessage({ type: 'wf-save-dirty' }, '*'); clearTimeout(st); st = setTimeout(doExport, 500); }
 
     function getTransformBox(){
       var b = document.getElementById('wf-transform-box');
@@ -3901,6 +4247,36 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       }
     }
 
+    // 接住 Ctrl+S / Cmd+S，任何位置无条件第一时间拦截浏览器「另存为」；正在打字时先结束打字再立刻导出保存
+    window.addEventListener('keydown', function(e){
+      if((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')){
+        e.preventDefault();
+        e.stopPropagation();
+        var activeText = document.querySelector('[data-wf-editing-text="true"], [contenteditable="true"]');
+        if(activeText){
+          try { activeText.blur(); } catch(err){}
+        }
+        if(document.activeElement && typeof document.activeElement.blur === 'function'){
+          try { document.activeElement.blur(); } catch(err){}
+        }
+        clearTimeout(st);
+        st = null;
+        doExport();
+        showToast('已保存当前页面');
+        try {
+          parent.postMessage({ type: 'wf-shortcut-saved', pageId: PAGE_ID }, '*');
+        } catch(err){}
+      }
+    }, true);
+
+    // 页面关掉/卸载前兜底：把还没发出的内容马上发出去
+    window.addEventListener('beforeunload', function(){
+      if(isDirty || st !== null){
+        clearTimeout(st); st = null;
+        doExport();
+      }
+    });
+
     window.addEventListener('message', function(e){
       var d = e.data || {};
       if(d.type === 'wf-pan-stop' && e.source === parent){
@@ -3908,9 +4284,17 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         return;
       }
       if(d.type === 'wf-flush-save' && e.source === parent){
-        var editingText = document.querySelector('[data-wf-editing-text="true"]');
-        if(editingText) editingText.blur();
-        if(st !== null) doExport();
+        var activeText = document.querySelector('[data-wf-editing-text="true"], [contenteditable="true"]');
+        if(activeText){
+          try { activeText.blur(); } catch(err){}
+        }
+        if(document.activeElement && typeof document.activeElement.blur === 'function'){
+          try { document.activeElement.blur(); } catch(err){}
+        }
+        if(isDirty || st !== null){
+          clearTimeout(st); st = null;
+          doExport();
+        }
         parent.postMessage({ type: 'wf-save-flushed', requestId: d.requestId }, '*');
         return;
       }
@@ -4054,6 +4438,29 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         }
         return;
       }
+      if(d.type === 'wf-unload-editor'){
+        try {
+          if(isDirty || st !== null){
+            clearTimeout(st); st = null;
+            doExport();
+          }
+          EDIT = false;
+          READONLY = true;
+          if (typeof deselect === 'function') deselect();
+          if (typeof cleanupStyles === 'function') cleanupStyles();
+          var tb = document.getElementById('wf-transform-box');
+          if (tb && tb.parentNode) tb.parentNode.removeChild(tb);
+          var db = document.getElementById('wf-dim-badge');
+          if (db && db.parentNode) db.parentNode.removeChild(db);
+          var mb = document.getElementById('wf-marquee-box');
+          if (mb && mb.parentNode) mb.parentNode.removeChild(mb);
+          history = [];
+          hIdx = -1;
+          document.body.classList.remove('wf-edit-mode');
+          document.body.style.cursor = '';
+        } catch(err){}
+        return;
+      }
       if(d.type === 'wf-edit'){
         if(READONLY) return;
         EDIT = !!d.on;
@@ -4065,8 +4472,27 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           deselect();
           cleanupStyles();
         }
-      }else if(d.type === 'wf-undo'){ undo(); }
-      else if(d.type === 'wf-redo'){ redo(); }
+      }else if(d.type === 'wf-restore-snapshot'){
+        clearTimeout(st); st = null;
+        if(typeof d.saveEpoch === 'number'){
+          currentSaveEpoch = d.saveEpoch;
+        }
+        history = []; hIdx = -1;
+        if(d.html){
+          var prevSuppress = suppressSnapshot;
+          suppressSnapshot = true;
+          try {
+            restoreSnapshot(d.html);
+            deselect();
+            clearHover();
+            publishLayers();
+            scheduleSave();
+          } finally {
+            setTimeout(function(){ suppressSnapshot = prevSuppress; }, 120);
+          }
+        }
+      }else if(d.type === 'wf-undo'){ /* no-op: 由外层统一时间线管理，禁止页内旧历史复活 */ }
+      else if(d.type === 'wf-redo'){ /* no-op: 由外层统一时间线管理，禁止页内旧历史复活 */ }
       else if(d.type === 'wf-copy'){
         if(selectedEl) copyElement(selectedEl);
       }else if(d.type === 'wf-cut'){
@@ -4096,79 +4522,147 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         if(selectedEls && selectedEls.length > 0){
           pushSnapshot();
           var alignType = d.alignType;
-          var pad = 0;
-          // 对齐前统一 absolute，用当前 offsetLeft/offsetTop 作为起点，避免静态流乱跳
-          for(var ai = 0; ai < selectedEls.length; ai++){
-            var aEl = selectedEls[ai];
-            if(!aEl || !aEl.isConnected) continue;
-            var aL = aEl.offsetLeft;
-            var aT = aEl.offsetTop;
-            aEl.style.position = 'absolute';
-            aEl.style.left = aL + 'px';
-            aEl.style.top = aT + 'px';
-          }
+
           if(selectedEls.length === 1){
             var oneEl = selectedEls[0];
-            var boxParent = oneEl.offsetParent || document.body;
-            var pW = boxParent.clientWidth || document.body.clientWidth || 375;
-            var pH = boxParent.clientHeight || document.body.clientHeight || 812;
-            var eW = oneEl.offsetWidth || 100;
-            var eH = oneEl.offsetHeight || 40;
-            if(alignType === 'left'){
-              oneEl.style.left = pad + 'px';
-            }else if(alignType === 'center-h'){
-              oneEl.style.left = Math.round((pW - eW) / 2) + 'px';
-            }else if(alignType === 'right'){
-              oneEl.style.left = Math.max(0, Math.round(pW - eW - pad)) + 'px';
-            }else if(alignType === 'top'){
-              oneEl.style.top = pad + 'px';
-            }else if(alignType === 'center-v'){
-              oneEl.style.top = Math.round((pH - eH) / 2) + 'px';
-            }else if(alignType === 'bottom'){
-              oneEl.style.top = Math.max(0, Math.round(pH - eH - pad)) + 'px';
+            if(oneEl && oneEl.isConnected){
+              var parentFrame = findParentFrame(oneEl);
+              var isBody = !parentFrame || parentFrame === document.body || parentFrame === document.documentElement;
+
+              // 获取画框的物理视口矩形与内部有效边界
+              var fRect = isBody ? document.body.getBoundingClientRect() : parentFrame.getBoundingClientRect();
+              var pCs = window.getComputedStyle ? window.getComputedStyle(parentFrame) : null;
+              var bL = (!isBody && pCs) ? (parseFloat(pCs.borderLeftWidth) || 0) : 0;
+              var bT = (!isBody && pCs) ? (parseFloat(pCs.borderTopWidth) || 0) : 0;
+              var innerLeft = fRect.left + bL;
+              var innerTop = fRect.top + bT;
+              var innerW = isBody ? (document.body.clientWidth || 375) : (parentFrame.clientWidth || (fRect.width - bL));
+              var innerH = isBody ? (document.body.clientHeight || 812) : (parentFrame.clientHeight || (fRect.height - bT));
+
+              var elRect = oneEl.getBoundingClientRect();
+              var eW = elRect.width || oneEl.offsetWidth || 100;
+              var eH = elRect.height || oneEl.offsetHeight || 40;
+
+              // 计算目标视口位置及所需的几何位移量 (dx, dy)
+              var dx = 0;
+              var dy = 0;
+
+              if(alignType === 'left'){
+                dx = Math.round(innerLeft - elRect.left);
+              }else if(alignType === 'center-h'){
+                dx = Math.round(innerLeft + (innerW - eW) / 2 - elRect.left);
+              }else if(alignType === 'right'){
+                dx = Math.round(innerLeft + innerW - eW - elRect.left);
+              }else if(alignType === 'top'){
+                dy = Math.round(innerTop - elRect.top);
+              }else if(alignType === 'center-v'){
+                dy = Math.round(innerTop + (innerH - eH) / 2 - elRect.top);
+              }else if(alignType === 'bottom'){
+                dy = Math.round(innerTop + innerH - eH - elRect.top);
+              }
+
+              // 检查元素当前是否为绝对定位
+              var posVal = oneEl.style.position || (window.getComputedStyle ? window.getComputedStyle(oneEl).position : '');
+              var isAbsolute = posVal === 'absolute';
+
+              // 获取元素当前的 left / top 样式值
+              var curL = parseFloat(oneEl.style.left);
+              var curT = parseFloat(oneEl.style.top);
+              if(isNaN(curL)) curL = 0;
+              if(isNaN(curT)) curT = 0;
+
+              // 核心保护：若元素原本处于正常文档流中（非 absolute），设为 relative
+              // 这样它在原文档流中的占位空间 100% 完整保留在原地，绝对不会导致任何兄弟元素跳动或塌陷！
+              // 且严禁移动 DOM 节点（不 appendChild），保留原本完整的 DOM 结构
+              if(!isAbsolute){
+                oneEl.style.position = 'relative';
+              }
+              oneEl.style.zIndex = '99';
+
+              // 临时清除可能存在的 transition 避免位移缓动
+              var origTrans = oneEl.style.transition;
+              oneEl.style.setProperty('transition', 'none', 'important');
+
+              // 应用目标轴位移量（未对齐的另一轴严格不改动）
+              if(alignType === 'left' || alignType === 'center-h' || alignType === 'right'){
+                oneEl.style.left = Math.round(curL + dx) + 'px';
+              } else if(alignType === 'top' || alignType === 'center-v' || alignType === 'bottom'){
+                oneEl.style.top = Math.round(curT + dy) + 'px';
+              }
+
+              // 延时恢复过渡
+              if(origTrans){
+                setTimeout(function(){
+                  if(oneEl && oneEl.isConnected){
+                    oneEl.style.transition = origTrans;
+                  }
+                }, 50);
+              }
             }
           } else {
-            // 多选：对齐到选中元素自身包围盒（Figma 行为）
+            // 多选：对齐到选中元素集合自身的共同包围盒，同样采用 Delta 相对位移，不破坏周围未选中元素的排版
             var minL = Infinity, minT = Infinity, maxR = -Infinity, maxB = -Infinity;
             var infos = [];
             for(var bi = 0; bi < selectedEls.length; bi++){
               var bEl = selectedEls[bi];
               if(!bEl || !bEl.isConnected) continue;
-              var bl = parseFloat(bEl.style.left);
-              var bt = parseFloat(bEl.style.top);
-              if(isNaN(bl)) bl = bEl.offsetLeft;
-              if(isNaN(bt)) bt = bEl.offsetTop;
-              var bw = bEl.offsetWidth || 100;
-              var bh = bEl.offsetHeight || 40;
-              infos.push({ el: bEl, left: bl, top: bt, w: bw, h: bh });
-              if(bl < minL) minL = bl;
-              if(bt < minT) minT = bt;
-              if(bl + bw > maxR) maxR = bl + bw;
-              if(bt + bh > maxB) maxB = bt + bh;
+              var bRect = bEl.getBoundingClientRect();
+              infos.push({ el: bEl, rect: bRect });
+              if(bRect.left < minL) minL = bRect.left;
+              if(bRect.top < minT) minT = bRect.top;
+              if(bRect.right > maxR) maxR = bRect.right;
+              if(bRect.bottom > maxB) maxB = bRect.bottom;
             }
+
             var midX = (minL + maxR) / 2;
             var midY = (minT + maxB) / 2;
+
             for(var ci = 0; ci < infos.length; ci++){
               var info = infos[ci];
+              var cEl = info.el;
+              var cRect = info.rect;
+              var mdx = 0;
+              var mdy = 0;
+
               if(alignType === 'left'){
-                info.el.style.left = Math.round(minL) + 'px';
+                mdx = Math.round(minL - cRect.left);
               }else if(alignType === 'center-h'){
-                info.el.style.left = Math.round(midX - info.w / 2) + 'px';
+                mdx = Math.round(midX - cRect.width / 2 - cRect.left);
               }else if(alignType === 'right'){
-                info.el.style.left = Math.round(maxR - info.w) + 'px';
+                mdx = Math.round(maxR - cRect.width - cRect.left);
               }else if(alignType === 'top'){
-                info.el.style.top = Math.round(minT) + 'px';
+                mdy = Math.round(minT - cRect.top);
               }else if(alignType === 'center-v'){
-                info.el.style.top = Math.round(midY - info.h / 2) + 'px';
+                mdy = Math.round(midY - cRect.height / 2 - cRect.top);
               }else if(alignType === 'bottom'){
-                info.el.style.top = Math.round(maxB - info.h) + 'px';
+                mdy = Math.round(maxB - cRect.height - cRect.top);
+              }
+
+              var cPos = cEl.style.position || (window.getComputedStyle ? window.getComputedStyle(cEl).position : '');
+              var cIsAbsolute = cPos === 'absolute';
+              var cCurL = parseFloat(cEl.style.left);
+              var cCurT = parseFloat(cEl.style.top);
+              if(isNaN(cCurL)) cCurL = 0;
+              if(isNaN(cCurT)) cCurT = 0;
+
+              if(!cIsAbsolute){
+                cEl.style.position = 'relative';
+              }
+              cEl.style.zIndex = '99';
+
+              if(alignType === 'left' || alignType === 'center-h' || alignType === 'right'){
+                cEl.style.left = Math.round(cCurL + mdx) + 'px';
+              } else if(alignType === 'top' || alignType === 'center-v' || alignType === 'bottom'){
+                cEl.style.top = Math.round(cCurT + mdy) + 'px';
               }
             }
           }
+
           if(selectedEls.length > 1) updateMultiTransformBox();
           else if(selectedEl) updateTransformBox(selectedEl);
           if(selectedEl) notifySelectedElementInfo(selectedEl);
           scheduleSave();
+          pushSnapshot();
           showToast('已对齐元素位置并保存');
         }
       }else if(d.type === 'wf-layout'){
@@ -4223,6 +4717,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           }
           refreshSelectionProperties();
           scheduleSave();
+          pushSnapshot();
         }
       }else if(d.type === 'wf-radius'){
         var radiusTargets = collectStyleTargets(d);
@@ -4233,6 +4728,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           }
           refreshSelectionProperties();
           scheduleSave();
+          pushSnapshot();
         }
       }else if(d.type === 'wf-opacity'){
         var opacityTargets = collectStyleTargets(d);
@@ -4245,6 +4741,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           }
           if(!d.live){
             scheduleSave();
+            pushSnapshot();
             refreshSelectionProperties();
           }
         }
@@ -4294,6 +4791,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           }
           refreshSelectionProperties();
           scheduleSave();
+          pushSnapshot();
         }
       }else if(d.type === 'wf-effects'){
         var effectTargets = collectStyleTargets(d);
@@ -4304,6 +4802,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           }
           refreshSelectionProperties();
           scheduleSave();
+          if(!d.live) pushSnapshot();
         }
       }else if(d.type === 'wf-apply-animation'){
         var animTargets = collectStyleTargets(d);
@@ -4349,6 +4848,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           }
           refreshSelectionProperties();
           scheduleSave();
+          pushSnapshot();
         }
       }else if(d.type === 'wf-frame-color'){
         pushSnapshot();
@@ -4369,6 +4869,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           }
           refreshSelectionProperties();
           scheduleSave();
+          pushSnapshot();
           showToast(colorTargets.length > 1 ? ('已填充 ' + colorTargets.length + ' 个元素') : '颜色已修改并保存');
         }
       }else if(d.type === 'wf-font-size'){
@@ -4388,6 +4889,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           else if(selectedEl) updateTransformBox(selectedEl);
           if(selectedEl) notifySelectedElementInfo(selectedEl);
           scheduleSave();
+          pushSnapshot();
         }
       }else if(d.type === 'wf-text-style'){
         var styleTargets = collectStyleTargets(d);
@@ -4421,6 +4923,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           }
           refreshSelectionProperties();
           scheduleSave();
+          pushSnapshot();
         }
       }else if(d.type === 'wf-select-parent'){
         if(selectedEl && selectedEl.parentElement){
@@ -5694,12 +6197,15 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         if(!drag.hasMoved && dist > 3){
           pushSnapshot();
           drag.hasMoved = true;
+          document.body.classList.add('wf-dragging');
           for(var di = 0; di < drag.items.length; di++){
             var it = drag.items[di];
             if(!it.isAbsolute){
               it.el.style.position = 'relative';
             }
             it.el.style.zIndex = '999';
+            it.origTransition = it.el.style.transition;
+            it.el.style.setProperty('transition', 'none', 'important');
           }
         }
 
@@ -5751,6 +6257,13 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         marquee = null;
       }
       if(drag){
+        document.body.classList.remove('wf-dragging');
+        for(var di = 0; di < drag.items.length; di++){
+          var it = drag.items[di];
+          if(it && it.el && it.origTransition !== undefined){
+            it.el.style.transition = it.origTransition;
+          }
+        }
         if(drag.hasMoved){
           scheduleSave();
           pushSnapshot();
@@ -5981,11 +6494,6 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     try { setTimeout(function(){ publishLayers(); publishFrameFill(); }, 80); } catch(e){}
   })();
   <\/script>`
-  const payload = guard + runtime + sizer + editor
-  if (/<\/body>/i.test(cleanHtml)) {
-    return cleanHtml.replace(/<\/body>/i, `${payload}</body>`)
-  }
-  return cleanHtml + payload
 }
 
 // ===== 素材库选择与拖拽插入 =====
@@ -6248,10 +6756,17 @@ function onIframeMessage(e: MessageEvent) {
   } else if (d.type === 'wf-save' && typeof d.html === 'string' && d.html.length > 50) {
     isInternalSaving = true
     clearTimeout(saveResetTimer)
-    emit('saveHtml', { pageId: props.page.id, html: withoutBackendFiles(d.html) })
+    const cleanHtml = withoutBackendFiles(d.html)
+    lastInternalSavedHtml = cleanHtml
+    // 不把导出结果写回 editSourceHtml。它绑在 iframe 的 srcdoc 上，一改整页就会重新加载，改完元素就会闪一下。
+    // 最新内容已经交给外层写进 page.html_content；当前画板继续用内存里的画面。
+    emit('saveHtml', { pageId: props.page.id, html: cleanHtml, saveEpoch: typeof (d as any).saveEpoch === 'number' ? (d as any).saveEpoch : undefined })
     saveResetTimer = setTimeout(() => {
       isInternalSaving = false
     }, 1500)
+  } else if (d.type === 'wf-shortcut-saved') {
+    const pageName = props.page.name || '当前画板'
+    ElMessage.success({ message: `已保存「${pageName}」`, grouping: true, duration: 1500 })
   } else if (d.type === 'wf-request-edit') {
     emit('requestEdit')
   } else if (d.type === 'wf-element-selected') {
@@ -6316,6 +6831,11 @@ function onIframeMessage(e: MessageEvent) {
   }
 }
 onMounted(() => window.addEventListener('message', onIframeMessage))
+onBeforeUnmount(() => {
+  try {
+    flushPendingSave().catch(() => {})
+  } catch (e) {}
+})
 onUnmounted(() => window.removeEventListener('message', onIframeMessage))
 
 const saveFlushes = new Map<string, () => void>()
@@ -6761,6 +7281,9 @@ function cancelEdit() {
 
 function insertComponent(html: string, dropX = 20, dropY = 220, autoEditText = false, fitInside = false, name = '', width?: number, height?: number) {
   if (!html) return
+  if (!hasLoadedEditorState && !props.readOnly) {
+    hydrateEditorInFrame()
+  }
   htmlFrameRef.value?.contentWindow?.postMessage({
     type: 'wf-insert-html',
     html: withBackendFiles(html),
@@ -6819,6 +7342,9 @@ function alignSelectedElement(alignType: string) {
 }
 
 function postToFrame(payload: Record<string, unknown>) {
+  if (!hasLoadedEditorState && props.editMode && !props.readOnly) {
+    hydrateEditorInFrame()
+  }
   const uid = (payload.uid as string) || focusedLayerUid.value
   htmlFrameRef.value?.contentWindow?.postMessage(uid ? { ...payload, uid } : payload, '*')
 }
@@ -6911,8 +7437,16 @@ function insertVectorShapes(shapes: any[], elementUid?: string, select = true) {
   postToFrame({ type: 'wf-insert-vector-shapes', shapes, elementUid, select })
 }
 
+function restoreSnapshotInFrame(snapshot: string, saveEpoch?: number) {
+  if (!snapshot) return
+  postToFrame({ type: 'wf-restore-snapshot', html: snapshot, saveEpoch })
+}
+
 // 暴露尺寸与热区提示及组件插入/复制/粘贴/样式修改方法，供父组件调用
 defineExpose({
+  restoreSnapshot: restoreSnapshotInFrame,
+  hydrateEditor: hydrateEditorInFrame,
+  unloadEditor: unloadEditorInFrame,
   flushPendingSave,
   stopCanvasPan,
   stageW,
