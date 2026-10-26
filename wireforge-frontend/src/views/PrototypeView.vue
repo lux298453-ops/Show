@@ -2337,6 +2337,48 @@
             @mouseenter="cancelCloseSubmenu"
             @mouseleave="scheduleCloseSubmenu"
           >
+            <div class="px-2.5 py-1 text-[10px] font-semibold text-white/40 uppercase tracking-wider">游戏界面</div>
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left"
+              @click="runPluginDirectFromMenu('game-bubble-icons')"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <Smile class="w-3.5 h-3.5 text-amber-300" />
+                <span class="truncate">气泡图标</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left"
+              @click="runPluginDirectFromMenu('game-chat-bubbles')"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <MessageCircle class="w-3.5 h-3.5 text-sky-300" />
+                <span class="truncate">聊天气泡</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left"
+              @click="runPluginDirectFromMenu('game-chat-frame')"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <MessageCircle class="w-3.5 h-3.5 text-violet-300" />
+                <span class="truncate">聊天框</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors cursor-pointer text-left"
+              @click="runPluginDirectFromMenu('game-item-slots')"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <Gift class="w-3.5 h-3.5 text-orange-300" />
+                <span class="truncate">道具格</span>
+              </div>
+            </button>
+            <div class="my-1 h-px bg-white/10"></div>
             <div class="px-2.5 py-1 text-[10px] font-semibold text-white/40 uppercase tracking-wider">最近使用</div>
             <button
               type="button"
@@ -2448,6 +2490,9 @@ import {
   Monitor,
   Globe,
   Sparkles,
+  Smile,
+  MessageCircle,
+  Gift,
   X,
   FileText,
   Compass,
@@ -8216,12 +8261,37 @@ function runPluginDirectFromMenu(pluginId: string) {
   pluginModalRef.value?.launchPluginDirect(pluginId)
 }
 
-function onPluginInsertComponent(payload: { html: string; name: string; width?: number; height?: number }) {
-  const targetId = lastPluginContextPoint.value?.pageId || focusPageId.value || currentFocusPage.value?.id || previewPageId.value || pages.value[0]?.id
-  if (!targetId) return
-  const dropX = lastPluginContextPoint.value?.x ?? 40
-  const dropY = lastPluginContextPoint.value?.y ?? 180
-  insertComponentIntoPage(targetId, { name: payload.name, html: payload.html, width: payload.width, height: payload.height }, dropX, dropY)
+const pluginStack = { pageId: 0, x: -1, y: -1, n: 0 }
+
+function offsetPluginDrop(target: { pageId: number | null; x: number; y: number }, step?: number) {
+  if (!step || !target.pageId) return target
+  if (pluginStack.pageId !== target.pageId || pluginStack.x !== target.x || pluginStack.y !== target.y) {
+    pluginStack.pageId = target.pageId
+    pluginStack.x = target.x
+    pluginStack.y = target.y
+    pluginStack.n = 0
+  }
+  const row = pluginStack.n % 6
+  const col = Math.floor(pluginStack.n / 6)
+  pluginStack.n += 1
+  return { pageId: target.pageId, x: target.x + col * 28, y: target.y + row * step }
+}
+
+function pluginDropTarget(fallbackX = 40, fallbackY = 180) {
+  const currentId = focusPageId.value || currentFocusPage.value?.id || previewPageId.value || pages.value[0]?.id || null
+  const pinned = lastPluginContextPoint.value
+  // 右键打开插件时记下的落点，只在还停在那一张画板时用。
+  // 点到别的画板后，插入跟当前选中的画板走，不再钉在第一次那张上。
+  if (pinned?.pageId && pinned.pageId === currentId) {
+    return { pageId: pinned.pageId, x: pinned.x ?? fallbackX, y: pinned.y ?? fallbackY }
+  }
+  return { pageId: currentId, x: fallbackX, y: fallbackY }
+}
+
+function onPluginInsertComponent(payload: { html: string; name: string; width?: number; height?: number; stackStep?: number }) {
+  const target = offsetPluginDrop(pluginDropTarget(40, 180), payload.stackStep)
+  if (!target.pageId) return
+  insertComponentIntoPage(target.pageId, { name: payload.name, html: payload.html, width: payload.width, height: payload.height }, target.x, target.y)
 }
 
 function onPluginReplaceAsset(src: string) {
@@ -8229,12 +8299,10 @@ function onPluginReplaceAsset(src: string) {
     postToFocusFrame({ type: 'wf-replace-asset', src })
     showToast('已为选中占位框替换头像')
   } else {
-    const targetId = lastPluginContextPoint.value?.pageId || focusPageId.value || currentFocusPage.value?.id || pages.value[0]?.id
-    if (!targetId) return
-    const dropX = lastPluginContextPoint.value?.x ?? 40
-    const dropY = lastPluginContextPoint.value?.y ?? 160
+    const target = pluginDropTarget(40, 160)
+    if (!target.pageId) return
     const html = `<div class="wf-avatar-box inline-flex items-center justify-center w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-md bg-slate-100"><img src="${src}" alt="Avatar" class="w-full h-full object-cover" /></div>`
-    insertComponentIntoPage(targetId, { name: '用户头像组件', html }, dropX, dropY)
+    insertComponentIntoPage(target.pageId, { name: '用户头像组件', html }, target.x, target.y)
     showToast('未选中占位框，已在画板插入全新头像组件')
   }
 }
@@ -8244,12 +8312,10 @@ function onPluginUpdateText(text: string) {
     postToFocusFrame({ type: 'wf-update-text', text })
     showToast(`已将选中文本更新为: ${text}`)
   } else {
-    const targetId = lastPluginContextPoint.value?.pageId || focusPageId.value || currentFocusPage.value?.id || pages.value[0]?.id
-    if (!targetId) return
-    const dropX = lastPluginContextPoint.value?.x ?? 40
-    const dropY = lastPluginContextPoint.value?.y ?? 160
+    const target = pluginDropTarget(40, 160)
+    if (!target.pageId) return
     const html = `<span class="wf-text text-base font-bold text-slate-800">${text}</span>`
-    insertComponentIntoPage(targetId, { name: `文本 (${text})`, html }, dropX, dropY)
+    insertComponentIntoPage(target.pageId, { name: `文本 (${text})`, html }, target.x, target.y)
     showToast(`未选中文字，已在画板插入文本: ${text}`)
   }
 }

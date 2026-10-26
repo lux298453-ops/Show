@@ -149,6 +149,62 @@ export const BUILTIN_PLUGINS: PluginMeta[] = [
     description: '支持自定义输入任意链接或订单号，实时生成可真实扫码验证的现代高对比二维码与商品条形码组件，完美适配扫码登录、下载引导与收银核销原型。',
     tags: ['二维码', '条形码', '扫码登录', '支付码', '核销码'],
   },
+  {
+    id: 'game-bubble-icons',
+    name: '气泡图标',
+    subtitle: '表情、礼物、钻石和宝箱',
+    author: 'WireForge 社区',
+    version: '1.0.0',
+    usersCount: '8600',
+    likesCount: 640,
+    category: 'assets',
+    iconName: 'Smile',
+    bannerGradient: 'from-amber-400 via-orange-500 to-rose-500',
+    description: '游戏界面常用的小图标。表情、点赞、礼物、红包、钻石、宝箱和体力都可以单独放进画板，适合扭蛋、任务和商城。',
+    tags: ['游戏', '表情', '礼物', '钻石', '宝箱'],
+  },
+  {
+    id: 'game-chat-bubbles',
+    name: '聊天气泡',
+    subtitle: '椭圆、云朵、爆炸、心想这些外形',
+    author: 'WireForge 社区',
+    version: '1.0.0',
+    usersCount: '7200',
+    likesCount: 510,
+    category: 'utility',
+    iconName: 'MessageCircle',
+    bannerGradient: 'from-sky-500 via-blue-600 to-indigo-600',
+    description: '按开源漫画气泡的外形来分：尖尾、椭圆、方框、丝带、云朵、心想、爆炸和虚线。区别在轮廓，不靠换颜色。',
+    tags: ['游戏', '气泡', '对话', 'NPC', '系统提示'],
+  },
+  {
+    id: 'game-chat-frame',
+    name: '聊天框',
+    subtitle: '头像、昵称、气泡和时间',
+    author: 'WireForge 社区',
+    version: '1.0.0',
+    usersCount: '6900',
+    likesCount: 480,
+    category: 'utility',
+    iconName: 'MessageCircle',
+    bannerGradient: 'from-violet-500 via-purple-600 to-fuchsia-500',
+    description: '一整条游戏消息。包含头像、昵称、气泡和时间，适合私聊和世界频道。',
+    tags: ['游戏', '聊天', '私聊', '频道', '消息'],
+  },
+  {
+    id: 'game-item-slots',
+    name: '道具格',
+    subtitle: '品质底色、图标和数量',
+    author: 'WireForge 社区',
+    version: '1.0.0',
+    usersCount: '9100',
+    likesCount: 730,
+    category: 'assets',
+    iconName: 'Gift',
+    bannerGradient: 'from-yellow-400 via-amber-500 to-orange-600',
+    description: '背包和奖励用的道具格。按普通、精良、稀有、史诗、传说区分底色，右下角带数量。',
+    tags: ['游戏', '道具', '背包', '奖励', '品质'],
+  },
 ]
 
 // 预置高清免版权真实头像库
@@ -1410,4 +1466,195 @@ export const PRESET_BRAND_LOGOS: BrandLogoItem[] = [
 export function generateQrCodeUrl(content: string, size = 200): string {
   const encoded = encodeURIComponent(content || 'https://wireforge.design')
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=10&data=${encoded}`
+}
+
+export interface GameBubbleIcon {
+  id: string
+  name: string
+  category: '表情' | '互动' | '战斗' | '资源'
+  svg: string
+}
+
+export interface GameChatMessage {
+  id: string
+  role: 'player' | 'npc' | 'system'
+  name: string
+  text: string
+  time: string
+  color: string
+}
+
+export interface GameItemSlot {
+  id: string
+  name: string
+  rarity: string
+  count: number
+  bg: string
+  border: string
+  svg: string
+}
+
+function gameSvg(body: string) {
+  return `<svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block">${body}</svg>`
+}
+
+export const GAME_BUBBLE_ICONS: GameBubbleIcon[] = [
+  { id: 'smile', name: '开心', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#FDE68A"/><circle cx="17" cy="20" r="2.5" fill="#92400E"/><circle cx="31" cy="20" r="2.5" fill="#92400E"/><path d="M16 28c2.4 4 13.6 4 16 0" fill="none" stroke="#92400E" stroke-width="2.4" stroke-linecap="round"/>') },
+  { id: 'laugh', name: '大笑', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#FDBA74"/><path d="M15 20c1.2-2 3.2-2 4.4 0M29 20c1.2-2 3.2-2 4.4 0" fill="none" stroke="#9A3412" stroke-width="2" stroke-linecap="round"/><path d="M16 27h16a8 8 0 0 1-16 0z" fill="#fff"/><path d="M18 27h12v2H18z" fill="#F87171"/>') },
+  { id: 'wow', name: '惊讶', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#FDE68A"/><circle cx="17" cy="20" r="3" fill="#fff"/><circle cx="31" cy="20" r="3" fill="#fff"/><circle cx="17" cy="20" r="1.4" fill="#92400E"/><circle cx="31" cy="20" r="1.4" fill="#92400E"/><ellipse cx="24" cy="31" rx="4" ry="5" fill="#fff"/>') },
+  { id: 'heart', name: '爱心', category: '表情', svg: gameSvg('<path fill="#FB7185" d="M24 40s-13-8.2-13-17a7.2 7.2 0 0 1 13-4 7.2 7.2 0 0 1 13 4c0 8.8-13 17-13 17z"/>') },
+  { id: 'like', name: '点赞', category: '互动', svg: gameSvg('<path fill="#38BDF8" d="M18 21v16H10a2 2 0 0 1-2-2V23a2 2 0 0 1 2-2h8z"/><path fill="#7DD3FC" d="M18 21l4.2-8.2A3.2 3.2 0 0 1 28 15v6h8.2a3 3 0 0 1 3 3.4l-1.4 9A3 3 0 0 1 34.8 36H18V21z"/>') },
+  { id: 'gift', name: '礼物', category: '互动', svg: gameSvg('<rect x="8" y="20" width="32" height="18" rx="3" fill="#F43F5E"/><rect x="6" y="16" width="36" height="8" rx="2" fill="#FB7185"/><rect x="22" y="16" width="4" height="22" fill="#FDE68A"/><path d="M24 16c-4-8-12-6-10-2s8 2 10 2 8-6 10-2-6 8-10 2z" fill="#FBBF24"/>') },
+  { id: 'packet', name: '红包', category: '互动', svg: gameSvg('<rect x="10" y="8" width="28" height="32" rx="4" fill="#EF4444"/><path d="M10 16c6 6 22 6 28 0v-4a4 4 0 0 0-4-4H14a4 4 0 0 0-4 4v4z" fill="#DC2626"/><circle cx="24" cy="22" r="5" fill="#FDE68A"/><text x="24" y="25" text-anchor="middle" font-size="8" font-weight="700" fill="#B45309">福</text>') },
+  { id: 'diamond', name: '钻石', category: '资源', svg: gameSvg('<path fill="#38BDF8" d="M24 6 42 18 24 42 6 18z"/><path fill="#E0F2FE" d="M24 6 33 18H15z"/><path fill="#0284C7" opacity=".45" d="M6 18h36L24 42z"/>') },
+  { id: 'coin', name: '金币', category: '资源', svg: gameSvg('<circle cx="24" cy="24" r="16" fill="#FBBF24"/><circle cx="24" cy="24" r="11" fill="none" stroke="#F59E0B" stroke-width="2"/><text x="24" y="28" text-anchor="middle" font-size="12" font-weight="800" fill="#B45309">¥</text>') },
+  { id: 'chest', name: '宝箱', category: '资源', svg: gameSvg('<path fill="#D97706" d="M8 20h32v16a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V20z"/><path fill="#F59E0B" d="M8 18c0-6 6-10 16-10s16 4 16 10v4H8v-4z"/><rect x="21" y="22" width="6" height="8" rx="1" fill="#FDE68A"/>') },
+  { id: 'energy', name: '体力', category: '资源', svg: gameSvg('<path fill="#34D399" d="M26 6 12 26h10l-2 16 16-22H26l2-14z"/>') },
+  { id: 'star', name: '星星', category: '资源', svg: gameSvg('<path fill="#FBBF24" d="m24 6 4.8 10.2L40 18l-8 7.6L34 38l-10-5.6L14 38l2-12.4L8 18l11.2-1.8z"/>') },
+  { id: 'sad', name: '难过', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#93C5FD"/><circle cx="17" cy="19" r="2.4" fill="#1E3A8A"/><circle cx="31" cy="19" r="2.4" fill="#1E3A8A"/><path d="M16 32c2.6-4 13.4-4 16 0" fill="none" stroke="#1E3A8A" stroke-width="2.4" stroke-linecap="round"/>') },
+  { id: 'angry', name: '生气', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#FCA5A5"/><path d="M13 16l8 4M35 16l-8 4" stroke="#7F1D1D" stroke-width="2.4" stroke-linecap="round"/><circle cx="18" cy="23" r="2.2" fill="#7F1D1D"/><circle cx="30" cy="23" r="2.2" fill="#7F1D1D"/><path d="M17 32h14" stroke="#7F1D1D" stroke-width="2.4" stroke-linecap="round"/>') },
+  { id: 'cool', name: '酷', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#FDE68A"/><rect x="11" y="17" width="26" height="8" rx="3" fill="#111827"/><path d="M16 31c2.4 3 13.2 3 16 0" fill="none" stroke="#92400E" stroke-width="2.2" stroke-linecap="round"/>') },
+  { id: 'cry', name: '哭', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#FDE68A"/><path d="M15 18c1.4 2 3.4 2 4.6 0M28 18c1.4 2 3.4 2 4.6 0" fill="none" stroke="#92400E" stroke-width="2" stroke-linecap="round"/><path d="M17 30c2.2-3 11.6-3 14 0" fill="none" stroke="#92400E" stroke-width="2.2" stroke-linecap="round"/><ellipse cx="16" cy="28" rx="2" ry="3" fill="#38BDF8"/><ellipse cx="33" cy="30" rx="2" ry="3" fill="#38BDF8"/>') },
+  { id: 'wink', name: '眨眼', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#FDE68A"/><circle cx="17" cy="20" r="2.4" fill="#92400E"/><path d="M27 20c2 1.4 5 1.4 7 0" fill="none" stroke="#92400E" stroke-width="2.2" stroke-linecap="round"/><path d="M16 29c2.4 4 13.6 4 16 0" fill="none" stroke="#92400E" stroke-width="2.2" stroke-linecap="round"/>') },
+  { id: 'sleep', name: '睡觉', category: '表情', svg: gameSvg('<circle cx="24" cy="24" r="20" fill="#DDD6FE"/><path d="M14 21c2 1.6 4 1.6 6 0M28 21c2 1.6 4 1.6 6 0" fill="none" stroke="#5B21B6" stroke-width="2.2" stroke-linecap="round"/><path d="M30 10h8l-8 7h8" fill="none" stroke="#7C3AED" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>') },
+  { id: 'clap', name: '鼓掌', category: '互动', svg: gameSvg('<path fill="#FDBA74" d="M14 28c0-6 3-10 7-10 2 0 3 2 3 4v8c-4 3-10 2-10-2z"/><path fill="#F59E0B" d="M24 18c2-4 8-4 10 0v14c0 4-4 6-8 4l-2-18z"/><path fill="#FDE68A" d="M18 16c1-3 5-4 6-1"/>') },
+  { id: 'bell', name: '铃铛', category: '互动', svg: gameSvg('<path fill="#FBBF24" d="M24 8a10 10 0 0 0-10 10v7l-3 4h26l-3-4v-7A10 10 0 0 0 24 8z"/><circle cx="24" cy="34" r="3" fill="#F59E0B"/><rect x="22" y="5" width="4" height="4" rx="1" fill="#F59E0B"/>') },
+  { id: 'flag', name: '旗帜', category: '互动', svg: gameSvg('<rect x="12" y="8" width="3" height="32" rx="1" fill="#334155"/><path fill="#F43F5E" d="M15 8h20l-4 7 4 7H15z"/>') },
+  { id: 'mail', name: '信件', category: '互动', svg: gameSvg('<rect x="8" y="12" width="32" height="24" rx="3" fill="#F8FAFC" stroke="#334155" stroke-width="2"/><path d="M8 14l16 12L40 14" fill="none" stroke="#38BDF8" stroke-width="2.4"/>') },
+  { id: 'horn', name: '喇叭', category: '互动', svg: gameSvg('<path fill="#FB7185" d="M10 20h8l16-8v24L18 28h-8z"/><path fill="#FDE68A" d="M10 20v8a4 4 0 0 0 4 4h2v-12h-2a4 4 0 0 0-4 0z"/><path d="M36 18c4 2 4 10 0 12" fill="none" stroke="#F43F5E" stroke-width="2" stroke-linecap="round"/>') },
+  { id: 'sword', name: '长剑', category: '战斗', svg: gameSvg('<path fill="#E2E8F0" d="M28 6l10 10-16 16-4-2z"/><path fill="#FBBF24" d="M16 30l6 6-8 2z"/><path fill="#334155" d="M12 36l6-6 2 2-6 6z"/>') },
+  { id: 'shield', name: '盾牌', category: '战斗', svg: gameSvg('<path fill="#2563EB" d="M24 6l14 6v10c0 9-6 15-14 20-8-5-14-11-14-20V12z"/><path fill="#BFDBFE" d="M24 12l8 3v6c0 5-3 9-8 12-5-3-8-7-8-12v-6z"/>') },
+  { id: 'bow', name: '弓箭', category: '战斗', svg: gameSvg('<path d="M16 8c12 8 12 24 0 32" fill="none" stroke="#B45309" stroke-width="3" stroke-linecap="round"/><path d="M16 8v32" stroke="#94A3B8" stroke-width="1.6"/><path fill="#334155" d="M18 22h18l-4-3v6z"/>') },
+  { id: 'bomb', name: '炸弹', category: '战斗', svg: gameSvg('<circle cx="24" cy="28" r="12" fill="#111827"/><rect x="22" y="12" width="4" height="6" rx="1" fill="#334155"/><path d="M26 12c4-4 8-2 8 1" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="10" r="2" fill="#FBBF24"/>') },
+  { id: 'potion', name: '药水', category: '资源', svg: gameSvg('<rect x="20" y="8" width="8" height="6" rx="1" fill="#94A3B8"/><path fill="#34D399" d="M16 22c0-4 3-6 8-6s8 2 8 6v12a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6z"/><path fill="#6EE7B7" d="M18 28h12v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4z"/>') },
+  { id: 'key', name: '钥匙', category: '资源', svg: gameSvg('<circle cx="18" cy="20" r="8" fill="none" stroke="#F59E0B" stroke-width="3"/><path stroke="#F59E0B" stroke-width="3" stroke-linecap="round" d="M24 24l14 8M32 28v5M36 30v4"/>') },
+  { id: 'ticket', name: '抽奖券', category: '资源', svg: gameSvg('<path fill="#FDE68A" stroke="#D97706" stroke-width="2" d="M8 14h32v6a4 4 0 0 0 0 8v6H8v-6a4 4 0 0 0 0-8z"/><path d="M24 16v16" stroke="#D97706" stroke-width="2" stroke-dasharray="2 3"/>') },
+  { id: 'scroll', name: '卷轴', category: '资源', svg: gameSvg('<rect x="12" y="12" width="24" height="26" rx="2" fill="#FEF3C7" stroke="#B45309" stroke-width="2"/><path d="M12 16h-4v18h4M36 16h4v18h-4" fill="#FDE68A" stroke="#B45309" stroke-width="2"/><path d="M18 22h12M18 28h10" stroke="#D97706" stroke-width="2" stroke-linecap="round"/>') },
+  { id: 'crown', name: '王冠', category: '资源', svg: gameSvg('<path fill="#FBBF24" d="M8 32l4-16 8 8 4-12 4 12 8-8 4 16z"/><rect x="8" y="32" width="32" height="6" rx="1" fill="#F59E0B"/><circle cx="12" cy="16" r="2" fill="#FDE68A"/><circle cx="24" cy="12" r="2" fill="#FDE68A"/><circle cx="36" cy="16" r="2" fill="#FDE68A"/>') },
+  { id: 'flame', name: '火焰', category: '资源', svg: gameSvg('<path fill="#F97316" d="M24 6c6 8 12 12 12 20a12 12 0 0 1-24 0c0-6 4-8 6-12 2 4 4 4 6-8z"/><path fill="#FDE68A" d="M24 22c3 3 5 5 5 8a5 5 0 0 1-10 0c0-3 2-4 3-6 1 2 1 2 2-2z"/>') },
+  { id: 'meat', name: '肉排', category: '资源', svg: gameSvg('<ellipse cx="24" cy="26" rx="14" ry="10" fill="#F87171"/><ellipse cx="24" cy="26" rx="8" ry="5" fill="#FECACA"/><path d="M34 18c4-6 8-6 8-2s-4 6-8 6" fill="#FDBA74"/>') },
+  { id: 'shard', name: '碎片', category: '资源', svg: gameSvg('<path fill="#C4B5FD" d="M24 6l10 12-4 20-6 4-6-4-4-20z"/><path fill="#EDE9FE" d="M24 6l6 12H18z"/><path fill="#7C3AED" opacity=".35" d="M14 18h20l-4 20-6 4-6-4z"/>') },
+]
+
+export const GAME_CHAT_PRESETS = ['这个副本我来开', '奖励已经领好了', '先去商城补体力', '今晚八点集合']
+
+export interface GameChatBubbleStyle {
+  id: string
+  name: string
+  group: '外形' | '漫画'
+  stackStep: number
+  preview: string
+}
+
+function bubblePreview(inner: string) {
+  return `<svg viewBox="0 0 48 32" style="width:100%;height:100%;display:block">${inner}</svg>`
+}
+
+export const GAME_CHAT_BUBBLE_STYLES: GameChatBubbleStyle[] = [
+  { id: 'tail', name: '尖尾', group: '外形', stackStep: 64, preview: bubblePreview('<rect x="8" y="5" width="30" height="14" rx="5" fill="#fff" stroke="#111" stroke-width="2"/><path d="M14 19l4 8 5-8" fill="#fff" stroke="#111" stroke-width="2" stroke-linejoin="round"/>') },
+  { id: 'ellipse', name: '椭圆', group: '外形', stackStep: 84, preview: bubblePreview('<ellipse cx="24" cy="13" rx="16" ry="9" fill="#fff" stroke="#111" stroke-width="2"/><path d="M16 20l3 8 5-8" fill="#fff" stroke="#111" stroke-width="2"/>') },
+  { id: 'box', name: '方框', group: '外形', stackStep: 64, preview: bubblePreview('<rect x="10" y="5" width="28" height="14" fill="#fff" stroke="#111" stroke-width="2"/><path d="M16 19h8v7H16z" fill="#fff" stroke="#111" stroke-width="2"/>') },
+  { id: 'ribbon', name: '丝带', group: '外形', stackStep: 56, preview: bubblePreview('<polygon points="6,8 14,16 6,24 42,24 36,16 42,8" fill="#fff" stroke="#111" stroke-width="2" stroke-linejoin="round"/>') },
+  { id: 'cloud', name: '云朵', group: '漫画', stackStep: 88, preview: bubblePreview('<path d="M16 22c-5 0-7-5-4-8 0-5 6-7 9-3 2-4 9-5 12-1 4-3 9 0 8 5 5 0 6 6 1 8-1 4-8 5-12 2-3 3-9 3-14-3z" fill="#fff" stroke="#111" stroke-width="1.7"/>') },
+  { id: 'thought', name: '心想', group: '漫画', stackStep: 96, preview: bubblePreview('<ellipse cx="27" cy="12" rx="13" ry="8" fill="#fff" stroke="#111" stroke-width="2"/><circle cx="15" cy="22" r="3.2" fill="#fff" stroke="#111" stroke-width="1.6"/><circle cx="9" cy="27" r="1.8" fill="#fff" stroke="#111" stroke-width="1.3"/>') },
+  { id: 'shout', name: '爆炸', group: '漫画', stackStep: 96, preview: bubblePreview('<polygon points="24,2 28,9 36,5 33,13 43,15 33,18 38,27 29,22 27,31 22,22 13,29 17,19 7,17 17,13 13,5 22,9" fill="#ffe14a" stroke="#111" stroke-width="1.5" stroke-linejoin="round"/>') },
+  { id: 'whisper', name: '虚线', group: '漫画', stackStep: 78, preview: bubblePreview('<ellipse cx="24" cy="16" rx="16" ry="9" fill="#fff" stroke="#111" stroke-width="1.6" stroke-dasharray="3 2"/>') },
+]
+
+export const GAME_CHAT_MESSAGES: GameChatMessage[] = [
+  { id: 'player-1', role: 'player', name: '小星', text: '这个副本我来开', time: '刚刚', color: '#38BDF8' },
+  { id: 'player-2', role: 'player', name: '阿宁', text: '宝箱还差最后一下', time: '3分钟前', color: '#34D399' },
+  { id: 'player-3', role: 'player', name: '老周', text: '谁有多余的抽奖券', time: '5分钟前', color: '#F59E0B' },
+  { id: 'player-4', role: 'player', name: '晚晚', text: '组队的来世界频道', time: '8分钟前', color: '#FB7185' },
+  { id: 'npc-1', role: 'npc', name: '引导员', text: '先去商城把体力领了', time: '1分钟前', color: '#A78BFA' },
+  { id: 'npc-2', role: 'npc', name: '铁匠', text: '这把剑还差一块碎片', time: '6分钟前', color: '#F97316' },
+  { id: 'npc-3', role: 'npc', name: '店长', text: '今日礼包限时半价', time: '12分钟前', color: '#22C55E' },
+  { id: 'npc-4', role: 'npc', name: '守卫', text: '前方副本已经开放', time: '20分钟前', color: '#6366F1' },
+  { id: 'system-1', role: 'system', name: '系统', text: '每日任务已刷新', time: '现在', color: '#94A3B8' },
+  { id: 'system-2', role: 'system', name: '系统', text: '获得钻石 ×120', time: '刚刚', color: '#38BDF8' },
+  { id: 'system-3', role: 'system', name: '公告', text: '公会战将在今晚开启', time: '1小时前', color: '#F59E0B' },
+  { id: 'system-4', role: 'system', name: '邮件', text: '你有一份未领取的奖励', time: '昨天', color: '#A78BFA' },
+]
+
+export const GAME_ITEM_SLOTS: GameItemSlot[] = [
+  { id: 'diamond', name: '钻石', rarity: '稀有', count: 120, bg: '#EFF6FF', border: '#38BDF8', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'diamond')!.svg },
+  { id: 'chest', name: '宝箱', rarity: '传说', count: 2, bg: '#FFFBEB', border: '#F59E0B', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'chest')!.svg },
+  { id: 'energy', name: '体力', rarity: '精良', count: 8, bg: '#ECFDF5', border: '#34D399', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'energy')!.svg },
+  { id: 'gift', name: '礼包', rarity: '史诗', count: 1, bg: '#F5F3FF', border: '#A78BFA', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'gift')!.svg },
+  { id: 'coin', name: '金币', rarity: '普通', count: 980, bg: '#F8FAFC', border: '#CBD5E1', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'coin')!.svg },
+  { id: 'star', name: '星石', rarity: '史诗', count: 6, bg: '#F5F3FF', border: '#A78BFA', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'star')!.svg },
+  { id: 'potion', name: '药水', rarity: '精良', count: 5, bg: '#ECFDF5', border: '#34D399', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'potion')!.svg },
+  { id: 'key', name: '钥匙', rarity: '稀有', count: 1, bg: '#EFF6FF', border: '#38BDF8', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'key')!.svg },
+  { id: 'ticket', name: '抽奖券', rarity: '史诗', count: 3, bg: '#F5F3FF', border: '#A78BFA', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'ticket')!.svg },
+  { id: 'scroll', name: '卷轴', rarity: '稀有', count: 2, bg: '#FFFBEB', border: '#F59E0B', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'scroll')!.svg },
+  { id: 'crown', name: '王冠', rarity: '传说', count: 1, bg: '#FFFBEB', border: '#F59E0B', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'crown')!.svg },
+  { id: 'flame', name: '火焰', rarity: '史诗', count: 4, bg: '#FFF7ED', border: '#FB923C', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'flame')!.svg },
+  { id: 'meat', name: '肉排', rarity: '普通', count: 12, bg: '#F8FAFC', border: '#CBD5E1', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'meat')!.svg },
+  { id: 'shard', name: '碎片', rarity: '精良', count: 18, bg: '#F5F3FF', border: '#A78BFA', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'shard')!.svg },
+  { id: 'sword', name: '长剑', rarity: '传说', count: 1, bg: '#FFFBEB', border: '#F59E0B', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'sword')!.svg },
+  { id: 'shield', name: '盾牌', rarity: '稀有', count: 1, bg: '#EFF6FF', border: '#38BDF8', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'shield')!.svg },
+  { id: 'bomb', name: '炸弹', rarity: '精良', count: 3, bg: '#F8FAFC', border: '#94A3B8', svg: GAME_BUBBLE_ICONS.find((i) => i.id === 'bomb')!.svg },
+]
+
+function escapeGameText(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+export function gameBubbleIconHtml(icon: GameBubbleIcon) {
+  return `<div class="wf-el wf-game-icon" title="${escapeGameText(icon.name)}" style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;">${icon.svg}</div>`
+}
+
+function gameChatText(text: string, extra = '') {
+  return `<span class="wf-text" style="position:relative;z-index:1;display:block;text-align:center;color:#111;line-height:1.35;${extra}">${text}</span>`
+}
+
+export function gameChatBubbleHtml(styleId: string, text: string) {
+  const safe = escapeGameText(text || '……')
+  if (styleId === 'ellipse') {
+    return `<div class="wf-el wf-chat-bubble" style="position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:156px;min-height:84px;padding:22px 34px 28px;box-sizing:border-box;"><div style="position:absolute;left:0;right:0;top:0;bottom:14px;border-radius:50%;background:#fff;border:2.5px solid #111;box-sizing:border-box;"></div><div style="position:absolute;left:26px;bottom:2px;width:0;height:0;border-left:7px solid transparent;border-right:11px solid transparent;border-top:16px solid #111;"></div><div style="position:absolute;left:29px;bottom:6px;width:0;height:0;border-left:5px solid transparent;border-right:8px solid transparent;border-top:12px solid #fff;"></div>${gameChatText(safe, 'font-size:14px;max-width:150px;')}</div>`
+  }
+  if (styleId === 'box') {
+    return `<div class="wf-el wf-chat-bubble" style="position:relative;display:inline-block;margin:0 0 14px 0;box-sizing:border-box;"><div style="background:#fff;color:#111;border:3px solid #111;padding:8px 12px;font-size:14px;line-height:1.4;max-width:220px;">${gameChatText(safe, 'text-align:left;font-size:14px;')}</div><div style="position:absolute;left:16px;bottom:-8px;width:14px;height:14px;background:#fff;border-left:3px solid #111;border-bottom:3px solid #111;box-sizing:border-box;"></div></div>`
+  }
+  if (styleId === 'ribbon') {
+    return `<div class="wf-el wf-chat-bubble" style="display:inline-block;background:#fff;color:#111;border:2.5px solid #111;clip-path:polygon(12px 0,calc(100% - 12px) 0,100% 50%,calc(100% - 12px) 100%,12px 100%,0 50%);padding:8px 26px;box-sizing:border-box;">${gameChatText(safe, 'font-size:14px;font-weight:700;')}</div>`
+  }
+  if (styleId === 'cloud') {
+    return `<div class="wf-el wf-chat-bubble" style="position:relative;display:inline-block;min-width:168px;padding:26px 34px 30px;box-sizing:border-box;"><svg viewBox="0 0 220 120" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible;"><path d="M62 74C40 74 30 58 46 50C40 32 64 24 80 36C94 18 132 18 146 38C168 26 196 42 186 62C208 68 204 92 176 94C170 108 136 112 118 98C98 112 70 106 62 92C44 98 38 86 62 74Z" fill="#fff" stroke="#111" stroke-width="3" vector-effect="non-scaling-stroke"/></svg>${gameChatText(safe, 'font-size:14px;max-width:140px;')}</div>`
+  }
+  if (styleId === 'thought') {
+    return `<div class="wf-el wf-chat-bubble" style="position:relative;display:inline-flex;flex-direction:column;align-items:flex-start;box-sizing:border-box;"><div style="position:relative;display:flex;align-items:center;justify-content:center;min-width:150px;min-height:72px;padding:18px 28px;box-sizing:border-box;"><div style="position:absolute;inset:0;border-radius:50%;background:#fff;border:2.5px solid #111;box-sizing:border-box;"></div>${gameChatText(safe, 'font-size:14px;max-width:130px;')}</div><div style="width:14px;height:14px;margin:2px 0 0 22px;border-radius:50%;background:#fff;border:2px solid #111;box-sizing:border-box;"></div><div style="width:8px;height:8px;margin:3px 0 0 10px;border-radius:50%;background:#fff;border:2px solid #111;box-sizing:border-box;"></div></div>`
+  }
+  if (styleId === 'shout') {
+    const burst = 'polygon(50% 0,58% 14%,74% 4%,70% 20%,90% 16%,82% 32%,100% 36%,84% 48%,98% 64%,78% 62%,82% 84%,64% 72%,60% 96%,46% 74%,30% 92%,28% 70%,8% 78%,18% 58%,0 52%,16% 40%,4% 24%,22% 26%,18% 8%,36% 16%,40% 0)'
+    return `<div class="wf-el wf-chat-bubble" style="position:relative;display:inline-block;padding:28px 36px 34px;max-width:230px;box-sizing:border-box;"><div style="position:absolute;inset:0;background:#111;clip-path:${burst};"></div><div style="position:absolute;inset:6px;background:#ffe14a;clip-path:${burst};"></div>${gameChatText(safe, 'font-size:16px;font-weight:800;')}</div>`
+  }
+  if (styleId === 'whisper') {
+    return `<div class="wf-el wf-chat-bubble" style="position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:140px;min-height:64px;padding:16px 26px;box-sizing:border-box;"><div style="position:absolute;inset:0;border-radius:50%;background:#fff;border:2px dashed #64748b;box-sizing:border-box;"></div>${gameChatText(safe, 'font-size:12px;color:#64748b;')}</div>`
+  }
+  return `<div class="wf-el wf-chat-bubble" style="position:relative;display:inline-block;margin:0 0 14px 0;box-sizing:border-box;"><div style="background:#fff;color:#111;border:2.5px solid #111;border-radius:16px;padding:8px 14px;max-width:220px;">${gameChatText(safe, 'text-align:left;font-size:14px;')}</div><div style="position:absolute;left:22px;bottom:-9px;width:0;height:0;border-left:8px solid transparent;border-right:10px solid transparent;border-top:12px solid #111;"></div><div style="position:absolute;left:24px;bottom:-5px;width:0;height:0;border-left:6px solid transparent;border-right:8px solid transparent;border-top:9px solid #fff;"></div></div>`
+}
+
+export function gameChatFrameHtml(message: GameChatMessage) {
+  const safeName = escapeGameText(message.name)
+  const safeText = escapeGameText(message.text)
+  const safeTime = escapeGameText(message.time)
+  if (message.role === 'system') {
+    return `<div class="wf-el wf-chat-frame" style="width:280px;display:flex;justify-content:center;box-sizing:border-box;"><div style="padding:6px 12px;background:#F1F5F9;border-radius:999px;color:#64748B;font-size:12px;line-height:1.4;"><span class="wf-text">${safeName} · ${safeText}</span></div></div>`
+  }
+  const avatar = `<div style="width:36px;height:36px;border-radius:50%;background:${message.color};color:#fff;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${safeName.slice(0, 1)}</div>`
+  const mine = message.role === 'player'
+  const bubble = mine
+    ? 'background:#ffffff;color:#0f172a;border:1px solid #e2e8f0;border-radius:4px 14px 14px 14px;'
+    : 'background:#7C3AED;color:#ffffff;border-radius:14px 4px 14px 14px;'
+  const body = `<div style="min-width:0;flex:1;display:flex;flex-direction:column;align-items:${mine ? 'flex-start' : 'flex-end'};"><div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;${mine ? '' : 'flex-direction:row-reverse;'}"><span class="wf-text" style="font-size:12px;font-weight:700;color:#0f172a;">${safeName}</span><span class="wf-text" style="font-size:10px;color:#94a3b8;">${safeTime}</span></div><div style="${bubble}padding:8px 12px;font-size:13px;line-height:1.45;max-width:210px;"><span class="wf-text">${safeText}</span></div></div>`
+  return `<div class="wf-el wf-chat-frame" style="width:280px;display:flex;gap:8px;align-items:flex-start;box-sizing:border-box;${mine ? '' : 'flex-direction:row-reverse;'}">${avatar}${body}</div>`
+}
+
+export function gameItemSlotHtml(item: GameItemSlot) {
+  return `<div class="wf-el wf-item-slot" title="${escapeGameText(item.name)}" style="width:64px;height:64px;position:relative;border-radius:14px;background:${item.bg};border:2px solid ${item.border};box-sizing:border-box;display:flex;align-items:center;justify-content:center;"><div style="width:34px;height:34px;">${item.svg}</div><span class="wf-text" style="position:absolute;right:4px;bottom:2px;font-size:11px;font-weight:800;color:#0f172a;line-height:1;">${item.count}</span></div>`
 }

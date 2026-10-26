@@ -779,6 +779,113 @@
             </button>
           </div>
         </div>
+
+        <!-- 插件 9: 气泡图标 -->
+        <div v-else-if="activeRunningPlugin.id === 'game-bubble-icons'" class="space-y-2">
+          <div class="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 text-[11px]">
+            <button
+              v-for="cat in ['全部', '表情', '互动', '战斗', '资源']"
+              :key="cat"
+              type="button"
+              class="px-2.5 py-0.5 rounded-full shrink-0 transition-colors cursor-pointer"
+              :class="gameIconCategory === cat ? 'bg-[#0D99FF] text-white font-medium shadow-sm' : 'bg-slate-100 dark:bg-[#2a2a2a] text-slate-600 dark:text-slate-300 hover:bg-slate-200'"
+              @click="gameIconCategory = cat"
+            >
+              {{ cat }}
+            </button>
+          </div>
+          <div class="grid grid-cols-4 gap-1.5 max-h-[280px] overflow-y-auto custom-scrollbar p-0.5">
+            <button
+              v-for="icon in filteredGameIcons"
+              :key="icon.id"
+              type="button"
+              class="h-[64px] rounded-xl border border-slate-200/80 dark:border-[#383838] hover:border-[#0D99FF] hover:bg-[#0D99FF]/5 flex flex-col items-center justify-center gap-1 cursor-pointer"
+              :title="`${icon.name} · 点击插入`"
+              @click="insertGameBubbleIcon(icon)"
+            >
+              <div class="w-8 h-8" v-html="icon.svg"></div>
+              <span class="text-[10px] text-slate-600 dark:text-slate-300">{{ icon.name }}</span>
+            </button>
+          </div>
+          <p class="text-[10px] text-slate-400 text-center">点一个放一个，窗口保持打开</p>
+        </div>
+
+        <!-- 插件 10: 聊天气泡 -->
+        <div v-else-if="activeRunningPlugin.id === 'game-chat-bubbles'" class="space-y-2.5">
+          <input
+            v-model="gameBubbleText"
+            type="text"
+            class="w-full h-8 px-2.5 text-xs bg-slate-100 dark:bg-[#1e1e1e] border-none rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#0D99FF]"
+            placeholder="要放进气泡里的话"
+          />
+          <div v-for="group in ['外形', '漫画']" :key="group" class="space-y-1">
+            <div class="text-[10px] text-slate-400 px-0.5">{{ group }}</div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button
+                v-for="style in GAME_CHAT_BUBBLE_STYLES.filter((item) => item.group === group)"
+                :key="style.id"
+                type="button"
+                class="h-11 px-2 rounded-xl border border-slate-200/80 dark:border-[#383838] hover:border-[#0D99FF] flex items-center gap-2 cursor-pointer text-left"
+                @click="insertGameChatBubble(style.id)"
+              >
+                <span class="w-10 h-7 shrink-0" v-html="style.preview"></span>
+                <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200">{{ style.name }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-1">
+            <button
+              v-for="line in GAME_CHAT_PRESETS"
+              :key="line"
+              type="button"
+              class="px-2 py-1 rounded-full bg-slate-100 dark:bg-[#2a2a2a] text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer hover:text-[#0D99FF]"
+              @click="gameBubbleText = line"
+            >
+              {{ line }}
+            </button>
+          </div>
+          <p class="text-[10px] text-slate-400 text-center">先写一句话，再点样式。连续点会往下排开</p>
+        </div>
+
+        <!-- 插件 11: 聊天框 -->
+        <div v-else-if="activeRunningPlugin.id === 'game-chat-frame'" class="space-y-2">
+          <div class="space-y-2 max-h-[320px] overflow-y-auto custom-scrollbar pr-0.5">
+          <button
+            v-for="msg in GAME_CHAT_MESSAGES"
+            :key="msg.id"
+            type="button"
+            class="w-full text-left p-2.5 rounded-xl border border-slate-200/80 dark:border-[#383838] hover:border-[#0D99FF] bg-slate-50/80 dark:bg-[#1f1f1f] cursor-pointer"
+            @click="insertGameChatFrame(msg)"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-bold text-slate-800 dark:text-slate-100">{{ msg.name }}</span>
+              <span class="text-[10px] text-slate-400">{{ msg.role === 'player' ? '玩家' : msg.role === 'npc' ? 'NPC' : '系统' }} · {{ msg.time }}</span>
+            </div>
+            <div class="mt-1 text-[12px] text-slate-600 dark:text-slate-300 truncate">{{ msg.text }}</div>
+          </button>
+          </div>
+          <p class="text-[10px] text-slate-400 text-center">点一条插入一整条消息，窗口保持打开</p>
+        </div>
+
+        <!-- 插件 12: 道具格 -->
+        <div v-else-if="activeRunningPlugin.id === 'game-item-slots'" class="space-y-2">
+          <div class="grid grid-cols-3 gap-2 max-h-[320px] overflow-y-auto custom-scrollbar p-0.5">
+            <button
+              v-for="item in GAME_ITEM_SLOTS"
+              :key="item.id"
+              type="button"
+              class="rounded-xl border border-slate-200/80 dark:border-[#383838] hover:border-[#0D99FF] p-2 flex flex-col items-center gap-1 cursor-pointer"
+              @click="insertGameItemSlot(item)"
+            >
+              <div class="w-12 h-12 rounded-xl flex items-center justify-center" :style="{ background: item.bg, border: `2px solid ${item.border}` }">
+                <div class="w-7 h-7" v-html="item.svg"></div>
+              </div>
+              <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200">{{ item.name }}</span>
+              <span class="text-[10px] text-slate-400">{{ item.rarity }} · {{ item.count }}</span>
+            </button>
+          </div>
+          <p class="text-[10px] text-slate-400 text-center">点一个放一个道具格，窗口保持打开</p>
+        </div>
       </div>
     </div>
   </Teleport>
@@ -806,6 +913,9 @@ import {
   BarChart3,
   CreditCard,
   QrCode,
+  Smile,
+  MessageCircle,
+  Gift,
 } from 'lucide-vue-next'
 import {
   BUILTIN_PLUGINS,
@@ -820,12 +930,24 @@ import {
   generateRandomUserData,
   searchOnlineIcons,
   fetchCleanSvg,
+  GAME_BUBBLE_ICONS,
+  GAME_CHAT_PRESETS,
+  GAME_CHAT_BUBBLE_STYLES,
+  GAME_CHAT_MESSAGES,
+  GAME_ITEM_SLOTS,
+  gameBubbleIconHtml,
+  gameChatBubbleHtml,
+  gameChatFrameHtml,
+  gameItemSlotHtml,
   type PluginMeta,
   type MockUserData,
   type VectorIconItem,
   type CommercialImageItem,
   type ChartPresetItem,
   type BrandLogoItem,
+  type GameBubbleIcon,
+  type GameChatMessage,
+  type GameItemSlot,
 } from '@/services/pluginService'
 import { ElMessage } from 'element-plus'
 
@@ -836,7 +958,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
-  (e: 'insertComponent', payload: { html: string; name: string; width?: number; height?: number }): void
+  (e: 'insertComponent', payload: { html: string; name: string; width?: number; height?: number; stackStep?: number }): void
   (e: 'replaceAsset', src: string): void
   (e: 'updateText', text: string): void
   (e: 'applyEffect', effectClass: string): void
@@ -1038,6 +1160,12 @@ function resolveIcon(name: string) {
       return CreditCard
     case 'QrCode':
       return QrCode
+    case 'Smile':
+      return Smile
+    case 'MessageCircle':
+      return MessageCircle
+    case 'Gift':
+      return Gift
     default:
       return Sparkles
   }
@@ -1306,6 +1434,40 @@ function insertCodeComponent() {
   }
   ElMessage.success(`已插入${codeType.value === 'qrcode' ? '二维码' : '条形码'}组件`)
   closeRunner()
+}
+
+const gameIconCategory = ref('全部')
+const gameBubbleText = ref('这个副本我来开')
+const filteredGameIcons = computed(() => {
+  if (gameIconCategory.value === '全部') return GAME_BUBBLE_ICONS
+  return GAME_BUBBLE_ICONS.filter((icon) => icon.category === gameIconCategory.value)
+})
+
+function insertGameBubbleIcon(icon: GameBubbleIcon) {
+  emit('insertComponent', { html: gameBubbleIconHtml(icon), name: `气泡图标 (${icon.name})`, width: 48, height: 48, stackStep: 56 })
+  ElMessage.success(`已插入${icon.name}`)
+}
+
+function insertGameChatBubble(styleId: string) {
+  const text = gameBubbleText.value.trim() || '……'
+  const style = GAME_CHAT_BUBBLE_STYLES.find((item) => item.id === styleId)
+  const label = style?.name || '聊天气泡'
+  emit('insertComponent', {
+    html: gameChatBubbleHtml(styleId, text),
+    name: `聊天气泡 (${label})`,
+    stackStep: style?.stackStep || 64,
+  })
+  ElMessage.success(`已插入${label}`)
+}
+
+function insertGameChatFrame(message: GameChatMessage) {
+  emit('insertComponent', { html: gameChatFrameHtml(message), name: `聊天框 (${message.name})`, width: 280, stackStep: 78 })
+  ElMessage.success(`已插入${message.name}的消息`)
+}
+
+function insertGameItemSlot(item: GameItemSlot) {
+  emit('insertComponent', { html: gameItemSlotHtml(item), name: `道具格 (${item.name})`, width: 64, height: 64, stackStep: 72 })
+  ElMessage.success(`已插入${item.name}`)
 }
 </script>
 

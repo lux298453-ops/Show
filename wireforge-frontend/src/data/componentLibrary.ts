@@ -80,6 +80,15 @@ export const componentLibrary: PaletteItem[] = [
     html: `<div class="wf-el wf-nav wf-search-header" style="width: 375px; height: 52px; background: #ffffff; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px; padding: 0 16px; box-sizing: border-box;"><div style="flex: 1; height: 36px; background: #f1f5f9; border-radius: 10px; display: flex; align-items: center; padding: 0 10px; gap: 6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input type="text" placeholder="搜索组件、内容或关键词..." style="border: none; background: transparent; outline: none; font-size: 13px; color: #1e293b; width: 100%;" /></div><button class="wf-btn" style="border: none; background: none; color: #0284c7; font-size: 14px; font-weight: 600; cursor: pointer; padding: 4px;">取消</button></div>`,
     previewHtml: `<div style="width: 76px; height: 18px; background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; display: flex; align-items: center; gap: 3px; padding: 0 3px;"><div style="flex: 1; height: 12px; background: #f1f5f9; border-radius: 3px;"></div><div style="width: 14px; height: 6px; background: #0284c7; border-radius: 1px;"></div></div>`,
   },
+  {
+    id: 'nav-underline-tabs',
+    name: '顶部下划线标签',
+    category: 'nav',
+    tag: 'Underline Tabs',
+    description: '页面内切换标签，当前项用下划线标出',
+    html: `<div class="wf-el wf-nav wf-underline-tabs" style="width: 335px; height: 44px; display: flex; align-items: flex-end; gap: 24px; padding: 0 8px; background: #ffffff; border-bottom: 1px solid #e2e8f0; box-sizing: border-box;"><span class="wf-text" style="padding-bottom: 10px; margin-bottom: -1px; border-bottom: 2px solid #0284c7; color: #0284c7; font-size: 15px; font-weight: 700; line-height: 1;">扭蛋</span><span class="wf-text" style="padding-bottom: 10px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: #64748b; font-size: 15px; font-weight: 500; line-height: 1;">收集</span><span class="wf-text" style="padding-bottom: 10px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: #64748b; font-size: 15px; font-weight: 500; line-height: 1;">商城</span></div>`,
+    previewHtml: `<div style="width: 76px; height: 22px; display: flex; align-items: flex-end; gap: 8px; border-bottom: 1px solid #e2e8f0;"><span style="padding-bottom: 3px; border-bottom: 2px solid #0284c7; color: #0284c7; font-size: 9px; font-weight: 700;">扭蛋</span><span style="padding-bottom: 3px; color: #94a3b8; font-size: 9px;">收集</span><span style="padding-bottom: 3px; color: #94a3b8; font-size: 9px;">商城</span></div>`,
+  },
 
   // =========================================================================
   // 2. 表单与控件 (Form & Controls)
@@ -183,6 +192,33 @@ export const componentLibrary: PaletteItem[] = [
     html: `<div class="wf-el wf-slider" style="width: 335px; height: 24px; display: flex; align-items: center; position: relative; box-sizing: border-box; cursor: pointer;"><div style="width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; position: relative;"><div style="width: 65%; height: 100%; background: #0284c7; border-radius: 3px;"></div><div style="width: 20px; height: 20px; background: #ffffff; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.2); border: 2px solid #0284c7; position: absolute; left: calc(65% - 10px); top: -7px;"></div></div></div>`,
     previewHtml: `<div style="width: 74px; height: 4px; background: #e2e8f0; border-radius: 2px; position: relative;"><div style="width: 45px; height: 100%; background: #0284c7; border-radius: 2px;"></div><div style="width: 8px; height: 8px; background: #fff; border: 1.5px solid #0284c7; border-radius: 50%; position: absolute; left: 40px; top: -2px;"></div></div>`,
   },
+  {
+    id: 'ctrl-textarea',
+    name: '多行输入框',
+    category: 'controls',
+    tag: 'Textarea',
+    description: '带标题的多行输入，适合备注、评论和反馈',
+    html: `<div class="wf-el wf-field" style="width: 335px; box-sizing: border-box;"><div class="wf-text" style="font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 6px;">备注</div><textarea class="wf-text" rows="3" placeholder="请输入备注内容" style="width: 100%; height: 88px; margin: 0; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; color: #0f172a; font-size: 14px; line-height: 1.5; resize: none; outline: none; box-sizing: border-box; font-family: inherit;">请在周五前完成核对</textarea></div>`,
+    previewHtml: `<div style="width: 74px;"><div style="width: 22px; height: 3px; background: #334155; margin-bottom: 3px;"></div><div style="height: 28px; border: 1px solid #e2e8f0; border-radius: 4px; background: #fff; padding: 3px;"><div style="width: 48px; height: 2px; background: #94a3b8;"></div></div></div>`,
+  },
+  {
+    id: 'ctrl-stepper',
+    name: '数量步进器',
+    category: 'controls',
+    tag: 'Stepper',
+    description: '减号、数量、加号，适合购买数量和领取次数',
+    html: `<div class="wf-el wf-stepper" style="display: inline-flex; align-items: center; height: 36px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; box-sizing: border-box;"><button class="wf-btn" type="button" style="width: 36px; height: 36px; border: none; border-right: 1px solid #e2e8f0; background: transparent; color: #334155; font-size: 18px; font-weight: 600; cursor: pointer;">−</button><span class="wf-text" style="min-width: 36px; text-align: center; font-size: 15px; font-weight: 700; color: #0f172a;">1</span><button class="wf-btn" type="button" style="width: 36px; height: 36px; border: none; border-left: 1px solid #e2e8f0; background: transparent; color: #0284c7; font-size: 18px; font-weight: 600; cursor: pointer;">+</button></div>`,
+    previewHtml: `<div style="display: inline-flex; align-items: center; height: 22px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; overflow: hidden;"><span style="width: 18px; text-align: center; color: #334155; font-size: 12px;">−</span><span style="width: 16px; text-align: center; font-size: 10px; font-weight: 700; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">1</span><span style="width: 18px; text-align: center; color: #0284c7; font-size: 12px;">+</span></div>`,
+  },
+  {
+    id: 'ctrl-filter-tags',
+    name: '筛选标签条',
+    category: 'controls',
+    tag: 'Filter Tags',
+    description: '一排可切换的筛选标签，当前项为实心',
+    html: `<div class="wf-el wf-filter-tags" style="width: 335px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; box-sizing: border-box;"><span class="wf-text" style="padding: 6px 14px; background: #0284c7; color: #ffffff; border-radius: 9999px; font-size: 13px; font-weight: 700;">全部</span><span class="wf-text" style="padding: 6px 14px; background: #f1f5f9; color: #475569; border-radius: 9999px; font-size: 13px; font-weight: 600;">进行中</span><span class="wf-text" style="padding: 6px 14px; background: #f1f5f9; color: #475569; border-radius: 9999px; font-size: 13px; font-weight: 600;">已完成</span><span class="wf-text" style="padding: 6px 14px; background: #f1f5f9; color: #475569; border-radius: 9999px; font-size: 13px; font-weight: 600;">已关闭</span></div>`,
+    previewHtml: `<div style="display: flex; gap: 3px;"><span style="padding: 2px 6px; background: #0284c7; color: #fff; border-radius: 8px; font-size: 8px;">全部</span><span style="padding: 2px 6px; background: #e2e8f0; color: #475569; border-radius: 8px; font-size: 8px;">进行中</span><span style="padding: 2px 6px; background: #e2e8f0; color: #475569; border-radius: 8px; font-size: 8px;">完成</span></div>`,
+  },
 
   // =========================================================================
   // 3. 内容与卡片 (Content & Data Display)
@@ -285,6 +321,42 @@ export const componentLibrary: PaletteItem[] = [
     description: '包含圆形头像与多行骨架加载条的卡片',
     html: `<div class="wf-el wf-card wf-skeleton-card" style="width: 335px; background: #ffffff; border-radius: 14px; padding: 14px; border: 1px solid #f1f5f9; box-shadow: 0 2px 8px rgba(0,0,0,0.03); display: flex; gap: 12px; align-items: center; box-sizing: border-box;"><div style="width: 46px; height: 46px; border-radius: 50%; background: #e5e7eb; flex-shrink: 0;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 8px;"><div style="width: 60%; height: 16px; background: #e5e7eb; border-radius: 4px;"></div><div style="width: 90%; height: 12px; background: #f1f5f9; border-radius: 4px;"></div><div style="width: 40%; height: 10px; background: #f1f5f9; border-radius: 4px;"></div></div></div>`,
     previewHtml: `<div style="width: 74px; height: 26px; background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 3px; display: flex; align-items: center; gap: 4px;"><div style="width: 14px; height: 14px; border-radius: 50%; background: #e5e7eb;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 2px;"><div style="width: 70%; height: 3px; background: #e5e7eb;"></div><div style="width: 90%; height: 2px; background: #f1f5f9;"></div></div></div>`,
+  },
+  {
+    id: 'display-info-row',
+    name: '信息行',
+    category: 'display',
+    tag: 'Info Row',
+    description: '左边标题，右边文字或数字，末尾带箭头',
+    html: `<div class="wf-el wf-card wf-info-row" style="width: 335px; height: 48px; background: #ffffff; border-radius: 12px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #f1f5f9; box-sizing: border-box; cursor: pointer;"><span class="wf-text" style="font-size: 15px; font-weight: 600; color: #0f172a;">订单编号</span><span style="display: inline-flex; align-items: center; gap: 4px; color: #64748b;"><span class="wf-text" style="font-size: 14px;">202610260018</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5"><path d="m9 18 6-6-6-6"/></svg></span></div>`,
+    previewHtml: `<div style="width: 76px; height: 20px; background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; padding: 0 4px;"><div style="width: 22px; height: 3px; background: #0f172a;"></div><div style="width: 28px; height: 3px; background: #94a3b8;"></div></div>`,
+  },
+  {
+    id: 'display-icon-grid',
+    name: '宫格入口',
+    category: 'display',
+    tag: 'Icon Grid',
+    description: '一行四个图标加文字，适合首页和我的页入口',
+    html: `<div class="wf-el wf-icon-grid" style="width: 335px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; box-sizing: border-box;"><div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><div style="width: 44px; height: 44px; border-radius: 14px; background: #eff6ff; color: #0284c7; display: flex; align-items: center; justify-content: center;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><span class="wf-text" style="font-size: 12px; color: #334155; font-weight: 600;">首页</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><div style="width: 44px; height: 44px; border-radius: 14px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></div><span class="wf-text" style="font-size: 12px; color: #334155; font-weight: 600;">商城</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><div style="width: 44px; height: 44px; border-radius: 14px; background: #ecfdf5; color: #059669; display: flex; align-items: center; justify-content: center;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></div><span class="wf-text" style="font-size: 12px; color: #334155; font-weight: 600;">任务</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><div style="width: 44px; height: 44px; border-radius: 14px; background: #fce7f3; color: #db2777; display: flex; align-items: center; justify-content: center;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><span class="wf-text" style="font-size: 12px; color: #334155; font-weight: 600;">我的</span></div></div>`,
+    previewHtml: `<div style="width: 76px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px;"><div style="display: flex; flex-direction: column; align-items: center; gap: 2px;"><div style="width: 12px; height: 12px; border-radius: 3px; background: #bfdbfe;"></div><div style="width: 12px; height: 2px; background: #64748b;"></div></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px;"><div style="width: 12px; height: 12px; border-radius: 3px; background: #fde68a;"></div><div style="width: 12px; height: 2px; background: #64748b;"></div></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px;"><div style="width: 12px; height: 12px; border-radius: 3px; background: #a7f3d0;"></div><div style="width: 12px; height: 2px; background: #64748b;"></div></div><div style="display: flex; flex-direction: column; align-items: center; gap: 2px;"><div style="width: 12px; height: 12px; border-radius: 3px; background: #fbcfe8;"></div><div style="width: 12px; height: 2px; background: #64748b;"></div></div></div>`,
+  },
+  {
+    id: 'display-banner',
+    name: '活动横幅',
+    category: 'display',
+    tag: 'Banner',
+    description: '圆角大图加标题和副标题，适合活动页顶部',
+    html: `<div class="wf-el wf-card wf-banner" style="width: 335px; height: 140px; border-radius: 16px; overflow: hidden; position: relative; box-sizing: border-box; background: linear-gradient(135deg, #0284c7 0%, #7c3aed 100%);"><div style="position: absolute; left: 16px; right: 16px; bottom: 16px;"><div class="wf-text" style="font-size: 18px; font-weight: 800; color: #ffffff; line-height: 1.3;">每日任务已刷新</div><div class="wf-text" style="margin-top: 4px; font-size: 12px; color: rgba(255,255,255,0.86);">完成 3 个任务即可领取奖励</div></div></div>`,
+    previewHtml: `<div style="width: 76px; height: 36px; border-radius: 6px; background: linear-gradient(135deg, #0284c7, #7c3aed); display: flex; flex-direction: column; justify-content: flex-end; padding: 4px; box-sizing: border-box;"><div style="width: 40px; height: 4px; background: #fff; border-radius: 1px;"></div><div style="width: 28px; height: 2px; background: rgba(255,255,255,0.7); margin-top: 3px;"></div></div>`,
+  },
+  {
+    id: 'display-table',
+    name: '数据表格',
+    category: 'display',
+    tag: 'Table',
+    description: '表头加数据行，内容超出时裁切，不出现滚动条',
+    html: `<div class="wf-el wf-card wf-data-table" style="width: 335px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-sizing: border-box;"><table style="width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px;"><thead><tr style="background: #f8fafc;"><th style="width: 46%; padding: 10px 12px; text-align: left; font-weight: 700; color: #64748b; border-bottom: 1px solid #e2e8f0;"><span class="wf-text">名称</span></th><th style="width: 22%; padding: 10px 8px; text-align: right; font-weight: 700; color: #64748b; border-bottom: 1px solid #e2e8f0;"><span class="wf-text">数量</span></th><th style="width: 32%; padding: 10px 12px; text-align: left; font-weight: 700; color: #64748b; border-bottom: 1px solid #e2e8f0;"><span class="wf-text">状态</span></th></tr></thead><tbody><tr><td style="padding: 10px 12px; color: #0f172a; border-bottom: 1px solid #f1f5f9; overflow: hidden;"><span class="wf-text">钻石</span></td><td style="padding: 10px 8px; text-align: right; color: #0f172a; border-bottom: 1px solid #f1f5f9;"><span class="wf-text">120</span></td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9;"><span class="wf-text" style="color: #059669; font-weight: 700;">充足</span></td></tr><tr><td style="padding: 10px 12px; color: #0f172a; border-bottom: 1px solid #f1f5f9;"><span class="wf-text">体力</span></td><td style="padding: 10px 8px; text-align: right; color: #0f172a; border-bottom: 1px solid #f1f5f9;"><span class="wf-text">8</span></td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9;"><span class="wf-text" style="color: #d97706; font-weight: 700;">偏低</span></td></tr><tr><td style="padding: 10px 12px; color: #0f172a;"><span class="wf-text">礼包</span></td><td style="padding: 10px 8px; text-align: right; color: #0f172a;"><span class="wf-text">2</span></td><td style="padding: 10px 12px;"><span class="wf-text" style="color: #0284c7; font-weight: 700;">可领</span></td></tr></tbody></table></div>`,
+    previewHtml: `<div style="width: 76px; border: 1px solid #e2e8f0; border-radius: 4px; overflow: hidden; background: #fff;"><div style="display: flex; background: #f8fafc; padding: 2px 3px; gap: 4px;"><div style="width: 22px; height: 3px; background: #94a3b8;"></div><div style="width: 14px; height: 3px; background: #94a3b8;"></div><div style="width: 16px; height: 3px; background: #94a3b8;"></div></div><div style="display: flex; padding: 3px; gap: 4px; border-top: 1px solid #f1f5f9;"><div style="width: 22px; height: 3px; background: #0f172a;"></div><div style="width: 14px; height: 3px; background: #334155;"></div><div style="width: 16px; height: 3px; background: #059669;"></div></div><div style="display: flex; padding: 3px; gap: 4px; border-top: 1px solid #f1f5f9;"><div style="width: 18px; height: 3px; background: #0f172a;"></div><div style="width: 10px; height: 3px; background: #334155;"></div><div style="width: 16px; height: 3px; background: #d97706;"></div></div></div>`,
   },
 
   // =========================================================================
