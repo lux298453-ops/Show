@@ -753,10 +753,9 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   // 轻微出界让浏览器自然裁掉即可，远比整页缩小好。
   const guard = `<style data-wf-inject>
     *{box-sizing:border-box}
-    /* 防横向溢出：AI 生成的整页偶尔会把根容器/区块写得比 375 宽，
-       手机壳 overflow:hidden 会直接裁掉右侧。这里把每个元素宽度锁在视口内，
-       彻底消除"右侧显示不全"；轻微出界的装饰元素由 body overflow-x:hidden 自然裁掉。 */
-    html,body{margin:0;padding:0;width:100%;overflow-x:hidden}
+    /* 上下左右超出画框都裁掉。只写 overflow-x:hidden 时，浏览器会把上下当成可滚动，
+       元素拖出下边后画框右边就会出现滚动条。 */
+    html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden}
     .wf-layer-hidden{visibility:hidden !important;pointer-events:none !important}
     .wf-layer-locked{pointer-events:none !important}
     @keyframes wfBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
