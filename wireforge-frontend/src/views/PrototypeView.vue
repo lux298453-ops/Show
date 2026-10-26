@@ -1467,25 +1467,6 @@
             </div>
           </div>
 
-          <section class="p-3 border-b border-slate-200 dark:border-[#383838] space-y-2.5">
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5"><FileText class="w-3.5 h-3.5" />说明标注 <span class="text-slate-400 font-normal">{{ currentFocusPage?.annotations.length || 0 }}</span></span>
-              <button type="button" class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 rounded px-1.5 py-1 hover:bg-blue-50 dark:hover:bg-white/5 disabled:opacity-40" :disabled="!currentFocusPage" @click="openAnnotationCreate(currentFocusPage?.id)"><Plus class="w-3.5 h-3.5" />添加说明</button>
-            </div>
-            <p class="text-[11px] text-slate-400 truncate">{{ currentFocusPage?.name || '先新建或选择一个画板' }}</p>
-            <div v-if="currentFocusPage?.annotations.length" class="max-h-44 overflow-y-auto space-y-1.5">
-              <div v-for="ann in currentFocusPage.annotations" :key="ann.id" class="rounded-lg border border-slate-200/80 dark:border-white/10 p-2 text-xs">
-                <button type="button" class="block w-full min-w-0 text-left" title="双击修改或删除说明"
-                  @click="handleAnnClick(ann.id)" @dblclick.stop="openAnnotationEdit(currentFocusPage!.id, ann)"
-                  @keydown.enter.prevent="openAnnotationEdit(currentFocusPage!.id, ann)">
-                  <span class="block truncate font-medium text-slate-700 dark:text-slate-200">{{ annotationTitle(currentFocusPage, ann) }}</span>
-                  <span class="block truncate text-[11px] text-slate-400 mt-1">{{ ann.text }}</span>
-                </button>
-              </div>
-            </div>
-            <p v-else class="text-[11px] leading-relaxed text-slate-400">为页面或某个元素补充用途、操作条件和业务规则。</p>
-          </section>
-
           <DesignInspector
             :current-page="currentFocusPage"
             :selected-element="selectedElementObj"
@@ -2276,6 +2257,28 @@
         >
           <span>置于底层</span>
           <span class="text-[11px] text-white/50">[</span>
+        </button>
+
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
+          title="沿纵向中心轴左右镜像"
+          @click="runLayerMenu('flip-x')"
+        >
+          <span>水平翻转</span>
+          <span class="text-[11px] text-white/50">Shift+H</span>
+        </button>
+
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
+          title="沿横向中心轴上下镜像"
+          @click="runLayerMenu('flip-y')"
+        >
+          <span>垂直翻转</span>
+          <span class="text-[11px] text-white/50">Shift+V</span>
         </button>
 
         <div class="my-1 h-px bg-white/15"></div>
@@ -8165,6 +8168,10 @@ function runLayerMenu(action: string) {
     postToFocusFrame({ type: 'wf-restack', edge: 'front' })
   } else if (action === 'back') {
     postToFocusFrame({ type: 'wf-restack', edge: 'back' })
+  } else if (action === 'flip-x') {
+    postToFocusFrame({ type: 'wf-flip', axis: 'x' })
+  } else if (action === 'flip-y') {
+    postToFocusFrame({ type: 'wf-flip', axis: 'y' })
   } else if (action === 'group') {
     postToFocusFrame({ type: 'wf-group' })
   } else if (action === 'ungroup') {
@@ -9627,17 +9634,26 @@ async function onGlobalKeydown(e: KeyboardEvent) {
     postToFocusFrame({ type: e.shiftKey ? 'wf-ungroup' : 'wf-group' })
     return
   }
+  if (!isViewer.value && !isInput && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && mode.value !== 'preview' && hasSelectedDomElements.value) {
+    const flipKey = e.key.toUpperCase()
+    if (flipKey === 'H' || flipKey === 'V') {
+      e.preventDefault()
+      postToFocusFrame({ type: 'wf-flip', axis: flipKey === 'H' ? 'x' : 'y' })
+      return
+    }
+  }
+
   if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && mode.value !== 'preview') {
     const key = e.key.toUpperCase()
     if (isViewer.value && ['R', 'T', 'F', 'L', 'O', 'P'].includes(key)) {
       return
     }
-    if (key === 'V') {
+    if (key === 'V' && !e.shiftKey) {
       e.preventDefault()
       activeDrawTool.value = 'select'
       showToast('已切换至指针选择工具 (V)')
       return
-    } else if (key === 'H') {
+    } else if (key === 'H' && !e.shiftKey) {
       e.preventDefault()
       activeDrawTool.value = 'hand'
       showToast('已切换至抓手拖拽 (H)：按住鼠标拖动画布')

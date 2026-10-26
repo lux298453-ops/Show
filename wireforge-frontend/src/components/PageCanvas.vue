@@ -4059,6 +4059,57 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       else if(selectedEl) updateTransformBox(selectedEl);
     }
 
+    function tidyTransform(src){
+      var out = src || '';
+      while(out.indexOf('  ') !== -1) out = out.split('  ').join(' ');
+      if(out.charAt(0) === ' ') out = out.slice(1);
+      if(out.length && out.charAt(out.length - 1) === ' ') out = out.slice(0, -1);
+      return out;
+    }
+
+    function flipSelection(axis){
+      if(READONLY) return;
+      var raw = selectedEls && selectedEls.length ? selectedEls.slice() : (selectedEl ? [selectedEl] : []);
+      var list = [];
+      for(var i = 0; i < raw.length; i++){
+        var el = raw[i];
+        if(!el || el === document.body || el === document.documentElement || isLayerLocked(el)) continue;
+        list.push(el);
+      }
+      if(!list.length){
+        showToast('请先选中要翻转的元素');
+        return;
+      }
+      var horizontal = axis !== 'y';
+      var token = horizontal ? 'scaleX(-1)' : 'scaleY(-1)';
+      var attr = horizontal ? 'data-wf-flip-x' : 'data-wf-flip-y';
+      pushSnapshot();
+      for(var j = 0; j < list.length; j++){
+        var node = list[j];
+        var cur = node.style.transform || '';
+        var on = node.getAttribute(attr) === 'true' || cur.indexOf(token) !== -1;
+        if(on){
+          node.removeAttribute(attr);
+          var idx = cur.indexOf(token);
+          while(idx !== -1){
+            cur = cur.slice(0, idx) + cur.slice(idx + token.length);
+            idx = cur.indexOf(token);
+          }
+          cur = tidyTransform(cur);
+        }else{
+          node.setAttribute(attr, 'true');
+          cur = tidyTransform((cur ? cur + ' ' : '') + token);
+        }
+        node.style.transform = cur;
+        node.style.transformOrigin = 'center center';
+      }
+      scheduleSave();
+      pushSnapshot();
+      if(selectedEls.length > 1) updateMultiTransformBox();
+      else if(selectedEl) updateTransformBox(selectedEl);
+      showToast(horizontal ? '已水平翻转' : '已垂直翻转');
+    }
+
     function effectNum(v){
       var n = Number(v);
       return isNaN(n) ? 0 : n;
@@ -4577,7 +4628,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               if(!isAbsolute){
                 oneEl.style.position = 'relative';
               }
-              oneEl.style.zIndex = '99';
 
               // 临时清除可能存在的 transition 避免位移缓动
               var origTrans = oneEl.style.transition;
@@ -4648,7 +4698,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               if(!cIsAbsolute){
                 cEl.style.position = 'relative';
               }
-              cEl.style.zIndex = '99';
 
               if(alignType === 'left' || alignType === 'center-h' || alignType === 'right'){
                 cEl.style.left = Math.round(cCurL + mdx) + 'px';
@@ -5061,6 +5110,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             }, 60);
           }
           scheduleSave();
+          pushSnapshot();
           showToast(isModal ? '组件已添加' : '组件已添加。单击移动整块，双击再选里面的元素');
         }
       }else if(d.type === 'wf-select-uid'){
@@ -5086,6 +5136,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         reorderLayer(d.uid, d.targetUid, d.place === 'before' ? 'before' : 'after');
       }else if(d.type === 'wf-restack'){
         restackSelection(d.edge === 'back' ? 'back' : 'front');
+      }else if(d.type === 'wf-flip'){
+        flipSelection(d.axis === 'y' ? 'y' : 'x');
       }else if(d.type === 'wf-hide-vector-original'){
         var vEl = findVectorElement(d.elementUid);
         if(vEl){
@@ -5462,6 +5514,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       selectElement(newEl);
       publishLayers();
       scheduleSave();
+      pushSnapshot();
       showToast(isModal ? '组件已添加' : '组件已添加。单击移动整块，双击再选里面的元素');
     }, true);
 
@@ -6203,7 +6256,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             if(!it.isAbsolute){
               it.el.style.position = 'relative';
             }
-            it.el.style.zIndex = '999';
             it.origTransition = it.el.style.transition;
             it.el.style.setProperty('transition', 'none', 'important');
           }
@@ -6327,7 +6379,18 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         return;
       }
 
-      if(!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'h' || e.key === 'H')){
+      if(!e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && (e.key === 'h' || e.key === 'H')){
+        e.preventDefault();
+        flipSelection('x');
+        return;
+      }
+      if(!e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && (e.key === 'v' || e.key === 'V')){
+        e.preventDefault();
+        flipSelection('y');
+        return;
+      }
+
+      if(!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'h' || e.key === 'H')){
         e.preventDefault();
         try { parent.postMessage({ type: 'wf-tool-key', key: 'H' }, '*'); } catch(err) {}
         return;
