@@ -294,6 +294,10 @@ function onLayerRowMouseDown(uid: string, e: MouseEvent) {
     suppressLayerClick = false
   }
   window.addEventListener('click', stopClick, true)
+  setTimeout(() => {
+    window.removeEventListener('click', stopClick, true)
+    suppressLayerClick = false
+  }, 100)
 }
 
 function onLayerRowClick(uid: string, e: MouseEvent) {

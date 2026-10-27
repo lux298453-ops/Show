@@ -5633,21 +5633,55 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         }
       }else if(d.type === 'wf-delete'){
         if(READONLY) return;
-        if(selectedEl && isLayerLocked(selectedEl)){
-          showToast('图层已锁定，先解锁再删除');
+        // 收集待删除元素：优先支持外部传入的 uids，次选当前已选数组 selectedEls，最后降级单个 selectedEl
+        var targetPool = [];
+        if(Array.isArray(d.uids) && d.uids.length > 0){
+          for(var ui = 0; ui < d.uids.length; ui++){
+            var mEl = layerDom(d.uids[ui]);
+            if(mEl && targetPool.indexOf(mEl) < 0) targetPool.push(mEl);
+          }
+        }
+        if(!targetPool.length && selectedEls.length > 0){
+          for(var si = 0; si < selectedEls.length; si++){
+            if(selectedEls[si] && targetPool.indexOf(selectedEls[si]) < 0) targetPool.push(selectedEls[si]);
+          }
+        }
+        if(!targetPool.length && selectedEl){
+          targetPool.push(selectedEl);
+        }
+
+        var victims = [];
+        var hasLocked = false;
+        for(var vi = 0; vi < targetPool.length; vi++){
+          var itEl = targetPool[vi];
+          if(!itEl || !itEl.isConnected || itEl === document.body || itEl === document.documentElement) continue;
+          if(isLayerLocked(itEl)){
+            hasLocked = true;
+            continue;
+          }
+          if(victims.indexOf(itEl) < 0) victims.push(itEl);
+        }
+
+        if(!victims.length){
+          if(hasLocked) showToast('图层已锁定，先解锁再删除');
           return;
         }
-        if(selectedEl && selectedEl !== document.body){
-          pushSnapshot();
-          var toDel = selectedEl;
-          var dInfo = extractDeletedItemInfo(toDel);
-          deselect();
-          if(toDel.parentNode) toDel.parentNode.removeChild(toDel);
-          scheduleSave();
-          publishLayers();
-          try { window.parent.postMessage({ type: 'wf-element-deleted', pageId: PAGE_ID, count: 1, items: dInfo ? [dInfo] : [] }, '*'); } catch(e){}
-          showToast('已删除元素 (Ctrl+Z 可撤回)');
+
+        pushSnapshot();
+        var count = victims.length;
+        var deletedItems = [];
+        for(var di = 0; di < victims.length; di++){
+          var it = victims[di];
+          var dInfo = extractDeletedItemInfo(it);
+          if(dInfo) deletedItems.push(dInfo);
+          if(it && it.parentNode) it.parentNode.removeChild(it);
         }
+        deselect();
+        scheduleSave();
+        pushSnapshot();
+        publishLayers();
+        try { window.parent.postMessage({ type: 'wf-element-deleted', pageId: PAGE_ID, count: count, items: deletedItems }, '*'); } catch(e){}
+        showToast('已删除 ' + (count > 1 ? count + ' 个元素' : '元素') + ' (按 Ctrl+Z 撤回)');
       }else if(d.type === 'wf-open-asset-picker'){
         if(selectedEl){
           var prev = document.querySelectorAll('.wf-current-asset-target');
@@ -8217,8 +8251,8 @@ function selectParentContainer() {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-select-parent' }, '*')
 }
 
-function deleteSelectedElement() {
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-delete' }, '*')
+function deleteSelectedElement(uids?: string[]) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-delete', uids }, '*')
 }
 
 function openAssetPickerForSelected() {

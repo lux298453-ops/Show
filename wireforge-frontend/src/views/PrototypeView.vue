@@ -8672,13 +8672,16 @@ function onInspectorDuplicate() {
 
 function onInspectorDelete() {
   if (currentFocusPage.value) {
-    pageRefs.value[currentFocusPage.value.id]?.deleteSelectedElement?.()
+    const uids = selectedDomLayerUids.value?.length ? [...selectedDomLayerUids.value] : []
+    pageRefs.value[currentFocusPage.value.id]?.deleteSelectedElement?.(uids)
   }
   if (selectedElementObj.value && currentFocusPage.value) {
     const elId = selectedElementObj.value.id
     currentFocusPage.value.elements = currentFocusPage.value.elements.filter((e) => e.id !== elId)
     selectedElementId.value = null
   }
+  selectedDomLayerUids.value = []
+  selectedDomLayerUid.value = null
   ElMessage.success('已删除选定元素')
 }
 
@@ -9877,12 +9880,15 @@ async function onGlobalKeydown(e: KeyboardEvent) {
       return
     }
 
-    // iframe 内选中元素时：只删元素，绝不弹删画板
-    if (activeSelectedElementInfo.value) {
+    // iframe 内选中元素或图层多选时：只删元素，绝不弹删画板
+    if (activeSelectedElementInfo.value || (selectedDomLayerUids.value && selectedDomLayerUids.value.length > 0)) {
       const pid = focusPageId.value ?? currentFocusPage.value?.id
       if (pid) {
         e.preventDefault()
-        pageRefs.value[pid]?.deleteSelectedElement?.()
+        const uids = selectedDomLayerUids.value?.length ? [...selectedDomLayerUids.value] : []
+        pageRefs.value[pid]?.deleteSelectedElement?.(uids)
+        selectedDomLayerUids.value = []
+        selectedDomLayerUid.value = null
       }
       return
     }
