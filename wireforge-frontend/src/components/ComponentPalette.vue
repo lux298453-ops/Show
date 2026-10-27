@@ -44,7 +44,10 @@
     <!-- 3. Components List 2-Column Grid Area -->
     <div class="flex-1 overflow-y-auto p-2.5 space-y-3 custom-scrollbar">
       <!-- Empty state when search produces no results -->
-      <div v-if="displayedCategories.length === 0" class="py-12 text-center text-xs text-slate-400">
+      <div v-if="activeCat === 'mine' && displayedCategories.length === 0" class="py-12 px-3 text-center text-xs leading-relaxed text-slate-400">
+        还没有自己的组件。选中元素后，在属性栏或右键里点「存为组件」。
+      </div>
+      <div v-else-if="displayedCategories.length === 0" class="py-12 text-center text-xs text-slate-400">
         {{ t('noMatchingComponents') }}
       </div>
 
@@ -84,9 +87,18 @@
             </button>
 
             <ComponentThumbnail :html="item.previewHtml" />
-            <div class="palette-name text-slate-900 dark:text-slate-100 truncate">
+            <div class="palette-name text-slate-900 dark:text-slate-100 truncate" :title="item.customId ? '点名字可以改名' : item.name" @click.stop="item.customId && onRenameCustom(item)">
               {{ item.name }}
             </div>
+            <button
+              v-if="item.customId"
+              type="button"
+              class="absolute top-1.5 left-1.5 w-5 h-5 rounded-md bg-white dark:bg-[#383838] hover:bg-rose-500 text-slate-400 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-xs border border-slate-200/80 dark:border-[#484848] z-10"
+              title="删除这个组件"
+              @click.stop="onDeleteCustom(item)"
+            >
+              <Trash2 class="w-3 h-3" />
+            </button>
           </div>
         </div>
       </div>
@@ -96,7 +108,8 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Plus, Search, X } from 'lucide-vue-next'
+import { ElMessageBox } from 'element-plus'
+import { Plus, Search, Trash2, X } from 'lucide-vue-next'
 import ComponentThumbnail from './ComponentThumbnail.vue'
 import { t } from '../utils/i18n'
 import {
@@ -105,6 +118,7 @@ import {
   type PaletteItem,
   type PaletteCategory,
 } from '@/data/componentLibrary'
+import { asPaletteItem, deleteMyComponent, myComponents, renameMyComponent } from '@/services/customComponentService'
 
 export type { PaletteItem, PaletteCategory }
 
@@ -119,7 +133,13 @@ const emit = defineEmits<{
 }>()
 
 const searchQuery = ref('')
-const activeCat = ref<'all' | 'shapes' | 'nav' | 'controls' | 'display' | 'feedback'>('all')
+const activeCat = ref<PaletteCategory['id']>('all')
+
+function mineItems(query: string) {
+  return myComponents.value
+    .filter((item) => !query || item.name.toLowerCase().includes(query))
+    .map(asPaletteItem)
+}
 
 const displayedCategories = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -130,6 +150,9 @@ const displayedCategories = computed(() => {
 
   return targetCats
     .map((cat) => {
+      if (cat.id === 'mine') {
+        return { id: cat.id, name: cat.name, items: mineItems(query) }
+      }
       const items = componentLibrary.filter((item) => {
         if (item.category !== cat.id) return false
         if (!query) return true
@@ -147,6 +170,35 @@ const displayedCategories = computed(() => {
     })
     .filter((group) => group.items.length > 0)
 })
+
+async function onRenameCustom(item: PaletteItem) {
+  if (!item.customId) return
+  try {
+    const result = await ElMessageBox.prompt('给这个组件起个名字', '改名', {
+      inputValue: item.name,
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValidator: (value) => (value && value.trim() ? true : '请填写名字'),
+    })
+    await renameMyComponent(item.customId, result.value.trim())
+  } catch {
+    /* 取消改名 */
+  }
+}
+
+async function onDeleteCustom(item: PaletteItem) {
+  if (!item.customId) return
+  try {
+    await ElMessageBox.confirm(`删除「${item.name}」？画板上已经放下的不会受影响。`, '删除组件', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await deleteMyComponent(item.customId)
+  } catch {
+    /* 取消删除 */
+  }
+}
 
 function onDragStart(event: DragEvent, item: PaletteItem) {
   ;(window as any).__wfDraggingComponent = item

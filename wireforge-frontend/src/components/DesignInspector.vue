@@ -91,6 +91,25 @@
         >
           <AlignEndHorizontal class="w-3.5 h-3.5" />
         </button>
+        <div class="w-[1px] h-3.5 bg-slate-200/80 dark:bg-[#383838] mx-0.5"></div>
+        <button
+          type="button"
+          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          :title="(selectionCount || 0) < 3 ? '先选中 3 个以上元素' : t('alignSpaceH')"
+          :disabled="(selectionCount || 0) < 3"
+          @click="emit('align-selection', 'space-h')"
+        >
+          <AlignHorizontalSpaceBetween class="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          :title="(selectionCount || 0) < 3 ? '先选中 3 个以上元素' : t('alignSpaceV')"
+          :disabled="(selectionCount || 0) < 3"
+          @click="emit('align-selection', 'space-v')"
+        >
+          <AlignVerticalSpaceBetween class="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
 
@@ -776,6 +795,14 @@
         </button>
         <button
           v-if="hasSelection"
+          class="w-full py-1.5 px-2 bg-slate-50 dark:bg-[#383838] hover:bg-blue-50 dark:hover:bg-[#1e3a5f]/40 hover:text-[#0D99FF] dark:hover:text-[#38bdf8] border border-slate-200/80 dark:border-[#484848] hover:border-blue-200 dark:hover:border-[#0D99FF]/40 rounded-lg text-slate-700 dark:text-slate-200 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          @click="emit('save-component')"
+        >
+          <ComponentIcon class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+          <span>存为组件</span>
+        </button>
+        <button
+          v-if="hasSelection"
           class="w-full py-1.5 px-2 bg-slate-50 dark:bg-[#383838] hover:bg-slate-100 dark:hover:bg-[#444444] border border-slate-200/80 dark:border-[#484848] rounded-lg text-slate-700 dark:text-slate-200 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
           @click="emit('duplicate-selection')"
         >
@@ -809,9 +836,12 @@ import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
   AlignEndHorizontal,
+  AlignHorizontalSpaceBetween,
+  AlignVerticalSpaceBetween,
   AlignLeft,
   AlignCenter,
   AlignRight,
+  Component as ComponentIcon,
   Minimize2,
   Image as ImageIcon,
   Edit3,
@@ -879,12 +909,13 @@ const emit = defineEmits<{
   (e: 'update-frame-color', color: string): void
   (e: 'update-font-size', delta: number): void
   (e: 'update-text-style', payload: { key: string; value: string; live?: boolean }): void
-  (e: 'align-selection', type: 'left' | 'center-h' | 'right' | 'top' | 'center-v' | 'bottom'): void
+  (e: 'align-selection', type: 'left' | 'center-h' | 'right' | 'top' | 'center-v' | 'bottom' | 'space-h' | 'space-v'): void
   (e: 'update-radius', radius: number): void
   (e: 'update-opacity', payload: { opacity: number; live?: boolean }): void
   (e: 'update-stroke', stroke: { width: number; color: string; style: string }): void
   (e: 'update-effects', payload: { effects: WfEffect[]; live: boolean }): void
   (e: 'duplicate-selection'): void
+  (e: 'save-component'): void
   (e: 'delete-selection'): void
   (e: 'replace-asset'): void
   (e: 'start-text-edit'): void

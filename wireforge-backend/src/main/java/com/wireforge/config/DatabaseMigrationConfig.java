@@ -149,6 +149,19 @@ public class DatabaseMigrationConfig {
             // 支持画板软删除与 Ctrl+Z 撤回
             addColumnIfNotExists(stmt, "page", "is_deleted", "TINYINT DEFAULT 0 COMMENT '0=正常, 1=已删除'");
 
+            executeTableCreation(stmt, "user_component",
+                    "CREATE TABLE IF NOT EXISTS `user_component` (" +
+                    " `id` BIGINT AUTO_INCREMENT PRIMARY KEY," +
+                    " `user_id` VARCHAR(64) NOT NULL COMMENT '登录账号'," +
+                    " `name` VARCHAR(64) NOT NULL," +
+                    " `html` MEDIUMTEXT NOT NULL," +
+                    " `width` INT NOT NULL DEFAULT 1," +
+                    " `height` INT NOT NULL DEFAULT 1," +
+                    " `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP," +
+                    " `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+                    " INDEX `idx_user_updated` (`user_id`, `updated_at`)" +
+                    ") ENGINE = InnoDB DEFAULT CHARSET = utf8mb4");
+
             log.info("Database schema auto-migrations completed successfully.");
         } catch (Exception e) {
             log.warn("Database schema auto-migration encountered warning: {}", e.getMessage());

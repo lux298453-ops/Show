@@ -191,4 +191,16 @@ CREATE TABLE IF NOT EXISTS `user_asset` (
   INDEX `idx_cat_created` (`category`, `created_at`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `user_component` (
+  `id`         BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `user_id`    VARCHAR(64) NOT NULL COMMENT '登录账号',
+  `name`       VARCHAR(64) NOT NULL,
+  `html`       MEDIUMTEXT NOT NULL,
+  `width`      INT NOT NULL DEFAULT 1,
+  `height`     INT NOT NULL DEFAULT 1,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_user_updated` (`user_id`, `updated_at`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
 

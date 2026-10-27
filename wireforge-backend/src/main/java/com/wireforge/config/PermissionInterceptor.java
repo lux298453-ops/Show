@@ -47,7 +47,9 @@ public class PermissionInterceptor implements HandlerInterceptor {
             new Rule("PUT", "/api/projects/{id}/comments/*/resolve", Need.LOGIN),
             // 只读评审可以删自己发的评论，是否本人由接口里判断
             new Rule("DELETE", "/api/projects/{id}/comments/*", Need.LOGIN),
-            new Rule("POST", "/api/assets/upload", Need.LOGIN)
+            new Rule("POST", "/api/assets/upload", Need.LOGIN),
+            new Rule("*", "/api/components", Need.LOGIN),
+            new Rule("*", "/api/components/**", Need.LOGIN)
     );
 
     private static final AntPathMatcher MATCHER = new AntPathMatcher();

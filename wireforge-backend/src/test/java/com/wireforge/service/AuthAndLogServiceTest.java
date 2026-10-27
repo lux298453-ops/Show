@@ -47,6 +47,7 @@ class AuthAndLogServiceTest {
     @BeforeEach
     void setUp() {
         projectMemberMapper = mock(ProjectMemberMapper.class);
+        when(projectMemberMapper.selectCount(any())).thenReturn(1L);
         operationLogMapper = mock(OperationLogMapper.class);
         authSessionMapper = fakeSessionMapper(sessionTable);
         appUserMapper = fakeUserMapper(userTable);

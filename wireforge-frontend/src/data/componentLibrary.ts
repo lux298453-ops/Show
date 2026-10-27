@@ -6,15 +6,19 @@ export interface PaletteItem {
   description: string
   html: string
   previewHtml: string
+  width?: number
+  height?: number
+  customId?: number
 }
 
 export interface PaletteCategory {
-  id: 'all' | 'shapes' | 'nav' | 'controls' | 'display' | 'feedback'
+  id: 'all' | 'mine' | 'shapes' | 'nav' | 'controls' | 'display' | 'feedback'
   name: string
 }
 
 export const componentCategories: PaletteCategory[] = [
   { id: 'all', name: '全部' },
+  { id: 'mine', name: '我的' },
   { id: 'nav', name: '导航' },
   { id: 'controls', name: '表单' },
   { id: 'display', name: '卡片' },

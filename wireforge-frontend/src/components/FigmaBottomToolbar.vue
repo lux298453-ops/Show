@@ -68,11 +68,11 @@
 
         <!-- Category Tabs -->
         <div class="px-3 py-1.5 border-b border-slate-100 bg-white">
-          <div class="grid grid-cols-6 gap-1 bg-slate-100/80 p-0.5 rounded-lg border border-slate-200/50">
+          <div class="flex flex-wrap gap-1 bg-slate-100/80 p-0.5 rounded-lg border border-slate-200/50">
             <button
               v-for="cat in componentCategories"
               :key="cat.id"
-              class="py-1 text-[11px] font-medium rounded-md transition-all text-center cursor-pointer select-none"
+              class="px-2 py-1 text-[11px] font-medium rounded-md transition-all text-center cursor-pointer select-none"
               :class="activeCat === cat.id
                 ? 'bg-white text-[#0D99FF] shadow-2xs font-bold'
                 : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'"
@@ -87,7 +87,7 @@
         <!-- Component Cards Grid -->
         <div class="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar max-h-[320px]">
           <div v-if="filteredItems.length === 0" class="py-8 text-center text-xs text-slate-400">
-            无匹配组件，换个关键词搜搜看
+            {{ activeCat === 'mine' ? '还没有自己的组件' : '无匹配组件，换个关键词搜搜看' }}
           </div>
 
           <div v-else class="grid grid-cols-2 gap-2">
@@ -518,6 +518,7 @@ import {
   type PaletteItem,
   type PaletteCategory,
 } from '@/data/componentLibrary'
+import { asPaletteItem, myComponents } from '@/services/customComponentService'
 
 export type { PaletteItem, PaletteCategory }
 
@@ -567,26 +568,29 @@ function openPluginsModal() {
 
 // Search & Filter in Resources
 const searchQuery = ref('')
-const activeCat = ref<'all' | 'shapes' | 'nav' | 'controls' | 'display' | 'feedback'>('all')
+const activeCat = ref<PaletteCategory['id']>('all')
 
 const categories = componentCategories
 
-// Filtered components based on Category and Search Query
+function matchesQuery(item: PaletteItem, query: string) {
+  if (!query) return true
+  return (
+    item.name.toLowerCase().includes(query) ||
+    item.tag.toLowerCase().includes(query) ||
+    item.description.toLowerCase().includes(query)
+  )
+}
+
 const filteredItems = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  const mine = myComponents.value.map(asPaletteItem).filter((item) => matchesQuery(item, query))
+  if (activeCat.value === 'mine') return mine
   let list = componentLibrary
   if (activeCat.value !== 'all') {
     list = list.filter((item) => item.category === activeCat.value)
   }
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.trim().toLowerCase()
-    list = list.filter(
-      (item) =>
-        item.name.toLowerCase().includes(q) ||
-        item.tag.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q)
-    )
-  }
-  return list
+  list = list.filter((item) => matchesQuery(item, query))
+  return activeCat.value === 'all' ? [...mine, ...list] : list
 })
 
 // Dynamic shape icon

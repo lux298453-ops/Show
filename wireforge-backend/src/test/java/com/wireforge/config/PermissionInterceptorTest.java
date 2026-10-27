@@ -31,6 +31,7 @@ class PermissionInterceptorTest {
     @BeforeEach
     void setUp() {
         projectMemberMapper = mock(ProjectMemberMapper.class);
+        when(projectMemberMapper.selectCount(any())).thenReturn(1L);
         Map<String, AuthSession> table = new HashMap<>();
         AuthSessionMapper sessionMapper = mock(AuthSessionMapper.class);
         when(sessionMapper.insert(any(AuthSession.class))).thenAnswer(inv -> {
@@ -85,6 +86,10 @@ class PermissionInterceptorTest {
         assertEquals(EDITOR, PermissionInterceptor.requirement("POST", "/api/projects/7/reanalyze-all"));
         assertEquals(EDITOR, PermissionInterceptor.requirement("DELETE", "/api/projects/7/pages/1"));
         assertEquals(LOGIN, PermissionInterceptor.requirement("POST", "/api/assets/upload"));
+        assertEquals(LOGIN, PermissionInterceptor.requirement("GET", "/api/components/mine"));
+        assertEquals(LOGIN, PermissionInterceptor.requirement("POST", "/api/components"));
+        assertEquals(LOGIN, PermissionInterceptor.requirement("PUT", "/api/components/3"));
+        assertEquals(LOGIN, PermissionInterceptor.requirement("DELETE", "/api/components/3"));
     }
 
     @Test

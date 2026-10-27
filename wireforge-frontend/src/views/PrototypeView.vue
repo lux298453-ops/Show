@@ -1486,6 +1486,7 @@
             @update-effects="onInspectorUpdateEffects"
             @duplicate-selection="onInspectorDuplicate"
             @delete-selection="onInspectorDelete"
+            @save-component="onSaveSelectionAsComponent"
             @replace-asset="onInspectorReplaceAsset"
             @start-text-edit="onInspectorStartTextEdit"
             @update-text="onInspectorUpdateText"
@@ -2089,6 +2090,15 @@
           type="button"
           class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
           :disabled="!hasSelectedDomElements"
+          @click="runLayerMenu('save-component')"
+        >
+          <span>存为组件</span>
+        </button>
+
+        <button
+          type="button"
+          class="w-full h-7 px-2.5 flex items-center justify-between rounded text-white/90 hover:bg-[#0D99FF] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          :disabled="!hasSelectedDomElements"
           @click="runLayerMenu('cut')"
         >
           <span>剪切</span>
@@ -2466,6 +2476,28 @@
       @update-text="onPluginUpdateText"
       @apply-effect="onPluginApplyEffect"
     />
+
+    <div
+      v-if="saveComponentOpen"
+      class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/35"
+      @mousedown.self="saveComponentOpen = false"
+    >
+      <div class="w-[320px] rounded-xl bg-white dark:bg-[#2c2c2c] border border-slate-200 dark:border-[#484848] shadow-2xl p-4" @mousedown.stop>
+        <div class="text-sm font-semibold text-slate-800 dark:text-slate-100">存为组件</div>
+        <p class="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">保存在当前登录账号下，换项目也能用。画板上原来的内容不会变。</p>
+        <input
+          v-model="saveComponentName"
+          maxlength="40"
+          class="mt-3 w-full h-8 px-2 rounded-md border border-slate-200 dark:border-[#484848] bg-white dark:bg-[#1e1e1e] text-sm text-slate-800 dark:text-slate-100 outline-none focus:border-[#0D99FF]"
+          placeholder="组件名字"
+          @keydown.enter="confirmSaveComponent"
+        />
+        <div class="mt-3 flex justify-end gap-2">
+          <button type="button" class="h-8 px-3 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#383838]" @click="saveComponentOpen = false">取消</button>
+          <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-white bg-[#0D99FF] hover:bg-[#0b84db] disabled:opacity-50" :disabled="saveComponentBusy" @click="confirmSaveComponent">保存</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2524,6 +2556,7 @@ import { useProjectTitle } from '../utils/pageTitle'
 import type { Annotation, Element, Interaction, Page, Prototype, CommentThread, CommentReply } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
+import { createMyComponent, loadMyComponents } from '../services/customComponentService'
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
 import NavbarControls from '../components/NavbarControls.vue'
 import AiGenerationGlow from '../components/AiGenerationGlow.vue'
@@ -8221,6 +8254,62 @@ function runLayerMenu(action: string) {
     postToFocusFrame({ type: 'wf-group' })
   } else if (action === 'ungroup') {
     postToFocusFrame({ type: 'wf-ungroup' })
+  } else if (action === 'save-component') {
+    onSaveSelectionAsComponent()
+  }
+}
+
+const saveComponentOpen = ref(false)
+const saveComponentName = ref('')
+const saveComponentBusy = ref(false)
+const saveComponentDraft = ref<{ html: string; width: number; height: number } | null>(null)
+
+async function onSaveSelectionAsComponent() {
+  const pid = focusPageId.value ?? currentFocusPage.value?.id
+  const inst = pid ? (pageRefs.value[pid] as any) : null
+  if (!inst?.captureSelectionAsComponent) {
+    showToast('请先点开这块画板，再存为组件')
+    return
+  }
+  const payload = await inst.captureSelectionAsComponent()
+  if (!payload || payload.error === 'no-editor') {
+    showToast('请先点开这块画板，再存为组件')
+    return
+  }
+  if (payload.error === 'large') {
+    showToast('这份内容太大，存不下')
+    return
+  }
+  if (!payload.html) {
+    showToast('请先选中未锁定的元素')
+    return
+  }
+  saveComponentDraft.value = {
+    html: payload.html,
+    width: Number(payload.width) || 1,
+    height: Number(payload.height) || 1,
+  }
+  saveComponentName.value = payload.name || '自定义组件'
+  saveComponentOpen.value = true
+}
+
+async function confirmSaveComponent() {
+  const draft = saveComponentDraft.value
+  const name = saveComponentName.value.trim()
+  if (!draft || saveComponentBusy.value) return
+  if (!name) {
+    showToast('请填写组件名字')
+    return
+  }
+  saveComponentBusy.value = true
+  try {
+    await createMyComponent({ name, html: draft.html, width: draft.width, height: draft.height })
+    saveComponentOpen.value = false
+    showToast(`已存为「${name}」，在组件库的「我的」里`)
+  } catch (err: any) {
+    showToast(err?.message || '保存失败')
+  } finally {
+    saveComponentBusy.value = false
   }
 }
 
@@ -9496,6 +9585,7 @@ watch(activeEditingPageId, (newId, oldId) => {
 
 onMounted(async () => {
   updateViewportDims()
+  loadMyComponents()
   window.addEventListener('resize', onWindowResize, { passive: true })
   if (viewportRef.value && typeof ResizeObserver !== 'undefined') {
     viewportObserver = new ResizeObserver((entries) => {
@@ -9512,7 +9602,10 @@ onMounted(async () => {
   window.addEventListener('message', (e) => {
     if (e.origin === window.location.origin && e.data?.type === 'wf-feishu-login-success') {
       syncLoginFromStorage().then((u) => {
-        if (u) ElMessage.success(`飞书登录成功，欢迎 ${u.name}`)
+        if (u) {
+          ElMessage.success(`飞书登录成功，欢迎 ${u.name}`)
+          loadMyComponents()
+        }
       })
     }
   })

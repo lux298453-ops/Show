@@ -1414,7 +1414,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(!el || !el.tagName) return true;
       var tag = String(el.tagName || '').toUpperCase();
       if(tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'LINK' || tag === 'META') return true;
-      if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast') return true;
+      if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || el.id === 'wf-snap-guides') return true;
       return false;
     }
 
@@ -1600,6 +1600,100 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       return !!(el.closest && el.closest('[data-wf-locked="1"]'));
     }
 
+    function nudgeElement(el, dx, dy){
+      var posVal = el.style.position || (window.getComputedStyle ? window.getComputedStyle(el).position : '');
+      var isAbsolute = posVal === 'absolute';
+      var curL = parseFloat(el.style.left);
+      var curT = parseFloat(el.style.top);
+      if(isNaN(curL)) curL = 0;
+      if(isNaN(curT)) curT = 0;
+      if(!isAbsolute) el.style.position = 'relative';
+      var origTrans = el.style.transition;
+      var hadInlineTrans = !!(el.style.getPropertyValue && el.style.getPropertyValue('transition'));
+      el.style.setProperty('transition', 'none', 'important');
+      if(dx) el.style.left = (Math.round((curL + dx) * 100) / 100) + 'px';
+      if(dy) el.style.top = (Math.round((curT + dy) * 100) / 100) + 'px';
+      setTimeout(function(){
+        if(!el || !el.isConnected) return;
+        if(hadInlineTrans) el.style.transition = origTrans;
+        else el.style.removeProperty('transition');
+      }, 50);
+    }
+
+    function distributeSelection(axis){
+      if(READONLY) return;
+      var horizontal = axis !== 'v';
+      var items = [];
+      var seen = [];
+      for(var i = 0; i < selectedEls.length; i++){
+        var el = selectedEls[i];
+        if(!el || !el.isConnected || isLayerLocked(el)) continue;
+        if(seen.indexOf(el) >= 0) continue;
+        seen.push(el);
+        var rect = el.getBoundingClientRect();
+        var w = rect.width || 0;
+        var h = rect.height || 0;
+        if(w < 0.5 && h < 0.5) continue;
+        items.push({ el: el, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: w, height: h, index: i });
+      }
+      if(items.length < 3){
+        showToast('至少选中 3 个未锁定元素');
+        return;
+      }
+      items.sort(function(a, b){
+        var d = horizontal ? (a.left - b.left) : (a.top - b.top);
+        if(d) return d;
+        d = horizontal ? (a.right - b.right) : (a.bottom - b.bottom);
+        if(d) return d;
+        return a.index - b.index;
+      });
+      var first = items[0];
+      var last = items[items.length - 1];
+      var span = horizontal ? (last.right - first.left) : (last.bottom - first.top);
+      var firstFar = horizontal ? first.right : first.bottom;
+      var lastFar = horizontal ? last.right : last.bottom;
+      if(firstFar > lastFar + 0.5){
+        showToast('有一个元素包住了其余元素，排不开');
+        return;
+      }
+      var content = 0;
+      for(var ci = 0; ci < items.length; ci++){
+        var size = horizontal ? items[ci].width : items[ci].height;
+        if(size > span + 0.5){
+          showToast('有一个元素包住了其余元素，排不开');
+          return;
+        }
+        content += size;
+      }
+      var gap = (span - content) / (items.length - 1);
+      var cursor = horizontal ? first.left : first.top;
+      var moved = false;
+      for(var ti = 0; ti < items.length; ti++){
+        var current = horizontal ? items[ti].left : items[ti].top;
+        var delta = 0;
+        if(ti > 0 && ti < items.length - 1) delta = cursor - current;
+        items[ti].delta = delta;
+        if(delta > 0.05 || delta < -0.05) moved = true;
+        cursor += (horizontal ? items[ti].width : items[ti].height) + gap;
+      }
+      if(!moved){
+        showToast('间距已经相等');
+        return;
+      }
+      pushSnapshot();
+      for(var ai = 0; ai < items.length; ai++){
+        if(items[ai].delta > -0.05 && items[ai].delta < 0.05) continue;
+        if(horizontal) nudgeElement(items[ai].el, items[ai].delta, 0);
+        else nudgeElement(items[ai].el, 0, items[ai].delta);
+      }
+      if(selectedEls.length > 1) updateMultiTransformBox();
+      else if(selectedEl) updateTransformBox(selectedEl);
+      if(selectedEl) notifySelectedElementInfo(selectedEl);
+      scheduleSave();
+      pushSnapshot();
+      showToast(horizontal ? '已按水平等间距排开' : '已按垂直等间距排开');
+    }
+
     function layerKind(el){
       if(!el || !el.tagName) return 'rect';
       var tag = String(el.tagName || '').toUpperCase();
@@ -1669,7 +1763,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(!el || !el.tagName) return true;
       var tag = String(el.tagName || '').toUpperCase();
       if(tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'LINK' || tag === 'META') return true;
-      if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast') return true;
+      if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || el.id === 'wf-snap-guides') return true;
       return false;
     }
 
@@ -1947,6 +2041,68 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         if(node.classList) node.classList.remove('wf-multi-selected', 'wf-current-asset-target');
       }
       return clone;
+    }
+
+    function buildCustomComponent(){
+      var targets = clipboardSelection(selectedEl).filter(function(el){ return !isLayerLocked(el); });
+      if(!targets.length) return { error: 'empty' };
+      var scrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      var minL = Infinity, minT = Infinity, maxR = -Infinity, maxB = -Infinity;
+      var placed = [];
+      for(var i = 0; i < targets.length; i++){
+        var source = targets[i];
+        var rect = source.getBoundingClientRect();
+        var left = rect.left + scrollX;
+        var top = rect.top + scrollY;
+        var width = rect.width || source.offsetWidth || 1;
+        var height = rect.height || source.offsetHeight || 1;
+        if(left < minL) minL = left;
+        if(top < minT) minT = top;
+        if(left + width > maxR) maxR = left + width;
+        if(top + height > maxB) maxB = top + height;
+        var z = parseInt(window.getComputedStyle(source).zIndex, 10);
+        if(isNaN(z)) z = 0;
+        placed.push({ source: source, left: left, top: top, width: width, height: height, z: z, index: i });
+      }
+      placed.sort(function(a, b){
+        if(a.z !== b.z) return a.z - b.z;
+        return a.index - b.index;
+      });
+      var boxW = Math.max(1, Math.round(maxR - minL));
+      var boxH = Math.max(1, Math.round(maxB - minT));
+      var root = document.createElement('div');
+      root.setAttribute('data-wf-custom', '1');
+      root.style.position = 'relative';
+      root.style.width = boxW + 'px';
+      root.style.height = boxH + 'px';
+      root.style.boxSizing = 'border-box';
+      for(var pi = 0; pi < placed.length; pi++){
+        var item = placed[pi];
+        var clone = cloneClipboardNode(item.source);
+        var nodes = [clone].concat(Array.from(clone.querySelectorAll('*')));
+        for(var ni = 0; ni < nodes.length; ni++){
+          nodes[ni].removeAttribute('data-wf-locked');
+          nodes[ni].removeAttribute('data-wf-hidden');
+          if(nodes[ni].tagName === 'SCRIPT' && nodes[ni].parentNode) nodes[ni].parentNode.removeChild(nodes[ni]);
+        }
+        clone.style.position = 'absolute';
+        clone.style.left = (Math.round((item.left - minL) * 100) / 100) + 'px';
+        clone.style.top = (Math.round((item.top - minT) * 100) / 100) + 'px';
+        clone.style.right = 'auto';
+        clone.style.bottom = 'auto';
+        clone.style.margin = '0';
+        clone.style.width = Math.max(1, Math.round(item.width)) + 'px';
+        clone.style.height = Math.max(1, Math.round(item.height)) + 'px';
+        clone.style.zIndex = String(pi + 1);
+        root.appendChild(clone);
+      }
+      var html = root.outerHTML;
+      if(html.length > 400000) return { error: 'large' };
+      var suggested = targets.length > 1 ? '自定义组件' : layerShortName(targets[0]);
+      if(!suggested) suggested = '自定义组件';
+      if(suggested.length > 40) suggested = suggested.slice(0, 40);
+      return { html: html, width: boxW, height: boxH, name: suggested };
     }
 
     function copyElement(el, targets, cut){
@@ -2723,7 +2879,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       isDirty = false;
       try{
         var clone = document.documentElement.cloneNode(true);
-        var bad = clone.querySelectorAll('[data-wf-inject],#wf-edit-toast,#wf-transform-box,#wf-marquee-box,[data-wf-editing-text]');
+        var bad = clone.querySelectorAll('[data-wf-inject],#wf-edit-toast,#wf-transform-box,#wf-marquee-box,#wf-snap-guides,[data-wf-editing-text]');
         for(var i = 0; i < bad.length; i++) bad[i].parentNode.removeChild(bad[i]);
         var multi = clone.querySelectorAll('.wf-multi-selected');
         for(var mi = 0; mi < multi.length; mi++) multi[mi].classList.remove('wf-multi-selected');
@@ -2802,17 +2958,507 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       for(var bi = 0; bi < bodyKids.length; bi++){
         var bk = bodyKids[bi];
         if(!['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(bk.tagName) &&
-           bk.id !== 'wf-transform-box' && bk.id !== 'wf-marquee-box' && bk.id !== 'wf-edit-toast' &&
+           bk.id !== 'wf-transform-box' && bk.id !== 'wf-marquee-box' && bk.id !== 'wf-edit-toast' && bk.id !== 'wf-snap-guides' &&
            !list.includes(bk)){
           list.push(bk);
         }
       }
       return list.filter(function(el){
         if(!el || el === document || el === document.body || el === document.documentElement) return false;
-        if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || (el.closest && el.closest('#wf-transform-box,#wf-marquee-box'))) return false;
+        if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || el.id === 'wf-snap-guides' || (el.closest && el.closest('#wf-transform-box,#wf-marquee-box,#wf-snap-guides'))) return false;
         var p = el.parentElement ? el.parentElement.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-vector-shape, [data-wf-vector], .wf-el, .wf-card, .wf-box, .wf-container, .wf-avatar, .wf-btn, .wf-search-box, .wf-text-block, .wf-shape') : null;
         return !p;
       });
+    }
+
+    function snapScreenScale(){
+      try {
+        var frame = window.frameElement;
+        if(!frame) return 1;
+        var rect = frame.getBoundingClientRect();
+        var base = frame.clientWidth || window.innerWidth || 1;
+        if(rect.width > 0 && base > 0) return rect.width / base;
+      } catch(err){}
+      return 1;
+    }
+
+    function snapThreshold(){
+      var scale = snapScreenScale();
+      if(!(scale > 0)) scale = 1;
+      return 5 / scale;
+    }
+
+    function clearSnapGuides(){
+      var layer = document.getElementById('wf-snap-guides');
+      if(layer && layer.parentNode) layer.parentNode.removeChild(layer);
+    }
+
+    function snapGuideLayer(){
+      var layer = document.getElementById('wf-snap-guides');
+      if(!layer){
+        layer = document.createElement('div');
+        layer.id = 'wf-snap-guides';
+        layer.setAttribute('data-wf-inject', 'true');
+        layer.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;max-width:none;overflow:visible;pointer-events:none;z-index:100000;';
+        document.body.appendChild(layer);
+      }
+      return layer;
+    }
+
+    function collectSnapTargets(items){
+      var xs = [];
+      var ys = [];
+      var pageW = window.innerWidth || document.documentElement.clientWidth || 0;
+      var pageH = window.innerHeight || document.documentElement.clientHeight || 0;
+      var sx = window.pageXOffset || document.documentElement.scrollLeft || 0;
+      var sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+      function addX(v, t, b, art, box){ xs.push({ v: v, a: t, c: b, art: !!art, box: box || null }); }
+      function addY(v, l, r, art, box){ ys.push({ v: v, a: l, c: r, art: !!art, box: box || null }); }
+      addX(sx, sy, sy + pageH, true);
+      addX(sx + pageW / 2, sy, sy + pageH, true);
+      addX(sx + pageW, sy, sy + pageH, true);
+      addY(sy, sx, sx + pageW, true);
+      addY(sy + pageH / 2, sx, sx + pageW, true);
+      addY(sy + pageH, sx, sx + pageW, true);
+      var boxes = [];
+      var list = getSelectableElements();
+      for(var i = 0; i < list.length; i++){
+        var el = list[i];
+        if(!el || !el.getBoundingClientRect) continue;
+        var dragged = false;
+        for(var d = 0; d < items.length; d++){
+          var root = items[d].el;
+          if(!root) continue;
+          if(root === el || (root.contains && root.contains(el))) { dragged = true; break; }
+        }
+        if(dragged) continue;
+        if(el.getAttribute && el.getAttribute('data-wf-hidden') === '1') continue;
+        var st = window.getComputedStyle ? getComputedStyle(el) : null;
+        if(st && (st.display === 'none' || st.visibility === 'hidden')) continue;
+        var rect = el.getBoundingClientRect();
+        if(rect.width < 1 || rect.height < 1) continue;
+        var l = rect.left + sx;
+        var t = rect.top + sy;
+        var r = l + rect.width;
+        var b = t + rect.height;
+        var box = { l: l, t: t, r: r, b: b };
+        addX(l, t, b, false, box);
+        addX((l + r) / 2, t, b, false, box);
+        addX(r, t, b, false, box);
+        addY(t, l, r, false, box);
+        addY((t + b) / 2, l, r, false, box);
+        addY(b, l, r, false, box);
+        boxes.push(box);
+      }
+      return { xs: xs, ys: ys, boxes: boxes };
+    }
+
+    function neighborGaps(boxes, horizontal){
+      var gaps = [];
+      for(var i = 0; i < boxes.length; i++){
+        var from = boxes[i];
+        var best = null;
+        var bestGap = 1e9;
+        for(var j = 0; j < boxes.length; j++){
+          if(i === j) continue;
+          var to = boxes[j];
+          var gap = horizontal ? (to.l - from.r) : (to.t - from.b);
+          if(gap < 1 || gap > 240) continue;
+          var overlap = horizontal
+            ? (Math.min(from.b, to.b) - Math.max(from.t, to.t))
+            : (Math.min(from.r, to.r) - Math.max(from.l, to.l));
+          if(overlap < 4) continue;
+          if(gap < bestGap){
+            bestGap = gap;
+            best = to;
+          }
+        }
+        if(best) gaps.push({ gap: bestGap, from: from, to: best });
+      }
+      return gaps;
+    }
+
+    function spacingSnap(l, t, r, b, boxes, gaps, horizontal, threshold){
+      if(!gaps || !gaps.length) return null;
+      var best = null;
+      var i, g, other, overlap, gap, side, delta, abs;
+      for(i = 0; i < boxes.length; i++){
+        other = boxes[i];
+        if(horizontal){
+          overlap = Math.min(b, other.b) - Math.max(t, other.t);
+          if(overlap < 4) continue;
+          gap = l - other.r;
+          if(gap >= 1 && gap <= 240) consider(gap, other, 'left');
+          gap = other.l - r;
+          if(gap >= 1 && gap <= 240) consider(gap, other, 'right');
+        } else {
+          overlap = Math.min(r, other.r) - Math.max(l, other.l);
+          if(overlap < 4) continue;
+          gap = t - other.b;
+          if(gap >= 1 && gap <= 240) consider(gap, other, 'top');
+          gap = other.t - b;
+          if(gap >= 1 && gap <= 240) consider(gap, other, 'bottom');
+        }
+      }
+      function consider(curGap, neighbor, which){
+        for(g = 0; g < gaps.length; g++){
+          var ref = gaps[g];
+          if(ref.from !== neighbor && ref.to !== neighbor) continue;
+          if(which === 'left' || which === 'top') delta = ref.gap - curGap;
+          else delta = curGap - ref.gap;
+          abs = delta < 0 ? -delta : delta;
+          if(abs > threshold) continue;
+          if(!best || abs < best.abs){
+            best = { abs: abs, delta: delta, other: neighbor, ref: ref, side: which, gap: ref.gap };
+          }
+        }
+      }
+      return best;
+    }
+
+    function edgeBlocksSpacing(edgeSnap, neighbor){
+      if(!edgeSnap || !edgeSnap.guides) return false;
+      for(var i = 0; i < edgeSnap.guides.length; i++){
+        var g = edgeSnap.guides[i];
+        if(g.art) return true;
+        if(neighbor && g.box === neighbor) return true;
+      }
+      return false;
+    }
+    function bestSnap(edgeA, edgeB, edgeC, points, threshold){
+      var edges = [edgeA, edgeB, edgeC];
+      var bestDelta = 0;
+      var bestAbs = threshold + 1;
+      var found = false;
+      var i, j, delta, abs;
+      for(i = 0; i < edges.length; i++){
+        for(j = 0; j < points.length; j++){
+          delta = points[j].v - edges[i];
+          abs = delta < 0 ? -delta : delta;
+          if(abs <= threshold && abs < bestAbs){
+            bestAbs = abs;
+            bestDelta = delta;
+            found = true;
+          }
+        }
+      }
+      if(!found) return null;
+      var guides = [];
+      for(i = 0; i < edges.length; i++){
+        for(j = 0; j < points.length; j++){
+          delta = points[j].v - edges[i];
+          abs = delta - bestDelta;
+          if(abs < 0) abs = -abs;
+          if(abs < 0.5) guides.push(points[j]);
+        }
+      }
+      return { delta: bestDelta, guides: guides };
+    }
+
+    function snapEdge(pos, points, threshold){
+      if(!points || !points.length) return null;
+      var bestDelta = 0;
+      var bestAbs = threshold + 1;
+      var found = false;
+      var j, delta, abs;
+      for(j = 0; j < points.length; j++){
+        delta = points[j].v - pos;
+        abs = delta < 0 ? -delta : delta;
+        if(abs <= threshold && abs < bestAbs){
+          bestAbs = abs;
+          bestDelta = delta;
+          found = true;
+        }
+      }
+      if(!found) return null;
+      var guides = [];
+      for(j = 0; j < points.length; j++){
+        delta = points[j].v - (pos + bestDelta);
+        abs = delta < 0 ? -delta : delta;
+        if(abs < 0.5) guides.push(points[j]);
+      }
+      return { delta: bestDelta, guides: guides };
+    }
+
+    function chooseResizeDelta(edgeHit, centerHit){
+      var chosen = null;
+      if(edgeHit) chosen = { delta: edgeHit.delta, guides: edgeHit.guides, abs: Math.abs(edgeHit.delta) };
+      if(centerHit){
+        var cAbs = Math.abs(centerHit.delta);
+        if(!chosen || cAbs < chosen.abs) chosen = { delta: centerHit.delta * 2, guides: centerHit.guides, abs: cAbs };
+      }
+      return chosen;
+    }
+
+    function snapResizeBox(dir, l, t, w, h, targets, enabled, minW, minH, keepRatio, ratio){
+      var r = l + w;
+      var b = t + h;
+      var vSnap = null;
+      var hSnap = null;
+      if(enabled && targets){
+        var limit = snapThreshold();
+        if(dir.indexOf('e') >= 0 || dir.indexOf('w') >= 0){
+          var moveLeft = dir.indexOf('w') >= 0;
+          var edgeHit = snapEdge(moveLeft ? l : r, targets.xs, limit);
+          var centerHit = snapEdge((l + r) / 2, targets.xs, limit);
+          var chosen = chooseResizeDelta(edgeHit, centerHit);
+          if(chosen){
+            if(moveLeft){
+              var nl = l + chosen.delta;
+              if(r - nl >= minW){ l = nl; vSnap = { delta: chosen.delta, guides: chosen.guides }; }
+            } else {
+              var nr = r + chosen.delta;
+              if(nr - l >= minW){ r = nr; vSnap = { delta: chosen.delta, guides: chosen.guides }; }
+            }
+          }
+        }
+        if(dir.indexOf('s') >= 0 || dir.indexOf('n') >= 0){
+          var moveTop = dir.indexOf('n') >= 0;
+          var edgeHitY = snapEdge(moveTop ? t : b, targets.ys, limit);
+          var centerHitY = snapEdge((t + b) / 2, targets.ys, limit);
+          var chosenY = chooseResizeDelta(edgeHitY, centerHitY);
+          if(chosenY){
+            if(moveTop){
+              var nt = t + chosenY.delta;
+              if(b - nt >= minH){ t = nt; hSnap = { delta: chosenY.delta, guides: chosenY.guides }; }
+            } else {
+              var nb = b + chosenY.delta;
+              if(nb - t >= minH){ b = nb; hSnap = { delta: chosenY.delta, guides: chosenY.guides }; }
+            }
+          }
+        }
+      }
+      w = r - l;
+      h = b - t;
+      if(keepRatio && ratio > 0 && (vSnap || hSnap)){
+        var useW = vSnap && (!hSnap || Math.abs(vSnap.delta) <= Math.abs(hSnap.delta));
+        if(useW){
+          var nh = Math.max(minH, w / ratio);
+          if(dir.indexOf('n') >= 0 && dir.indexOf('s') < 0) t = t + h - nh;
+          else if(dir === 'e' || dir === 'w') t = t + (h - nh) / 2;
+          h = nh;
+          hSnap = null;
+        } else {
+          var nw = Math.max(minW, h * ratio);
+          if(dir.indexOf('w') >= 0 && dir.indexOf('e') < 0) l = l + w - nw;
+          else if(dir === 'n' || dir === 's') l = l + (w - nw) / 2;
+          w = nw;
+          vSnap = null;
+        }
+      }
+      return { l: l, t: t, w: w, h: h, vSnap: vSnap, hSnap: hSnap };
+    }
+
+    function drawSnapGuides(vSnap, hSnap, group, marks){
+      clearSnapGuides();
+      if(!vSnap && !hSnap && (!marks || !marks.length)) return;
+      var layer = snapGuideLayer();
+      var scale = snapScreenScale();
+      if(!(scale > 0)) scale = 1;
+      var thick = 1 / scale;
+      if(!(thick > 0) || thick < 1) thick = 1;
+      var fontPx = 11 / scale;
+      if(fontPx < 10) fontPx = 10;
+      function paint(v, y1, y2, vertical){
+        var line = document.createElement('div');
+        line.setAttribute('data-wf-inject', 'true');
+        line.style.position = 'absolute';
+        line.style.backgroundColor = '#F24822';
+        line.style.pointerEvents = 'none';
+        line.style.maxWidth = 'none';
+        line.style.maxHeight = 'none';
+        line.style.boxSizing = 'content-box';
+        if(vertical){
+          line.style.left = Math.round(v) + 'px';
+          line.style.top = Math.round(y1) + 'px';
+          line.style.width = thick + 'px';
+          line.style.height = Math.max(thick, Math.round(y2 - y1)) + 'px';
+        } else {
+          line.style.left = Math.round(y1) + 'px';
+          line.style.top = Math.round(v) + 'px';
+          line.style.width = Math.max(thick, Math.round(y2 - y1)) + 'px';
+          line.style.height = thick + 'px';
+        }
+        layer.appendChild(line);
+      }
+      function each(snap, vertical){
+        if(!snap) return;
+        var seen = {};
+        for(var i = 0; i < snap.guides.length; i++){
+          var g = snap.guides[i];
+          var key = Math.round(g.v);
+          if(seen[key]) continue;
+          seen[key] = 1;
+          var a = g.art ? (vertical ? group.t : group.l) : Math.min(vertical ? group.t : group.l, g.a);
+          var c = g.art ? (vertical ? group.b : group.r) : Math.max(vertical ? group.b : group.r, g.c);
+          if(c < a){ var swap = a; a = c; c = swap; }
+          paint(g.v, a, c, vertical);
+        }
+      }
+      function paintMeasure(mark){
+        var x1 = mark.x1;
+        var x2 = mark.x2;
+        if(x2 < x1){ var tmp = x1; x1 = x2; x2 = tmp; }
+        var y1 = mark.y1;
+        var y2 = mark.y2;
+        if(y2 < y1){ var tmp2 = y1; y1 = y2; y2 = tmp2; }
+        if(mark.horizontal){
+          paint(mark.y, x1, x2, false);
+        } else {
+          paint(mark.x, y1, y2, true);
+        }
+        var label = document.createElement('div');
+        label.setAttribute('data-wf-inject', 'true');
+        label.textContent = String(mark.gap);
+        label.style.position = 'absolute';
+        label.style.color = '#F24822';
+        label.style.backgroundColor = '#ffffff';
+        label.style.fontSize = fontPx + 'px';
+        label.style.fontWeight = '700';
+        label.style.lineHeight = '1';
+        label.style.fontFamily = 'sans-serif';
+        label.style.padding = '1px 3px';
+        label.style.borderRadius = '2px';
+        label.style.maxWidth = 'none';
+        label.style.whiteSpace = 'nowrap';
+        label.style.pointerEvents = 'none';
+        if(mark.horizontal){
+          label.style.left = ((x1 + x2) / 2) + 'px';
+          label.style.top = (mark.y - fontPx - 2) + 'px';
+          label.style.transform = 'translateX(-50%)';
+        } else {
+          label.style.left = (mark.x + thick + 2) + 'px';
+          label.style.top = ((y1 + y2) / 2) + 'px';
+          label.style.transform = 'translateY(-50%)';
+        }
+        layer.appendChild(label);
+      }
+      each(vSnap, true);
+      each(hSnap, false);
+      if(marks){
+        for(var mi = 0; mi < marks.length; mi++) paintMeasure(marks[mi]);
+      }
+    }
+
+    function spacingMarks(snap, group, horizontal){
+      if(!snap) return [];
+      var marks = [];
+      var other = snap.other;
+      var ref = snap.ref;
+      var gap = Math.round(snap.gap);
+      if(horizontal){
+        var y = (Math.max(group.t, other.t) + Math.min(group.b, other.b)) / 2;
+        var live1 = snap.side === 'left' ? other.r : group.r;
+        var live2 = snap.side === 'left' ? group.l : other.l;
+        marks.push({ horizontal: true, x1: live1, x2: live2, y: y, gap: gap });
+        var ry = (Math.max(ref.from.t, ref.to.t) + Math.min(ref.from.b, ref.to.b)) / 2;
+        marks.push({ horizontal: true, x1: ref.from.r, x2: ref.to.l, y: ry, gap: gap });
+      } else {
+        var x = (Math.max(group.l, other.l) + Math.min(group.r, other.r)) / 2;
+        var liveT = snap.side === 'top' ? other.b : group.b;
+        var liveB = snap.side === 'top' ? group.t : other.t;
+        marks.push({ horizontal: false, y1: liveT, y2: liveB, x: x, gap: gap });
+        var rx = (Math.max(ref.from.l, ref.to.l) + Math.min(ref.from.r, ref.to.r)) / 2;
+        marks.push({ horizontal: false, y1: ref.from.b, y2: ref.to.t, x: rx, gap: gap });
+      }
+      return marks;
+    }
+
+    var altMeasuring = false;
+
+    function docBoxOf(el){
+      var rect = el.getBoundingClientRect();
+      var sx = window.pageXOffset || document.documentElement.scrollLeft || 0;
+      var sy = window.pageYOffset || document.documentElement.scrollTop || 0;
+      return {
+        l: rect.left + sx,
+        t: rect.top + sy,
+        r: rect.left + sx + rect.width,
+        b: rect.top + sy + rect.height
+      };
+    }
+
+    function selectionDocBox(){
+      var l = 1e9, t = 1e9, r = -1e9, b = -1e9, n = 0;
+      for(var i = 0; i < selectedEls.length; i++){
+        var el = selectedEls[i];
+        if(!el || !el.getBoundingClientRect) continue;
+        var box = docBoxOf(el);
+        if(box.l < l) l = box.l;
+        if(box.t < t) t = box.t;
+        if(box.r > r) r = box.r;
+        if(box.b > b) b = box.b;
+        n++;
+      }
+      if(!n) return null;
+      return { l: l, t: t, r: r, b: b };
+    }
+
+    function measureMarks(a, b){
+      var marks = [];
+      function pushH(x1, x2, y, gap){
+        if(gap < 0.5) return;
+        marks.push({ horizontal: true, x1: x1, x2: x2, y: y, gap: Math.round(gap) });
+      }
+      function pushV(y1, y2, x, gap){
+        if(gap < 0.5) return;
+        marks.push({ horizontal: false, y1: y1, y2: y2, x: x, gap: Math.round(gap) });
+      }
+      var overlapX = Math.min(a.r, b.r) - Math.max(a.l, b.l);
+      var overlapY = Math.min(a.b, b.b) - Math.max(a.t, b.t);
+      var yLine = overlapY > 0 ? (Math.max(a.t, b.t) + Math.min(a.b, b.b)) / 2 : (a.t + a.b) / 2;
+      var xLine = overlapX > 0 ? (Math.max(a.l, b.l) + Math.min(a.r, b.r)) / 2 : (a.l + a.r) / 2;
+      var inside = a.l <= b.l && a.r >= b.r && a.t <= b.t && a.b >= b.b;
+      var wraps = b.l <= a.l && b.r >= a.r && b.t <= a.t && b.b >= a.b;
+      if(inside || wraps){
+        var outer = inside ? a : b;
+        var inner = inside ? b : a;
+        pushH(outer.l, inner.l, (inner.t + inner.b) / 2, inner.l - outer.l);
+        pushH(inner.r, outer.r, (inner.t + inner.b) / 2, outer.r - inner.r);
+        pushV(outer.t, inner.t, (inner.l + inner.r) / 2, inner.t - outer.t);
+        pushV(inner.b, outer.b, (inner.l + inner.r) / 2, outer.b - inner.b);
+        return marks;
+      }
+      if(a.r <= b.l) pushH(a.r, b.l, yLine, b.l - a.r);
+      else if(b.r <= a.l) pushH(b.r, a.l, yLine, a.l - b.r);
+      if(a.b <= b.t) pushV(a.b, b.t, xLine, b.t - a.b);
+      else if(b.b <= a.t) pushV(b.b, a.t, xLine, a.t - b.b);
+      return marks;
+    }
+
+    function updateAltMeasure(e){
+      if(resizing || drag || marquee) return;
+      if(!e.altKey || e.ctrlKey || e.metaKey || !selectedEls.length){
+        if(altMeasuring){
+          altMeasuring = false;
+          clearSnapGuides();
+        }
+        return;
+      }
+      var hit = resolveTargetElement(e.target, e);
+      if(!hit || hit === document.body || hit === document.documentElement){
+        if(altMeasuring){ altMeasuring = false; clearSnapGuides(); }
+        return;
+      }
+      var same = false;
+      for(var i = 0; i < selectedEls.length; i++){
+        var sel = selectedEls[i];
+        if(sel && (sel === hit || (sel.contains && sel.contains(hit)))) { same = true; break; }
+      }
+      if(same){
+        if(altMeasuring){ altMeasuring = false; clearSnapGuides(); }
+        return;
+      }
+      var from = selectionDocBox();
+      var to = docBoxOf(hit);
+      if(!from) return;
+      var marks = measureMarks(from, to);
+      altMeasuring = true;
+      if(!marks.length){
+        clearSnapGuides();
+        return;
+      }
+      drawSnapGuides(null, null, from, marks);
     }
 
     function rgbToHex(col){
@@ -4545,6 +5191,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       else if(d.type === 'wf-redo'){ /* no-op: 由外层统一时间线管理，禁止页内旧历史复活 */ }
       else if(d.type === 'wf-copy'){
         if(selectedEl) copyElement(selectedEl);
+      }else if(d.type === 'wf-capture-component'){
+        var captured = buildCustomComponent();
+        try { parent.postMessage({ type: 'wf-component-captured', requestId: d.requestId, payload: captured }, '*'); } catch(err){}
       }else if(d.type === 'wf-cut'){
         cutSelection();
       }else if(d.type === 'wf-paste'){
@@ -4569,7 +5218,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           if(selTarget) selectElement(selTarget, true);
         }
       }else if(d.type === 'wf-align'){
-        if(selectedEls && selectedEls.length > 0){
+        if(d.alignType === 'space-h' || d.alignType === 'space-v'){
+          distributeSelection(d.alignType === 'space-v' ? 'v' : 'h');
+        }else if(selectedEls && selectedEls.length > 0){
           pushSnapshot();
           var alignType = d.alignType;
 
@@ -5797,7 +6448,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           initB: initT + initH,
           el: selectedEl,
           inners: snapshotInners(selectedEl),
-          hasMoved: false
+          hasMoved: false,
+          boxL: rect.left + scrollX,
+          boxT: rect.top + scrollY
         };
         return;
       }
@@ -5832,31 +6485,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           startY: e.clientY,
           hasMoved: false
         };
-        return;
-      }
-
-      // Alt + 点击快速删除（移除了 Shift，Shift 专用于多选）
-      if(e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey){
-        if(READONLY) return;
-        e.preventDefault();
-        e.stopPropagation();
-        var toDel = t.closest ? (t.closest('.wf-el,.wf-btn,.wf-card,.wf-box,.wf-container,.wf-avatar,.wf-search-box,.wf-text-block,.wf-inserted-component,.wf-shape,.wf-shape-rect,.wf-shape-circle,.wf-shape-line,.wf-shape-card,.wf-text') || t) : t;
-        if(isLayerLocked(toDel)){
-          showToast('图层已锁定，先解锁再删除');
-          return;
-        }
-        pushSnapshot();
-        var dInfo = extractDeletedItemInfo(toDel);
-        deselect();
-        if(toDel && toDel.parentNode){
-          toDel.parentNode.removeChild(toDel);
-          scheduleSave();
-          pushSnapshot();
-          publishLayers();
-          clearHover();
-          try { window.parent.postMessage({ type: 'wf-element-deleted', pageId: PAGE_ID, count: 1, items: dInfo ? [dInfo] : [] }, '*'); } catch(e){}
-          showToast('已删除元素 (Ctrl+Z 可撤回)');
-        }
         return;
       }
 
@@ -5909,7 +6537,11 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             el: sEl,
             initLeft: curL,
             initTop: curT,
-            isAbsolute: isAbsolute
+            isAbsolute: isAbsolute,
+            boxL: rect.left + sX,
+            boxT: rect.top + sY,
+            boxW: rect.width,
+            boxH: rect.height
           });
         }
         drag = {
@@ -5955,6 +6587,11 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         var dx = e.clientX - resizing.startX;
         var dy = e.clientY - resizing.startY;
         if(!resizing.hasMoved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)){
+          var snapItems = [];
+          if(resizing.multi && resizing.items){
+            for(var sri = 0; sri < resizing.items.length; sri++) snapItems.push({ el: resizing.items[sri].el });
+          } else if(resizing.el) snapItems.push({ el: resizing.el });
+          resizing.snapTargets = collectSnapTargets(snapItems);
           pushSnapshot();
           resizing.hasMoved = true;
         }
@@ -6047,6 +6684,16 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               ml = resizing.initLeft + (resizing.initW - mw) / 2;
               mt = resizing.initTop;
             }
+          }
+          if(!e.ctrlKey && resizing.snapTargets){
+            var snappedM = snapResizeBox(mDir, ml, mt, mw, mh, resizing.snapTargets, true, multiMinW, multiMinH, e.shiftKey && resizing.initW > 0 && resizing.initH > 0, resizing.initH > 0 ? resizing.initW / resizing.initH : 0);
+            ml = snappedM.l;
+            mt = snappedM.t;
+            mw = snappedM.w;
+            mh = snappedM.h;
+            drawSnapGuides(snappedM.vSnap, snappedM.hSnap, { l: ml, t: mt, r: ml + mw, b: mt + mh }, null);
+          } else {
+            clearSnapGuides();
           }
           for(var ri = 0; ri < resizing.items.length; ri++){
             var rit = resizing.items[ri];
@@ -6179,6 +6826,20 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           }
         }
 
+        if(!e.ctrlKey && resizing.snapTargets && resizing.boxL != null){
+          var docL = resizing.boxL + (newL - resizing.initL);
+          var docT = resizing.boxT + (newT - resizing.initT);
+          var ratioNow = resizing.initH > 0 ? resizing.initW / resizing.initH : 0;
+          var snappedR = snapResizeBox(dir, docL, docT, w, h, resizing.snapTargets, true, minW, minH, keepRatio, ratioNow);
+          newL = resizing.initL + (snappedR.l - resizing.boxL);
+          newT = resizing.initT + (snappedR.t - resizing.boxT);
+          w = snappedR.w;
+          h = snappedR.h;
+          drawSnapGuides(snappedR.vSnap, snappedR.hSnap, { l: snappedR.l, t: snappedR.t, r: snappedR.l + snappedR.w, b: snappedR.t + snappedR.h }, null);
+        } else if(resizing.hasMoved){
+          clearSnapGuides();
+        }
+
         resizing.el.style.width = Math.round(w) + 'px';
         resizing.el.style.height = Math.round(h) + 'px';
         resizing.el.style.left = Math.round(newL) + 'px';
@@ -6246,7 +6907,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         var dist = Math.hypot(dx, dy);
 
         // 仅当鼠标移动超过 3px 时才判定为用户想要拖拽移动
-        if(!drag.hasMoved && dist > 3){
+          if(!drag.hasMoved && dist > 3){
+          drag.snapTargets = collectSnapTargets(drag.items);
+          drag.snapTargets.hGaps = neighborGaps(drag.snapTargets.boxes, true);
+          drag.snapTargets.vGaps = neighborGaps(drag.snapTargets.boxes, false);
           pushSnapshot();
           drag.hasMoved = true;
           document.body.classList.add('wf-dragging');
@@ -6261,11 +6925,74 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         }
 
         if(drag.hasMoved){
+          var adx = dx;
+          var ady = dy;
+          var vSnap = null;
+          var hSnap = null;
+          var group = null;
+          if(!e.ctrlKey && drag.snapTargets){
+            var minL = 1e9, minT = 1e9, maxR = -1e9, maxB = -1e9;
+            for(var bi = 0; bi < drag.items.length; bi++){
+              var box = drag.items[bi];
+              var bl = box.boxL + dx;
+              var bt = box.boxT + dy;
+              var br = bl + box.boxW;
+              var bb = bt + box.boxH;
+              if(bl < minL) minL = bl;
+              if(bt < minT) minT = bt;
+              if(br > maxR) maxR = br;
+              if(bb > maxB) maxB = bb;
+            }
+            var limit = snapThreshold();
+            var vEdge = bestSnap(minL, (minL + maxR) / 2, maxR, drag.snapTargets.xs, limit);
+            var hEdge = bestSnap(minT, (minT + maxB) / 2, maxB, drag.snapTargets.ys, limit);
+            var vSpace = spacingSnap(minL, minT, maxR, maxB, drag.snapTargets.boxes, drag.snapTargets.hGaps, true, limit);
+            var hSpace = spacingSnap(minL, minT, maxR, maxB, drag.snapTargets.boxes, drag.snapTargets.vGaps, false, limit);
+            var vDelta = 0;
+            var hDelta = 0;
+            if(vSpace && (!edgeBlocksSpacing(vEdge, vSpace.other) || Math.abs(vSpace.delta) <= Math.abs(vEdge.delta))){
+              vDelta = vSpace.delta;
+              vSnap = null;
+            } else {
+              vSpace = null;
+              vSnap = vEdge;
+              if(vEdge) vDelta = vEdge.delta;
+            }
+            if(hSpace && (!edgeBlocksSpacing(hEdge, hSpace.other) || Math.abs(hSpace.delta) <= Math.abs(hEdge.delta))){
+              hDelta = hSpace.delta;
+              hSnap = null;
+            } else {
+              hSpace = null;
+              hSnap = hEdge;
+              if(hEdge) hDelta = hEdge.delta;
+            }
+            adx = dx + vDelta;
+            ady = dy + hDelta;
+            group = {
+              l: minL + vDelta,
+              t: minT + hDelta,
+              r: maxR + vDelta,
+              b: maxB + hDelta
+            };
+            var marks = [];
+            var sm;
+            if(vSpace){
+              sm = spacingMarks(vSpace, group, true);
+              for(var si = 0; si < sm.length; si++) marks.push(sm[si]);
+            }
+            if(hSpace){
+              sm = spacingMarks(hSpace, group, false);
+              for(var sj = 0; sj < sm.length; sj++) marks.push(sm[sj]);
+            }
+            group.marks = marks;
+          }
           for(var di = 0; di < drag.items.length; di++){
             var it = drag.items[di];
-            it.el.style.left = Math.round(it.initLeft + dx) + 'px';
-            it.el.style.top = Math.round(it.initTop + dy) + 'px';
+            it.el.style.left = Math.round(it.initLeft + adx) + 'px';
+            it.el.style.top = Math.round(it.initTop + ady) + 'px';
           }
+          if(group) drawSnapGuides(vSnap, hSnap, group, group.marks);
+          else clearSnapGuides();
           if(selectedEls.length > 1){
             updateMultiTransformBox();
           } else if(selectedEl){
@@ -6274,10 +7001,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         }
         return;
       }
+      updateAltMeasure(e);
     }, true);
 
     document.addEventListener('mouseup', function(){
       if(resizing){
+        clearSnapGuides();
         var rEl = resizing.el;
         if(resizing.hasMoved){
           scheduleSave();
@@ -6308,6 +7037,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         marquee = null;
       }
       if(drag){
+        clearSnapGuides();
         document.body.classList.remove('wf-dragging');
         for(var di = 0; di < drag.items.length; di++){
           var it = drag.items[di];
@@ -6346,6 +7076,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     }
     document.addEventListener('keydown', publishSelectionModifiers, true);
     document.addEventListener('keyup', publishSelectionModifiers, true);
+    document.addEventListener('keyup', function(e){
+      if((e.key === 'Alt' || e.key === 'AltGraph') && altMeasuring){
+        altMeasuring = false;
+        clearSnapGuides();
+      }
+    }, true);
 
     document.addEventListener('keydown', function(e){
       var activeText = document.querySelector('[data-wf-editing-text="true"]');
@@ -7403,6 +8139,28 @@ function alignSelectedElement(alignType: string) {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-align', alignType }, '*')
 }
 
+function captureSelectionAsComponent(): Promise<{ html?: string; width?: number; height?: number; name?: string; error?: string } | null> {
+  if (!hasLoadedEditorState || !htmlFrameRef.value?.contentWindow) {
+    return Promise.resolve({ error: 'no-editor' })
+  }
+  const requestId = `cmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      window.removeEventListener('message', onMsg)
+      resolve(null)
+    }, 2500)
+    function onMsg(ev: MessageEvent) {
+      const data = ev.data
+      if (!data || data.type !== 'wf-component-captured' || data.requestId !== requestId) return
+      window.clearTimeout(timer)
+      window.removeEventListener('message', onMsg)
+      resolve(data.payload || null)
+    }
+    window.addEventListener('message', onMsg)
+    htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-capture-component', requestId }, '*')
+  })
+}
+
 function postToFrame(payload: Record<string, unknown>) {
   if (!hasLoadedEditorState && props.editMode && !props.readOnly) {
     hydrateEditorInFrame()
@@ -7521,6 +8279,7 @@ defineExpose({
   duplicateSelectedElement,
   deleteSelectedElement,
   alignSelectedElement,
+  captureSelectionAsComponent,
   updateElementRadius,
   updateElementOpacity,
   updateElementStroke,
