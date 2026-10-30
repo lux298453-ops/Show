@@ -234,7 +234,7 @@
         <button
           type="button"
           class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
-          @click="createFramePreset('Android', 360, 800)"
+          @click="createFramePreset('Android 手机', 360, 800)"
         >
           <div class="flex items-center gap-2">
             <Smartphone class="w-3.5 h-3.5 text-slate-500" />
@@ -246,7 +246,7 @@
         <button
           type="button"
           class="w-full px-2.5 py-1.5 flex items-center justify-between rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-950 transition-colors cursor-pointer"
-          @click="createFramePreset('Desktop Web', 1440, 900)"
+          @click="createFramePreset('Web 桌面端', 1440, 900)"
         >
           <div class="flex items-center gap-2">
             <Monitor class="w-3.5 h-3.5 text-slate-500" />
@@ -629,11 +629,14 @@ function onFrameToolClick() {
 function selectFrameTool() {
   emit('update:activeTool', 'frame')
   emit('toolChange', 'frame')
+  emit('createFrame', undefined)
   isFrameMenuOpen.value = false
 }
 
 function createFramePreset(name: string, width: number, height: number) {
   closeAllMenus()
+  emit('update:activeTool', 'frame')
+  emit('toolChange', 'frame')
   emit('createFrame', { name, width, height })
 }
 

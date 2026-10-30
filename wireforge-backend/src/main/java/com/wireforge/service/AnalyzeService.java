@@ -527,7 +527,9 @@ public class AnalyzeService {
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
                         .eq(Element::getPageId, pageId));
         if (oldElements.isEmpty()) return;
-        List<Long> elementIds = oldElements.stream().map(Element::getId).toList();
+        // 用户明确设置的页面空白点击行为与 AI 元素 ID 无关，重新识别时保留其元素及交互。
+        List<Long> elementIds = oldElements.stream().filter(e -> !PageBackgroundAction.persistent(e)).map(Element::getId).toList();
+        if(elementIds.isEmpty())return;
         interactionMapper.delete(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
                         .in(Interaction::getElementId, elementIds));
@@ -649,12 +651,7 @@ public class AnalyzeService {
         }
     }
 
-    /**
-     * 状态变体页面公共骨架自动对齐：
-     * 当项目中存在同源页面（如《个性装扮预览页》、《个性装扮形象待机页》、《个性装扮动效页》）时，
-     * 自动识别公共组件（顶部导航条、返回按钮、角色/模特立绘框、公共操作栏、底部卡片托盘），
-     * 强制吸附坐标与尺寸，确保切换交互时 100% 像素级吻合、无跳跃感。
-     */
+    /** 只对相同原稿的明确对应元素校正小幅识别抖动，不能按相似页名跨页改写识别坐标。 */
     @Transactional
     public void alignVariantPages(long projectId) {
         List<Page> pages = pageMapper.selectList(
@@ -663,7 +660,7 @@ public class AnalyzeService {
                         .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         if (pages.size() < 2) return;
 
-        // 1. 同源变体聚类（最长公共子串 LCS 聚类 + 关键词聚类）
+        // 名字中都有“装扮”不代表同一个布局；以识别时保存的图片内容指纹为界。
         List<List<Page>> clusters = new ArrayList<>();
         boolean[] visited = new boolean[pages.size()];
 
@@ -672,33 +669,10 @@ public class AnalyzeService {
             List<Page> group = new ArrayList<>();
             group.add(pages.get(i));
             visited[i] = true;
-            String nameI = pages.get(i).getName() == null ? "" : pages.get(i).getName();
 
             for (int j = i + 1; j < pages.size(); j++) {
                 if (visited[j]) continue;
-                String nameJ = pages.get(j).getName() == null ? "" : pages.get(j).getName();
-
-                // 排除全屏遮罩/提醒弹窗
-                if (nameI.contains("弹窗") || nameJ.contains("弹窗") || nameI.contains("提醒") || nameJ.contains("提醒")) {
-                    continue;
-                }
-
-                // 判断是否包含公共主干词（如"个性装扮"、"装扮预览"、"壁纸"等）
-                boolean isVariant = false;
-                if ((nameI.contains("装扮") && nameJ.contains("装扮"))
-                        || (nameI.contains("壁纸") && nameJ.contains("壁纸"))
-                        || (nameI.contains("家园") && nameJ.contains("家园"))
-                        || (nameI.contains("扭蛋") && nameJ.contains("扭蛋"))
-                        || (nameI.contains("商店") && nameJ.contains("商店"))) {
-                    isVariant = true;
-                } else {
-                    int lcsLen = longestCommonSubstringLen(nameI, nameJ);
-                    if (lcsLen >= 3) {
-                        isVariant = true;
-                    }
-                }
-
-                if (isVariant) {
+                if (sameVariantSource(pages.get(i),pages.get(j))) {
                     group.add(pages.get(j));
                     visited[j] = true;
                 }
@@ -710,10 +684,9 @@ public class AnalyzeService {
 
         int alignedCount = 0;
         for (List<Page> groupPages : clusters) {
-            // 选名字最标准/最短且最早创建的作为基准页（Base Page）
+            // 相同原稿只使用稳定的页面 ID 排序，不以名字长短挑另一种页面当基准。
             Page basePage = groupPages.stream()
-                    .min(Comparator.comparingInt((Page p) -> p.getName().length())
-                            .thenComparing(Page::getId))
+                    .min(Comparator.comparing(Page::getId))
                     .orElse(groupPages.get(0));
 
             List<Element> baseEls = elementMapper.selectList(
@@ -726,41 +699,26 @@ public class AnalyzeService {
                 List<Element> varEls = elementMapper.selectList(
                         com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
                                 .eq(Element::getPageId, varPage.getId()));
+                java.util.Set<Long> usedBaseElements=new java.util.HashSet<>();
 
                 for (Element ve : varEls) {
                     double vx = nz(ve.getPositionX()), vy = nz(ve.getPositionY());
                     double vw = nz(ve.getWidth()), vh = nz(ve.getHeight());
                     double vcx = vx + vw / 2.0, vcy = vy + vh / 2.0;
-                    String vty = ve.getType() == null ? "" : ve.getType();
-                    String vlb = ve.getLabel() == null ? "" : ve.getLabel().trim();
 
                     // 在 Base 页中寻找最匹配的公共骨架元素
                     Element bestMatch = null;
                     double bestDist = Double.MAX_VALUE;
 
                     for (Element be : baseEls) {
-                        String bty = be.getType() == null ? "" : be.getType();
-                        String blb = be.getLabel() == null ? "" : be.getLabel().trim();
-                        boolean typeMatch = vty.equals(bty)
-                                || (("image".equals(vty) || "banner".equals(vty) || "background".equals(vty))
-                                    && ("image".equals(bty) || "banner".equals(bty) || "background".equals(bty)));
-                        if (!typeMatch) continue;
+                        if (usedBaseElements.contains(be.getId()) || !compatibleVariantElement(ve,be)) continue;
 
                         double bx = nz(be.getPositionX()), by = nz(be.getPositionY());
                         double bw = nz(be.getWidth()), bh = nz(be.getHeight());
                         double bcx = bx + bw / 2.0, bcy = by + bh / 2.0;
                         double dist = Math.hypot(vcx - bcx, vcy - bcy);
 
-                        // 1. 顶部导航栏 / 顶部返回键 (y < 70)
-                        boolean isTopNav = ("navbar".equals(vty) || "icon".equals(vty)) && vy < 70 && by < 70;
-                        // 2. 模特/角色立绘大占位框 (宽高 >= 100)
-                        boolean isHeroArt = (vw >= 90 && vh >= 90 && bw >= 90 && bh >= 90);
-                        // 3. 底部装扮卡片槽位/选项卡 (y >= 450 且尺寸相近)
-                        boolean isBottomSlot = (vy >= 450 && by >= 450 && Math.abs(vw - bw) < 25 && Math.abs(vh - bh) < 25);
-                        // 4. 具有相同或包含文案的按钮/文字
-                        boolean isSameLabel = !vlb.isEmpty() && (vlb.equals(blb) || vlb.contains(blb) || blb.contains(vlb));
-
-                        if ((isTopNav || isHeroArt || isBottomSlot || isSameLabel) && dist < 55.0) {
+                        if (dist <= 12.0) {
                             if (dist < bestDist) {
                                 bestDist = dist;
                                 bestMatch = be;
@@ -768,6 +726,7 @@ public class AnalyzeService {
                         }
                     }
 
+                    if(bestMatch!=null)usedBaseElements.add(bestMatch.getId());
                     if (bestMatch != null && (Math.abs(vx - nz(bestMatch.getPositionX())) > 0.5
                             || Math.abs(vy - nz(bestMatch.getPositionY())) > 0.5
                             || Math.abs(vw - nz(bestMatch.getWidth())) > 0.5
@@ -788,19 +747,23 @@ public class AnalyzeService {
         }
     }
 
-    private static int longestCommonSubstringLen(String a, String b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return 0;
-        int max = 0;
-        int[][] dp = new int[a.length() + 1][b.length() + 1];
-        for (int i = 1; i <= a.length(); i++) {
-            for (int j = 1; j <= b.length(); j++) {
-                if (a.charAt(i - 1) == b.charAt(j - 1)) {
-                    dp[i][j] = dp[i - 1][j - 1] + 1;
-                    max = Math.max(max, dp[i][j]);
-                }
-            }
-        }
-        return max;
+    private boolean sameVariantSource(Page a,Page b) {
+        String hash=a.getImageHash();
+        if(hash==null || !hash.matches("(?i)[0-9a-f]{64}") || !hash.equalsIgnoreCase(b.getImageHash())
+                || !java.util.Objects.equals(a.getCanvasWidth(),b.getCanvasWidth())
+                || !java.util.Objects.equals(a.getCanvasHeight(),b.getCanvasHeight()))return false;
+        String currentA=currentImageFingerprint(a),currentB=currentImageFingerprint(b);
+        return (currentA==null || hash.equalsIgnoreCase(currentA)) && (currentB==null || hash.equalsIgnoreCase(currentB));
+    }
+
+    static boolean compatibleVariantElement(Element a,Element b) {
+        String type=a.getType()==null?"":a.getType(),other=b.getType()==null?"":b.getType();
+        if(!type.equals(other) || type.equals("background"))return false;
+        double aw=nz(a.getWidth()),ah=nz(a.getHeight()),bw=nz(b.getWidth()),bh=nz(b.getHeight());
+        if(aw<=0 || ah<=0 || bw<=0 || bh<=0 || Math.abs(aw/bw-1)>.15 || Math.abs(ah/bh-1)>.15)return false;
+        String label=a.getLabel()==null?"":a.getLabel().trim(),otherLabel=b.getLabel()==null?"":b.getLabel().trim();
+        if(!label.equals(otherLabel))return false;
+        return !label.isEmpty() || type.matches("image|banner|container|navbar");
     }
 
     private static double nz(Double v) {

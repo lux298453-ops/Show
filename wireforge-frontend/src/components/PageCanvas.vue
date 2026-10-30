@@ -157,9 +157,9 @@
         </div>
       </div>
 
-      <!-- 独占微调保护提示：仅严丝合缝贴合线框原型手机屏幕，绝不超出 -->
+      <!-- 独占微调保护提示：仅严丝合缝贴合线框原型手机屏幕，绝不超出；在交互连线模式下自动退避以防阻断跨画板连线 -->
       <div
-        v-if="lockedByOther"
+        v-if="lockedByOther && !props.protoHotspot"
         class="absolute inset-0 z-20 rounded-[14px] pointer-events-auto cursor-not-allowed flex flex-col items-center justify-end pb-8 bg-slate-950/20 backdrop-blur-[1px] transition-all"
         @click.stop="emit('lockedClick')"
         @mousedown.stop
@@ -359,6 +359,7 @@ import { ElMessage } from 'element-plus'
 import { FileText, ChevronDown, ChevronRight, GripVertical, Plus, Lock, Image as ImageIcon, Smartphone, Monitor } from 'lucide-vue-next'
 import { apiUrl, getFileUrl, withBackendFiles, withoutBackendFiles } from '../api/http'
 import { projectApi } from '../api/project'
+import { backgroundReturnSetting, backgroundReturnTargets } from '../utils/backgroundReturn'
 import type { Annotation, Element, Page } from '../types'
 import WireframeElement from './WireframeElement.vue'
 
@@ -483,8 +484,8 @@ let isInternalSaving = false
 let lastInternalSavedHtml = ''
 let saveResetTimer: any = null
 
-// 初始是否装载编辑器：若直接为微调页或父级指定了装载，则直接装载；否则以薄页面启动（节省 95% 脚本开销与内存）
-const initialIncludeEditor = !props.readOnly && (!!props.loadEditor || !!props.editMode)
+// 初始是否装载编辑器：若直接为微调页、连线交互模式或父级指定了装载，则直接装载；否则以薄页面启动（节省 95% 脚本开销与内存）
+const initialIncludeEditor = !props.readOnly && (!!props.loadEditor || !!props.editMode || !!props.protoHotspot)
 let hasLoadedEditorState = initialIncludeEditor
 const hasLoadedEditor = ref(initialIncludeEditor)
 
@@ -538,18 +539,19 @@ watch(
 )
 
 watch(
-  () => [props.editMode, props.loadEditor],
-  ([em, le], oldVal) => {
+  () => [props.editMode, props.loadEditor, props.protoHotspot],
+  ([em, le, ph], oldVal) => {
     const oldEm = oldVal ? oldVal[0] : false
     const oldLe = oldVal ? oldVal[1] : false
-    if ((em || le) && !props.readOnly) {
+    const oldPh = oldVal ? oldVal[2] : false
+    if ((em || le || ph) && !props.readOnly) {
       if (!hasLoadedEditorState) {
         hasLoadedEditorState = true
         hasLoadedEditor.value = true
         hydrateEditorInFrame()
       }
-    } else if (!le && oldLe) {
-      // 当被淘汰出 LRU 活跃编辑器队列时，自动卸载退回薄页面，释放撤销栈与控制盒内存
+    } else if (!le && !ph && (oldLe || oldPh)) {
+      // 当被淘汰出 LRU 活跃编辑器队列且非连线模式时，自动卸载退回薄页面，释放撤销栈与控制盒内存
       unloadEditorInFrame()
     }
     if (!em && oldEm) {
@@ -558,6 +560,7 @@ watch(
       flushPendingSave().catch(() => {})
     }
     sendEditMode()
+    sendProtoHotspot()
   },
 )
 watch(
@@ -611,12 +614,13 @@ function hydrateEditorInFrame() {
   // 避免重复注入
   if (doc.querySelector('style[data-wf-editor]') || doc.getElementById('wf-transform-box')) {
     sendEditMode()
+    sendProtoHotspot()
     return
   }
 
   const editorHtml = buildEditorPayload(!!props.interactive, !!props.readOnly)
   const styleMatch = editorHtml.match(/<style[^>]*data-wf-inject[^>]*>([\s\S]*?)<\/style>/i)
-  const scriptMatch = editorHtml.match(/<script[^>]*data-wf-inject[^>]*>([\s\S]*?)<\/script>/i)
+  const scriptMatch = editorHtml.match(/<script[^>]*data-wf-inject[^>]*>([\s\S]*?)<\\?\/script>/i)
 
   if (styleMatch && styleMatch[1]) {
     const s = doc.createElement('style')
@@ -635,6 +639,7 @@ function hydrateEditorInFrame() {
   }
 
   sendEditMode()
+  sendProtoHotspot()
 }
 
 async function unloadEditorInFrame() {
@@ -740,6 +745,11 @@ watch(
 )
 
 function injectNavRuntime(html: string, initialInteractive = false, isReadOnly = false, includeEditor = true): string {
+  const backdropReturns = backgroundReturnTargets(props.page)
+  const explicitBackgroundReturn = backgroundReturnSetting(props.page)
+  const supersededBackgroundIds = explicitBackgroundReturn
+    ? (props.page.elements || []).filter(el => el.type === 'background' && el.id !== explicitBackgroundReturn.id).map(el => el.id)
+    : []
   // 清理可能已残留的旧版本注入运行时（确保始终采用最新微调系统与通信逻辑）
   const cleanHtml = html
     .replace(/<style\b[^>]*\bdata-wf-inject[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -752,6 +762,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   // 出界几个像素，触发缩放后整页缩小但布局占位不变，右侧和下侧会留出大片空白。
   // 轻微出界让浏览器自然裁掉即可，远比整页缩小好。
   const guard = `<style data-wf-inject>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     *{box-sizing:border-box}
     /* 上下左右超出画框都裁掉。只写 overflow-x:hidden 时，浏览器会把上下当成可滚动，
        元素拖出下边后画框右边就会出现滚动条。 */
@@ -835,6 +846,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       transform: scale(0.96) !important;
       transition: transform 0.06s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
+    body:not(.wf-interactive) .wf-page-dismiss{display:none!important}
     /* 开关组件过渡属性纠正：严禁对位置使用 transition: all，杜绝微调拖动时把 left/top 也算入 0.2s 延缓滑行。
        位置必须立刻跟上鼠标，仅对背景颜色、投影以及白点自身的切换位置做过渡 */
     .wf-sw {
@@ -901,6 +913,41 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   const runtime = `<script data-wf-inject>(function(){
     var PAGE_ID = ${JSON.stringify(props.page?.id ?? 0)};
     var isInteractive = ${initialInteractive ? 'true' : 'false'};
+    // 旧 HTML 可能省略了带返回交互的背景。运行时只补透明热区，不改原稿或已保存的 HTML。
+    var backdropReturns = ${JSON.stringify(backdropReturns)};
+    // 显式设置可覆盖旧 AI 背景返回；禁用时移除旧透明热区，不接触可见控件。
+    var supersededBackgroundIds = ${JSON.stringify(supersededBackgroundIds)};
+    supersededBackgroundIds.forEach(function(id){
+      var node=document.querySelector('[data-wf-element-id="'+id+'"]');
+      if(node && node.classList.contains('wf-page-dismiss')) node.remove();
+    });
+    if(${explicitBackgroundReturn?.interaction?.action === 'none' ? 'true' : 'false'}){
+      document.querySelectorAll('.wf-page-dismiss').forEach(function(node){node.remove();});
+    }
+    backdropReturns.forEach(function(b){
+      if(document.querySelector('[data-wf-element-id="'+b.id+'"]')) return;
+      var area=document.createElement('div');
+      area.className='wf-page-dismiss';
+      area.setAttribute('data-wf-inject','backdrop-return');
+      area.setAttribute('data-wf-element-id',String(b.id));
+      area.setAttribute('data-action',b.action);
+      area.setAttribute('aria-label','返回上一页');
+      area.style.cssText='position:absolute;left:'+b.x+'px;top:'+b.y+'px;width:'+b.w+'px;height:'+b.h+'px;background:transparent;border:0;z-index:1;cursor:pointer';
+      document.body.insertBefore(area,document.body.firstChild);
+    });
+    // 每一个分段都是独立连线目标；UID 与后端模板一致，更新预览后仍可找到原来的单项连线。
+    document.querySelectorAll('.wf-segs').forEach(function(row){
+      var owner=row.closest('[data-wf-element-id]');
+      if(!owner) return;
+      Array.from(row.children).forEach(function(item,index){
+        if(item.tagName!=='SPAN') return;
+        item.setAttribute('data-wf-tab-segment',String(index));
+        if(!item.getAttribute('data-wf-uid')) item.setAttribute('data-wf-uid','wf-tab-p'+PAGE_ID+'-e'+owner.getAttribute('data-wf-element-id')+'-'+index);
+      });
+    });
+    window.__wfPickTabSegment=function(node){
+      return node && node.closest ? node.closest('[data-wf-tab-segment],.wf-segs > span,.wf-tab-underline > span,.wf-tabs [data-tab]') : null;
+    };
     if (isInteractive) {
       document.body.classList.add('wf-interactive');
     }
@@ -961,6 +1008,14 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         isInteractive = !!ev.data.on;
         if(isInteractive) document.body.classList.add('wf-interactive');
         else document.body.classList.remove('wf-interactive');
+      }
+
+      if(ev.data.type === 'wf-proto-hotspot'){
+        window.__wfProtoHotspot = !!ev.data.on;
+        document.body.classList.toggle('wf-proto-hotspot', window.__wfProtoHotspot);
+        if(!window.__wfProtoHotspot){
+          try { parent.postMessage({ type: 'wf-hotspot-clear', pageId: PAGE_ID }, '*'); } catch(err) {}
+        }
       }
 
       if(ev.data.type === 'wf-spotlight'){
@@ -1118,13 +1173,13 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           || bgStr.indexOf('229, 231, 235') !== -1;
         if (isOff) {
           sw.setAttribute('data-state', 'on');
-          sw.style.background = 'linear-gradient(180deg, #FF8336 0%, #FA6B19 100%)';
-          sw.style.boxShadow = 'inset 0 1px 3px rgba(0,0,0,0.15), 0 2px 6px rgba(250,107,25,0.28)';
+          sw.style.background = '#F87F2C';
+          sw.style.boxShadow = 'none';
           if (knob) { knob.style.left = 'auto'; knob.style.right = '2px'; }
         } else {
           sw.setAttribute('data-state', 'off');
-          sw.style.background = 'linear-gradient(180deg, #E5E7EB 0%, #D1D5DB 100%)';
-          sw.style.boxShadow = 'inset 0 1px 3px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.06)';
+          sw.style.background = '#DFE2E6';
+          sw.style.boxShadow = 'none';
           if (knob) { knob.style.right = 'auto'; knob.style.left = '2px'; }
         }
         return;
@@ -1140,14 +1195,15 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           ck.classList.remove('checked');
           if (box) {
             box.style.background = '#FFFFFF';
-            box.style.borderColor = 'rgba(0,0,0,0.30)';
+            box.style.borderColor = '#C7CDD5';
             box.innerHTML = '';
           }
         } else {
           ck.classList.add('checked');
           if (box) {
-            box.style.background = '#ff7043';
-            box.style.borderColor = '#ff7043';
+            var checkedColor = ck.style.getPropertyValue('--wf-control-accent') || '#E96928';
+            box.style.background = checkedColor;
+            box.style.borderColor = checkedColor;
             box.innerHTML = '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="#FFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4L6 11L3 8"/></svg>';
           }
         }
@@ -1155,17 +1211,19 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       }
 
       // 3. 选项卡 (Tabs) 点击切换交互（支持胶囊分段器与下划线 Tab）
-      var segItem = t && t.closest ? t.closest('.wf-segs span, .wf-tab-underline span, .wf-tabs [data-tab]') : null;
+      var segItem = window.__wfPickTabSegment(t);
       if (segItem) {
-        var segNav = segItem.getAttribute('data-nav') || (segItem.closest('.wf-tabs') ? segItem.closest('.wf-tabs').getAttribute('data-nav') : null);
+        var segNav = segItem.getAttribute('data-nav');
         if (segNav) {
           e.preventDefault(); e.stopPropagation();
-          parent.postMessage({type:'wf-nav',page:segNav},'*');
+          var segRect=segItem.getBoundingClientRect(),bodyRect=document.body.getBoundingClientRect();
+          parent.postMessage({type:'wf-nav',page:segNav,uids:collectUids(segItem),uid:segItem.getAttribute('data-wf-uid')||'',
+            x:Math.round(segRect.left-bodyRect.left+segRect.width/2),y:Math.round(segRect.top-bodyRect.top+segRect.height/2)},'*');
           return;
         }
         e.preventDefault(); e.stopPropagation();
         var pBox = segItem.parentNode;
-        var siblings = pBox.querySelectorAll('span, [data-tab]');
+        var siblings = Array.from(pBox.children).filter(function(item){return item.tagName==='SPAN' || item.hasAttribute('data-tab');});
         for (var si = 0; si < siblings.length; si++) {
           siblings[si].classList.remove('on');
           if (siblings[si].style.borderBottom) {
@@ -1178,6 +1236,8 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
           segItem.style.borderBottom = '2.5px solid #F85A18';
           segItem.style.color = '#F85A18';
         }
+        // 没有 data-nav 的单项也可能有用户保存的独立热区，通过实际点击位置解析它的连线。
+        parent.postMessage({type:'wf-miss-click',x:Math.round(e.clientX+(window.scrollX||0)),y:Math.round(e.clientY+(window.scrollY||0)),uids:collectUids(segItem)},'*');
         return;
       }
 
@@ -1236,6 +1296,111 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         }, '*');
       }
     },true);
+
+    // 原型交互连线热区捕获：在所有原型画板沙箱内常驻，支持全画板跨屏连线
+    window.__wfProtoHotspot = false;
+    function ensureHotspotUid(el){
+      if(!el) return '';
+      var uid = el.getAttribute('data-wf-uid');
+      if(!uid){
+        uid = 'wf-' + Math.random().toString(36).slice(2, 10);
+        el.setAttribute('data-wf-uid', uid);
+      }
+      return uid;
+    }
+
+    function pickHotspotEl(node){
+      if(!node) return null;
+      var segment=window.__wfPickTabSegment && window.__wfPickTabSegment(node);
+      if(segment) return segment;
+      var el = node;
+      if(el.id === 'wf-transform-box' || el.id === 'wf-dim-badge' || (el.classList && el.classList.contains('wf-handle')) || (el.closest && el.closest('#wf-transform-box'))){
+        if(typeof window.__wfGetSelectedEl === 'function'){
+          var sel = window.__wfGetSelectedEl();
+          if(sel && sel.isConnected) return sel;
+        }
+        return null;
+      }
+      if(el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast') return null;
+
+      var control = null;
+      var card = null;
+      var viewW = window.innerWidth || 375;
+      var viewH = window.innerHeight || 812;
+      while(el && el !== document.body && el !== document.documentElement){
+        if(el.id === 'wf-transform-box' || el.id === 'wf-dim-badge' || (el.classList && el.classList.contains('wf-handle'))){
+          if(typeof window.__wfGetSelectedEl === 'function'){
+            var sel2 = window.__wfGetSelectedEl();
+            if(sel2 && sel2.isConnected) return sel2;
+          }
+          return null;
+        }
+        if(el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast') return null;
+        var r = el.getBoundingClientRect();
+        if(r.width >= 16 && r.height >= 14 && r.width <= viewW * 0.98 && r.height <= viewH * 0.85){
+          var tag = (el.tagName || '').toLowerCase();
+          var clickable = tag === 'button' || tag === 'a' || tag === 'input' || el.getAttribute('role') === 'button' || el.hasAttribute('data-nav');
+          if(clickable) return el;
+
+          var isComponentOrLayer = el.classList && (
+            el.classList.contains('wf-inserted-component') ||
+            el.classList.contains('wf-card') ||
+            el.classList.contains('wf-box') ||
+            el.classList.contains('wf-container') ||
+            el.classList.contains('wf-btn') ||
+            el.classList.contains('wf-avatar') ||
+            el.classList.contains('wf-text-block') ||
+            el.classList.contains('wf-shape') ||
+            el.classList.contains('wf-vector-shape') ||
+            el.classList.contains('wf-el') ||
+            el.hasAttribute('data-wf-vector') ||
+            el.hasAttribute('data-wf-uid')
+          );
+          if(isComponentOrLayer) return el;
+
+          if(!control && r.width <= 320 && r.height <= 120) control = el;
+          if(!card && r.height <= 400) card = el;
+        }
+        el = el.parentElement;
+      }
+      return control || card;
+    }
+
+    var hotspotRaf = 0;
+    var hotspotNode = null;
+    document.addEventListener('mousemove', function(e){
+      if(!window.__wfProtoHotspot) return;
+      hotspotNode = e.target;
+      if(hotspotRaf) return;
+      hotspotRaf = requestAnimationFrame(function(){
+        hotspotRaf = 0;
+        if(!window.__wfProtoHotspot) return;
+        var el = (typeof window.__wfCustomPickHotspot === 'function') ? window.__wfCustomPickHotspot(hotspotNode) : pickHotspotEl(hotspotNode);
+        if(!el){
+          try { parent.postMessage({ type: 'wf-hotspot-clear', pageId: PAGE_ID }, '*'); } catch(err) {}
+          return;
+        }
+        var r = el.getBoundingClientRect();
+        var raw = String(el.innerText || el.getAttribute('aria-label') || el.getAttribute('alt') || '').replace(new RegExp('\\\\s+', 'g'), ' ').trim();
+        try {
+          parent.postMessage({
+            type: 'wf-hotspot',
+            pageId: PAGE_ID,
+            x: Math.round(r.left + (window.scrollX || 0)),
+            y: Math.round(r.top + (window.scrollY || 0)),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+            label: raw.slice(0, 24),
+            uid: ensureHotspotUid(el)
+          }, '*');
+        } catch(err) {}
+      });
+    }, true);
+
+    document.documentElement.addEventListener('mouseleave', function(){
+      if(!window.__wfProtoHotspot) return;
+      try { parent.postMessage({ type: 'wf-hotspot-clear', pageId: PAGE_ID }, '*'); } catch(err) {}
+    });
   })();<\/script>`
   // 内容高度上报：等防溢出 fit 跑完后把整页实际高度发给父级，让 iframe/手机壳随内容自适应（避免固定高度裁剪产生滚动）
   const sizer = `<script data-wf-inject>
@@ -1279,6 +1444,13 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     body.wf-edit-mode * {
       -webkit-user-select: none;
       user-select: none;
+    }
+    /* 兼容已保存的旧气泡：展示时的鼠标穿透不能妨碍编辑器选中整块提示。 */
+    body.wf-edit-mode .wf-message:not(.wf-layer-locked) {
+      pointer-events: auto !important;
+    }
+    body.wf-edit-mode .wf-layer-locked .wf-message {
+      pointer-events: none !important;
     }
     body.wf-edit-mode [data-wf-editing-text="true"],
     body.wf-edit-mode [contenteditable="true"],
@@ -1350,7 +1522,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
   </style>
   <script data-wf-inject>
   (function(){
-    var EDIT = ${initialInteractive || isReadOnly ? 'false' : 'true'}, READONLY = ${isReadOnly ? 'true' : 'false'}, hovered = null, touched = [], st = null, PROTO_HOTSPOT = false;
+    var EDIT = ${initialInteractive || isReadOnly ? 'false' : 'true'}, READONLY = ${isReadOnly ? 'true' : 'false'}, hovered = null, touched = [], st = null, PROTO_HOTSPOT = ${props.protoHotspot ? 'true' : 'false'};
     if (!window.__wfPanActive) {
       window.__wfPanActive = true;
       var panSpaceHeld = false, panGestureActive = false;
@@ -1443,6 +1615,14 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         var bits = head.split('|');
         try { bodyBg = decodeURIComponent(bits[0] || ''); } catch(e) { bodyBg = ''; }
         try { rootBg = decodeURIComponent(bits[1] || ''); } catch(e) { rootBg = ''; }
+      } else if (/<body/i.test(html)) {
+        var bodyMatch = html.match(/<body[^>]*style=["']([^"']*)["']/i);
+        if (bodyMatch && bodyMatch[1]) {
+          var bgMatch = bodyMatch[1].match(new RegExp('background(?:-color)?:\\\\s*([^;]+)', 'i'));
+          if (bgMatch) bodyBg = bgMatch[1].trim();
+        }
+        var m = html.match(new RegExp('<body[^>]*>([\\\\s\\\\S]*?)<\\\\/body>', 'i'));
+        if (m) html = m[1];
       }
       var gone = [];
       var kids = document.body.children;
@@ -2174,6 +2354,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       deselect();
       clearHover();
       scheduleSave();
+      pushSnapshot();
       publishLayers();
       showToast('已剪切 ' + targets.length + ' 个元素 (Ctrl+V 粘贴，Ctrl+Z 撤回)');
     }
@@ -2280,6 +2461,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       document.body.style.cursor = 'default';
       setMultiSelection(pasted);
       scheduleSave();
+      pushSnapshot();
       showToast('已粘贴「' + (data.name || '元素') + '」(Ctrl+V)');
     }
 
@@ -2794,6 +2976,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(selectedEls.length > 1) updateMultiTransformBox();
       else if(selectedEl) updateTransformBox(selectedEl);
       scheduleSave();
+      pushSnapshot();
       showToast('已将样式属性应用到 ' + appliedCount + ' 个元素 (Ctrl+Alt+V)');
     }
 
@@ -2837,16 +3020,14 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       selectElement(newEl, true);
       publishLayers();
       scheduleSave();
+      pushSnapshot();
       showToast('已用复制组件替换目标 (保留原位置和尺寸)');
     }
 
     function outline(el, on){
       if(!el || el === document.body || el === document.documentElement) return;
-      if(on){
-        el.style.outline = '1.5px dashed #0D99FF';
-        el.style.outlineOffset = '1px';
-        touched.push(el);
-      }else{
+      // 普通悬停不画框；保留清理入口，兼容旧页面的残余样式。
+      if(!on && el.style){
         el.style.outline = '';
         el.style.outlineOffset = '';
       }
@@ -4023,7 +4204,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(!el) return false;
       var cls = el.className || '';
       var clsStr = typeof cls === 'string' ? cls : (el.getAttribute ? (el.getAttribute('class') || '') : '');
-      if(/wf-vector-icon|wf-brand-logo|wf-qrcode-card|wf-barcode-card|wf-vector-shape/i.test(clsStr)){
+      if(/wf-vector-icon|wf-brand-logo|wf-qrcode-card|wf-barcode-card|wf-vector-shape|wf-message/i.test(clsStr)){
         return true;
       }
       if(el.hasAttribute && (el.hasAttribute('data-wf-vector') || el.hasAttribute('data-wf-atomic'))){
@@ -4054,7 +4235,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
 
       // 1. 优先查找当前点击是否位于某个顶级插入组件或复合模块内部
-      var compRoot = t.closest ? t.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-card, .wf-box, .wf-container, .wf-ios-app-item, .wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-tab-bar, .wf-modal, .wf-nav, .wf-switch-row, .wf-search-bar') : null;
+      var compRoot = t.closest ? t.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-card, .wf-product-card, .wf-task-list, .wf-settings-list, .wf-inventory-tile, .wf-box, .wf-container, .wf-ios-app-item, .wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-tab-bar, .wf-modal, .wf-nav, .wf-switch-row, .wf-search-bar, .wf-message') : null;
 
       // 如果点击的目标位于某个复合组件内：
       if(compRoot && compRoot !== document.body && compRoot !== document.documentElement){
@@ -4213,6 +4394,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             fontStyle: textCs.fontStyle === 'italic' || textCs.fontStyle === 'oblique' ? 'italic' : 'normal',
             textAlign: align === 'center' || align === 'right' ? align : 'left',
             underline: String(deco).indexOf('underline') >= 0,
+            strikethrough: String(deco).indexOf('line-through') >= 0,
+            writingMode: textCs.writingMode || 'horizontal-tb',
             textColor: rgbToHex(textCs.color || '') || '#0f172a',
             isImage: isImg,
             imgSrc: imgSrc,
@@ -4319,13 +4502,28 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         return true;
       }
       if(key === 'textDecoration'){
-        node.style.textDecoration = value === 'underline' ? 'underline' : 'none';
+        var deco = String(value || '').trim();
+        if(deco === 'underline' || deco === 'line-through' || deco === 'underline line-through'){
+          node.style.textDecoration = deco;
+        } else {
+          node.style.textDecoration = 'none';
+        }
         return true;
       }
       if(key === 'textAlign'){
         var align = 'left';
         if(value === 'center' || value === 'right') align = value;
         node.style.textAlign = align;
+        return true;
+      }
+      if(key === 'writingMode'){
+        var mode = value === 'vertical-rl' ? 'vertical-rl' : 'horizontal-tb';
+        node.style.writingMode = mode;
+        if(mode === 'vertical-rl'){
+          node.style.textOrientation = 'mixed';
+        } else {
+          node.style.textOrientation = '';
+        }
         return true;
       }
       if(key === 'fontFamily'){
@@ -4562,6 +4760,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       ensureUid(g);
       selectElement(g, true, false);
       scheduleSave();
+      pushSnapshot();
       publishLayers();
       showToast('已编成「分组 ' + count + '」。单击移动整组，双击再选组里的单个元素');
     }
@@ -4607,6 +4806,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       deselect();
       if(g.parentNode) g.parentNode.removeChild(g);
       scheduleSave();
+      pushSnapshot();
       publishLayers();
       showToast(isComponent ? '已拆开组件' : '已解散分组');
     }
@@ -4622,6 +4822,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       pushSnapshot();
       el.setAttribute('data-wf-name', next);
       scheduleSave();
+      pushSnapshot();
       publishLayers();
     }
 
@@ -4699,6 +4900,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         z += 1;
       }
       scheduleSave();
+      pushSnapshot();
       publishLayers();
       if(selectedEls.length > 1) updateMultiTransformBox();
       else if(selectedEl) updateTransformBox(selectedEl);
@@ -5178,8 +5380,40 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           var prevSuppress = suppressSnapshot;
           suppressSnapshot = true;
           try {
+            var savedUids = [];
+            if(selectedEls && selectedEls.length){
+              for(var si = 0; si < selectedEls.length; si++){
+                var elUid = selectedEls[si].getAttribute && (selectedEls[si].getAttribute('data-wf-uid') || selectedEls[si].getAttribute('id'));
+                if(elUid) savedUids.push(elUid);
+              }
+            } else if(selectedEl){
+              var elUid = selectedEl.getAttribute && (selectedEl.getAttribute('data-wf-uid') || selectedEl.getAttribute('id'));
+              if(elUid) savedUids.push(elUid);
+            }
             restoreSnapshot(d.html);
-            deselect();
+            if(savedUids.length > 1){
+              var reEls = [];
+              for(var ri = 0; ri < savedUids.length; ri++){
+                var reEl = document.querySelector('[data-wf-uid="' + savedUids[ri] + '"]') || document.getElementById(savedUids[ri]);
+                if(reEl) reEls.push(reEl);
+              }
+              if(reEls.length > 1){
+                setMultiSelection(reEls);
+              } else if(reEls.length === 1){
+                selectElement(reEls[0]);
+              } else {
+                deselect();
+              }
+            } else if(savedUids.length === 1){
+              var reEl = document.querySelector('[data-wf-uid="' + savedUids[0] + '"]') || document.getElementById(savedUids[0]);
+              if(reEl){
+                selectElement(reEl);
+              } else {
+                deselect();
+              }
+            } else {
+              deselect();
+            }
             clearHover();
             publishLayers();
             scheduleSave();
@@ -5555,6 +5789,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         document.body.style.background = frameColor;
         document.documentElement.style.background = frameColor;
         scheduleSave();
+        pushSnapshot();
         publishFrameFill();
         showToast('画框颜色已保存');
       }else if(d.type === 'wf-query-frame-fill'){
@@ -5602,7 +5837,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             if(selectedEls.length > 1) updateMultiTransformBox();
             else if(selectedEl) updateTransformBox(selectedEl);
             if(selectedEl) notifySelectedElementInfo(selectedEl);
-            if(!d.live) scheduleSave();
+            if(!d.live){
+              scheduleSave();
+              pushSnapshot();
+            }
           }
         }
       }else if(d.type === 'wf-start-text-edit'){
@@ -5713,6 +5951,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         var cur = document.querySelector('.wf-current-asset-target');
         if(!cur && selectedEl) cur = selectedEl;
         if(cur && d.src){
+          var prevAssetTargets = document.querySelectorAll('.wf-current-asset-target');
+          for(var pati = 0; pati < prevAssetTargets.length; pati++) prevAssetTargets[pati].classList.remove('wf-current-asset-target');
           pushSnapshot();
           if(cur.tagName === 'IMG'){
             cur.src = d.src;
@@ -5728,10 +5968,11 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               cur.style.overflow = 'hidden';
             }
           }
-          cur.classList.remove('wf-current-asset-target');
-          scheduleSave();
           if(selectedEl) updateTransformBox(selectedEl);
           notifySelectedElementInfo(cur);
+          publishLayers();
+          scheduleSave();
+          pushSnapshot();
           showToast('素材图片已填入方框');
         }
       }else if(d.type === 'wf-insert-html'){
@@ -5842,6 +6083,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           if(selectedEl === vEl) deselect();
           vEl.parentNode.removeChild(vEl);
           scheduleSave();
+          pushSnapshot();
           publishLayers();
           try { window.parent.postMessage({ type: 'wf-element-deleted', pageId: PAGE_ID, count: 1, items: dInfo ? [dInfo] : [] }, '*'); } catch(e){}
         }
@@ -5866,6 +6108,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           selectElement(newSvg, true);
           publishLayers();
           scheduleSave();
+          pushSnapshot();
           showToast('矢量图形已更新并保存');
         }
       }else if(d.type === 'wf-insert-vector-shapes'){
@@ -5905,6 +6148,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           }
           publishLayers();
           scheduleSave();
+          pushSnapshot();
           if(shapes.length > 1) showToast('已拆分为多个独立矢量图形');
         }
       }
@@ -5919,7 +6163,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(selectedEl && (t === selectedEl || (selectedEl.contains && selectedEl.contains(t)))) return;
       if(hovered && hovered !== t) outline(hovered, false);
       hovered = t;
-      outline(hovered, true);
     }, true);
 
     document.addEventListener('mouseout', function(e){
@@ -5932,6 +6175,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     // 交互连线：鼠标停在组件上时，把这块的位置报给画布，用来画右侧蓝点
     function pickHotspotEl(node){
       if(!node) return null;
+      var segment=window.__wfPickTabSegment && window.__wfPickTabSegment(node);
+      if(segment) return segment;
       var el = node;
 
       // 1. 如果鼠标落在了选中框（#wf-transform-box）或其边框、把手、尺寸徽章上，穿透直接识别为当前选中的元素
@@ -5997,40 +6242,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
       return control || card;
     }
-    var hotspotRaf = 0;
-    var hotspotNode = null;
-    document.addEventListener('mousemove', function(e){
-      if(!PROTO_HOTSPOT) return;
-      hotspotNode = e.target;
-      if(hotspotRaf) return;
-      hotspotRaf = requestAnimationFrame(function(){
-        hotspotRaf = 0;
-        if(!PROTO_HOTSPOT) return;
-        var el = pickHotspotEl(hotspotNode);
-        if(!el){
-          try { parent.postMessage({ type: 'wf-hotspot-clear', pageId: PAGE_ID }, '*'); } catch(err) {}
-          return;
-        }
-        var r = el.getBoundingClientRect();
-        var raw = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('alt') || '').replace(/\s+/g, ' ').trim();
-        try {
-          parent.postMessage({
-            type: 'wf-hotspot',
-            pageId: PAGE_ID,
-            x: Math.round(r.left + (window.scrollX || 0)),
-            y: Math.round(r.top + (window.scrollY || 0)),
-            w: Math.round(r.width),
-            h: Math.round(r.height),
-            label: raw.slice(0, 24),
-            uid: ensureUid(el)
-          }, '*');
-        } catch(err) {}
-      });
-    }, true);
-    document.documentElement.addEventListener('mouseleave', function(){
-      if(!PROTO_HOTSPOT) return;
-      try { parent.postMessage({ type: 'wf-hotspot-clear', pageId: PAGE_ID }, '*'); } catch(err) {}
-    });
+    window.__wfGetSelectedEl = function(){ return (selectedEl && selectedEl.isConnected) ? selectedEl : null; };
+    window.__wfCustomPickHotspot = pickHotspotEl;
 
     // 双击任意元素深入选中并激活对应编辑（文字打字、图片替换、矢量图形编辑）
     document.addEventListener('dblclick', function(e){
@@ -6379,7 +6592,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(e.button === 0){
         try { parent.postMessage({ type: 'wf-frame-focus', pageId: PAGE_ID }, '*'); } catch(err) {}
       }
-      if(document.body.classList.contains('wf-interactive')) return;
+      if(PROTO_HOTSPOT || document.body.classList.contains('wf-interactive')) return;
       var handle = e.target.closest ? e.target.closest('.wf-handle') : null;
       if(handle && (selectedEl || selectedEls.length > 0)){
         var handleLocked = false;
@@ -6523,10 +6736,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
 
       var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-vector-icon,.wf-brand-logo,.wf-vector-shape,[data-wf-vector],.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
-      if((!EDIT && !isInserted) || READONLY) return;
+      if((!EDIT && !isInserted) || READONLY || PROTO_HOTSPOT) return;
 
       if(!EDIT && isInserted){
-        if(READONLY) return;
+        if(READONLY || PROTO_HOTSPOT) return;
         EDIT = true;
         document.body.classList.add('wf-edit-mode');
         parent.postMessage({ type: 'wf-request-edit' }, '*');
@@ -6595,7 +6808,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       var t = e.target;
       var hit = t ? (resolveTargetElement(t, e) || null) : null;
       if(hit && hit !== document.body && hit !== document.documentElement && !isLayerLocked(hit)){
-        if(!EDIT){
+        if(!EDIT && !PROTO_HOTSPOT){
           EDIT = true;
           document.body.classList.add('wf-edit-mode');
           try { parent.postMessage({ type: 'wf-request-edit' }, '*'); } catch(err){}
@@ -7312,6 +7525,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           updateTransformBox(selectedEl);
           notifySelectedElementInfo(selectedEl);
           scheduleSave();
+          pushSnapshot();
           showToast('已调整字号: ' + newSize + 'px');
           return;
         }
@@ -7430,10 +7644,10 @@ async function onUploadAssetFile(e: Event) {
 }
 
 function selectAsset(asset: AssetItem) {
-  htmlFrameRef.value?.contentWindow?.postMessage({
+  postToFrame({
     type: 'wf-replace-asset',
     src: getFileUrl(asset.url),
-  }, '*')
+  })
   showAssetPicker.value = false
 }
 
@@ -8196,7 +8410,7 @@ function captureSelectionAsComponent(): Promise<{ html?: string; width?: number;
 }
 
 function postToFrame(payload: Record<string, unknown>) {
-  if (!hasLoadedEditorState && props.editMode && !props.readOnly) {
+  if (!hasLoadedEditorState && !props.readOnly) {
     hydrateEditorInFrame()
   }
   const uid = (payload.uid as string) || focusedLayerUid.value
@@ -8256,7 +8470,7 @@ function deleteSelectedElement(uids?: string[]) {
 }
 
 function openAssetPickerForSelected() {
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-open-asset-picker' }, '*')
+  postToFrame({ type: 'wf-open-asset-picker' })
 }
 
 function updateElementPosition(key: 'x' | 'y', val: number, uid?: string, uids: string[] = []) {
@@ -8298,6 +8512,7 @@ function restoreSnapshotInFrame(snapshot: string, saveEpoch?: number) {
 
 // 暴露尺寸与热区提示及组件插入/复制/粘贴/样式修改方法，供父组件调用
 defineExpose({
+  htmlFrameRef,
   restoreSnapshot: restoreSnapshotInFrame,
   hydrateEditor: hydrateEditorInFrame,
   unloadEditor: unloadEditorInFrame,

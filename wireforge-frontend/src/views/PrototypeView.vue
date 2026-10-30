@@ -275,6 +275,19 @@
                 : 'hover:bg-slate-50 dark:hover:bg-[#2c2c2c]/60 border-transparent text-slate-700 dark:text-slate-300'"
               @click="focusPage(p.id, true)"
             >
+              <!-- Checkbox for re-analyzing/selecting page -->
+              <input
+                type="checkbox"
+                :checked="regenChecked.has(p.id)"
+                class="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 dark:border-[#484848] dark:bg-[#1e1e1e] focus:ring-0 cursor-pointer shrink-0"
+                :title="regenChecked.has(p.id) ? '取消勾选此画板' : '勾选此画板进行重新识别'"
+                @change.stop="(e: any) => {
+                  if (e.target.checked) regenChecked.add(p.id);
+                  else regenChecked.delete(p.id);
+                  regenChecked = new Set(regenChecked);
+                }"
+                @click.stop
+              />
               <!-- Thumbnail -->
               <div
                 class="relative w-9 h-12 rounded-lg bg-slate-100 dark:bg-[#1e1e1e] overflow-hidden border border-slate-200/80 dark:border-[#383838] shrink-0 flex items-center justify-center shadow-2xs"
@@ -453,6 +466,14 @@
             <span v-else-if="activeDrawTool === 'pen'">
               钢笔绘制模式：点击落点，按住拖拽出对称控制手柄，靠近起点闭合，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Enter</kbd> 完成
             </span>
+            <span v-else-if="activeDrawTool === 'frame'">
+              <template v-if="pendingFramePreset">
+                放置预设画板「<strong>{{ pendingFramePreset.name }}</strong>」({{ pendingFramePreset.width }}×{{ pendingFramePreset.height }})：点击画布任意位置放置，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 取消
+              </template>
+              <template v-else>
+                画板框架模式：在画布空白处点击放置默认画板，或拖拽拉出自定义大小，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 取消
+              </template>
+            </span>
             <span v-else>
               正在绘制{{ currentToolName }}：按住鼠标左键拖拽自由画出尺寸，或点击放置，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 取消
             </span>
@@ -510,26 +531,25 @@
 
               <!-- Block Header Capsule Floating Label -->
               <div
-                class="block-label absolute -top-9 left-0 inline-flex items-center gap-2 px-3 py-1.5 bg-white/90 dark:bg-[#2c2c2c]/95 backdrop-blur-md border border-slate-200/85 dark:border-[#383838] rounded-xl shadow-xs text-xs font-bold text-slate-800 dark:text-slate-100 hover:border-emerald-300 dark:hover:border-[#0D99FF] hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:shadow-md transition-all cursor-default"
+                class="block-label absolute -top-9 left-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 dark:bg-[#2c2c2c]/95 backdrop-blur-md border border-slate-200/85 dark:border-[#383838] rounded-xl shadow-xs text-xs font-bold text-slate-800 dark:text-slate-100 hover:border-emerald-300 dark:hover:border-[#0D99FF] hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:shadow-md transition-all cursor-default whitespace-nowrap select-none"
                 @mousedown.stop="onBlockDragStart($event, b)"
                 @contextmenu.prevent.stop="openLayerContextMenu($event.clientX, $event.clientY, undefined, undefined, b.page.id)"
               >
                 <input
-                  v-if="b.page.html_content"
                   type="checkbox"
                   :checked="regenChecked.has(b.page.id)"
-                  class="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 dark:border-[#484848] dark:bg-[#1e1e1e] focus:ring-0 mr-0.5 cursor-pointer"
+                  class="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 dark:border-[#484848] dark:bg-[#1e1e1e] focus:ring-0 mr-0.5 cursor-pointer shrink-0"
                   @change="(e: any) => { if (e.target.checked) regenChecked.add(b.page.id); else regenChecked.delete(b.page.id); regenChecked = new Set(regenChecked) }"
                   @click.stop
                   @mousedown.stop
                 />
-                <GripVertical class="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />
-                <span class="cursor-pointer hover:underline truncate max-w-[170px]" title="点选画板，按住 Shift / Ctrl 可多选" @click.stop="onPageBlockClick($event, b)">{{ b.title }}</span>
+                <GripVertical class="w-3.5 h-3.5 text-slate-400 dark:text-slate-400 shrink-0" />
+                <span class="cursor-pointer hover:underline truncate max-w-[150px] shrink min-w-0" title="点选画板，按住 Shift / Ctrl 可多选" @click.stop="onPageBlockClick($event, b)">{{ b.title }}</span>
 
                 <!-- 独占锁定徽标：他人正在微调此页 -->
                 <span
                   v-if="pageEditingConflicts[b.page.id]?.conflict"
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700/60 text-[10px] font-semibold select-none shrink-0"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700/60 text-[10px] font-semibold select-none shrink-0 whitespace-nowrap"
                   :title="`${pageEditingConflicts[b.page.id]?.editor || '其他成员'} 正在独占微调此页面，已被锁定保护`"
                 >
                   <Lock class="w-3 h-3 text-rose-500 dark:text-rose-400 shrink-0" />
@@ -538,15 +558,15 @@
 
                 <!-- 本地微调徽标：当前正独占微调此页 -->
                 <span
-                  v-else-if="fineTune && mode === 'edit' && activeEditingPageId === b.page.id"
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 text-[10px] font-semibold select-none shrink-0 animate-pulse"
+                  v-else-if="workbenchMode !== 'interactive' && fineTune && mode === 'edit' && activeEditingPageId === b.page.id"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 text-[10px] font-semibold select-none shrink-0 whitespace-nowrap animate-pulse"
                 >
                   <SlidersHorizontal class="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <span>微调中</span>
                 </span>
 
                 <button
-                  class="wf-tap ml-0.5 p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:bg-slate-100 dark:hover:bg-[#383838] transition-colors cursor-pointer"
+                  class="wf-tap ml-0.5 p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:bg-slate-100 dark:hover:bg-[#383838] transition-colors cursor-pointer shrink-0"
                   title="聚焦当前画板"
                   @click.stop="focusPage(b.page.id, true)"
                   @mousedown.stop
@@ -555,18 +575,29 @@
                 </button>
                 <button
                   v-if="!b.page.html_content && b.page.background_image"
-                  class="wf-tap px-2 py-0.5 rounded-lg text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/80 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-700/60 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                  class="wf-tap px-2 py-0.5 rounded-lg text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/80 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-700/60 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
                   :class="{ 'animate-pulse pointer-events-none': regeneratingIds.has(b.page.id) }"
                   title="为设计稿生成独立原型图（放置在右侧）"
                   @click.stop="onGeneratePrototypeForDesign(b, $event)"
                   @mousedown.stop
                 >
-                  <Sparkles class="w-3 h-3 text-emerald-600 dark:text-emerald-400" :class="{ 'animate-spin': regeneratingIds.has(b.page.id) }" />
-                  <span>生成原型图</span>
+                  <Sparkles class="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" :class="{ 'animate-spin': regeneratingIds.has(b.page.id) }" />
+                  <span class="whitespace-nowrap">生成原型图</span>
+                </button>
+                <button
+                  v-else-if="b.page.background_image"
+                  class="wf-tap px-2 py-0.5 rounded-lg text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/80 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-700/60 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
+                  :class="{ 'animate-pulse pointer-events-none': isReanalyzing && regenChecked.has(b.page.id) }"
+                  title="调用 AI 重新深度识别此设计稿画板"
+                  @click.stop="onReanalyzePage(b.page.id)"
+                  @mousedown.stop
+                >
+                  <Sparkles class="w-3 h-3 text-teal-600 dark:text-teal-400 shrink-0" :class="{ 'animate-spin': isReanalyzing && regenChecked.has(b.page.id) }" />
+                  <span class="whitespace-nowrap">重新识别</span>
                 </button>
                 <button
                   v-if="!isViewer"
-                  class="wf-tap p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
+                  class="wf-tap p-1 rounded-md text-slate-400 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer shrink-0"
                   title="删除此画板 (Delete / Backspace)"
                   @click.stop="confirmDeletePage(b.page)"
                   @mousedown.stop
@@ -588,11 +619,11 @@
                 :hovered-element-id="hoveredElementId"
                 :hovered-ann-id="hoveredAnnId"
                 :show-design="true"
-                :edit-mode="activeEditingPageId === b.page.id && !isViewer && !pageEditingConflicts[b.page.id]?.conflict"
+                :edit-mode="workbenchMode !== 'interactive' && activeEditingPageId === b.page.id && !isViewer && !pageEditingConflicts[b.page.id]?.conflict"
                 :load-editor="pagesWithEditor.includes(b.page.id)"
                 :read-only="isViewer"
                 :interactive="false"
-                :locked-by-other="fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
+                :locked-by-other="workbenchMode !== 'interactive' && fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
                 :custom-orders="pageAnnOrders"
                 :custom-titles="customTitles"
                 :box-w="220"
@@ -639,7 +670,7 @@
               <div v-if="isSpacePressed || activeDrawTool === 'hand'" class="canvas-pan-surface absolute inset-0 z-[170] cursor-grab" aria-hidden="true" />
 
               <div
-                v-if="activeDrawTool === 'select' && frameSelectionModifier && !(selectedNodeKey === b.key && hasSelectedDomElements)"
+                v-if="workbenchMode !== 'interactive' && activeDrawTool === 'select' && frameSelectionModifier && !(selectedNodeKey === b.key && hasSelectedDomElements)"
                 class="frame-select-surface absolute inset-0 z-[150] cursor-default"
                 title="Shift / Ctrl 点选多个画板"
                 @mousedown.stop.prevent
@@ -648,7 +679,7 @@
 
               <!-- 移到原型里的组件上：右侧先是蓝点，移上去变成加号，按住拖到别的画板 -->
               <div
-                v-if="workbenchMode === 'interactive' && liveHotspot && liveHotspot.blockKey === b.key"
+                v-if="workbenchMode === 'interactive' && !isBlockDragging && liveHotspot && liveHotspot.blockKey === b.key"
                 class="pointer-events-none absolute z-[60]"
                 :style="{
                   left: `${liveHotspot.x}px`,
@@ -1037,7 +1068,7 @@
             }"
           >
             <div class="absolute -top-7 left-0 px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold shadow-md flex items-center gap-1">
-              <span>画板 {{ Math.round(activeFrameDraw.width) }} × {{ Math.round(activeFrameDraw.height) }}</span>
+              <span>{{ pendingFramePreset ? pendingFramePreset.name : "画板" }} {{ Math.round(activeFrameDraw.width) }} × {{ Math.round(activeFrameDraw.height) }}</span>
             </div>
           </div>
 
@@ -2075,6 +2106,16 @@
         @mousedown.stop
         @contextmenu.prevent
       >
+        <button
+          v-if="backgroundReturnPage"
+          type="button"
+          class="w-full min-h-8 px-2.5 py-1 flex items-center rounded text-left text-white/90 hover:bg-[#0D99FF] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+          :disabled="isViewer || savingBackgroundReturn || pageEditingConflicts[backgroundReturnPage.id]?.conflict"
+          @click="toggleBackgroundReturn"
+        >
+          {{ backgroundReturnEnabled(backgroundReturnPage) ? '取消空白处点击返回' : '空白处点击 → 返回上一页' }}
+        </button>
+        <div v-if="backgroundReturnPage" class="my-1 border-t border-white/10"></div>
         <!-- 1. 复制 (Copy) -->
         <button
           type="button"
@@ -2581,6 +2622,7 @@ import VectorDrawOverlay from '../components/VectorDrawOverlay.vue'
 import type { VectorPathData, VectorPoint } from '../utils/vectorEngine'
 import { scalePointsAndHandles } from '../utils/vectorEngine'
 import { findInteractionByDomUids, hitInteractionElement, findElementAt, interactionDomUid, resolveNavigateElement } from '../utils/interactionHit'
+import { backgroundReturnEnabled } from '../utils/backgroundReturn'
 
 // ===== 飞书登录、成员管理与操作审计日志状态 =====
 const isFeishuModalOpen = ref(false)
@@ -2758,6 +2800,17 @@ interface FrameDrawState {
   height: number
 }
 const activeFrameDraw = ref<FrameDrawState | null>(null)
+interface FramePreset {
+  name: string
+  width: number
+  height: number
+}
+const pendingFramePreset = ref<FramePreset | null>(null)
+watch(activeDrawTool, (newTool) => {
+  if (newTool !== 'frame') {
+    pendingFramePreset.value = null
+  }
+})
 
 // ===== Figma 评论系统状态与交互管理 =====
 const comments = ref<CommentThread[]>([])
@@ -3086,6 +3139,11 @@ function setWorkbenchMode(m: 'design' | 'interactive') {
   }
   workbenchMode.value = m
   if (m === 'interactive') {
+    activeSelectedElementInfo.value = null
+    selectedDomLayerUid.value = null
+    selectedDomLayerUids.value = []
+  }
+  if (m === 'interactive') {
     if (!activeInteractionPageId.value || !pages.value.some((p) => p.id === activeInteractionPageId.value)) {
       activeInteractionPageId.value = focusPageId.value || selectedNodeId.value || pages.value[0]?.id || null
     }
@@ -3194,7 +3252,16 @@ function onPageBlockClick(e: MouseEvent, b: any) {
     const blockW = (b.page.canvas_width || 375) + 16
     const nextX = b.x + blockW + 120
     const nextY = b.y
-    handleCreateFrameOnCanvas(nextX, nextY)
+    const preset = pendingFramePreset.value
+    pendingFramePreset.value = null
+    const finalW = preset ? preset.width : 375
+    const finalH = preset ? preset.height : 812
+    const finalName = preset ? `${preset.name} ${pages.value.length + 1}` : `画板 ${pages.value.length + 1}`
+    handleCreateFrameOnCanvas(nextX, nextY, {
+      name: finalName,
+      width: finalW,
+      height: finalH,
+    })
     return
   }
   if (activeDrawTool.value === 'pen' || activeDrawTool.value === 'pencil') {
@@ -4013,8 +4080,19 @@ function onArtboardDrawMouseUp(e: MouseEvent) {
       targetSnippet = `<div class="wf-text" style="display: block; width: ${w}px; min-height: ${Math.max(24, h)}px; font-size: 16px; font-weight: 500; color: #1e293b; line-height: 1.4; outline: none; cursor: text;">文本</div>`
     }
   } else if (tool === 'frame') {
-    handleCreateFramePreset()
-    activeDrawTool.value = 'select'
+    const preset = pendingFramePreset.value
+    pendingFramePreset.value = null
+    const finalW = preset ? preset.width : 375
+    const finalH = preset ? preset.height : 812
+    const finalName = preset ? `${preset.name} ${pages.value.length + 1}` : `画板 ${pages.value.length + 1}`
+    const blockW = (b.page.canvas_width || 375) + 16
+    const nextX = b.x + blockW + 120
+    const nextY = b.y
+    handleCreateFrameOnCanvas(nextX, nextY, {
+      name: finalName,
+      width: finalW,
+      height: finalH,
+    })
     return
   }
 
@@ -4072,13 +4150,20 @@ function startFrameDraw(logicX: number, logicY: number) {
     const w = Math.round(s.width)
     const h = Math.round(s.height)
     const isClick = w < 20 && h < 20
-    const finalW = isClick ? 375 : Math.max(120, w)
-    const finalH = isClick ? 812 : Math.max(120, h)
+
+    const preset = pendingFramePreset.value
+    pendingFramePreset.value = null
+
+    const finalW = isClick ? (preset?.width || 375) : Math.max(120, w)
+    const finalH = isClick ? (preset?.height || 812) : Math.max(120, h)
     const finalX = isClick ? s.startX : s.left
     const finalY = isClick ? s.startY : s.top
+    const finalName = preset
+      ? `${preset.name} ${pages.value.length + 1}`
+      : `画板 ${pages.value.length + 1}`
 
     await handleCreateFrameOnCanvas(finalX, finalY, {
-      name: `画板 ${pages.value.length + 1}`,
+      name: finalName,
       width: finalW,
       height: finalH,
     })
@@ -4162,31 +4247,28 @@ async function doCreatePage(params: { name: string; width: number; height: numbe
   }
 }
 
-async function handleCreateFramePreset(preset?: { name: string; width: number; height: number }) {
+function handleCreateFramePreset(preset?: { name: string; width: number; height: number }) {
   if (isViewer.value) {
     ElMessage.warning('只读评审模式下画板已锁定保护，无法新建画板')
     return
   }
-  const pName = preset?.name || '新画板'
-  const pWidth = preset?.width || 375
-  const pHeight = preset?.height || 812
-
-  // 智能计算新画板在无限画布上的位置：放置在已有最右侧画板的右侧
-  let posX = 56
-  let posY = 64
-  if (blocks.value.length > 0) {
-    const rightmost = blocks.value.reduce((max, b) => Math.max(max, b.x + b.w), 0)
-    posX = rightmost + 120
-    posY = blocks.value[0]?.y || 64
+  if (!preset) {
+    pendingFramePreset.value = null
+    activeDrawTool.value = 'frame'
+    showToast('已激活「画板框架 (F)」工具：点击画布任意空白处即可生成新画板，或按 Esc 取消')
+    return
   }
+  const pName = preset.name || '新画板'
+  const pWidth = preset.width || 375
+  const pHeight = preset.height || 812
 
-  await doCreatePage({
+  pendingFramePreset.value = {
     name: pName,
     width: pWidth,
     height: pHeight,
-    x: posX,
-    y: posY,
-  })
+  }
+  activeDrawTool.value = 'frame'
+  showToast(`已选择「${pName}」(${pWidth}×${pHeight})：请在画布任意位置点击决定放置位置，按 Esc 键取消`)
 }
 
 async function handleCreateFrameOnCanvas(logicX: number, logicY: number, preset?: { name: string; width: number; height: number }) {
@@ -4704,11 +4786,16 @@ function handleBottomToolChange(tool: string) {
   if (['select', 'frame', 'rect', 'circle', 'container', 'line', 'pen', 'pencil', 'text'].includes(tool)) {
     activeDrawTool.value = tool as ActiveToolType
     if (tool === 'frame') {
-      showToast('已激活「画板框架 (F)」工具：点击画布任意空白处即可生成新画板，或按 Esc 取消')
-    } else if (tool === 'pencil') {
-      showToast('已激活「铅笔 (Shift+P)」手绘涂鸦工具：按住鼠标拖拽手绘自由线条')
-    } else if (tool !== 'select') {
-      showToast(`已激活「${toolNames[tool] || tool}」绘制工具：点击画板任意位置放置，按 Esc 键取消`)
+      if (!pendingFramePreset.value) {
+        showToast('已激活「画板框架 (F)」工具：点击画布任意空白处即可生成新画板，或按 Esc 取消')
+      }
+    } else {
+      pendingFramePreset.value = null
+      if (tool === 'pencil') {
+        showToast('已激活「铅笔 (Shift+P)」手绘涂鸦工具：按住鼠标拖拽手绘自由线条')
+      } else if (tool !== 'select') {
+        showToast(`已激活「${toolNames[tool] || tool}」绘制工具：点击画板任意位置放置，按 Esc 键取消`)
+      }
     }
   }
 }
@@ -4758,15 +4845,13 @@ const regeneratingIds = ref<Set<number>>(new Set())
 const aiGlowOrigin = ref<HTMLElement | null>(null)
 const regenChecked = ref<Set<number>>(new Set())
 const regenAll = computed(() => {
-  const regenable = pages.value.filter((p) => p.html_content).map((p) => p.id)
-  return regenable.length > 0 && regenable.every((id) => regenChecked.value.has(id))
+  return pages.value.length > 0 && pages.value.every((p) => regenChecked.value.has(p.id))
 })
 function toggleRegenAll() {
-  const regenable = pages.value.filter((p) => p.html_content).map((p) => p.id)
   if (regenAll.value) {
-    regenable.forEach((id) => regenChecked.value.delete(id))
+    pages.value.forEach((p) => regenChecked.value.delete(p.id))
   } else {
-    regenable.forEach((id) => regenChecked.value.add(id))
+    pages.value.forEach((p) => regenChecked.value.add(p.id))
   }
   regenChecked.value = new Set(regenChecked.value)
 }
@@ -5340,13 +5425,17 @@ function applyHtmlToPage(pageId: number, snapshot: string) {
 
   // 3. 这一页正开着：仍发 wf-restore-snapshot 原地换画面，带上新的 saveEpoch
   const inst = pageRefs.value[pageId] as any
-  const frame = (inst?.htmlFrameRef as HTMLIFrameElement | undefined) || iframeForPage(pageId)
-  if (frame && frame.contentWindow) {
-    frame.contentWindow.postMessage({
-      type: 'wf-restore-snapshot',
-      html: snapshot,
-      saveEpoch: newEpoch,
-    }, '*')
+  if (inst && typeof inst.restoreSnapshot === 'function') {
+    inst.restoreSnapshot(snapshot, newEpoch)
+  } else {
+    const frame = (inst?.htmlFrameRef as HTMLIFrameElement | undefined) || iframeForPage(pageId)
+    if (frame && frame.contentWindow) {
+      frame.contentWindow.postMessage({
+        type: 'wf-restore-snapshot',
+        html: snapshot,
+        saveEpoch: newEpoch,
+      }, '*')
+    }
   }
 
   // 4. 同时用新世代调用 onSaveHtml 把退回后的内容存上（这次保存不入栈、不记新快照）
@@ -6411,6 +6500,10 @@ function onInteractiveElementDblClick(b: any, el: Element) {
 function startLiveHotspotDrag(event: MouseEvent, b: any) {
   const hs = liveHotspot.value
   if (!hs || hs.blockKey !== b.key) return
+  if (isViewer.value) {
+    ElMessage.warning('只读评审模式下画板已锁定保护，无法建立交互连线')
+    return
+  }
   flowHandleArmed.value = true
   const box = { x: hs.x, y: hs.y, w: hs.w, h: hs.h }
   const matched = hs.uid
@@ -6923,6 +7016,7 @@ function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
       blockRafId = null
     }
     if (!moved) return
+    liveHotspot.value = null
     suppressBlockClick = true
     setTimeout(() => (suppressBlockClick = false), 0)
     const patch: Record<string | number, { x: number; y: number }> = {}
@@ -8082,6 +8176,32 @@ const layerMenu = ref<{
   pageId?: number
 } | null>(null)
 const layerMenuRef = ref<HTMLElement | null>(null)
+const savingBackgroundReturn = ref(false)
+const backgroundReturnPage = computed(() => {
+  const pageId = layerMenu.value?.pageId ?? focusPageId.value
+  return pages.value.find(page => page.id === pageId) || null
+})
+
+async function toggleBackgroundReturn() {
+  const page = backgroundReturnPage.value
+  if (!page || isViewer.value || savingBackgroundReturn.value) return
+  if (pageEditingConflicts.value[page.id]?.conflict) {
+    ElMessage.warning('其他成员正在编辑此页面，请稍后设置')
+    return
+  }
+  const enabled = !backgroundReturnEnabled(page)
+  closeLayerContextMenu()
+  savingBackgroundReturn.value = true
+  try {
+    await projectApi.setBackgroundReturn(id, page.id, enabled, clientId.value)
+    await loadData()
+    showToast(enabled ? '已设置：点击页面空白处返回上一页，重新识别后仍保留' : '已取消空白处点击返回')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '保存背景返回设置失败')
+  } finally {
+    savingBackgroundReturn.value = false
+  }
+}
 
 const activeSubmenu = ref<'copy_paste_as' | 'plugins' | null>(null)
 const activeCodeSubmenu = ref<boolean>(false)
@@ -8177,7 +8297,7 @@ function openLayerContextMenu(x: number, y: number, localX?: number, localY?: nu
     showFrameFill(pageId)
   }
   const menuW = 220
-  const menuH = 340
+  const menuH = 380
   const left = Math.max(8, Math.min(x, window.innerWidth - menuW - 8))
   const top = Math.max(8, Math.min(y, window.innerHeight - menuH - 8))
   layerMenu.value = { x: left, y: top, localX, localY, pageId }
@@ -9743,12 +9863,13 @@ async function onGlobalKeydown(e: KeyboardEvent) {
 
   // 1. ESC：优先退出绘制工具；仅在已是选择工具时才清空画板多选
   if (e.key === 'Escape') {
-    if (activeDrawTool.value !== 'select' || activeShapeDraw.value || activeFrameDraw.value) {
+    if (activeDrawTool.value !== 'select' || activeShapeDraw.value || activeFrameDraw.value || pendingFramePreset.value) {
       e.preventDefault()
       activeShapeDraw.value = null
       activeFrameDraw.value = null
+      pendingFramePreset.value = null
       activeDrawTool.value = 'select'
-      showToast('已取消绘制模式')
+      showToast('已取消放置')
       return
     }
     if (selectedBlockKeys.value.size > 0) {
@@ -9832,6 +9953,7 @@ async function onGlobalKeydown(e: KeyboardEvent) {
       return
     } else if (key === 'F') {
       e.preventDefault()
+      pendingFramePreset.value = null
       activeDrawTool.value = 'frame'
       showToast('已切换至画板框架工具 (F)：点击画布任意位置放置新画板')
       return

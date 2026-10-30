@@ -83,19 +83,6 @@
         class="phone-screen relative w-[375px] bg-black overflow-hidden rounded-[44px]"
         :style="{ height: `${screenHeight}px` }"
       >
-        <div class="ios-status-bar absolute top-0 left-0 right-0 h-12 z-40 flex items-center justify-between px-7 text-white pointer-events-none select-none">
-          <span class="text-[14px] font-semibold tracking-tight tabular-nums pl-1 drop-shadow-sm">
-            {{ currentTime }}
-          </span>
-          <div class="absolute top-2.5 left-1/2 -translate-x-1/2 w-[122px] h-[34px] rounded-full bg-black flex items-center justify-between px-3 shadow-md">
-            <div class="w-3 h-3 rounded-full bg-slate-950 border border-slate-800/80"></div>
-            <div class="w-2 h-2 rounded-full bg-slate-950/80 border border-slate-900"></div>
-          </div>
-          <div class="flex items-center gap-1.5 pr-1 drop-shadow-sm text-white text-[11px] font-semibold">
-            <span>5G</span>
-          </div>
-        </div>
-
         <div class="absolute inset-0 overflow-hidden bg-white">
           <PageCanvas
             v-if="currentPage"
@@ -121,7 +108,7 @@
 
         <button
           v-if="historyStack.length > 0"
-          class="wf-tap absolute top-14 left-3.5 z-40 w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-lg border border-white/20"
+          class="wf-tap absolute top-3.5 left-3.5 z-40 w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-lg border border-white/20"
           title="返回上一页"
           @click.stop="goBack"
         >
@@ -319,31 +306,17 @@ function resetPreview() {
   }
 }
 
-// 实时时间
-const currentTime = ref('09:41')
-let timer: ReturnType<typeof setInterval> | null = null
-
-function updateTime() {
-  const now = new Date()
-  const h = String(now.getHours()).padStart(2, '0')
-  const m = String(now.getMinutes()).padStart(2, '0')
-  currentTime.value = `${h}:${m}`
-}
-
 function onResize() {
   viewport.value = { w: window.innerWidth, h: window.innerHeight }
   resetToSafePosition()
 }
 
 onMounted(() => {
-  updateTime()
   resetToSafePosition()
-  timer = setInterval(updateTime, 10000)
   window.addEventListener('resize', onResize)
 })
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
   window.removeEventListener('resize', onResize)
   window.removeEventListener('mousemove', onDragging)
   window.removeEventListener('mouseup', stopDrag)

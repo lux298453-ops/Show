@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WireForge 原型工作台 - 全部 14 项全要素属性栏重构方案对比</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    :root {
+      --bg-workbench: #f6f8fb;
+      --bg-header: #ffffff;
+      --bg-panel: #ffffff;
+      --bg-input: #f8fafc;
+      --border-color: #e2e8f0;
+      --border-subtle: #f1f5f9;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-sub: #94a3b8;
+      --accent: #0D99FF;
+      --accent-hover: #0b87e0;
+      --accent-subtle: rgba(13, 153, 255, 0.08);
+      --canvas-bg: #eef2f7;
+      --canvas-grid: #cbd5e1;
+    }
+
+    html.dark {
+      --bg-workbench: #1e1e1e;
+      --bg-header: #2c2c2c;
+      --bg-panel: #252525;
+      --bg-input: #1e1e1e;
+      --border-color: #383838;
+      --border-subtle: #2d2d2d;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-sub: #71717a;
+      --accent: #0D99FF;
+      --accent-hover: #0b87e0;
+      --accent-subtle: rgba(13, 153, 255, 0.15);
+      --canvas-bg: #141518;
+      --canvas-grid: #23252b;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "PingFang SC", sans-serif;
+      background: var(--bg-workbench);
+      color: var(--text-main);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    /* Top switcher banner */
+    .scheme-switcher-bar {
+      background: #090a0f;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 6px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 100;
+      shrink: 0;
+    }
+    .switcher-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .switcher-label span.dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #0D99FF;
+      box-shadow: 0 0 8px #0D99FF;
+    }
+    .scheme-tabs {
+      display: flex;
+      align-items: center;
+      background: #18191f;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .scheme-tab-btn {
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 6px;
+      color: #94a3b8;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .scheme-tab-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .scheme-tab-btn.active {
+      background: #0D99FF;
+      color: #ffffff;
+      box-shadow: 0 2px 6px rgba(13, 153, 255, 0.35);
+    }
+    .scheme-controls-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mini-toggle-btn {
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      background: #18191f;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #cbd5e1;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Workbench Header */
+    .workbench-header {
+      height: 50px;
+      background: var(--bg-header);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      shrink: 0;
+      z-index: 40;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 10px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-main);
+      cursor: pointer;
+    }
+    .project-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .project-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .project-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      background: var(--bg-workbench);
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      border-radius: 4px;
+    }
+
+    /* Main Workbench */
+    .workbench-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Left Sidebar */
+    .sidebar-left {
+      width: 240px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      shrink: 0;
+      z-index: 20;
+    }
+    .left-tabs {
+      padding: 6px 8px;
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-workbench);
+    }
+    .left-tab-btn {
+      flex: 1;
+      padding: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 6px;
+      text-align: center;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      background: transparent;
+    }
+    .left-tab-btn.active {
+      background: var(--bg-panel);
+      color: var(--text-main);
+      border-color: var(--border-color);
+    }
+    .page-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .page-item {
+      padding: 6px 10px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .page-item.active {
+      background: var(--accent-subtle);
+      border: 1px solid rgba(13, 153, 255, 0.25);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* Center Canvas */
+    .canvas-viewport {
+      flex: 1;
+      background: var(--canvas-bg);
+      background-image: radial-gradient(var(--canvas-grid) 1px, transparent 1px);
+      background-size: 20px 20px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .phone-artboard {
+      width: 375px;
+      height: 680px;
+      background: #ffffff;
+      color: #0f172a;
+      border-radius: 36px;
+      box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.4), 0 0 0 10px #22242a;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .phone-status-bar {
+      height: 38px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 700;
+      position: relative;
+      shrink: 0;
+    }
+    .dynamic-island {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90px;
+      height: 22px;
+      background: #000;
+      border-radius: 12px;
+    }
+    .phone-content {
+      flex: 1;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .selected-canvas-box {
+      border: 1.5px solid #0D99FF;
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(13, 153, 255, 0.04);
+      position: relative;
+    }
+    .sel-dimension-badge {
+      position: absolute;
+      bottom: -20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0D99FF;
+      color: #fff;
+      font-size: 9px;
+      font-family: monospace;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+
+    /* RIGHT INSPECTOR SIDEBAR (288px) */
+    .sidebar-right {
+      width: 288px;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      shrink: 0;
+      z-index: 20;
+      overflow-y: auto;
+      font-size: 11px;
+    }
+
+    /* Common Inspector Headers */
+    .outer-tabs-switch {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-workbench);
+      display: flex;
+      gap: 4px;
+    }
+    .outer-tab-btn {
+      flex: 1;
+      padding: 5px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      background: transparent;
+    }
+    .outer-tab-btn.active {
+      background: var(--bg-panel);
+      color: var(--text-main);
+      border-color: var(--border-color);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .zoom-ctrl-row {
+      padding: 5px 10px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-panel);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .zoom-pill {
+      display: flex;
+      align-items: center;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 1px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: monospace;
+      color: var(--text-main);
+    }
+    .zoom-btn {
+      padding: 2px 5px;
+      cursor: pointer;
+      color: var(--text-muted);
+      border: none;
+      background: transparent;
+    }
+
+    .sub-tabs-row {
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-panel);
+      display: flex;
+      gap: 16px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .sub-tab-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      position: relative;
+      padding-bottom: 3px;
+    }
+    .sub-tab-item.active {
+      color: #0D99FF;
+    }
+    .sub-tab-item.active::after {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: #0D99FF;
+      border-radius: 1px;
+    }
+
+    .element-header {
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .element-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .element-tag {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+    }
+
+    .align-strip {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .align-btn {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .align-btn:hover {
+      background: var(--bg-workbench);
+      color: var(--text-main);
+    }
+
+    .sec-block {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .sec-title {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Common reusable inputs & buttons */
+    .std-input {
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      height: 26px;
+      padding: 0 6px;
+      font-size: 11px;
+      font-family: monospace;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .std-btn {
+      height: 24px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-input);
+      font-size: 10.5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-main);
+    }
+    .std-btn.active {
+      background: #0D99FF;
+      border-color: #0D99FF;
+      color: #fff;
+      font-weight: 700;
+    }
+
+    /* Pod card container for Scheme B */
+    .scheme-b-pod {
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 9px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .scheme-b-pod-title {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #0284c7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2px;
+    }
+    html.dark .scheme-b-pod-title {
+      color: #38bdf8;
+    }
+
+    /* Ultra-dense rows for Scheme C */
+    .dense-c-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+    }
+    .dense-c-lbl {
+      width: 44px;
+      font-size: 10px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- TOP SWITCHER -->
+  <div class="scheme-switcher-bar">
+    <div class="switcher-label">
+      <span class="dot"></span>
+      <span>14 项全要素属性栏重构对比（完整包含全部功能与控件）：</span>
+    </div>
+
+    <div class="scheme-tabs">
+      <button class="scheme-tab-btn" onclick="setScheme('original')">原版页面现状 (100% 真实还原)</button>
+      <button class="scheme-tab-btn active" onclick="setScheme('scheme-a')">方案 A · Figma UI3 (全要素推荐)</button>
+      <button class="scheme-tab-btn" onclick="setScheme('scheme-b')">方案 B · 极简卡片流 (全要素)</button>
+      <button class="scheme-tab-btn" onclick="setScheme('scheme-c')">方案 C · 紧凑单行流 (全要素)</button>
+    </div>
+
+    <div class="scheme-controls-right">
+      <button class="mini-toggle-btn" onclick="toggleTheme()">
+        <span id="theme-icon">☀️</span>
+        <span id="theme-text">明亮模式</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- WORKBENCH HEADER -->
+  <header class="workbench-header">
+    <div class="header-left">
+      <button class="btn-back">
+        <span>← 返回项目</span>
+      </button>
+      <div class="project-badge">
+        <span class="project-title">宠物商城移动端与网页端</span>
+        <span class="project-tag">原型画布</span>
+      </div>
+    </div>
+    <div style="font-size:11px; color:#10b981; display:flex; align-items:center; gap:5px;">
+      <span style="width:6px; height:6px; border-radius:50%; background:#10b981;"></span>
+      <span>已实时自动保存</span>
+    </div>
+    <button style="background:#0D99FF; color:#fff; font-size:11px; font-weight:700; padding:5px 12px; border-radius:8px; border:none; cursor:pointer;">
+      ▶ 演示预览
+    </button>
+  </header>
+
+  <!-- WORKBENCH BODY -->
+  <div class="workbench-body">
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar-left">
+      <div class="left-tabs">
+        <button class="left-tab-btn active">图层大纲</button>
+        <button class="left-tab-btn">树状层级</button>
+      </div>
+      <div class="page-list">
+        <div class="page-item active"><span>📱 商城首页 (Mobile)</span><span style="font-size:9px;">#1</span></div>
+        <div class="page-item"><span>📄 商品详情页</span><span style="font-size:9px;">#2</span></div>
+        <div class="page-item"><span>🛒 购物车</span><span style="font-size:9px;">#3</span></div>
+        <div class="page-item"><span>👤 个人中心</span><span style="font-size:9px;">#4</span></div>
+      </div>
+    </aside>
+
+    <!-- CENTER CANVAS -->
+    <main class="canvas-viewport">
+      <div class="phone-artboard">
+        <div class="phone-status-bar">
+          <span>9:41</span>
+          <div class="dynamic-island"></div>
+          <span>5G 100%</span>
+        </div>
+        <div class="phone-content">
+          <div style="height:32px; background:#f1f5f9; border-radius:16px; display:flex; align-items:center; padding:0 12px; font-size:11px; color:#94a3b8;">
+            🔍 搜索萌宠商品、主粮零食...
+          </div>
+          <!-- Selected Element: 典藏 -->
+          <div class="selected-canvas-box">
+            <div class="sel-dimension-badge">30 × 47</div>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <div style="font-size:14px; font-weight:800; color:#0f172a;">典藏</div>
+              <span style="font-size:10px; background:#0D99FF; color:#fff; padding:2px 6px; border-radius:4px;">精品</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT INSPECTOR SIDEBAR (288px) -->
+    <aside class="sidebar-right" id="inspector-content">
+      <!-- Dynamic Inspector injected via JS -->
+    </aside>
+  </div>
+
+  <script>
+    let activeScheme = 'scheme-a';
+    let isDark = false;
+
+    function setScheme(scheme) {
+      activeScheme = scheme;
+      document.querySelectorAll('.scheme-tab-btn').forEach(btn => btn.classList.remove('active'));
+      const map = { 'original': 0, 'scheme-a': 1, 'scheme-b': 2, 'scheme-c': 3 };
+      document.querySelectorAll('.scheme-tab-btn')[map[scheme]].classList.add('active');
+      render();
+    }
+
+    function toggleTheme() {
+      isDark = !isDark;
+      document.documentElement.className = isDark ? 'dark' : 'light';
+      document.getElementById('theme-icon').textContent = isDark ? '🌙' : '☀️';
+      document.getElementById('theme-text').textContent = isDark ? '暗黑模式' : '明亮模式';
+      render();
+    }
+
+    function render() {
+      const el = document.getElementById('inspector-content');
+
+      // Top persistent rows: [ 设计 | 交互 ], [ - 100% + ], [ 属性 | 组件库 ]
+      const commonTop = `
+        <div class="outer-tabs-switch">
+          <button class="outer-tab-btn active">设计</button>
+          <button class="outer-tab-btn">交互</button>
+        </div>
+
+        <div class="zoom-ctrl-row">
+          <div class="zoom-pill">
+            <button class="zoom-btn">−</button>
+            <span style="padding:0 6px;">100%</span>
+            <button class="zoom-btn">+</button>
+          </div>
+          <div style="display:flex; gap:6px; color:var(--text-muted);">
+            <span style="cursor:pointer;" title="定位焦点">🎯</span>
+            <span style="cursor:pointer;" title="自适应画布">⛶</span>
+          </div>
+        </div>
+
+        <div class="sub-tabs-row">
+          <div class="sub-tab-item active">🎛 属性</div>
+          <div class="sub-tab-item">❖ 组件库</div>
+        </div>
+      `;
+
+      if (activeScheme === 'original') {
+        // ========================================================
+        // 0. ORIGINAL LAYOUT (100% Identical to screenshot)
+        // ========================================================
+        el.innerHTML = commonTop + `
+          <!-- 4. 元素标识 -->
+          <div class="element-header">
+            <div class="element-name">
+              <span>⬡ 典藏</span>
+            </div>
+            <span class="element-tag">元素</span>
+          </div>
+
+          <!-- 5. 8大对齐 -->
+          <div class="align-strip">
+            <div class="align-btn">|←</div>
+            <div class="align-btn">-|-</div>
+            <div class="align-btn">→|</div>
+            <div style="width:1px; height:12px; background:var(--border-color);"></div>
+            <div class="align-btn">↑</div>
+            <div class="align-btn">+</div>
+            <div class="align-btn">↓</div>
+            <div style="width:1px; height:12px; background:var(--border-color);"></div>
+            <div class="align-btn">↔</div>
+            <div class="align-btn">↕</div>
+          </div>
+
+          <!-- 6. 布局 -->
+          <div class="sec-block">
+            <div class="sec-title"><span>布局</span></div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+              <div class="std-input"><span style="color:#94a3b8;">X</span> 83</div>
+              <div class="std-input"><span style="color:#94a3b8;">Y</span> 347</div>
+              <div class="std-input"><span style="color:#94a3b8;">W</span> 30</div>
+              <div class="std-input"><span style="color:#94a3b8;">H</span> 47</div>
+            </div>
+          </div>
+
+          <!-- 7. 不透明度 -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>不透明度</span>
+              <span style="font-family:monospace; font-weight:700;">100%</span>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <div class="std-input" style="width:60px;">100 %</div>
+              <div style="flex:1; height:4px; background:var(--border-color); border-radius:2px; position:relative;">
+                <div style="width:100%; height:100%; background:#0D99FF; border-radius:2px;"></div>
+                <div style="width:10px; height:10px; border-radius:50%; background:#0D99FF; position:absolute; right:0; top:-3px;"></div>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:4px;">
+              <div class="std-btn active">100%</div>
+              <div class="std-btn">80%</div>
+              <div class="std-btn">50%</div>
+              <div class="std-btn">20%</div>
+            </div>
+          </div>
+
+          <!-- 8. 圆角 -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>圆角</span>
+              <span style="font-family:monospace; font-weight:700;">999px</span>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <div class="std-input" style="width:80px;"><span style="color:#94a3b8;">⤢</span> 999</div>
+              <div style="display:flex; gap:2px; flex:1;">
+                <div class="std-btn" style="flex:1;">0</div>
+                <div class="std-btn" style="flex:1;">4</div>
+                <div class="std-btn" style="flex:1;">8</div>
+                <div class="std-btn" style="flex:1;">12</div>
+                <div class="std-btn" style="flex:1;">16</div>
+                <div class="std-btn active" style="flex:1;">全</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 9. 描边 -->
+          <div class="sec-block">
+            <div class="sec-title"><span>描边</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+              <div style="display:flex; gap:1px; background:var(--bg-input); border:1px solid var(--border-color); border-radius:6px; padding:1px;">
+                <div style="padding:3px 6px; font-size:10.5px;">无</div>
+                <div style="padding:3px 6px; font-size:10.5px; background:var(--bg-panel); border-radius:4px; color:#0D99FF; font-weight:700;">1px</div>
+                <div style="padding:3px 6px; font-size:10.5px;">2px</div>
+                <div style="padding:3px 6px; font-size:10.5px;">4px</div>
+              </div>
+              <div class="std-input" style="flex:1; font-size:9.5px; justify-content:space-between;">
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <span style="width:12px; height:12px; border:1px solid #ccc; display:inline-block; border-radius:2px;"></span>
+                  <span>RGBA(255, 255, 255, 0.25)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 10. 效果 -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>效果</span>
+              <span style="font-size:14px; font-weight:700; color:#64748b; cursor:pointer;">+</span>
+            </div>
+            <div style="color:#94a3b8; font-size:11px;">还没有效果</div>
+          </div>
+
+          <!-- 11. 填充 -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>填充</span>
+              <span style="font-size:10px; color:#0D99FF; cursor:pointer;">◰ 替换素材图片</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-input); border:1px solid var(--border-color); border-radius:6px; padding:4px 8px;">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <div style="width:16px; height:16px; border-radius:3px; background:#CC7ECD;"></div>
+                <span style="font-family:monospace; font-weight:700;">#CC7ECD</span>
+              </div>
+              <div style="display:flex; gap:3px;">
+                <div style="width:12px; height:12px; border-radius:2px; background:#0D99FF;"></div>
+                <div style="width:12px; height:12px; border-radius:2px; background:#10b981;"></div>
+                <div style="width:12px; height:12px; border-radius:2px; background:#f97316;"></div>
+                <div style="width:12px; height:12px; border-radius:2px; background:#64748b;"></div>
+                <div style="width:12px; height:12px; border-radius:2px; background:#ffffff; border:1px solid #ccc;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 12. 媒体素材 -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>媒体素材</span>
+              <span style="color:#10b981; font-size:10px; font-weight:600;">• 已设图片</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-input); border:1px solid var(--border-color); border-radius:6px; padding:4px 8px;">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <div style="width:16px; height:16px; border-radius:3px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; font-size:9px;">◰</div>
+                <span style="font-weight:600;">initial</span>
+              </div>
+              <span style="font-size:10px; color:#0D99FF; background:rgba(13,153,255,0.08); padding:1px 6px; border-radius:4px; border:1px solid rgba(13,153,255,0.2);">⟳ 更换</span>
+            </div>
+          </div>
+
+          <!-- 13. 文字 -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>文字</span>
+              <span style="color:#0D99FF; font-size:10px; cursor:pointer;">✎ 双击打字</span>
+            </div>
+            <div style="color:#64748b; font-size:10px; margin-bottom:2px;">文本内容</div>
+            <div class="std-input" style="margin-bottom:6px;">典藏</div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span style="color:#64748b; font-size:10px;">文字颜色</span>
+              <div style="display:flex; align-items:center; gap:4px;">
+                <div style="width:14px; height:14px; border-radius:3px; background:#0F172A;"></div>
+                <span style="font-family:monospace; font-weight:700; font-size:10.5px;">#0F172A</span>
+                <div style="width:10px; height:10px; border-radius:2px; background:#0f172a;"></div>
+                <div style="width:10px; height:10px; border-radius:2px; background:#64748b;"></div>
+                <div style="width:10px; height:10px; border-radius:2px; background:#0284c7;"></div>
+                <div style="width:10px; height:10px; border-radius:2px; background:#ef4444;"></div>
+              </div>
+            </div>
+
+            <div style="color:#64748b; font-size:10px; margin-bottom:2px;">字体</div>
+            <div class="std-input" style="justify-content:space-between; margin-bottom:6px;">
+              <span>系统默认</span><span>▾</span>
+            </div>
+
+            <div style="display:flex; gap:6px; margin-bottom:6px;">
+              <div class="std-input" style="flex:1.4; justify-content:space-between;"><span>常规</span><span>▾</span></div>
+              <div style="display:flex; align-items:center; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-input);">
+                <button style="padding:2px 6px; border:none; background:transparent;">−</button>
+                <span style="font-family:monospace; font-weight:700; padding:0 4px;">18</span>
+                <button style="padding:2px 6px; border:none; background:transparent;">+</button>
+              </div>
+            </div>
+
+            <!-- B / I / U / S / 竖排 row -->
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="display:flex; gap:3px;">
+                <div class="std-btn" style="width:24px; height:24px; font-weight:bold;">B</div>
+                <div class="std-btn" style="width:24px; height:24px; font-style:italic;">I</div>
+                <div class="std-btn" style="width:24px; height:24px; text-decoration:underline;">U</div>
+                <div class="std-btn" style="width:24px; height:24px; text-decoration:line-through;">S</div>
+                <div class="std-btn active" style="width:24px; height:24px;" title="竖排">T↕</div>
+              </div>
+              <div style="display:flex; gap:2px; background:var(--bg-input); padding:2px; border-radius:4px; border:1px solid var(--border-color);">
+                <div class="std-btn active" style="width:20px; height:20px; border:none;">≡</div>
+                <div class="std-btn" style="width:20px; height:20px; border:none;">≡</div>
+                <div class="std-btn" style="width:20px; height:20px; border:none;">≡</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 14. 常用操作 -->
+          <div class="sec-block">
+            <div class="sec-title"><span>常用操作</span></div>
+            <div style="display:flex; flex-direction:column; gap:5px;">
+              <button class="std-btn" style="height:28px; font-weight:600;">◰ 更换图片素材</button>
+              <button class="std-btn" style="height:28px; font-weight:600;">❖ 存为组件</button>
+              <button class="std-btn" style="height:28px; font-weight:600;">⎘ 克隆副本 (Ctrl+D)</button>
+              <button class="std-btn" style="height:28px; font-weight:600; background:rgba(239,68,68,0.08); border-color:rgba(239,68,68,0.25); color:#ef4444;">
+                🗑 删除元素 (Backspace)
+              </button>
+            </div>
+          </div>
+        `;
+      } else if (activeScheme === 'scheme-a') {
+        // ========================================================
+        // 1. SCHEME A: FIGMA UI3 PRO (100% COMPLETE & EXHAUSTIVE)
+        // ========================================================
+        el.innerHTML = commonTop + `
+          <!-- 4. 元素标识 (Breadcrumb) -->
+          <div class="element-header">
+            <div class="element-name">
+              <span style="color:#64748b;">Card /</span>
+              <span style="color:#0D99FF; font-weight:800;">典藏</span>
+            </div>
+            <div style="display:flex; gap:4px; align-items:center;">
+              <span style="font-size:9.5px; color:#0D99FF; background:rgba(13,153,255,0.1); padding:1px 6px; border-radius:4px; font-weight:600; cursor:pointer;">↑ 父容器</span>
+              <span class="element-tag">文本组件</span>
+            </div>
+          </div>
+
+          <!-- 5. 8大对齐 (Figma UI3 统一 24px 底托) -->
+          <div class="align-strip" style="background:var(--bg-input); border-radius:6px; margin:6px 10px; padding:2px 4px;">
+            <div class="align-btn" title="左对齐">|←</div>
+            <div class="align-btn" title="水平居中">-|-</div>
+            <div class="align-btn" title="右对齐">→|</div>
+            <div style="width:1px; height:12px; background:var(--border-color);"></div>
+            <div class="align-btn" title="顶对齐">↑</div>
+            <div class="align-btn" title="垂直居中">+</div>
+            <div class="align-btn" title="底对齐">↓</div>
+            <div style="width:1px; height:12px; background:var(--border-color);"></div>
+            <div class="align-btn" title="水平均分">↔</div>
+            <div class="align-btn" title="垂直均分">↕</div>
+          </div>
+
+          <!-- 6. 布局与尺寸 (双联分段 + 等比约束比例锁) -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>变换 (Transform)</span>
+              <span style="font-size:9.5px; color:#64748b; font-weight:normal;">像素精确</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:5px;">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
+                <div class="std-input"><span style="color:#64748b; font-weight:bold;">X</span> 83</div>
+                <div class="std-input"><span style="color:#64748b; font-weight:bold;">Y</span> 347</div>
+              </div>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <div class="std-input" style="flex:1;"><span style="color:#64748b; font-weight:bold;">W</span> 30</div>
+                <span style="color:#0D99FF; cursor:pointer; padding:0 3px;" title="锁定约束比例">🔗</span>
+                <div class="std-input" style="flex:1;"><span style="color:#64748b; font-weight:bold;">H</span> 47</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 7+8. 外观 (Appearance: 圆角与不透明度合并双联行) -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>外观 (Appearance)</span>
+              <span style="font-size:9.5px; color:#64748b;">单行精简</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
+              <!-- Corner Radius with 4-corner expander -->
+              <div class="std-input" style="justify-content:space-between;">
+                <div style="display:flex; align-items:center; gap:3px;">
+                  <span style="color:#64748b;">⤢</span>
+                  <span>999px</span>
+                </div>
+                <span title="独立设置四角圆角" style="cursor:pointer; color:#64748b; font-size:10px;">[::]</span>
+              </div>
+              <!-- Opacity input with quick scrubber -->
+              <div class="std-input">
+                <span style="color:#64748b;">◐</span>
+                <span style="margin-left:4px;">100%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 9. 描边 (Stroke) -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>描边 (Stroke)</span>
+              <span style="font-size:9.5px; color:#0D99FF; cursor:pointer;">+ 添加</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:5px;">
+              <div class="std-input" style="width:72px; justify-content:space-between;">
+                <span>1px</span><span>▾</span>
+              </div>
+              <div class="std-input" style="flex:1; justify-content:space-between;">
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <span style="width:12px; height:12px; border:1px solid #ccc; display:inline-block; border-radius:2px;"></span>
+                  <span>RGBA(255, 255, 255, 0.25)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 10. 效果 (Effects) -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>效果 (Effects)</span>
+              <span style="font-size:13px; font-weight:700; color:#0D99FF; cursor:pointer;">+</span>
+            </div>
+            <div style="color:#94a3b8; font-size:11px;">还没有效果</div>
+          </div>
+
+          <!-- 11. 填充 (Fill: Figma 列表项 + 预设色块 + 换图) -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>填充 (Fill)</span>
+              <span style="font-size:10px; color:#0D99FF; cursor:pointer;">◰ 替换图片</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; background:var(--bg-input); border:1px solid var(--border-color); border-radius:6px; padding:3px 6px;">
+              <div style="width:16px; height:16px; border-radius:3px; background:#CC7ECD; flex-shrink:0;"></div>
+              <span style="font-family:monospace; font-weight:700; flex:1;">#CC7ECD</span>
+              <span style="font-size:10px; color:var(--text-muted); font-family:monospace;">100%</span>
+              <span style="color:#64748b; cursor:pointer;">👁</span>
+            </div>
+            <div style="display:flex; gap:4px; margin-top:2px; justify-content:flex-end;">
+              <div style="width:10px; height:10px; border-radius:2px; background:#0D99FF; cursor:pointer;"></div>
+              <div style="width:10px; height:10px; border-radius:2px; background:#10b981; cursor:pointer;"></div>
+              <div style="width:10px; height:10px; border-radius:2px; background:#f97316; cursor:pointer;"></div>
+              <div style="width:10px; height:10px; border-radius:2px; background:#64748b; cursor:pointer;"></div>
+              <div style="width:10px; height:10px; border-radius:2px; background:#ffffff; border:1px solid #ccc; cursor:pointer;"></div>
+            </div>
+          </div>
+
+          <!-- 12. 媒体素材 (极简胶囊行) -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>媒体素材</span>
+              <span style="color:#10b981; font-size:10px; font-weight:600;">• 已设图片</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-input); border:1px solid var(--border-color); border-radius:6px; padding:4px 8px;">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <div style="width:16px; height:16px; border-radius:3px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; font-size:9px;">◰</div>
+                <span style="font-weight:600;">initial</span>
+              </div>
+              <span style="font-size:10px; color:#0D99FF; background:rgba(13,153,255,0.08); padding:1px 6px; border-radius:4px; border:1px solid rgba(13,153,255,0.2); cursor:pointer;">⟳ 更换</span>
+            </div>
+          </div>
+
+          <!-- 13. 文本排版 (全要素重构，统一 26px 基线) -->
+          <div class="sec-block">
+            <div class="sec-title">
+              <span>文本排版 (Typography)</span>
+              <span style="color:#0D99FF; font-size:10px; cursor:pointer;">✎ 双击打字</span>
+            </div>
+            
+            <!-- 文本内容输入框 -->
+            <div class="std-input" style="margin-bottom:6px;">
+              <span style="color:#64748b; font-size:10px;">内容</span>
+              <span style="font-weight:600;">典藏</span>
+            </div>
+
+            <!-- 字体与字重双联 -->
+            <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:5px; margin-bottom:5px;">
+              <div class="std-input" style="justify-content:space-between;"><span>系统默认</span><span>▾</span></div>
+              <div class="std-input" style="justify-content:space-between;"><span>常规</span><span>▾</span></div>
+            </div>
+
+            <!-- 字号与颜色 + 4预设点 -->
+            <div style="display:grid; grid-template-columns:1fr 1.2fr; gap:5px; margin-bottom:6px;">
+              <div class="std-input"><span style="color:#64748b;">字号</span> 18px</div>
+              <div class="std-input" style="justify-content:space-between;">
+                <div style="display:flex; align-items:center; gap:3px;">
+                  <div style="width:11px; height:11px; border-radius:2px; background:#0F172A;"></div>
+                  <span style="font-size:10px;">#0F172A</span>
+                </div>
+                <div style="display:flex; gap:2px;">
+                  <div style="width:8px; height:8px; border-radius:1px; background:#0f172a;"></div>
+                  <div style="width:8px; height:8px; border-radius:1px; background:#64748b;"></div>
+                  <div style="width:8px; height:8px; border-radius:1px; background:#0284c7;"></div>
+                  <div style="width:8px; height:8px; border-radius:1px; background:#ef4444;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 一体化深黑按压排版栏 (完整保留 B / I / U / S / 竖排 + 左 / 中 / 右) -->
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#141518; border:1px solid #28292e; border-radius:6px; padding:3px 4px;">
+              <div style="display:flex; gap:2px;">
+                <div class="std-btn" style="width:23px; height:23px; background:#22242a; color:#cbd5e1; border:none; font-weight:bold;">B</div>
+                <div class="std-btn" style="width:23px; height:23px; background:#22242a; color:#cbd5e1; border:none; font-style:italic;">I</div>
+                <div class="std-btn" style="width:23px; height:23px; background:#22242a; color:#cbd5e1; border:none; text-decoration:underline;">U</div>
+                <div class="std-btn" style="width:23px; height:23px; background:#22242a; color:#cbd5e1; border:none; text-decoration:line-through;">S</div>
+                <div class="std-btn active" style="width:23px; height:23px; border:none;" title="竖排">T↕</div>
+              </div>
+              <div style="width:1px; height:14px; background:#383838;"></div>
+              <div style="display:flex; gap:2px;">
+                <div class="std-btn active" style="width:20px; height:20px; border:none;">≡</div>
+                <div class="std-btn" style="width:20px; height:20px; background:#22242a; color:#94a3b8; border:none;">≡</div>
+                <div class="std-btn" style="width:20px; height:20px; background:#22242a; color:#94a3b8; border:none;">≡</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 14. 常用操作 (完整保留4大功能，升级为紧凑微型 Dock) -->
+          <div class="sec-block">
+            <div class="sec-title"><span>快捷操作</span></div>
+            <div style="display:flex; gap:4px;">
+              <button class="std-btn" style="flex:1; height:26px; font-weight:600;" title="更换图片素材">◰ 换图</button>
+              <button class="std-btn" style="flex:1; height:26px; font-weight:600;" title="存为组件">❖ 组件</button>
+              <button class="std-btn" style="flex:1; height:26px; font-weight:600;" title="克隆副本 (Ctrl+D)">⎘ 复制</button>
+              <button class="std-btn" style="width:30px; height:26px; background:rgba(239,68,68,0.1); border-color:rgba(239,68,68,0.3); color:#ef4444;" title="删除元素 (Backspace)">🗑</button>
+            </div>
+          </div>
+        `;
+      } else if (activeScheme === 'scheme-b') {
+        // ========================================================
+        // 2. SCHEME B: CARD PODS (100% COMPLETE & EXHAUSTIVE)
+        // ========================================================
+        el.innerHTML = commonTop + `
+          <div style="padding:10px; display:flex; flex-direction:column; gap:8px;">
+            <!-- 4+5. 对象标识与对齐卡片 -->
+            <div class="scheme-b-pod">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-weight:700; color:#0f172a; font-size:12px;">⬡ 典藏</span>
+                <span class="element-tag">元素</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; background:var(--bg-panel); border-radius:6px; padding:3px 6px;">
+                <div class="align-btn">|←</div>
+                <div class="align-btn">-|-</div>
+                <div class="align-btn">→|</div>
+                <div class="align-btn">↑</div>
+                <div class="align-btn">+</div>
+                <div class="align-btn">↓</div>
+                <div class="align-btn">↔</div>
+                <div class="align-btn">↕</div>
+              </div>
+            </div>
+
+            <!-- Pod 1: 几何与外观 (6+7+8) -->
+            <div class="scheme-b-pod">
+              <div class="scheme-b-pod-title">
+                <span>几何与形态 (Geometry)</span>
+                <span style="font-size:9.5px; color:#64748b;">尺寸/圆角/透明度</span>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
+                <div class="std-input"><span style="color:#64748b;">X</span> 83</div>
+                <div class="std-input"><span style="color:#64748b;">Y</span> 347</div>
+                <div class="std-input"><span style="color:#64748b;">W</span> 30</div>
+                <div class="std-input"><span style="color:#64748b;">H</span> 47</div>
+              </div>
+              <div style="display:flex; gap:5px;">
+                <div class="std-input" style="flex:1;"><span style="color:#64748b;">圆角</span> 999px</div>
+                <div class="std-input" style="flex:1;"><span style="color:#64748b;">透明度</span> 100%</div>
+              </div>
+            </div>
+
+            <!-- Pod 2: 样式与材质 (9+10+11+12) -->
+            <div class="scheme-b-pod">
+              <div class="scheme-b-pod-title">
+                <span>样式与视觉 (Style & Assets)</span>
+                <span style="font-size:9.5px; color:#64748b;">描边/效果/填充/素材</span>
+              </div>
+              
+              <!-- 描边 -->
+              <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-panel); border-radius:6px; padding:4px 6px;">
+                <span style="color:#64748b; font-size:10.5px;">描边 1px</span>
+                <span style="font-size:10px; font-family:monospace;">RGBA(255,255,255,0.25)</span>
+              </div>
+
+              <!-- 效果 -->
+              <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-panel); border-radius:6px; padding:4px 6px;">
+                <span style="color:#64748b; font-size:10.5px;">效果 (Effects)</span>
+                <span style="font-size:10px; color:#0D99FF; cursor:pointer;">+ 添加</span>
+              </div>
+
+              <!-- 填充 -->
+              <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-panel); border-radius:6px; padding:4px 6px;">
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <div style="width:14px; height:14px; border-radius:3px; background:#CC7ECD;"></div>
+                  <span style="font-family:monospace; font-weight:700;">#CC7ECD</span>
+                </div>
+                <span style="font-size:10px; color:#0D99FF; cursor:pointer;">◰ 替换图片</span>
+              </div>
+
+              <!-- 媒体素材 -->
+              <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-panel); border-radius:6px; padding:4px 6px;">
+                <div style="display:flex; align-items:center; gap:5px;">
+                  <span style="font-size:9px;">◰</span>
+                  <span style="font-weight:600;">initial</span>
+                </div>
+                <span style="font-size:10px; color:#0D99FF; cursor:pointer;">⟳ 更换</span>
+              </div>
+            </div>
+
+            <!-- Pod 3: 文本排版 (13) -->
+            <div class="scheme-b-pod">
+              <div class="scheme-b-pod-title">
+                <span>文本与排版 (Typography)</span>
+                <span style="font-size:9.5px; color:#0D99FF; cursor:pointer;">✎ 双击打字</span>
+              </div>
+              <div class="std-input">内容: 典藏</div>
+              <div style="display:grid; grid-template-columns:1.3fr 1fr; gap:5px;">
+                <div class="std-input" style="justify-content:space-between;"><span>系统默认</span><span>▾</span></div>
+                <div class="std-input" style="justify-content:space-between;"><span>常规</span><span>▾</span></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-panel); border-radius:6px; padding:4px 6px;">
+                <span style="color:#64748b;">字号 18px</span>
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <div style="width:10px; height:10px; border-radius:2px; background:#0F172A;"></div>
+                  <span style="font-size:10px; font-family:monospace;">#0F172A</span>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-panel); border-radius:6px; padding:3px 4px;">
+                <div style="display:flex; gap:2px;">
+                  <div class="std-btn" style="width:22px; height:22px; border:none; font-weight:bold;">B</div>
+                  <div class="std-btn" style="width:22px; height:22px; border:none; font-style:italic;">I</div>
+                  <div class="std-btn" style="width:22px; height:22px; border:none; text-decoration:underline;">U</div>
+                  <div class="std-btn" style="width:22px; height:22px; border:none; text-decoration:line-through;">S</div>
+                  <div class="std-btn active" style="width:22px; height:22px; border:none;">T↕</div>
+                </div>
+                <div style="display:flex; gap:2px;">
+                  <div class="std-btn active" style="width:20px; height:20px; border:none;">≡</div>
+                  <div class="std-btn" style="width:20px; height:20px; border:none;">≡</div>
+                  <div class="std-btn" style="width:20px; height:20px; border:none;">≡</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pod 4: 常用操作 (14) 2x2 宫格微磁贴 -->
+            <div class="scheme-b-pod">
+              <div class="scheme-b-pod-title"><span>常用操作 (Actions)</span></div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
+                <button class="std-btn" style="height:26px; font-weight:600;">◰ 更换素材</button>
+                <button class="std-btn" style="height:26px; font-weight:600;">❖ 存为组件</button>
+                <button class="std-btn" style="height:26px; font-weight:600;">⎘ 克隆副本</button>
+                <button class="std-btn" style="height:26px; font-weight:600; color:#ef4444; background:rgba(239,68,68,0.06); border-color:rgba(239,68,68,0.2);">🗑 删除</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (activeScheme === 'scheme-c') {
+        // ========================================================
+        // 3. SCHEME C: ULTRA-DENSE (100% COMPLETE & EXHAUSTIVE)
+        // ========================================================
+        el.innerHTML = commonTop + `
+          <div style="padding:8px 10px; display:flex; flex-direction:column; gap:5px;">
+            <!-- 4+5. 对象与对齐 -->
+            <div class="dense-c-row" style="border-bottom:1px solid var(--border-color); padding-bottom:4px;">
+              <span style="font-weight:700; color:var(--text-main); flex:1;">⬡ 典藏</span>
+              <span class="element-tag">元素</span>
+            </div>
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">对齐</span>
+              <div style="display:flex; justify-content:space-between; flex:1; background:var(--bg-input); border:1px solid var(--border-color); border-radius:4px; padding:1px 4px;">
+                <span style="cursor:pointer;">|←</span><span style="cursor:pointer;">-|-</span><span style="cursor:pointer;">→|</span>
+                <span style="cursor:pointer;">↑</span><span style="cursor:pointer;">+</span><span style="cursor:pointer;">↓</span>
+                <span style="cursor:pointer;">↔</span><span style="cursor:pointer;">↕</span>
+              </div>
+            </div>
+
+            <!-- 6. 布局 -->
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">位置</span>
+              <div class="std-input" style="flex:1; height:24px;"><span>X</span><span>83</span></div>
+              <div class="std-input" style="flex:1; height:24px;"><span>Y</span><span>347</span></div>
+            </div>
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">尺寸</span>
+              <div class="std-input" style="flex:1; height:24px;"><span>W</span><span>30</span></div>
+              <div class="std-input" style="flex:1; height:24px;"><span>H</span><span>47</span></div>
+            </div>
+
+            <!-- 7+8. 外观 -->
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">外观</span>
+              <div class="std-input" style="flex:1; height:24px;"><span>R</span><span>999px</span></div>
+              <div class="std-input" style="flex:1; height:24px;"><span>O</span><span>100%</span></div>
+            </div>
+
+            <!-- 9. 描边 -->
+            <div class="dense-c-row" style="border-top:1px solid var(--border-subtle); padding-top:4px;">
+              <span class="dense-c-lbl">描边</span>
+              <div class="std-input" style="width:58px; height:24px;">1px ▾</div>
+              <div class="std-input" style="flex:1; height:24px; font-size:9.5px;">RGBA(255,255,255,0.25)</div>
+            </div>
+
+            <!-- 10. 效果 -->
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">效果</span>
+              <div class="std-input" style="flex:1; height:24px; justify-content:space-between;">
+                <span>无效果</span><span style="color:#0D99FF;">+ 添加</span>
+              </div>
+            </div>
+
+            <!-- 11. 填充 -->
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">填充</span>
+              <div class="std-input" style="flex:1; height:24px; justify-content:space-between;">
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <div style="width:11px; height:11px; border-radius:2px; background:#CC7ECD;"></div>
+                  <span>#CC7ECD</span>
+                </div>
+                <span style="color:#0D99FF; cursor:pointer;">◰ 换图</span>
+              </div>
+            </div>
+
+            <!-- 12. 媒体素材 -->
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">媒体</span>
+              <div class="std-input" style="flex:1; height:24px; justify-content:space-between;">
+                <span>initial (已设)</span><span style="color:#0D99FF; cursor:pointer;">⟳ 更换</span>
+              </div>
+            </div>
+
+            <!-- 13. 文本 -->
+            <div class="dense-c-row" style="border-top:1px solid var(--border-subtle); padding-top:4px;">
+              <span class="dense-c-lbl">内容</span>
+              <div class="std-input" style="flex:1; height:24px;">典藏</div>
+            </div>
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">字体</span>
+              <div class="std-input" style="flex:1.3; height:24px;">系统默认 ▾</div>
+              <div class="std-input" style="flex:0.7; height:24px;">常规 ▾</div>
+            </div>
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">字号</span>
+              <div class="std-input" style="flex:0.8; height:24px;">18px</div>
+              <div class="std-input" style="flex:1.2; height:24px;">
+                <div style="width:10px; height:10px; border-radius:2px; background:#0F172A;"></div>
+                <span>#0F172A</span>
+              </div>
+            </div>
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">格式</span>
+              <div style="display:flex; gap:2px; flex:1;">
+                <div class="std-btn" style="flex:1; height:22px; font-weight:bold;">B</div>
+                <div class="std-btn" style="flex:1; height:22px; font-style:italic;">I</div>
+                <div class="std-btn" style="flex:1; height:22px; text-decoration:underline;">U</div>
+                <div class="std-btn" style="flex:1; height:22px; text-decoration:line-through;">S</div>
+                <div class="std-btn active" style="flex:1; height:22px;">T↕</div>
+              </div>
+            </div>
+            <div class="dense-c-row">
+              <span class="dense-c-lbl">对齐</span>
+              <div style="display:flex; gap:2px; flex:1;">
+                <div class="std-btn active" style="flex:1; height:22px;">左</div>
+                <div class="std-btn" style="flex:1; height:22px;">中</div>
+                <div class="std-btn" style="flex:1; height:22px;">右</div>
+              </div>
+            </div>
+
+            <!-- 14. 常用操作 -->
+            <div class="dense-c-row" style="margin-top:auto; padding-top:6px; border-top:1px solid var(--border-color); justify-content:space-between; font-size:10px;">
+              <span style="color:#0D99FF; cursor:pointer;">◰ 换图</span>
+              <span style="color:#0D99FF; cursor:pointer;">❖ 组件</span>
+              <span style="cursor:pointer;">⎘ 复制</span>
+              <span style="color:#ef4444; cursor:pointer;">🗑 删除</span>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    render();
+  </script>
+</body>
+</html>

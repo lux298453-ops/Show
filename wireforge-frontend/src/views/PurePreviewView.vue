@@ -158,60 +158,11 @@
             :style="{ width: `${screenWidth}px`, height: `${screenHeight}px` }"
             @click="onScreenClick"
           >
-            <!-- iOS Status Bar & Dynamic Island (When Device Frame is ON) -->
-            <div
-              v-if="showDeviceFrame"
-              class="ios-status-bar absolute top-0 left-0 right-0 h-12 z-40 flex items-center justify-between px-7 text-white pointer-events-none select-none"
-            >
-              <!-- Left: Real-time Time -->
-              <span class="text-[14px] font-semibold tracking-tight tabular-nums pl-1 drop-shadow-sm">
-                {{ currentTime }}
-              </span>
-
-              <!-- Center: Dynamic Island (灵动岛) -->
-              <div
-                class="dynamic-island absolute top-2.5 left-1/2 -translate-x-1/2 w-[122px] h-[34px] rounded-full bg-black flex items-center justify-between px-3 shadow-md pointer-events-auto cursor-pointer hover:scale-105 transition-transform"
-                title="iPhone 16 Pro 灵动岛"
-              >
-                <!-- Front Camera Lens reflection -->
-                <div class="w-3 h-3 rounded-full bg-slate-950 border border-slate-800/80 flex items-center justify-center relative overflow-hidden">
-                  <div class="w-1.5 h-1.5 rounded-full bg-blue-950/90 flex items-center justify-center">
-                    <div class="w-0.5 h-0.5 rounded-full bg-cyan-400/60"></div>
-                  </div>
-                </div>
-                <!-- FaceID Dot / Ambient Sensor -->
-                <div class="w-2 h-2 rounded-full bg-slate-950/80 border border-slate-900"></div>
-              </div>
-
-              <!-- Right: Cellular 5G + WiFi + Battery -->
-              <div class="flex items-center gap-1.5 pr-1 drop-shadow-sm">
-                <!-- Cellular Bars -->
-                <svg class="w-4 h-3 text-white" viewBox="0 0 17 12" fill="currentColor">
-                  <rect x="0" y="8" width="3" height="4" rx="0.5" />
-                  <rect x="4.5" y="5.5" width="3" height="6.5" rx="0.5" />
-                  <rect x="9" y="3" width="3" height="9" rx="0.5" />
-                  <rect x="13.5" y="0" width="3" height="12" rx="0.5" />
-                </svg>
-
-                <!-- Wi-Fi -->
-                <svg class="w-3.5 h-3 text-white" viewBox="0 0 16 12" fill="currentColor">
-                  <path d="M8 10a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-4.24-2.83a6 6 0 0 1 8.48 0 .8.8 0 1 1-1.13 1.13 4.4 4.4 0 0 0-6.22 0 .8.8 0 1 1-1.13-1.13zm-2.83-2.83a10 10 0 0 1 14.14 0 .8.8 0 0 1-1.13 1.13 8.4 8.4 0 0 0-11.88 0 .8.8 0 0 1-1.13-1.13z" />
-                </svg>
-
-                <!-- Battery -->
-                <div class="w-5 h-2.5 rounded-[4px] border border-white/90 p-[1px] flex items-center relative ml-0.5">
-                  <div class="h-full w-[85%] bg-white rounded-[2px]"></div>
-                  <div class="absolute -right-[3px] top-[2.5px] w-[2px] h-[3.5px] bg-white/90 rounded-r-[1px]"></div>
-                </div>
-              </div>
-            </div>
-
             <!-- Floating Back Navigation Button (When history exists) -->
             <transition name="fade-fast">
               <button
                 v-if="historyStack.length > 0"
-                class="wf-tap absolute left-3.5 z-40 w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-lg border border-white/20"
-                :class="showDeviceFrame ? 'top-14' : 'top-3.5'"
+                class="wf-tap absolute top-3.5 left-3.5 z-40 w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md text-white flex items-center justify-center transition-all cursor-pointer shadow-lg border border-white/20"
                 title="返回上一页"
                 @click.stop="handleBack"
               >
@@ -219,12 +170,9 @@
               </button>
             </transition>
 
-
-
             <!-- ===== Prototype Content Stage with Native Push Transitions ===== -->
             <div
               class="relative flex-1 w-full overflow-hidden bg-white"
-              :class="{ 'pt-11': showDeviceFrame }"
             >
               <transition :name="pageTransitionName">
                 <div
@@ -423,16 +371,6 @@ const transitionDirection = ref<'forward' | 'backward'>('forward')
 const pageTransitionName = computed(() =>
   transitionDirection.value === 'forward' ? 'push-forward' : 'push-backward',
 )
-
-// 实时时间
-const currentTime = ref('')
-let clockTimer: any = null
-function updateClock() {
-  const now = new Date()
-  const h = String(now.getHours()).padStart(2, '0')
-  const m = String(now.getMinutes()).padStart(2, '0')
-  currentTime.value = `${h}:${m}`
-}
 
 // 手机壳全视口自适应等比缩放
 const viewportContainerRef = ref<HTMLElement | null>(null)
@@ -657,7 +595,9 @@ function handleElementClick(el: Element) {
     return
   }
 
-  if (ix.action === 'navigate' && ix.target_page_id) {
+  if (ix.action === 'back' || ix.action === 'close') {
+    handleBack()
+  } else if (ix.action === 'navigate' && ix.target_page_id) {
     navigateTo(ix.target_page_id)
   } else if (ix.action === 'modal') {
     const params = ix.params || ''
@@ -730,8 +670,6 @@ function onPreviewWheelMessage(ev: MessageEvent) {
 }
 
 onMounted(() => {
-  updateClock()
-  clockTimer = setInterval(updateClock, 10000)
   window.addEventListener('resize', updatePhoneScale)
   window.addEventListener('keydown', onGlobalKeyDown)
   window.addEventListener('message', onPreviewWheelMessage)
@@ -739,7 +677,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (clockTimer) clearInterval(clockTimer)
   if (toastTimer) clearTimeout(toastTimer)
   window.removeEventListener('resize', updatePhoneScale)
   window.removeEventListener('keydown', onGlobalKeyDown)

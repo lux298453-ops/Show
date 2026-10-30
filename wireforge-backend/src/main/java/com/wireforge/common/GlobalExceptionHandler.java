@@ -26,6 +26,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(e.getStatusCode()).body(body);
     }
 
+    /** 静态资源未找到返回 404，避免无害的图片缺失打印 500 堆栈 */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Result<Void> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        log.warn("静态资源未找到: {}", e.getResourcePath());
+        return Result.fail("资源未找到: " + e.getResourcePath());
+    }
+
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<Void> handleException(Exception e) {

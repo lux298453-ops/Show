@@ -564,36 +564,38 @@
           已设图片
         </span>
         <span v-else class="text-[10px] text-slate-400">
-          可填入素材图片
+          未设置
         </span>
       </div>
-      <div class="flex items-center gap-2.5 bg-slate-50 dark:bg-[#252525] border border-slate-200/80 dark:border-[#383838] rounded-lg p-2">
+      <div
+        class="flex items-center justify-between h-8 px-2 bg-slate-50 dark:bg-[#252525] hover:bg-slate-100/80 dark:hover:bg-[#2a2a2a] border border-slate-200/80 dark:border-[#383838] hover:border-slate-300 dark:hover:border-[#484848] rounded-lg transition-colors cursor-pointer group"
+        :title="mediaPreviewSrc ? t('replaceImage') : t('fillFromMedia')"
+        @click="emit('replace-asset')"
+      >
+        <div class="flex items-center gap-2 min-w-0 pr-2">
+          <div class="w-5 h-5 rounded border border-slate-200 dark:border-[#444] bg-white dark:bg-[#1e1e1e] overflow-hidden shrink-0 flex items-center justify-center">
+            <img
+              v-if="mediaPreviewSrc && !mediaPreviewBroken"
+              :src="mediaPreviewSrc"
+              class="w-full h-full object-cover"
+              alt=""
+              @error="mediaPreviewBroken = true"
+            />
+            <ImageIcon v-else class="w-3 h-3 text-slate-400" />
+          </div>
+          <span class="text-[11px] font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
+            {{ mediaPreviewSrc ? mediaFileName : '素材图片' }}
+          </span>
+        </div>
+
         <button
           type="button"
-          class="w-10 h-10 rounded-md border border-slate-200 dark:border-[#484848] bg-white dark:bg-[#1e1e1e] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer hover:border-[#0D99FF] transition-colors"
-          :title="mediaPreviewSrc ? t('replaceImage') : t('fillFromMedia')"
-          @click="emit('replace-asset')"
+          class="shrink-0 text-[10px] font-medium text-[#0D99FF] dark:text-[#38bdf8] bg-blue-50 dark:bg-[#0D99FF]/10 hover:bg-blue-100 dark:hover:bg-[#0D99FF]/20 border border-blue-200/80 dark:border-[#0D99FF]/30 px-2 py-0.5 rounded-md flex items-center gap-1 transition-colors pointer-events-none"
         >
-          <img
-            v-if="mediaPreviewSrc && !mediaPreviewBroken"
-            :src="mediaPreviewSrc"
-            class="w-full h-full object-cover"
-            alt=""
-            @error="mediaPreviewBroken = true"
-          />
-          <ImageIcon v-else class="w-5 h-5 text-slate-400" />
+          <RefreshCw v-if="mediaPreviewSrc" class="w-2.5 h-2.5" />
+          <Plus v-else class="w-2.5 h-2.5" />
+          <span>{{ mediaPreviewSrc ? '更换' : '添加' }}</span>
         </button>
-        <div class="flex-1 min-w-0">
-          <button
-            type="button"
-            class="w-full py-1.5 px-2 bg-[#0D99FF] hover:bg-blue-600 text-white rounded-md text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-            @click="emit('replace-asset')"
-          >
-            <ImageIcon class="w-3.5 h-3.5" />
-            <span>{{ mediaPreviewSrc ? t('replaceImage') : t('fillFromMedia') }}</span>
-          </button>
-          <p class="text-[10px] text-slate-400 dark:text-slate-400 mt-1 truncate">{{ t('mediaTip') }}</p>
-        </div>
       </div>
     </div>
 
@@ -752,6 +754,32 @@
           >
             U
           </button>
+          <button
+            type="button"
+            class="w-7 h-7 rounded-md border text-[11px] line-through font-medium cursor-pointer transition-colors"
+            :class="strikethroughOn ? 'bg-[#0D99FF] border-[#0D99FF] text-white shadow-xs' : 'bg-slate-50 dark:bg-[#383838] border-slate-200/80 dark:border-[#484848] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#444444]'"
+            title="中划线 / 删除线"
+            :disabled="!hasSelection"
+            @click="toggleStrikethrough"
+          >
+            S
+          </button>
+          <button
+            type="button"
+            class="w-7 h-7 rounded-md border flex items-center justify-center cursor-pointer transition-colors"
+            :class="isVerticalText ? 'bg-[#0D99FF] border-[#0D99FF] text-white shadow-xs' : 'bg-slate-50 dark:bg-[#383838] border-slate-200/80 dark:border-[#484848] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#444444]'"
+            :title="isVerticalText ? '恢复横向排版' : '设为竖向排版'"
+            :disabled="!hasSelection"
+            @click="toggleVerticalText"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 6V4h10v2"/>
+              <path d="M9 4v16"/>
+              <path d="M6 20h6"/>
+              <path d="m16 15 3 3 3-3"/>
+              <path d="M19 9v9"/>
+            </svg>
+          </button>
         </div>
         <div class="flex items-center gap-0.5 bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200/80 dark:border-[#383838] rounded-md p-0.5">
           <button
@@ -844,6 +872,7 @@ import {
   Component as ComponentIcon,
   Minimize2,
   Image as ImageIcon,
+  RefreshCw,
   Edit3,
   Plus,
   X,
@@ -892,7 +921,9 @@ const props = defineProps<{
     fontStyle?: string
     textAlign?: string
     underline?: boolean
+    strikethrough?: boolean
     textColor?: string
+    writingMode?: string
     isImage?: boolean
     imgSrc?: string
     hasText?: boolean
@@ -1008,12 +1039,29 @@ const fontId = ref('system')
 const fontWeight = ref(400)
 const italicOn = ref(false)
 const underlineOn = ref(false)
+const strikethroughOn = ref(false)
+const isVerticalText = ref(false)
 const textAlign = ref<'left' | 'center' | 'right'>('left')
 const textColor = ref('#0f172a')
 // CSS gradient fills are not image URLs; keep them out of the preview request.
 const mediaPreviewSrc = computed(() => {
   const source = props.elementInfo?.imgSrc?.trim() || ''
   return /^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(source) ? '' : source
+})
+const mediaFileName = computed(() => {
+  const src = mediaPreviewSrc.value
+  if (!src) return '素材图片'
+  if (src.startsWith('data:')) return '内联图片'
+  try {
+    const url = new URL(src, window.location.origin)
+    const name = url.pathname.split('/').pop()
+    if (name && name.length > 0) return decodeURIComponent(name)
+  } catch {
+    const parts = src.split('/')
+    const last = parts[parts.length - 1]?.split('?')[0]
+    if (last) return last
+  }
+  return '素材图片'
 })
 const mediaPreviewBroken = ref(false)
 watch(
@@ -1025,6 +1073,7 @@ watch(
 
 const fontOptions = [
   { id: 'system', label: '系统默认', family: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif' },
+  { id: 'inter', label: 'Inter', family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
   { id: 'yahei', label: '微软雅黑', family: '"Microsoft YaHei", "PingFang SC", sans-serif' },
   { id: 'pingfang', label: '苹方', family: '"PingFang SC", "Microsoft YaHei", sans-serif' },
   { id: 'hei', label: '黑体', family: 'SimHei, "Heiti SC", "Microsoft YaHei", sans-serif' },
@@ -1054,6 +1103,7 @@ const alignOptions = [
 const fontTokenToId: Record<string, string> = {
   '-apple-system': 'system',
   'segoe ui': 'system',
+  inter: 'inter',
   'microsoft yahei': 'yahei',
   'pingfang sc': 'pingfang',
   simhei: 'hei',
@@ -1117,6 +1167,9 @@ watch(
       currentTextVal.value = ''
       currentOpacity.value = 100
       currentRadius.value = 0
+      isVerticalText.value = false
+      underlineOn.value = false
+      strikethroughOn.value = false
       strokeWidth.value = 0
       if (props.frameFill) currentFillColor.value = rgbToHex(props.frameFill)
       return
@@ -1131,6 +1184,14 @@ watch(
     if (info.fontWeight) fontWeight.value = snapWeight(info.fontWeight)
     if (info.fontStyle) italicOn.value = info.fontStyle === 'italic'
     if (info.underline !== undefined) underlineOn.value = info.underline
+    else underlineOn.value = false
+    if (info.strikethrough !== undefined) strikethroughOn.value = info.strikethrough
+    else strikethroughOn.value = false
+    if (info.writingMode !== undefined) {
+      isVerticalText.value = info.writingMode === 'vertical-rl' || info.writingMode === 'vertical-lr'
+    } else {
+      isVerticalText.value = false
+    }
     if (info.textAlign === 'center' || info.textAlign === 'right' || info.textAlign === 'left') {
       textAlign.value = info.textAlign
     }
@@ -1413,9 +1474,30 @@ function toggleItalic() {
   emitTextStyle('fontStyle', italicOn.value ? 'italic' : 'normal')
 }
 
+function getCombinedDecoration(u: boolean, s: boolean) {
+  if (u && s) return 'underline line-through'
+  if (u) return 'underline'
+  if (s) return 'line-through'
+  return 'none'
+}
+
 function toggleUnderline() {
+  if (!hasSelection.value) return
   underlineOn.value = !underlineOn.value
-  emitTextStyle('textDecoration', underlineOn.value ? 'underline' : 'none')
+  emitTextStyle('textDecoration', getCombinedDecoration(underlineOn.value, strikethroughOn.value))
+}
+
+function toggleStrikethrough() {
+  if (!hasSelection.value) return
+  strikethroughOn.value = !strikethroughOn.value
+  emitTextStyle('textDecoration', getCombinedDecoration(underlineOn.value, strikethroughOn.value))
+}
+
+function toggleVerticalText() {
+  if (!hasSelection.value) return
+  isVerticalText.value = !isVerticalText.value
+  const mode = isVerticalText.value ? 'vertical-rl' : 'horizontal-tb'
+  emitTextStyle('writingMode', mode)
 }
 
 function setTextAlign(align: 'left' | 'center' | 'right') {

@@ -353,9 +353,12 @@ public class ProjectService {
 
     /** 找出目录中尚未被任何项目引用的图片（递归扫描分组子目录；assets/ 目录视为素材，跳过） */
     private List<Page> listNewImages(Path dir) {
-        List<Page> allPages = pageMapper.selectList(null);
+        List<Page> allPages = pageMapper.selectList(
+                Wrappers.<Page>lambdaQuery()
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         java.util.Set<String> used = allPages.stream()
-                .map(Page::getBackgroundImage)
+                .filter(p -> p.getBackgroundImage() != null && !p.getBackgroundImage().isBlank())
+                .map(p -> p.getBackgroundImage().replace('\\', '/').toLowerCase())
                 .collect(Collectors.toSet());
 
         List<Page> fresh = new ArrayList<>();
@@ -363,13 +366,15 @@ public class ProjectService {
         List<Path> images = collectDesignImages(dir);
         for (Path image : images) {
             String abs = image.toAbsolutePath().normalize().toString();
-            if (used.contains(abs)) continue;
+            String norm = abs.replace('\\', '/').toLowerCase();
+            if (used.contains(norm)) continue;
             Page page = new Page();
             page.setName(pageNameFor(image, dir));
             page.setBackgroundImage(abs);
             applyCanvasSize(page, image);
             page.setSortOrder(sortOrder++);
             page.setAnalyzed(0);
+            page.setIsDeleted(0);
             page.setCreatedAt(LocalDateTime.now());
             fresh.add(page);
         }
@@ -421,17 +426,40 @@ public class ProjectService {
 
         List<Page> existing = pageMapper.selectList(
                 Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
-        Map<String, Long> pathByImage = new HashMap<>();
+        Map<String, Page> activePages = new HashMap<>();
+        Map<String, Page> deletedPages = new HashMap<>();
         for (Page p : existing) {
-            pathByImage.put(p.getBackgroundImage(), p.getId());
+            if (p.getBackgroundImage() == null || p.getBackgroundImage().isBlank()) continue;
+            String norm = p.getBackgroundImage().replace('\\', '/').toLowerCase();
+            if (p.getIsDeleted() != null && p.getIsDeleted() == 1) {
+                deletedPages.put(norm, p);
+            } else {
+                activePages.put(norm, p);
+            }
         }
 
         List<Page> created = new ArrayList<>();
-        int sortOrder = existing.size();
+        int sortOrder = activePages.size();
         for (Path image : collectDesignImages(dir)) {
             String abs = image.toAbsolutePath().normalize().toString();
-            if (pathByImage.containsKey(abs)) continue;
+            String norm = abs.replace('\\', '/').toLowerCase();
 
+            // 如果已有正常活跃画板，跳过防重复
+            if (activePages.containsKey(norm)) continue;
+
+            // 方案 A：如果是已删除画板，自动从回收站激活恢复
+            if (deletedPages.containsKey(norm)) {
+                Page deletedPage = deletedPages.get(norm);
+                deletedPage.setIsDeleted(0);
+                deletedPage.setSortOrder(sortOrder++);
+                deletedPage.setCreatedAt(LocalDateTime.now());
+                pageMapper.updateById(deletedPage);
+                created.add(deletedPage);
+                log.info("重新扫描并恢复画板: id={}, path={}", deletedPage.getId(), abs);
+                continue;
+            }
+
+            // 全新设计稿图片，直接新建画板
             Page page = new Page();
             page.setProjectId(projectId);
             page.setName(pageNameFor(image, dir));
@@ -439,6 +467,7 @@ public class ProjectService {
             applyCanvasSize(page, image);
             page.setSortOrder(sortOrder++);
             page.setAnalyzed(0);
+            page.setIsDeleted(0);
             page.setCreatedAt(LocalDateTime.now());
             pageMapper.insert(page);
             created.add(page);

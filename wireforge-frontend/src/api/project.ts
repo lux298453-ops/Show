@@ -27,13 +27,17 @@ export const projectApi = {
   analyze: (id: number) => http.post<any, AnalysisStatus>(`/projects/${id}/analyze`),
   startAnalyze: (id: number) => http.post<any, AnalysisStatus>(`/projects/${id}/analyze`),
   getAnalysisStatus: (id: number) => http.get<any, AnalysisStatus>(`/projects/${id}/analysis-status`),
-  reanalyzePage: (id: number, pageId: number) =>
+  reanalyzePage: (id: number, pageId: number, force = true) =>
     http.post<any, { page_id: number; page_name: string; status: string; elements?: number; error?: string }[]>(
       `/projects/${id}/pages/${pageId}/reanalyze`,
+      null,
+      { params: { force } },
     ),
-  reanalyzeAll: (id: number) =>
+  reanalyzeAll: (id: number, force = true) =>
     http.post<any, { page_id: number; page_name: string; status: string; elements?: number; error?: string }[]>(
       `/projects/${id}/reanalyze-all`,
+      null,
+      { params: { force } },
     ),
   prototype: (id: number) => http.get<any, Prototype>(`/projects/${id}/prototype`),
   /** 仅重新生成某页的整页 HTML（Stitch 式直出），返回新 HTML */
@@ -107,6 +111,8 @@ export const projectApi = {
   /** 为页面注册新增元素 */
   createElement: (id: number, pageId: number, body: Record<string, any>) =>
     http.post<any, any>(`/projects/${id}/pages/${pageId}/elements`, body),
+  setBackgroundReturn: (id: number, pageId: number, enabled: boolean, clientId: string) =>
+    http.put<any, unknown>(`/projects/${id}/pages/${pageId}/background-return`, { enabled, clientId }),
   /** 新建空白画板/框架 (Figma Frame 工具支持) */
   createPage: (
     id: number,

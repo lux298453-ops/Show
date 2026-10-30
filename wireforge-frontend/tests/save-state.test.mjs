@@ -30,6 +30,16 @@ test('preview waits for local edits and pending saves before continuing', async 
   await new Promise(resolve=>setTimeout(resolve,10));assert.equal(ready,false)
   finishSave(ticket);await waiting;assert.equal(ready,true)
 })
+
+test('page background return settings participate in save status and preview waits for the setting', async () => {
+  const state=useSaveState('799')
+  const ticket=beginSave(config('799','pages/1/background-return',{enabled:true,clientId:'current'}),async()=>{})
+  assert.ok(ticket?.retryable);assert.equal(state.status.value,'saving')
+  let ready=false
+  const waiting=waitForSaved('799',{quietMs:0,timeoutMs:1000}).then(()=>{ready=true})
+  await new Promise(resolve=>setTimeout(resolve,10));assert.equal(ready,false)
+  finishSave(ticket);await waiting;assert.equal(ready,true);assert.equal(state.status.value,'saved')
+})
 test('save failure, cancellation and unfinished edits do not silently start preview', async () => {
   markLocalEdit('741',1,'保存失败')
   await assert.rejects(waitForSaved('741'),/保存失败/)

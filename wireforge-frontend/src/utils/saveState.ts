@@ -63,7 +63,7 @@ export function beginSave(config: InternalAxiosRequestConfig, replay: Replay): S
   const method = (config.method || 'get').toLowerCase()
   const route = match[2]
   const retryable = method === 'put' && (
-    /^pages\/\d+\/(html|position|size|annotation-orders)$/.test(route) ||
+    /^pages\/\d+\/(html|position|size|annotation-orders|background-return)$/.test(route) ||
     /^annotations\/\d+$/.test(route)
   )
   const manualWrite = method === 'post' && (
