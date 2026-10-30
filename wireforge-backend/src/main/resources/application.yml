@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: wireforge-backend
+  config:
+    import:
+      - optional:file:./config/application.yml
+      - optional:file:./wireforge-backend/config/application.yml
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:wireforge}?useUnicode=true&characterEncoding=UTF-8&connectionTimeZone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=${MYSQL_USE_SSL:false}}
     username: ${SPRING_DATASOURCE_USERNAME:${MYSQL_USER:root}}
