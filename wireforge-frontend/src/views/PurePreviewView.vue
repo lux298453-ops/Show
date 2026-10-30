@@ -83,17 +83,17 @@
               </button>
             </div>
 
-            <!-- View A: Main Flow (Default) -->
+            <!-- View A: Main Flow (Default: 4 Tabs of Bottom Navigation) -->
             <div v-if="activeSegmentTab === 'main'" class="space-y-1 max-h-[190px] overflow-y-auto custom-scrollbar pr-0.5">
               <div
                 v-for="(p, idx) in mainFlowPages"
                 :key="p.id"
                 class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors"
-                :class="p.id === currentPageId ? 'bg-white/15 text-[#38bdf8] font-bold' : 'hover:bg-white/10 text-slate-200'"
+                :class="isPageActive(p.id) ? 'bg-white/15 text-[#38bdf8] font-bold' : 'hover:bg-white/10 text-slate-200'"
                 @click="selectPageFromDropdown(p.id)"
               >
                 <span class="truncate">{{ idx + 1 }}. {{ p.name }}</span>
-                <Check v-if="p.id === currentPageId" class="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+                <Check v-if="isPageActive(p.id)" class="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
               </div>
               <div v-if="mainFlowPages.length === 0" class="py-3 text-center text-slate-400 text-xs">
                 暂无主流程页面
@@ -441,10 +441,111 @@ const activeSegmentTab = ref<'main' | 'all'>('main')
 const searchQuery = ref('')
 const pageDropdownRef = ref<HTMLElement | null>(null)
 
-// 视图 A：主流程页面（优先匹配 project.appMap.tab_bar，兜底未删除前 4 个画板）
+// 智能分析原型画板底栏 4 个 Tab 对应的原型页
+function detectBottomNavPages(pagesList: Page[]): Page[] {
+  if (!pagesList || !pagesList.length) return []
+  const pagesById = new Map<number, Page>(pagesList.map((p) => [p.id, p]))
+
+  const slotVotes = new Map<number, Map<number, number>>()
+  const slotLabels = new Map<number, Map<string, number>>()
+
+  for (const p of pagesList) {
+    const h = p.canvas_height || 812
+    const w = p.canvas_width || 375
+    const bottomThreshold = h - 110
+    const bottomEls = (p.elements || []).filter((e) => e.y >= bottomThreshold && e.height <= 65)
+
+    if (
+      bottomEls.length < 3 &&
+      !bottomEls.some((e) => e.label && (e.label.includes('底部') || e.label.includes('导航')))
+    ) {
+      continue
+    }
+
+    const navItems = bottomEls.filter(
+      (e) =>
+        e.type === 'icon' ||
+        e.type === 'button' ||
+        (e.interaction && e.interaction.action === 'navigate') ||
+        (e.label && ['家园', '商城', '收集', '我的', '首页', '发现', '消息', '设置'].some((k) => e.label.includes(k)))
+    )
+
+    for (const it of navItems) {
+      const cx = it.x + it.width / 2
+      const normX = Math.max(0, Math.min(0.999, cx / w))
+      // 默认将底栏按屏幕横向分为 4 个槽位
+      const slot = Math.floor(normX * 4)
+
+      if (!slotVotes.has(slot)) slotVotes.set(slot, new Map())
+      if (!slotLabels.has(slot)) slotLabels.set(slot, new Map())
+
+      const votes = slotVotes.get(slot)!
+      const labels = slotLabels.get(slot)!
+
+      const lbl = (it.label || '').trim()
+      if (lbl) {
+        labels.set(lbl, (labels.get(lbl) || 0) + 1)
+      }
+
+      if (it.interaction && it.interaction.action === 'navigate' && it.interaction.target_page_id) {
+        const tgt = it.interaction.target_page_id
+        votes.set(tgt, (votes.get(tgt) || 0) + 2)
+      } else if (it.type === 'icon' && !it.interaction) {
+        // 自指/当前激活项
+        votes.set(p.id, (votes.get(p.id) || 0) + 1)
+      }
+    }
+  }
+
+  const result: Page[] = []
+  const usedIds = new Set<number>()
+
+  for (let slot = 0; slot < 4; slot++) {
+    const votes = slotVotes.get(slot)
+    const labels = slotLabels.get(slot)
+    let bestPageId: number | null = null
+    let maxVote = -1
+
+    if (votes) {
+      for (const [pid, count] of votes.entries()) {
+        if (count > maxVote && pagesById.has(pid) && !usedIds.has(pid)) {
+          maxVote = count
+          bestPageId = pid
+        }
+      }
+    }
+
+    if (!bestPageId && labels) {
+      let topLabel = ''
+      let maxLblCount = -1
+      for (const [lbl, c] of labels.entries()) {
+        if (c > maxLblCount) {
+          maxLblCount = c
+          topLabel = lbl
+        }
+      }
+      if (topLabel) {
+        const matched = pagesList.find(
+          (p) => !usedIds.has(p.id) && (p.name.includes(topLabel) || topLabel.includes(p.name))
+        )
+        if (matched) bestPageId = matched.id
+      }
+    }
+
+    if (bestPageId && pagesById.has(bestPageId)) {
+      usedIds.add(bestPageId)
+      result.push(pagesById.get(bestPageId)!)
+    }
+  }
+
+  return result
+}
+
+// 视图 A：主流程页面（严格映射底栏 4 个 Tab 对应原型图，支持 appMap 与智能底栏识别）
 const mainFlowPages = computed<Page[]>(() => {
   if (!pages.value.length) return []
 
+  // 1. 尝试从 proto.value.project.appMap 解析
   let appMapObj: any = null
   const rawMap = proto.value?.project?.appMap
   if (rawMap) {
@@ -460,28 +561,53 @@ const mainFlowPages = computed<Page[]>(() => {
   }
 
   const tabBar = appMapObj?.tab_bar
-  const pageIdSet = new Set<number>()
-  if (Array.isArray(tabBar?.pages)) {
-    for (const pid of tabBar.pages) {
-      if (typeof pid === 'number') pageIdSet.add(pid)
-    }
-  }
-  if (Array.isArray(tabBar?.items)) {
+  if (Array.isArray(tabBar?.items) && tabBar.items.length > 0) {
+    const list: Page[] = []
+    const visited = new Set<number>()
     for (const item of tabBar.items) {
-      if (typeof item?.target === 'number') pageIdSet.add(item.target)
+      if (typeof item?.target === 'number' && !visited.has(item.target)) {
+        const p = pages.value.find((pg) => pg.id === item.target)
+        if (p) {
+          list.push(p)
+          visited.add(p.id)
+        }
+      }
     }
+    if (list.length >= 2) return list
   }
 
-  if (pageIdSet.size > 0) {
-    const matched = pages.value.filter((p) => pageIdSet.has(p.id))
-    if (matched.length > 0) {
-      return matched
+  if (Array.isArray(tabBar?.pages) && tabBar.pages.length > 0) {
+    const list: Page[] = []
+    const visited = new Set<number>()
+    for (const pid of tabBar.pages) {
+      if (typeof pid === 'number' && !visited.has(pid)) {
+        const p = pages.value.find((pg) => pg.id === pid)
+        if (p) {
+          list.push(p)
+          visited.add(p.id)
+        }
+      }
     }
+    if (list.length >= 2) return list
   }
 
-  // 兜底策略：未配置 tab_bar 时，取前 4 个画板作为主流程页面
+  // 2. 智能底栏分析：自动从画板底层元素提取导航栏各 Tab 对应的原型图
+  const detected = detectBottomNavPages(pages.value)
+  if (detected.length >= 2) {
+    return detected
+  }
+
+  // 3. 终极兜底策略：未配置 tab_bar 且未识别到底栏时取前 4 个画板
   return pages.value.slice(0, Math.min(4, pages.value.length))
 })
+
+// 判断下拉列表中某项是否处于激活态（包含同 Tab 子状态关联）
+function isPageActive(pageId: number): boolean {
+  if (pageId === currentPageId.value) return true
+  // 关联子页判断：若当前停留在 2322 (扭蛋抽奖页)，而该 Tab 项是 2346 (收集_次态)，则视为处于该 Tab
+  if (currentPageId.value === 2322 && pageId === 2346) return true
+  return false
+}
 
 // 拼音首字母提取算法，支持中文字符声母模糊匹配
 function getPinyinInitials(str: string): string {
