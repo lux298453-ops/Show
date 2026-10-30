@@ -39,22 +39,106 @@
 
       <div class="h-4 w-[1px] bg-white/15 mx-0.5"></div>
 
-      <!-- Center: Page Selector Dropdown -->
-      <div class="relative">
-        <el-select
-          v-model="currentPageId"
-          size="small"
-          class="preview-page-select !w-36 sm:!w-44"
-          placeholder="选择页面"
-          @change="onSelectPageChange"
+      <!-- Center: Page Selector Dropdown with Segmented Control -->
+      <div ref="pageDropdownRef" class="relative" @click.stop>
+        <!-- Single entry pill trigger button -->
+        <button
+          type="button"
+          class="wf-pill px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 hover:border-white/25 text-white flex items-center justify-between gap-2 min-w-[170px] max-w-[210px] cursor-pointer shadow-xs transition-all select-none"
+          title="切换画板"
+          @click="pageDropdownOpen = !pageDropdownOpen"
         >
-          <el-option
-            v-for="(p, idx) in pages"
-            :key="p.id"
-            :label="`${idx + 1}. ${p.name}`"
-            :value="p.id"
+          <span class="truncate font-semibold text-xs text-white">
+            {{ currentPageIndex >= 0 ? `${currentPageIndex + 1}. ${currentPage?.name}` : '选择画板' }}
+          </span>
+          <ChevronDown
+            class="w-3.5 h-3.5 text-slate-300 transition-transform duration-200 shrink-0"
+            :class="{ 'rotate-180': pageDropdownOpen }"
           />
-        </el-select>
+        </button>
+
+        <!-- Segmented Dropdown Popover -->
+        <Transition name="dropdown-fade">
+          <div
+            v-if="pageDropdownOpen"
+            class="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-72 rounded-2xl bg-slate-900/95 backdrop-blur-2xl border border-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.85)] p-2.5 flex flex-col gap-2 z-50 select-none text-white text-xs"
+          >
+            <!-- Segmented Control Pills -->
+            <div class="bg-black/50 border border-white/10 rounded-xl p-1 flex gap-1">
+              <button
+                type="button"
+                class="flex-1 py-1 px-2 rounded-lg text-center font-semibold text-[11px] transition-all duration-150 cursor-pointer"
+                :class="activeSegmentTab === 'main' ? 'bg-[#0D99FF]/20 text-[#38bdf8] border border-[#0D99FF]/40 shadow-xs font-bold' : 'text-slate-400 hover:text-white border border-transparent'"
+                @click="activeSegmentTab = 'main'"
+              >
+                主流程 ({{ mainFlowPages.length }})
+              </button>
+              <button
+                type="button"
+                class="flex-1 py-1 px-2 rounded-lg text-center font-semibold text-[11px] transition-all duration-150 cursor-pointer"
+                :class="activeSegmentTab === 'all' ? 'bg-[#0D99FF]/20 text-[#38bdf8] border border-[#0D99FF]/40 shadow-xs font-bold' : 'text-slate-400 hover:text-white border border-transparent'"
+                @click="activeSegmentTab = 'all'"
+              >
+                全部画板 ({{ pages.length }})
+              </button>
+            </div>
+
+            <!-- View A: Main Flow (Default) -->
+            <div v-if="activeSegmentTab === 'main'" class="space-y-1 max-h-[190px] overflow-y-auto custom-scrollbar pr-0.5">
+              <div
+                v-for="(p, idx) in mainFlowPages"
+                :key="p.id"
+                class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors"
+                :class="p.id === currentPageId ? 'bg-white/15 text-[#38bdf8] font-bold' : 'hover:bg-white/10 text-slate-200'"
+                @click="selectPageFromDropdown(p.id)"
+              >
+                <span class="truncate">{{ idx + 1 }}. {{ p.name }}</span>
+                <Check v-if="p.id === currentPageId" class="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+              </div>
+              <div v-if="mainFlowPages.length === 0" class="py-3 text-center text-slate-400 text-xs">
+                暂无主流程页面
+              </div>
+            </div>
+
+            <!-- View B: All Artboards (Inspection View) -->
+            <div v-else class="space-y-2">
+              <div class="relative">
+                <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  v-model="searchQuery"
+                  type="text"
+                  placeholder="搜索画板名称、简拼..."
+                  class="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-400 outline-none focus:border-[#0D99FF] transition-colors"
+                  @click.stop
+                />
+                <button
+                  v-if="searchQuery"
+                  type="button"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded cursor-pointer"
+                  @click.stop="searchQuery = ''"
+                >
+                  <X class="w-3 h-3" />
+                </button>
+              </div>
+
+              <div class="space-y-1 max-h-[220px] overflow-y-auto custom-scrollbar pr-0.5">
+                <div
+                  v-for="(p, idx) in filteredAllPages"
+                  :key="p.id"
+                  class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors"
+                  :class="p.id === currentPageId ? 'bg-white/15 text-[#38bdf8] font-bold' : 'hover:bg-white/10 text-slate-200'"
+                  @click="selectPageFromDropdown(p.id)"
+                >
+                  <span class="truncate">{{ idx + 1 }}. {{ p.name }}</span>
+                  <Check v-if="p.id === currentPageId" class="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+                </div>
+                <div v-if="filteredAllPages.length === 0" class="py-4 text-center text-slate-400 text-xs">
+                  未找到匹配画板
+                </div>
+              </div>
+            </div>
+          </div>
+        </Transition>
       </div>
 
       <div class="h-4 w-[1px] bg-white/15 mx-0.5"></div>
@@ -322,6 +406,9 @@ import {
   Link,
   X,
   ArrowLeft,
+  ChevronDown,
+  Search,
+  Check,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import type { Element, Page, Prototype } from '../types'
@@ -342,6 +429,122 @@ const currentPage = computed<Page | null>(() => {
   if (!pages.value.length) return null
   return pages.value.find((p) => p.id === currentPageId.value) || pages.value[0] || null
 })
+
+const currentPageIndex = computed(() => {
+  if (!currentPageId.value) return -1
+  return pages.value.findIndex((p) => p.id === currentPageId.value)
+})
+
+// 分段切换下拉框状态与数据源
+const pageDropdownOpen = ref(false)
+const activeSegmentTab = ref<'main' | 'all'>('main')
+const searchQuery = ref('')
+const pageDropdownRef = ref<HTMLElement | null>(null)
+
+// 视图 A：主流程页面（优先匹配 project.appMap.tab_bar，兜底未删除前 4 个画板）
+const mainFlowPages = computed<Page[]>(() => {
+  if (!pages.value.length) return []
+
+  let appMapObj: any = null
+  const rawMap = proto.value?.project?.appMap
+  if (rawMap) {
+    if (typeof rawMap === 'string') {
+      try {
+        appMapObj = JSON.parse(rawMap)
+      } catch (err) {
+        console.warn('[PurePreview] Failed to parse project.appMap', err)
+      }
+    } else if (typeof rawMap === 'object') {
+      appMapObj = rawMap
+    }
+  }
+
+  const tabBar = appMapObj?.tab_bar
+  const pageIdSet = new Set<number>()
+  if (Array.isArray(tabBar?.pages)) {
+    for (const pid of tabBar.pages) {
+      if (typeof pid === 'number') pageIdSet.add(pid)
+    }
+  }
+  if (Array.isArray(tabBar?.items)) {
+    for (const item of tabBar.items) {
+      if (typeof item?.target === 'number') pageIdSet.add(item.target)
+    }
+  }
+
+  if (pageIdSet.size > 0) {
+    const matched = pages.value.filter((p) => pageIdSet.has(p.id))
+    if (matched.length > 0) {
+      return matched
+    }
+  }
+
+  // 兜底策略：未配置 tab_bar 时，取前 4 个画板作为主流程页面
+  return pages.value.slice(0, Math.min(4, pages.value.length))
+})
+
+// 拼音首字母提取算法，支持中文字符声母模糊匹配
+function getPinyinInitials(str: string): string {
+  return str
+    .split('')
+    .map((char) => {
+      const code = char.charCodeAt(0)
+      if (code >= 0x4e00 && code <= 0x9fa5) {
+        if (char.localeCompare('吖', 'zh') >= 0 && char.localeCompare('八', 'zh') < 0) return 'a'
+        if (char.localeCompare('八', 'zh') >= 0 && char.localeCompare('嚓', 'zh') < 0) return 'b'
+        if (char.localeCompare('嚓', 'zh') >= 0 && char.localeCompare('咑', 'zh') < 0) return 'c'
+        if (char.localeCompare('咑', 'zh') >= 0 && char.localeCompare('妸', 'zh') < 0) return 'd'
+        if (char.localeCompare('妸', 'zh') >= 0 && char.localeCompare('发', 'zh') < 0) return 'e'
+        if (char.localeCompare('发', 'zh') >= 0 && char.localeCompare('旮', 'zh') < 0) return 'f'
+        if (char.localeCompare('旮', 'zh') >= 0 && char.localeCompare('铪', 'zh') < 0) return 'g'
+        if (char.localeCompare('铪', 'zh') >= 0 && char.localeCompare('讥', 'zh') < 0) return 'h'
+        if (char.localeCompare('讥', 'zh') >= 0 && char.localeCompare('咔', 'zh') < 0) return 'j'
+        if (char.localeCompare('咔', 'zh') >= 0 && char.localeCompare('垃', 'zh') < 0) return 'k'
+        if (char.localeCompare('垃', 'zh') >= 0 && char.localeCompare('呒', 'zh') < 0) return 'l'
+        if (char.localeCompare('呒', 'zh') >= 0 && char.localeCompare('嗱', 'zh') < 0) return 'm'
+        if (char.localeCompare('嗱', 'zh') >= 0 && char.localeCompare('噢', 'zh') < 0) return 'n'
+        if (char.localeCompare('噢', 'zh') >= 0 && char.localeCompare('妑', 'zh') < 0) return 'o'
+        if (char.localeCompare('妑', 'zh') >= 0 && char.localeCompare('七', 'zh') < 0) return 'p'
+        if (char.localeCompare('七', 'zh') >= 0 && char.localeCompare('亽', 'zh') < 0) return 'q'
+        if (char.localeCompare('亽', 'zh') >= 0 && char.localeCompare('仨', 'zh') < 0) return 'r'
+        if (char.localeCompare('仨', 'zh') >= 0 && char.localeCompare('他', 'zh') < 0) return 's'
+        if (char.localeCompare('他', 'zh') >= 0 && char.localeCompare('哇', 'zh') < 0) return 't'
+        if (char.localeCompare('哇', 'zh') >= 0 && char.localeCompare('夕', 'zh') < 0) return 'w'
+        if (char.localeCompare('夕', 'zh') >= 0 && char.localeCompare('丫', 'zh') < 0) return 'x'
+        if (char.localeCompare('丫', 'zh') >= 0 && char.localeCompare('帀', 'zh') < 0) return 'y'
+        if (char.localeCompare('帀', 'zh') >= 0 && char.localeCompare('咗', 'zh') <= 0) return 'z'
+      }
+      return char.toLowerCase()
+    })
+    .join('')
+}
+
+// 视图 B：全部画板（支持名称与拼音快速模糊搜索过滤）
+const filteredAllPages = computed<Page[]>(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return pages.value
+  return pages.value.filter((p) => {
+    const name = p.name.toLowerCase()
+    if (name.includes(q)) return true
+    const initials = getPinyinInitials(p.name)
+    if (initials.includes(q)) return true
+    return false
+  })
+})
+
+function selectPageFromDropdown(pageId: number) {
+  navigateTo(pageId)
+  pageDropdownOpen.value = false
+  searchQuery.value = ''
+}
+
+function handleWindowClick(e: MouseEvent) {
+  if (!pageDropdownOpen.value) return
+  const target = e.target as HTMLElement | null
+  if (pageDropdownRef.value && !pageDropdownRef.value.contains(target)) {
+    pageDropdownOpen.value = false
+  }
+}
 
 /** 竖屏、宽度不超过 480 的画板按手机展示。更宽或横过来的画板按自己的宽高展示。 */
 function isPhoneArtboard(page: Page | null) {
@@ -445,6 +648,7 @@ function onChassisClick(e: MouseEvent) {
 const chromeVisible = ref(true)
 
 function onViewportAreaClick(e: MouseEvent) {
+  pageDropdownOpen.value = false
   const target = e.target as HTMLElement | null
   if (target?.closest('.phone-chassis')) chromeVisible.value = false
   else chromeVisible.value = true
@@ -452,7 +656,7 @@ function onViewportAreaClick(e: MouseEvent) {
 }
 
 function onBackgroundClick() {
-  // 无操作
+  pageDropdownOpen.value = false
 }
 
 
@@ -624,6 +828,10 @@ function handleElementClick(el: Element) {
 // 快捷键支持
 function onGlobalKeyDown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
+    if (pageDropdownOpen.value) {
+      pageDropdownOpen.value = false
+      return
+    }
     if (activeModal.value) {
       closeModal()
       return
@@ -673,6 +881,7 @@ onMounted(() => {
   window.addEventListener('resize', updatePhoneScale)
   window.addEventListener('keydown', onGlobalKeyDown)
   window.addEventListener('message', onPreviewWheelMessage)
+  window.addEventListener('click', handleWindowClick)
   loadData()
 })
 
@@ -681,6 +890,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', updatePhoneScale)
   window.removeEventListener('keydown', onGlobalKeyDown)
   window.removeEventListener('message', onPreviewWheelMessage)
+  window.removeEventListener('click', handleWindowClick)
 })
 </script>
 
@@ -698,7 +908,7 @@ onBeforeUnmount(() => {
   min-height: 100%;
   width: max-content;
   height: max-content;
-  padding: 32px;
+  padding: 64px 32px 36px;
 }
 /* ===== iOS Native Push Transitions ===== */
 .push-forward-enter-active,
@@ -800,6 +1010,22 @@ onBeforeUnmount(() => {
 .fade-fast-enter-from,
 .fade-fast-leave-to {
   opacity: 0;
+}
+
+/* Dropdown Animation */
+.dropdown-fade-enter-active,
+.dropdown-fade-leave-active {
+  transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dropdown-fade-enter-from,
+.dropdown-fade-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -6px);
+}
+.dropdown-fade-enter-to,
+.dropdown-fade-leave-from {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 /* Custom Select Styling */

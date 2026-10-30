@@ -3,6 +3,7 @@ export interface Project {
   name: string
   description?: string
   coverImage?: string
+  appMap?: string | null
   createdAt?: string
 }
 
