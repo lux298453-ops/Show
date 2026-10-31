@@ -49,6 +49,7 @@
         :style="[{ width: `${Math.round(canvasW * scale)}px`, height: `${Math.round(canvasH * scale)}px` }, draggingComponent ? { pointerEvents: 'none' } : {}]"
         :srcdoc="navRuntimeHtml"
         sandbox="allow-scripts allow-same-origin"
+        allow="clipboard-read; clipboard-write"
         title="prototype-html"
         @load="onFrameLoad"
       ></iframe>
@@ -2327,8 +2328,27 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         } catch(e){}
 
         try {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(data.html).catch(function(){});
+          var clipPayload = JSON.stringify({
+            __wireforge_clipboard__: true,
+            version: 2,
+            type: 'element',
+            data: data
+          });
+          if (navigator.clipboard) {
+            if (window.ClipboardItem) {
+              var textBlob = new Blob([clipPayload], { type: 'text/plain' });
+              var htmlBlob = new Blob([data.html], { type: 'text/html' });
+              navigator.clipboard.write([
+                new ClipboardItem({
+                  'text/plain': textBlob,
+                  'text/html': htmlBlob
+                })
+              ]).catch(function(){
+                navigator.clipboard.writeText(clipPayload).catch(function(){});
+              });
+            } else if (navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(clipPayload).catch(function(){});
+            }
           }
         } catch(e){}
 
@@ -2371,9 +2391,48 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       return null;
     }
 
-    function pasteElement(targetX, targetY){
-      var data = getCopiedData();
+    function pasteElement(targetX, targetY, overrideData){
+      var data = overrideData || getCopiedData();
       if(!data || !data.html){
+        if(navigator.clipboard && navigator.clipboard.readText){
+          navigator.clipboard.readText().then(function(text){
+            var trimmed = (text || '').trim();
+            if(trimmed){
+              if(trimmed.indexOf('{') === 0 && trimmed.indexOf('__wireforge_clipboard__') >= 0){
+                try {
+                  var parsed = JSON.parse(trimmed);
+                  if(parsed && parsed.__wireforge_clipboard__ && parsed.data){
+                    copiedElement = parsed.data;
+                    try {
+                      if(window.parent){
+                        window.parent.__wfCopiedElement = parsed.data;
+                        window.parent.__wfLastCopyType = parsed.type || 'element';
+                      }
+                      localStorage.setItem('wf_clipboard_element', JSON.stringify(parsed.data));
+                      localStorage.setItem('wf_last_copy_type', parsed.type || 'element');
+                    } catch(e){}
+                    pasteElement(targetX, targetY, parsed.data);
+                    return;
+                  }
+                } catch(e){}
+              } else if(trimmed.indexOf('<') === 0 && (trimmed.indexOf('>') >= 0 || trimmed.indexOf('</') >= 0)){
+                var fallbackData = {
+                  version: 2,
+                  items: [{ html: trimmed, name: '粘贴的代码片段' }],
+                  html: trimmed,
+                  name: '粘贴的代码片段'
+                };
+                copiedElement = fallbackData;
+                pasteElement(targetX, targetY, fallbackData);
+                return;
+              }
+            }
+            showToast('剪贴板为空，请先按 Ctrl+C 复制元素');
+          }).catch(function(){
+            showToast('剪贴板为空，请先按 Ctrl+C 复制元素');
+          });
+          return;
+        }
         showToast('剪贴板为空，请先按 Ctrl+C 复制元素');
         return;
       }
@@ -5431,7 +5490,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }else if(d.type === 'wf-cut'){
         cutSelection();
       }else if(d.type === 'wf-paste'){
-        pasteElement(d.x, d.y);
+        pasteElement(d.x, d.y, d.payload);
       }else if(d.type === 'wf-duplicate'){
         if(selectedEl) duplicateElement(selectedEl);
       }else if(d.type === 'wf-copy-as-svg'){
@@ -7434,15 +7493,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         }
       }
 
-      // 粘贴元素 (Ctrl+V / ⌘V)
+      // 粘贴元素 (Ctrl+V / ⌘V，支持跨部署/本地域名读取剪贴板)
       if((e.ctrlKey || e.metaKey) && isV && !e.shiftKey && !e.altKey){
-        var data = getCopiedData();
-        if(data && data.html){
-          e.preventDefault();
-          e.stopPropagation();
-          pasteElement();
-          return;
-        }
+        e.preventDefault();
+        e.stopPropagation();
+        pasteElement();
+        return;
       }
 
       // 快速克隆副本 (Figma Duplicate: Ctrl+D / ⌘D)
@@ -8352,8 +8408,8 @@ function cutSelectedElement() {
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-cut' }, '*')
 }
 
-function pasteCopiedElement(x?: number, y?: number) {
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-paste', x, y }, '*')
+function pasteCopiedElement(x?: number, y?: number, payload?: any) {
+  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-paste', x, y, payload }, '*')
 }
 
 function duplicateSelectedElement() {

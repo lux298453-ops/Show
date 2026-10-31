@@ -8355,7 +8355,7 @@ function runLayerMenu(action: string) {
   } else if (action === 'cut') {
     postToFocusFrame({ type: 'wf-cut' })
   } else if (action === 'paste-here') {
-    postToFocusFrame({ type: 'wf-paste', x: currentMenu?.localX, y: currentMenu?.localY })
+    postToFocusFrame({ type: 'wf-paste', x: currentMenu?.localX, y: currentMenu?.localY, payload: (window as any).__wfCopiedElement })
   } else if (action === 'paste-replace') {
     postToFocusFrame({ type: 'wf-paste-replace' })
   } else if (action === 'copy-svg') {
@@ -9538,6 +9538,40 @@ function onSimMessage(ev: MessageEvent) {
     ;(window as any).__wfCopiedElement = ev.data.data
     ;(window as any).__wfLastCopyType = 'element'
     hasCopiedElement.value = true
+    try {
+      localStorage.setItem('wf_clipboard_element', JSON.stringify(ev.data.data))
+      localStorage.setItem('wf_last_copy_type', 'element')
+    } catch {}
+    try {
+      const clipPayload = JSON.stringify({
+        __wireforge_clipboard__: true,
+        version: 2,
+        type: 'element',
+        data: ev.data.data,
+      })
+      if (navigator.clipboard) {
+        if (window.ClipboardItem) {
+          const textBlob = new Blob([clipPayload], { type: 'text/plain' })
+          const htmlBlob = new Blob([ev.data.data.html || ''], { type: 'text/html' })
+          navigator.clipboard.write([
+            new ClipboardItem({
+              'text/plain': textBlob,
+              'text/html': htmlBlob,
+            }),
+          ]).catch(() => {
+            copyTextToClipboard(clipPayload)
+          })
+        } else if (navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(clipPayload).catch(() => {
+            copyTextToClipboard(clipPayload)
+          })
+        } else {
+          copyTextToClipboard(clipPayload)
+        }
+      } else {
+        copyTextToClipboard(clipPayload)
+      }
+    } catch {}
   }
   if (ev.data.type === 'wf-props-copied') {
     hasCopiedProps.value = true
@@ -10164,6 +10198,16 @@ async function onGlobalKeydown(e: KeyboardEvent) {
           localStorage.setItem('wf_clipboard_page', JSON.stringify(pageData))
           localStorage.setItem('wf_last_copy_type', 'page')
         } catch {}
+        try {
+          if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(JSON.stringify({
+              __wireforge_clipboard__: true,
+              version: 2,
+              type: 'page',
+              data: pageData,
+            })).catch(() => {})
+          }
+        } catch {}
         showToast(`已复制画板「${targetPage.name}」(按 Ctrl+V 粘贴新画板)`)
         e.preventDefault()
         return
@@ -10190,6 +10234,16 @@ async function onGlobalKeydown(e: KeyboardEvent) {
           localStorage.setItem('wf_clipboard_element', JSON.stringify(data))
           localStorage.setItem('wf_last_copy_type', 'element')
         } catch {}
+        try {
+          if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(JSON.stringify({
+              __wireforge_clipboard__: true,
+              version: 2,
+              type: 'element',
+              data: data,
+            })).catch(() => {})
+          }
+        } catch {}
         showToast(`已复制组件「${data.name}」(按 Ctrl+V 粘贴)`)
         e.preventDefault()
         return
@@ -10203,44 +10257,79 @@ async function onGlobalKeydown(e: KeyboardEvent) {
     }
   }
 
-  // 6. 粘贴快捷键 (Ctrl+V / Cmd+V)
+  // 6. 粘贴快捷键 (Ctrl+V / Cmd+V，全面支持跨域名从部署网站复制到本地)
   if ((e.ctrlKey || e.metaKey) && isV && !e.shiftKey) {
     const activeTag = (document.activeElement?.tagName || '').toLowerCase()
     if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
       return
     }
 
-    const lastCopyType = (window as any).__wfLastCopyType || localStorage.getItem('wf_last_copy_type')
+    let lastCopyType = (window as any).__wfLastCopyType || localStorage.getItem('wf_last_copy_type')
+    let cp = (window as any).__wfCopiedPage || JSON.parse(localStorage.getItem('wf_clipboard_page') || 'null')
+    let copied = (window as any).__wfCopiedElement || JSON.parse(localStorage.getItem('wf_clipboard_element') || 'null')
 
-    // A. 粘贴画板
-    if (lastCopyType === 'page') {
-      const cp = (window as any).__wfCopiedPage || JSON.parse(localStorage.getItem('wf_clipboard_page') || 'null')
-      if (cp) {
-        e.preventDefault()
-        const rightmost = blocks.value.reduce((max, b) => Math.max(max, b.x + b.w), 0)
-        const posX = rightmost > 0 ? rightmost + 120 : 56
-        const posY = blocks.value[0]?.y || 64
-        doCreatePage({
-          name: `${cp.name} 副本`,
-          width: cp.width,
-          height: cp.height,
-          x: posX,
-          y: posY,
-          htmlContent: cp.htmlContent,
-        })
-        return
+    // 跨域名/跨端口（例如从部署网站到本地开发环境）通过系统剪贴板异步打通
+    if ((!cp || lastCopyType !== 'page') && (!copied || !copied.html) && navigator.clipboard?.readText) {
+      try {
+        const text = (await navigator.clipboard.readText()) || ''
+        const trimmed = text.trim()
+        if (trimmed.startsWith('{') && trimmed.includes('__wireforge_clipboard__')) {
+          const parsed = JSON.parse(trimmed)
+          if (parsed && parsed.__wireforge_clipboard__ && parsed.data) {
+            if (parsed.type === 'page') {
+              lastCopyType = 'page'
+              cp = parsed.data
+              ;(window as any).__wfCopiedPage = cp
+              ;(window as any).__wfLastCopyType = 'page'
+              try { localStorage.setItem('wf_clipboard_page', JSON.stringify(cp)); localStorage.setItem('wf_last_copy_type', 'page'); } catch {}
+            } else {
+              lastCopyType = 'element'
+              copied = parsed.data
+              ;(window as any).__wfCopiedElement = copied
+              ;(window as any).__wfLastCopyType = 'element'
+              try { localStorage.setItem('wf_clipboard_element', JSON.stringify(copied)); localStorage.setItem('wf_last_copy_type', 'element'); } catch {}
+            }
+          }
+        } else if (trimmed.startsWith('<') && (trimmed.includes('>') || trimmed.includes('</'))) {
+          copied = {
+            version: 2,
+            items: [{ html: trimmed, name: '粘贴的代码片段' }],
+            html: trimmed,
+            name: '粘贴的代码片段',
+          }
+          ;(window as any).__wfCopiedElement = copied
+          ;(window as any).__wfLastCopyType = 'element'
+        }
+      } catch (err) {
+        console.warn('Read system clipboard failed on parent keydown:', err)
       }
     }
 
+    // A. 粘贴画板
+    if (lastCopyType === 'page' && cp) {
+      e.preventDefault()
+      const rightmost = blocks.value.reduce((max, b) => Math.max(max, b.x + b.w), 0)
+      const posX = rightmost > 0 ? rightmost + 120 : 56
+      const posY = blocks.value[0]?.y || 64
+      doCreatePage({
+        name: `${cp.name} 副本`,
+        width: cp.width,
+        height: cp.height,
+        x: posX,
+        y: posY,
+        htmlContent: cp.htmlContent,
+      })
+      return
+    }
+
     // B. 粘贴组件/元素
-    const copied = (window as any).__wfCopiedElement || JSON.parse(localStorage.getItem('wf_clipboard_element') || 'null')
     if (copied && copied.html) {
       e.preventDefault()
       const targetId = focusPageId.value || selectedNodeId.value || pages.value[0]?.id
       if (targetId) {
         const inst = pageRefs.value[targetId]
         if (inst && typeof inst.pasteCopiedElement === 'function') {
-          inst.pasteCopiedElement()
+          inst.pasteCopiedElement(undefined, undefined, copied)
         } else {
           insertComponentIntoPage(
             targetId,
