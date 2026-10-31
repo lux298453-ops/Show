@@ -130,6 +130,10 @@ export function markLocalEdit(scope: string, pageId: number, error = ''): void {
   stateFor(scope).localEdits.set(`put:/projects/${scope}/pages/${pageId}/html`, error)
 }
 
+export function clearLocalEdit(scope: string, pageId: number): void {
+  stateFor(scope).localEdits.delete(`put:/projects/${scope}/pages/${pageId}/html`)
+}
+
 /** Wait for queued edits and their HTTP writes, without replaying failed writes. */
 export function waitForSaved(scope: string, options: { timeoutMs?: number; quietMs?: number; signal?: AbortSignal } = {}): Promise<void> {
   const state = useSaveState(scope)

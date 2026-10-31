@@ -2602,7 +2602,7 @@ import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBott
 import NavbarControls from '../components/NavbarControls.vue'
 import AiGenerationGlow from '../components/AiGenerationGlow.vue'
 import { t } from '../utils/i18n'
-import { discardSaveState, markLocalEdit, useSaveState, waitForSaved } from '../utils/saveState'
+import { clearLocalEdit, discardSaveState, markLocalEdit, useSaveState, waitForSaved } from '../utils/saveState'
 import LayerTree from '../components/LayerTree.vue'
 import DesignInspector from '../components/DesignInspector.vue'
 import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
@@ -3595,15 +3595,22 @@ async function handleSaveCurrentPage() {
 }
 
 function onSaveHtml(p: { pageId: number; html: string; saveEpoch?: number }) {
+  if (isViewer.value) {
+    clearLocalEdit(String(id), p.pageId)
+    showToast('当前处于只读评审模式，画板更改无法保存。若需编辑请使用管理员账号登录。')
+    return
+  }
   const currentEpoch = getPageSaveEpoch(p.pageId)
   if (typeof p.saveEpoch === 'number') {
     // 消息里的 saveEpoch 小于该页当前的 saveEpoch，直接丢掉
     if (p.saveEpoch < currentEpoch) {
+      clearLocalEdit(String(id), p.pageId)
       return
     }
   } else {
     // 没有带 saveEpoch 的旧保存，在该页 saveEpoch 已经大于 0 时同样丢掉
     if (currentEpoch > 0) {
+      clearLocalEdit(String(id), p.pageId)
       return
     }
   }

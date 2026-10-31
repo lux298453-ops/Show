@@ -62,7 +62,13 @@ http.interceptors.request.use(async (config: SaveConfig) => {
     let release!: () => void
     const current = new Promise<void>(resolve => { release = resolve })
     saveQueues.set(key, current)
+    // 增加 15 秒并发队列防死锁安全熔断：若网络挂起或前序请求未释放，自动唤醒后续写入
+    const queueSafetyTimer = setTimeout(() => {
+      release()
+      if (saveQueues.get(key) === current) saveQueues.delete(key)
+    }, 15000)
     config.wfReleaseSave = () => {
+      clearTimeout(queueSafetyTimer)
       release()
       if (saveQueues.get(key) === current) saveQueues.delete(key)
     }

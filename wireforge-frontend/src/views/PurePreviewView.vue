@@ -566,7 +566,18 @@ const mainFlowPages = computed<Page[]>(() => {
     const visited = new Set<number>()
     for (const item of tabBar.items) {
       if (typeof item?.target === 'number' && !visited.has(item.target)) {
-        const p = pages.value.find((pg) => pg.id === item.target)
+        let p = pages.value.find((pg) => pg.id === item.target)
+        // 语义修正：如果 target 关联画板名称与 label 严重不符（例如 label 为"家园"，但 target 指向了"扭蛋抽奖页"），
+        // 自动优先在项目中匹配包含该 label 的主画板（如"宠物家园首页"），避免历史脏配置错指子页
+        const label = (item.label || '').trim()
+        if (label && p && !p.name.includes(label)) {
+          const semanticMatch = pages.value.find(
+            (pg) => !visited.has(pg.id) && pg.name.includes(label)
+          )
+          if (semanticMatch) {
+            p = semanticMatch
+          }
+        }
         if (p) {
           list.push(p)
           visited.add(p.id)
@@ -604,8 +615,13 @@ const mainFlowPages = computed<Page[]>(() => {
 // 判断下拉列表中某项是否处于激活态（包含同 Tab 子状态关联）
 function isPageActive(pageId: number): boolean {
   if (pageId === currentPageId.value) return true
-  // 关联子页判断：若当前停留在 2322 (扭蛋抽奖页)，而该 Tab 项是 2346 (收集_次态)，则视为处于该 Tab
-  if (currentPageId.value === 2322 && pageId === 2346) return true
+  // 关联子页判断：若当前停留在"扭蛋抽奖页"，且该 Tab 项是"收集_次态"或"宠物家园首页"，联动高亮
+  const curPage = pages.value.find((pg) => pg.id === currentPageId.value)
+  const targetPage = pages.value.find((pg) => pg.id === pageId)
+  if (curPage && targetPage) {
+    if (curPage.name.includes('扭蛋抽奖') && targetPage.name.includes('收集')) return true
+    if ((currentPageId.value === 2322 || currentPageId.value === 60001) && (pageId === 2346 || pageId === 60025)) return true
+  }
   return false
 }
 
