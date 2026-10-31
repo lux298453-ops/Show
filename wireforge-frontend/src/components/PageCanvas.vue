@@ -5452,6 +5452,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           if(selTarget) selectElement(selTarget, true);
         }
       }else if(d.type === 'wf-align'){
+        if(READONLY) return;
         if(d.alignType === 'space-h' || d.alignType === 'space-v'){
           distributeSelection(d.alignType === 'space-v' ? 'v' : 'h');
         }else if(selectedEls && selectedEls.length > 0){
@@ -7334,8 +7335,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       var activeText = document.querySelector('[data-wf-editing-text="true"]');
       var isEditing = !!activeText || (e.target && (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'));
 
-      var isZ = e.key === 'z' || e.key === 'Z';
-      var isY = e.key === 'y' || e.key === 'Y';
+      var isZ = e.key === 'z' || e.key === 'Z' || e.code === 'KeyZ' || e.keyCode === 90;
+      var isY = e.key === 'y' || e.key === 'Y' || e.code === 'KeyY' || e.keyCode === 89;
       if((e.ctrlKey || e.metaKey) && (isZ || isY) && !isEditing){
         if(e.repeat) return;
         var wantUndo = isZ && !e.shiftKey;

@@ -1499,6 +1499,7 @@
           </div>
 
           <DesignInspector
+            :read-only="isViewer"
             :current-page="currentFocusPage"
             :selected-element="selectedElementObj"
             :element-info="activeSelectedElementInfo"
@@ -8643,8 +8644,25 @@ const selectedElementObj = computed<Element | null>(() => {
   return currentFocusPage.value.elements.find((e) => e.id === selectedElementId.value) || null
 })
 
+function ensurePageEditBaselineSnapshot(pageId?: number) {
+  const pid = pageId ?? currentFocusPage.value?.id
+  if (!pid) return
+  const page = pages.value.find((p) => p.id === pid)
+  const currentHtml = page?.html_content
+  if (!currentHtml) return
+  const top = pageEditUndoStack.value[pageEditUndoStack.value.length - 1]
+  if (!top || top.pageId !== pid || top.html !== currentHtml) {
+    pageEditUndoStack.value.push({
+      pageId: pid,
+      timestamp: Date.now() - 1,
+      html: currentHtml,
+    })
+  }
+}
+
 function onInspectorAlign(alignType: string) {
   if (currentFocusPage.value) {
+    ensurePageEditBaselineSnapshot(currentFocusPage.value.id)
     pageRefs.value[currentFocusPage.value.id]?.alignSelectedElement?.(alignType)
   }
 }
@@ -10068,7 +10086,7 @@ async function onGlobalKeydown(e: KeyboardEvent) {
   }
 
   // 0. 保存快捷键 (Ctrl+S / Cmd+S)：全局任何位置第一时间拦截浏览器「另存为」
-  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.code === 'KeyS' || e.keyCode === 83)) {
     e.preventDefault()
     e.stopPropagation()
     const activeEl = document.activeElement as HTMLElement | null
@@ -10079,9 +10097,9 @@ async function onGlobalKeydown(e: KeyboardEvent) {
     return
   }
 
-  // 3. 撤销 / 重做快捷键 (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z)
-  const isZ = e.key === 'z' || e.key === 'Z'
-  const isY = e.key === 'y' || e.key === 'Y'
+  // 3. 撤销 / 重做快捷键 (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z，支持中文输入法及各类按键码)
+  const isZ = e.key === 'z' || e.key === 'Z' || e.code === 'KeyZ' || e.keyCode === 90
+  const isY = e.key === 'y' || e.key === 'Y' || e.code === 'KeyY' || e.keyCode === 89
   if ((e.ctrlKey || e.metaKey) && (isZ || isY)) {
     if (e.repeat) return
     const tag = (document.activeElement?.tagName || '').toLowerCase()
@@ -10107,10 +10125,10 @@ async function onGlobalKeydown(e: KeyboardEvent) {
   if (!fineTune.value || mode.value === 'preview') return
 
   // 5. 复制快捷键 (Ctrl+C / Cmd+C)
-  const isC = e.key === 'c' || e.key === 'C'
-  const isX = e.key === 'x' || e.key === 'X'
-  const isV = e.key === 'v' || e.key === 'V'
-  const isD = e.key === 'd' || e.key === 'D'
+  const isC = e.key === 'c' || e.key === 'C' || e.code === 'KeyC' || e.keyCode === 67
+  const isX = e.key === 'x' || e.key === 'X' || e.code === 'KeyX' || e.keyCode === 88
+  const isV = e.key === 'v' || e.key === 'V' || e.code === 'KeyV' || e.keyCode === 86
+  const isD = e.key === 'd' || e.key === 'D' || e.code === 'KeyD' || e.keyCode === 68
 
   if ((e.ctrlKey || e.metaKey) && isX && !e.shiftKey && !e.altKey && !isInput && hasSelectedDomElements.value) {
     e.preventDefault()

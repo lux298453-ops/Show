@@ -40,7 +40,7 @@
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           :title="t('alignLeft')"
-          :disabled="!hasSelection"
+          :disabled="!hasSelection || readOnly"
           @click="emit('align-selection', 'left')"
         >
           <AlignStartVertical class="w-3.5 h-3.5" />
@@ -49,7 +49,7 @@
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           :title="t('alignCenterH')"
-          :disabled="!hasSelection"
+          :disabled="!hasSelection || readOnly"
           @click="emit('align-selection', 'center-h')"
         >
           <AlignCenterVertical class="w-3.5 h-3.5" />
@@ -58,7 +58,7 @@
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           :title="t('alignRight')"
-          :disabled="!hasSelection"
+          :disabled="!hasSelection || readOnly"
           @click="emit('align-selection', 'right')"
         >
           <AlignEndVertical class="w-3.5 h-3.5" />
@@ -68,7 +68,7 @@
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           :title="t('alignTop')"
-          :disabled="!hasSelection"
+          :disabled="!hasSelection || readOnly"
           @click="emit('align-selection', 'top')"
         >
           <AlignStartHorizontal class="w-3.5 h-3.5" />
@@ -77,7 +77,7 @@
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           :title="t('alignCenterV')"
-          :disabled="!hasSelection"
+          :disabled="!hasSelection || readOnly"
           @click="emit('align-selection', 'center-v')"
         >
           <AlignCenterHorizontal class="w-3.5 h-3.5" />
@@ -86,7 +86,7 @@
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           :title="t('alignBottom')"
-          :disabled="!hasSelection"
+          :disabled="!hasSelection || readOnly"
           @click="emit('align-selection', 'bottom')"
         >
           <AlignEndHorizontal class="w-3.5 h-3.5" />
@@ -96,7 +96,7 @@
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           :title="(selectionCount || 0) < 3 ? '先选中 3 个以上元素' : t('alignSpaceH')"
-          :disabled="(selectionCount || 0) < 3"
+          :disabled="(selectionCount || 0) < 3 || readOnly"
           @click="emit('align-selection', 'space-h')"
         >
           <AlignHorizontalSpaceBetween class="w-3.5 h-3.5" />
@@ -105,7 +105,7 @@
           type="button"
           class="flex-1 h-6 rounded flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#0D99FF] dark:hover:text-[#0D99FF] hover:bg-blue-50/80 dark:hover:bg-[#383838] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           :title="(selectionCount || 0) < 3 ? '先选中 3 个以上元素' : t('alignSpaceV')"
-          :disabled="(selectionCount || 0) < 3"
+          :disabled="(selectionCount || 0) < 3 || readOnly"
           @click="emit('align-selection', 'space-v')"
         >
           <AlignVerticalSpaceBetween class="w-3.5 h-3.5" />
@@ -898,6 +898,7 @@ const props = defineProps<{
   selectionCount?: number
   /** 没选中元素时，填充色作用在画框背景上 */
   frameFill?: string | null
+  readOnly?: boolean
   elementInfo?: {
     tagName?: string
     className?: string
