@@ -506,6 +506,17 @@ function detectBottomNavPages(pagesList: Page[]): Page[] {
     let bestPageId: number | null = null
     let maxVote = -1
 
+    let topLabel = ''
+    if (labels) {
+      let maxLblCount = -1
+      for (const [lbl, c] of labels.entries()) {
+        if (c > maxLblCount) {
+          maxLblCount = c
+          topLabel = lbl
+        }
+      }
+    }
+
     if (votes) {
       for (const [pid, count] of votes.entries()) {
         if (count > maxVote && pagesById.has(pid) && !usedIds.has(pid)) {
@@ -515,20 +526,16 @@ function detectBottomNavPages(pagesList: Page[]): Page[] {
       }
     }
 
-    if (!bestPageId && labels) {
-      let topLabel = ''
-      let maxLblCount = -1
-      for (const [lbl, c] of labels.entries()) {
-        if (c > maxLblCount) {
-          maxLblCount = c
-          topLabel = lbl
-        }
-      }
-      if (topLabel) {
-        const matched = pagesList.find(
+    // 语义修正：如果存在高频文字标签，且选出的 bestPageId 名称不包含该标签，优先用包含该标签的主画板替换
+    if (topLabel) {
+      const curPage = bestPageId ? pagesById.get(bestPageId) : null
+      if (!curPage || !curPage.name.includes(topLabel)) {
+        const semanticMatch = pagesList.find(
           (p) => !usedIds.has(p.id) && (p.name.includes(topLabel) || topLabel.includes(p.name))
         )
-        if (matched) bestPageId = matched.id
+        if (semanticMatch) {
+          bestPageId = semanticMatch.id
+        }
       }
     }
 
@@ -560,6 +567,7 @@ const mainFlowPages = computed<Page[]>(() => {
     }
   }
 
+  let appMapList: Page[] = []
   const tabBar = appMapObj?.tab_bar
   if (Array.isArray(tabBar?.items) && tabBar.items.length > 0) {
     const list: Page[] = []
@@ -584,10 +592,10 @@ const mainFlowPages = computed<Page[]>(() => {
         }
       }
     }
-    if (list.length >= 2) return list
+    if (list.length >= 2) appMapList = list
   }
 
-  if (Array.isArray(tabBar?.pages) && tabBar.pages.length > 0) {
+  if (appMapList.length === 0 && Array.isArray(tabBar?.pages) && tabBar.pages.length > 0) {
     const list: Page[] = []
     const visited = new Set<number>()
     for (const pid of tabBar.pages) {
@@ -599,11 +607,25 @@ const mainFlowPages = computed<Page[]>(() => {
         }
       }
     }
-    if (list.length >= 2) return list
+    if (list.length >= 2) appMapList = list
   }
 
   // 2. 智能底栏分析：自动从画板底层元素提取导航栏各 Tab 对应的原型图
   const detected = detectBottomNavPages(pages.value)
+
+  // 核心决策：优先采用更完整的 4 个底栏 Tab 集合（appMap 经常因为部分页面未连线而残缺只有 2 项）
+  if (detected.length >= 4) {
+    return detected
+  }
+  if (appMapList.length >= 4) {
+    return appMapList
+  }
+  if (detected.length >= appMapList.length && detected.length >= 2) {
+    return detected
+  }
+  if (appMapList.length >= 2) {
+    return appMapList
+  }
   if (detected.length >= 2) {
     return detected
   }
