@@ -13,6 +13,9 @@ const compiled = transformSync(functions + '\nglobalThis.generate=injectNavRunti
 const backgroundModule={exports:{}}
 const backgroundContext={module:backgroundModule,exports:backgroundModule.exports};vm.createContext(backgroundContext)
 vm.runInContext(transformSync(readFileSync('src/utils/backgroundReturn.ts','utf8'),{loader:'ts',format:'cjs'}).code,backgroundContext)
+const navigationModule={exports:{}}
+const navigationContext={module:navigationModule,exports:navigationModule.exports};vm.createContext(navigationContext)
+vm.runInContext(transformSync(readFileSync('src/utils/navigationEditing.ts','utf8'),{loader:'ts',format:'cjs'}).code,navigationContext)
 
 class Node {
   constructor(tag='div', attrs={}, box={left:0,top:0,width:375,height:833}) {
@@ -53,7 +56,7 @@ function setup(elements=[], interactive=true, populate=()=>{}) {
   const doc={body,documentElement:root,createElement:t=>new Node(t),querySelector:s=>root.querySelector(s),querySelectorAll:s=>root.querySelectorAll(s),
     addEventListener:(type,fn)=>(listeners[type]??=[]).push(fn)}
   const window={scrollX:0,scrollY:0,innerWidth:375,innerHeight:833,addEventListener(){}}
-  const scope={props:{page:{id:1,canvas_width:375,canvas_height:833,elements},protoHotspot:false},...backgroundModule.exports};vm.createContext(scope);vm.runInContext(compiled,scope)
+  const scope={props:{page:{id:1,canvas_width:375,canvas_height:833,elements},protoHotspot:false},...backgroundModule.exports,...navigationModule.exports};vm.createContext(scope);vm.runInContext(compiled,scope)
   populate(body)
   const html=scope.generate('<html><body></body></html>',interactive,false,false)
   const runtime=html.match(/<script data-wf-inject>([\s\S]*?)<\/script>/)[1]

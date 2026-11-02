@@ -395,10 +395,20 @@ public class TemplateHtmlRenderer {
         return ((int) (r / n) << 16) | ((int) (g / n) << 8) | (int) (b / n);
     }
 
-    /** 普通页面白底；有弹窗语义且边缘确实为暗色的页面保留遮罩底色。 */
-    private String pageBackground(Page page) {
+    /** 弹窗身份不依赖底图的颜色，避免换成浅灰衬底后误补整页导航。 */
+    private static boolean isOverlayPage(Page page) {
         String name = page.getName() == null ? "" : page.getName();
-        if (!name.matches(".*(弹窗|浮层|遮罩|提醒|结果|说明|背包|试用已结束).*")) return "#FFFFFF";
+        return name.matches(".*(弹窗|浮层|遮罩|提醒|结果|说明|背包|试用已结束).*");
+    }
+
+    /** 独立展示弹窗时用中性灰衬底；实际浮层的遮罩由 .wf-modal 绘制。 */
+    private String pageBackground(Page page) {
+        return isOverlayPage(page) ? "#EEF0F3" : "#FFFFFF";
+    }
+
+    /** 保留既有组件的明暗判断；页面衬底换色不应重配按钮、文字或内容面板。 */
+    private String componentBackdrop(Page page) {
+        if (!isOverlayPage(page)) return "#FFFFFF";
         BufferedImage img = readImage(page);
         if (img == null) return "#FFFFFF";
         List<Integer> pixels = new ArrayList<>();
@@ -1667,7 +1677,7 @@ public class TemplateHtmlRenderer {
 
         trimPanelBeforeDetachedClose(renderList);
         // 不再根据空白区域猜测并补画“主视觉”，避免制造不存在的大色块。
-        String pageBg = pageBackground(bp);
+        String pageBg = componentBackdrop(bp);
         if (layoutOn && !isModalPage) LayoutNormalizer.apply(renderList, canvasW, canvasH);
 
         // 0.7) 图片/头像与下方文本相交重叠自愈（全局卡片防压字）：
@@ -2854,8 +2864,7 @@ public class TemplateHtmlRenderer {
         SemanticLayout layout = new SemanticLayout();
         Map<Long,List<Interaction>> safeInters = inters == null ? Map.of() : inters;
         String name = page.getName() == null ? "" : page.getName();
-        boolean overlay = fragment || name.matches(".*(弹窗|浮层|遮罩|提醒|结果|试用已结束|背包).*" )
-                || extractLuminance(pageBackground(page)) < 145;
+        boolean overlay = fragment || isOverlayPage(page);
         layout.statusBar = !overlay && !all.isEmpty() && cw <= 600 && ch >= cw * 1.2;
         if (layout.statusBar) {
             for (Element e : all) {
@@ -3671,22 +3680,30 @@ public class TemplateHtmlRenderer {
                             +"border-right:1px solid #DDE2E8;transform:rotate(45deg);'></i>"));
         }
         if (!layout.navigation.isEmpty()) {
-            html.append("<nav class='wf-canonical-nav wf-el' aria-label='底部导航' style='left:0;top:").append((int)(ch-64))
+            String navUid="wf-nav-p"+page.getId();
+            html.append("<nav class='wf-canonical-nav wf-el' data-wf-navigation='bar' data-wf-edit-role='navigation' data-wf-component='1' data-wf-uid='")
+                    .append(navUid).append("' aria-label='底部导航' style='left:0;top:").append((int)(ch-64))
                     .append("px;width:").append((int)cw).append("px;height:64px;z-index:60;display:flex;background:#FFFFFF;border-top:1px solid #E5E7EB;'>");
             for (NavigationItem item : layout.navigation) {
                 boolean active=item.label.equals(layout.activeNavigation);String color=active?THEME_ACCENT:"#7B8492";
                 Element text=item.parts.stream().filter(e -> kind(e).equals("text") && label(e).equals(item.label)).findFirst().orElse(null);
                 Element icon=item.parts.stream().filter(e -> kind(e).equals("icon")).findFirst().orElse(null);
                 List<Element> used=new ArrayList<>();used.add(item.anchor);
+                String itemUid=navUid+"-item-"+item.anchor.getId();
                 String graphic=iconSvg(iconKey(item.label),color,24);
                 if (icon!=null && icon!=item.anchor) {graphic="<span"+elementAttrs(icon,inters,names)+">"+graphic+"</span>";used.add(icon);}
-                String caption="<span class='wf-nav-label'"+(text!=null && text!=item.anchor?elementAttrs(text,inters,names):"")
-                        +" style='font-size:11px;line-height:14px;'>"+esc(item.label)+"</span>";
+                String caption="<span class='wf-nav-label' data-wf-edit-role='navigation-label' data-wf-uid='"+itemUid+"-label'"
+                        +(text!=null && text!=item.anchor?elementAttrs(text,inters,names):"")
+                        +" style='position:relative;font-size:11px;line-height:14px;'>"+esc(item.label)+"</span>";
                 if (text!=null) used.add(text);
                 html.append("<div class='wf-nav-item").append(active?" wf-nav-active":"").append("'")
+                        .append(" data-wf-edit-role='navigation-item' data-wf-component='1' data-nav-item='1' data-wf-uid='").append(itemUid)
+                        .append("' data-wf-nav-label='").append(esc(item.label)).append("'")
                         .append(elementAttrs(item.anchor,inters,names)).append(" style='position:relative;flex:1;min-width:0;display:flex;flex-direction:column;"
                                 +"align-items:center;justify-content:center;gap:4px;cursor:pointer;color:").append(color).append(";'>")
-                        .append("<span class='wf-nav-graphic'>").append(graphic).append("</span>").append(caption)
+                        .append("<span class='wf-nav-graphic' data-wf-edit-role='navigation-icon' data-wf-uid='").append(itemUid)
+                        .append("-icon' style='position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;width:24px;height:24px;'>")
+                        .append(graphic).append("</span>").append(caption)
                         .append(bindingAliases(item.parts,used,inters,names)).append("</div>");
             }
             html.append("</nav>");
@@ -4366,10 +4383,28 @@ public class TemplateHtmlRenderer {
     private static String resolveIconName(Element e, List<Element> all) {
         String own = e.getLabel() == null ? "" : e.getLabel().trim();
         if (iconKey(own) != null) return own;
+        // 小型竖版缩略图是一排内容预览，不能把下一行的功能标题借来替换其中一张主图。
+        // 锁仍由原来的独立元素叠加，锁定和未锁定项共用同一种主图占位。
+        if (own.isBlank() && compactPreviewStrip(e,all)) return own;
         if (kind(e).matches("image|icon") && frame(e).w<=36 && frame(e).h<=36 && all.stream().anyMatch(c -> kind(c).equals("container")
                 && label(c).matches(".*(货币|余额|资产).*") && frame(c).h<=60 && inside(frame(c),frame(e),4))) return "货币";
         Element text = nearbyIconLabel(e, all);
         return text == null ? own : text.getLabel();
+    }
+
+    private static boolean compactPreviewStrip(Element element,List<Element> all) {
+        Frame r=frame(element);
+        if(!kind(element).matches("image|banner") || r.w<12 || r.w>48 || r.h<24 || r.h>88
+                || r.w/r.h<.35 || r.w/r.h>.75)return false;
+        Frame panel=all.stream().filter(e -> kind(e).equals("container") && inside(frame(e),r,2))
+                .min(Comparator.comparingDouble(e -> frame(e).w*frame(e).h)).map(TemplateHtmlRenderer::frame).orElse(null);
+        return all.stream().filter(e -> e!=element && kind(e).matches("image|banner"))
+                .filter(e -> Math.abs(frame(e).y-r.y)<=Math.max(3,r.h*.12)
+                        && Math.abs(frame(e).w-r.w)<=Math.max(3,r.w*.2)
+                        && Math.abs(frame(e).h-r.h)<=Math.max(3,r.h*.15)
+                        && Math.abs(frame(e).cx()-r.cx())>=r.w*.7
+                        && (panel==null || inside(panel,frame(e),2)))
+                .limit(2).count()>=2;
     }
 
     /** 功能图片的文字可能与图形下缘重叠，也可能是按钮文案；只在紧邻的小图形范围内关联。 */
@@ -4932,7 +4967,7 @@ public class TemplateHtmlRenderer {
                 <!DOCTYPE html>
                 <html lang="zh-CN"><head><meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
-                <meta name="wf-template-revision" content="2026-10-30-background-7">
+                <meta name="wf-template-revision" content="2026-11-02-modal-background-10">
                 <title>%s</title>
                 <style>
                   * { box-sizing: border-box; }
@@ -4984,7 +5019,7 @@ public class TemplateHtmlRenderer {
                   .wf-rate{user-select:none}
                   .wf-progress{box-sizing:border-box}
                   .wf-search-in{font-size:14px;user-select:none}
-                  .wf-modal{position:absolute;inset:0;z-index:999;display:none;background:rgba(15,18,26,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+                  .wf-modal{position:absolute;inset:0;z-index:999;display:none;background:rgba(0,0,0,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
                   .wf-modal.wf-show{display:block}
                   .wf-modal-dismiss{position:absolute;inset:0;background:none;border:none;padding:0;margin:0;cursor:pointer}
                   .wf-tabbar{display:flex;z-index:50;background:rgba(255,255,255,0.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 -2px 10px rgba(0,0,0,.05);border-top:1px solid rgba(0,0,0,0.04)}

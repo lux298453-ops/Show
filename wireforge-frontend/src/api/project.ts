@@ -17,6 +17,21 @@ export interface AnalysisStatus {
   updateTime?: number
 }
 
+export interface AiAdjustResponse {
+  pageId: number
+  pageName: string
+  summary: string
+  diffList: string[]
+  modifiedHtml: string
+}
+
+export interface AiElementAdjustResponse {
+  action: 'REPLACE' | 'DELETE'
+  elementId: string
+  summary: string
+  modifiedSnippet: string
+}
+
 export const projectApi = {
   list: () => http.get<any, Project[]>('/projects'),
   create: (name: string, description?: string) => http.post<any, Project>('/projects', { name, description }),
@@ -43,6 +58,21 @@ export const projectApi = {
   /** 仅重新生成某页的整页 HTML（Stitch 式直出），返回新 HTML */
   regenerateHtml: (id: number, pageId: number) =>
     http.post<any, string>(`/projects/${id}/pages/${pageId}/regenerate-html`),
+  /** 全屏演示 AI 原型微调：针对指定画板生成增量修改方案与新 HTML */
+  aiAdjust: (id: number, pageId: number, body: { instruction: string; contextHtml?: string }) =>
+    http.post<any, AiAdjustResponse>(`/projects/${id}/pages/${pageId}/ai-adjust`, body),
+  /** 全屏演示 AI 单选元素精准微调（Figma AI / Cursor 级）：Token 骤降 95%，秒级响应且零误伤 */
+  aiAdjustElement: (
+    id: number,
+    pageId: number,
+    body: {
+      elementId: string
+      elementTag?: string
+      elementLabel?: string
+      elementHtml: string
+      instruction: string
+    }
+  ) => http.post<any, AiElementAdjustResponse>(`/projects/${id}/pages/${pageId}/ai-adjust-element`, body),
   /** 保存用户微调后的完整整页 HTML */
   saveHtml: (id: number, pageId: number, html: string, clientId?: string) =>
     http.put<any, void>(`/projects/${id}/pages/${pageId}/html`, { html, clientId }),

@@ -361,6 +361,7 @@ import { FileText, ChevronDown, ChevronRight, GripVertical, Plus, Lock, Image as
 import { apiUrl, getFileUrl, withBackendFiles, withoutBackendFiles } from '../api/http'
 import { projectApi } from '../api/project'
 import { backgroundReturnSetting, backgroundReturnTargets } from '../utils/backgroundReturn'
+import { installNavigationEditing } from '../utils/navigationEditing'
 import type { Annotation, Element, Page } from '../types'
 import WireframeElement from './WireframeElement.vue'
 
@@ -467,8 +468,8 @@ const emit = defineEmits<{
       tag?: string
     }>
   }): void
-  (e: 'canvasUndo', pageId: number): void
-  (e: 'canvasRedo', pageId: number): void
+  (e: 'canvasUndo', pageId: number, snapshot?: string): void
+  (e: 'canvasRedo', pageId: number, snapshot?: string): void
   (e: 'textChanged', payload: { pageId: number; text: string }): void
 }>()
 
@@ -755,6 +756,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   const cleanHtml = html
     .replace(/<style\b[^>]*\bdata-wf-inject[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script\b[^>]*\bdata-wf-inject[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*\bid=["']wf-inspector-style["'][^>]*>[\s\S]*?<\/style>/gi, '')
   // 防溢出兜底：AI 常把字号写得过大（按 1080px 设计稿而非 375px 容器标定），
   // 导致一行折成两行、横向按钮组挤成竖排、元素相互重叠。
   // 样式层：禁止按钮/tab 折行；脚本层：检测到横向溢出时先逐步收敛最大字号，仍溢出则整体等比微缩。
@@ -913,6 +915,8 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   </style>`
   const runtime = `<script data-wf-inject>(function(){
     var PAGE_ID = ${JSON.stringify(props.page?.id ?? 0)};
+    window.__wfNavigationEditing = (${installNavigationEditing.toString()})(document, PAGE_ID);
+    window.__wfNavigationEditing.normalize();
     var isInteractive = ${initialInteractive ? 'true' : 'false'};
     // 旧 HTML 可能省略了带返回交互的背景。运行时只补透明热区，不改原稿或已保存的 HTML。
     var backdropReturns = ${JSON.stringify(backdropReturns)};
@@ -1312,6 +1316,8 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
 
     function pickHotspotEl(node){
       if(!node) return null;
+      var navOwner=window.__wfNavigationEditing && window.__wfNavigationEditing.item(node);
+      if(navOwner) return navOwner;
       var segment=window.__wfPickTabSegment && window.__wfPickTabSegment(node);
       if(segment) return segment;
       var el = node;
@@ -1524,6 +1530,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
   <script data-wf-inject>
   (function(){
     var EDIT = ${initialInteractive || isReadOnly ? 'false' : 'true'}, READONLY = ${isReadOnly ? 'true' : 'false'}, hovered = null, touched = [], st = null, PROTO_HOTSPOT = ${props.protoHotspot ? 'true' : 'false'};
+    var NAV_EDIT = window.__wfNavigationEditing;
     if (!window.__wfPanActive) {
       window.__wfPanActive = true;
       var panSpaceHeld = false, panGestureActive = false;
@@ -1640,6 +1647,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       });
       var anchor = document.body.firstChild;
       while(wrap.firstChild) document.body.insertBefore(wrap.firstChild, anchor);
+      if(NAV_EDIT) NAV_EDIT.normalize();
       if(bodyBg !== null){
         document.body.style.background = bodyBg;
         document.documentElement.style.background = rootBg || '';
@@ -1702,7 +1710,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         scheduleSave();
         publishLayers();
         showToast('已撤回操作 (Ctrl+Z)');
-        try { window.parent.postMessage({ type: 'wf-canvas-undo', pageId: PAGE_ID }, '*'); } catch(e){}
+        try { window.parent.postMessage({ type: 'wf-canvas-undo', pageId: PAGE_ID, html: snapshotHtml() }, '*'); } catch(e){}
       }catch(e){}
     }
 
@@ -1716,7 +1724,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         scheduleSave();
         publishLayers();
         showToast('已重做 (Ctrl+Y)');
-        try { window.parent.postMessage({ type: 'wf-canvas-redo', pageId: PAGE_ID }, '*'); } catch(e){}
+        try { window.parent.postMessage({ type: 'wf-canvas-redo', pageId: PAGE_ID, html: snapshotHtml() }, '*'); } catch(e){}
       }
     }
 
@@ -1770,6 +1778,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         subUids: subUids,
         box: box,
         elementId: elemId,
+        navigationRole: NAV_EDIT ? NAV_EDIT.role(el) : '',
+        sourceElementIds: el.querySelectorAll ? Array.from(el.querySelectorAll('[data-wf-element-id]')).map(function(n){return Number(n.getAttribute('data-wf-element-id'));}).filter(Number.isFinite) : [],
         text: rawText.slice(0, 30),
         tag: (el.tagName || '').toLowerCase()
       };
@@ -1788,6 +1798,11 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       var curT = parseFloat(el.style.top);
       if(isNaN(curL)) curL = 0;
       if(isNaN(curT)) curT = 0;
+      if(NAV_EDIT && NAV_EDIT.isPart(el)){
+        var box=el.getBoundingClientRect();
+        var constrained=NAV_EDIT.constrainBox(el,curL+dx,curT+dy,box.width,box.height,{left:curL,top:curT,boxL:box.left+(window.scrollX||0),boxT:box.top+(window.scrollY||0)});
+        dx=constrained.left-curL;dy=constrained.top-curT;
+      }
       if(!isAbsolute) el.style.position = 'relative';
       var origTrans = el.style.transition;
       var hadInlineTrans = !!(el.style.getPropertyValue && el.style.getPropertyValue('transition'));
@@ -1877,6 +1892,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
     function layerKind(el){
       if(!el || !el.tagName) return 'rect';
+      if(NAV_EDIT && NAV_EDIT.role(el)==='navigation-icon') return 'vector';
+      if(NAV_EDIT && NAV_EDIT.role(el)==='navigation-label') return 'text';
+      if(NAV_EDIT && NAV_EDIT.role(el)) return 'frame';
       var tag = String(el.tagName || '').toUpperCase();
       var cls = '';
       try { cls = typeof el.className === 'string' ? el.className : ''; } catch(e) { cls = ''; }
@@ -1942,6 +1960,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
     function isChromeNode(el){
       if(!el || !el.tagName) return true;
+      if(el.classList && el.classList.contains('wf-binding-alias')) return true;
       var tag = String(el.tagName || '').toUpperCase();
       if(tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'LINK' || tag === 'META') return true;
       if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || el.id === 'wf-snap-guides') return true;
@@ -1965,6 +1984,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       var named = '';
       try { named = el.getAttribute && el.getAttribute('data-wf-name') || ''; } catch(e) { named = ''; }
       if(named) return oneLine(String(named)).slice(0, 24);
+      if(NAV_EDIT && NAV_EDIT.describe(el)) return NAV_EDIT.describe(el);
       if(kind === 'group') return '分组';
       return layerShortName(el);
     }
@@ -1978,6 +1998,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     /** 只负责 flex 排布、自己没有底色和阴影的包裹层。不单独占一条图层。 */
     function isLayoutShell(el){
       if(!el || !el.tagName) return false;
+      if(NAV_EDIT && NAV_EDIT.role(el)) return false;
       var tag = String(el.tagName || '').toUpperCase();
       if(tag !== 'DIV' && tag !== 'SPAN') return false;
       if(el.getAttribute && (el.getAttribute('data-wf-group') === '1' || el.getAttribute('data-wf-component') === '1')) return false;
@@ -2144,7 +2165,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         for(var i = 0; i < nodes.length; i++){
           children.push(serializeLayer(nodes[i], depth + 1));
         }
-        if(isComponent && hasOwnBox(el)){
+        if(isComponent && hasOwnBox(el) && !(NAV_EDIT && NAV_EDIT.role(el))){
           children.push({
             uid: uid + '::box',
             name: boxLayerKind(el) === 'ellipse' ? '圆形' : '方框',
@@ -2159,7 +2180,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         uid: uid,
         name: layerDisplayName(el, kind),
         kind: kind,
-        ungroupable: isGroup || (isComponent && children.length > 0),
+        ungroupable: !(NAV_EDIT && NAV_EDIT.role(el)) && (isGroup || (isComponent && children.length > 0)),
         hidden: el.getAttribute('data-wf-hidden') === '1' || (el.classList && el.classList.contains('wf-layer-hidden')),
         locked: el.getAttribute('data-wf-locked') === '1',
         children: children
@@ -2168,6 +2189,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
     function publishLayers(){
       try{
+        if(NAV_EDIT) NAV_EDIT.normalize();
         normalizeInsertedComponents();
         var layers = [];
         var kids = document.body ? document.body.children : [];
@@ -2370,12 +2392,19 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
       if(!copyElement(selectedEl, targets, true)) return;
       pushSnapshot();
-      for(var i = 0; i < targets.length; i++) targets[i].remove();
+      var deletedItems = [];
+      for(var i = 0; i < targets.length; i++){
+        var info=extractDeletedItemInfo(targets[i]);
+        if(info) deletedItems.push(info);
+        if(NAV_EDIT) NAV_EDIT.preservePartBindings(targets[i]);
+        targets[i].remove();
+      }
       deselect();
       clearHover();
       scheduleSave();
       pushSnapshot();
       publishLayers();
+      try { parent.postMessage({type:'wf-element-deleted',pageId:PAGE_ID,count:targets.length,items:deletedItems},'*'); } catch(e){}
       showToast('已剪切 ' + targets.length + ' 个元素 (Ctrl+V 粘贴，Ctrl+Z 撤回)');
     }
 
@@ -3746,6 +3775,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
     function applyColor(target, colorVal, silent){
       if(!silent) pushSnapshot();
+      if(NAV_EDIT && NAV_EDIT.role(target)==='navigation-icon'){
+        target.style.color=colorVal;
+        paintIcons(target,colorVal);
+        if(!silent){ scheduleSave(); showToast('图标颜色已修改并保存'); }
+        return;
+      }
       var isVector = target && (
         target.tagName.toLowerCase() === 'svg' ||
         (target.classList && (target.classList.contains('wf-vector-shape') || target.classList.contains('wf-vector-icon'))) ||
@@ -3829,6 +3864,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
     function fitVectorElementBox(el){
       if(!el || resizing || drag) return;
+      if(NAV_EDIT && NAV_EDIT.isPart(el)) return;
       var hasVector = (el.classList && el.classList.contains('wf-vector-shape')) || (el.hasAttribute && el.hasAttribute('data-wf-vector'));
       if(!hasVector) return;
       var svg = (el.tagName && el.tagName.toLowerCase() === 'svg') ? el : (el.querySelector ? el.querySelector('svg') : null);
@@ -3965,7 +4001,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
       var dim = document.getElementById('wf-dim-badge');
       if(dim){
-        dim.textContent = Math.round(w) + ' × ' + Math.round(h);
+        dim.textContent = (NAV_EDIT && NAV_EDIT.describe(target) ? NAV_EDIT.describe(target) + ' · ' : '') + Math.round(w) + ' × ' + Math.round(h);
         placeDimBadge(dim, w, h, t < 38);
       }
     }
@@ -4293,6 +4329,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         return group;
       }
 
+      var navTarget = NAV_EDIT && NAV_EDIT.target(t, selectedEl);
+      if(navTarget) return navTarget;
+
       // 1. 优先查找当前点击是否位于某个顶级插入组件或复合模块内部
       var compRoot = t.closest ? t.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-card, .wf-product-card, .wf-task-list, .wf-settings-list, .wf-inventory-tile, .wf-box, .wf-container, .wf-ios-app-item, .wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-tab-bar, .wf-modal, .wf-nav, .wf-switch-row, .wf-search-bar, .wf-message') : null;
 
@@ -4390,8 +4429,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         var childImg = el.tagName === 'IMG' ? el : (el.querySelector ? el.querySelector('img') : null);
         var isBoxLayer = !!(pendingLayerUid && isBoxLayerUid(pendingLayerUid));
         var bgUrl = readCssUrl(el.style && el.style.backgroundImage ? el.style.backgroundImage : '');
-        var isImg = el.tagName === 'IMG' || !!bgUrl || !!childImg || isShapeFill || isBoxLayer;
-        var imgSrc = el.tagName === 'IMG' ? (el.getAttribute('src') || el.src || '') : (bgUrl || (childImg ? (childImg.getAttribute('src') || childImg.src || '') : ''));
+        var isImg = el.tagName === 'IMG' || !!bgUrl || !!childImg || isShapeFill || isBoxLayer || !!(NAV_EDIT && NAV_EDIT.role(el)==='navigation-icon');
+        var imgSrc = el.tagName === 'IMG' ? (el.getAttribute('src') || el.src || '') : (el.getAttribute('data-wf-nav-icon-src') || bgUrl || (childImg ? (childImg.getAttribute('src') || childImg.src || '') : ''));
         var isPureShape = el.classList && (el.classList.contains('wf-shape-rect') || el.classList.contains('wf-shape-circle') || el.classList.contains('wf-shape-line'));
         var tText = findTextTarget(el);
         var hasText = tText !== null && !isPureShape;
@@ -4826,6 +4865,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
     function ungroupSelection(){
       var g = selectedEl;
+      if(NAV_EDIT && NAV_EDIT.role(g)){
+        showToast('导航保持整齐排列；展开图层或双击，可单独修改图标和文字');
+        return;
+      }
       var isGroup = !!(g && g.getAttribute && g.getAttribute('data-wf-group') === '1');
       var isComponent = !!(g && isComponentRoot(g));
       if(!g || (!isGroup && !isComponent)){
@@ -5664,6 +5707,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           pushSnapshot();
           for(var lti = 0; lti < layoutTargets.length; lti++){
             var layoutEl = layoutTargets[lti];
+            var navLayoutRect = NAV_EDIT && NAV_EDIT.isPart(layoutEl) ? layoutEl.getBoundingClientRect() : null;
+            var navLayoutOrigin = navLayoutRect ? {left:parseFloat(layoutEl.style.left)||0,top:parseFloat(layoutEl.style.top)||0,boxL:navLayoutRect.left+(window.scrollX||0),boxT:navLayoutRect.top+(window.scrollY||0)} : null;
             var cs = window.getComputedStyle ? window.getComputedStyle(layoutEl) : null;
             var pos = layoutEl.style.position || (cs ? cs.position : 'static');
             var isAbsolute = pos === 'absolute';
@@ -5706,6 +5751,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               if(layoutEl.classList && (layoutEl.classList.contains('wf-avatar') || layoutEl.classList.contains('wf-shape-circle'))){
                 layoutEl.style.width = targetH + 'px';
               }
+            }
+            if(navLayoutOrigin){
+              var constrained=NAV_EDIT.constrainBox(layoutEl,parseFloat(layoutEl.style.left)||0,parseFloat(layoutEl.style.top)||0,d.key==='width'?parseFloat(layoutEl.style.width):navLayoutRect.width,d.key==='height'?parseFloat(layoutEl.style.height):navLayoutRect.height,navLayoutOrigin);
+              layoutEl.style.left=constrained.left+'px';layoutEl.style.top=constrained.top+'px';
+              if(d.key==='width')layoutEl.style.width=constrained.width+'px';
+              if(d.key==='height')layoutEl.style.height=constrained.height+'px';
             }
           }
           refreshSelectionProperties();
@@ -5972,6 +6023,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           var it = victims[di];
           var dInfo = extractDeletedItemInfo(it);
           if(dInfo) deletedItems.push(dInfo);
+          if(NAV_EDIT) NAV_EDIT.preservePartBindings(it);
           if(it && it.parentNode) it.parentNode.removeChild(it);
         }
         deselect();
@@ -5985,7 +6037,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           var prev = document.querySelectorAll('.wf-current-asset-target');
           for(var pi = 0; pi < prev.length; pi++) prev[pi].classList.remove('wf-current-asset-target');
           var targetToFill = selectedEl;
-          if(selectedEl.tagName !== 'IMG'){
+          if(selectedEl.tagName !== 'IMG' && !(NAV_EDIT && NAV_EDIT.role(selectedEl)==='navigation-icon')){
             var childImg = selectedEl.querySelector ? selectedEl.querySelector('img') : null;
             if(childImg && !(selectedEl.style && selectedEl.style.backgroundImage)) {
               targetToFill = childImg;
@@ -5993,7 +6045,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           }
           targetToFill.classList.add('wf-current-asset-target');
           var src = targetToFill.tagName === 'IMG' ? (targetToFill.getAttribute('src') || targetToFill.src || '') : readCssUrl(targetToFill.style && targetToFill.style.backgroundImage);
-          window.parent.postMessage({ type: 'wf-pick-asset', src: src }, '*');
+          window.parent.postMessage({ type: 'wf-pick-asset', src: src, category: NAV_EDIT && NAV_EDIT.role(selectedEl)==='navigation-icon' ? 'icons' : undefined }, '*');
         }
       }
       else if(d.type === 'wf-export'){ doExport(); }
@@ -6014,7 +6066,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           var prevAssetTargets = document.querySelectorAll('.wf-current-asset-target');
           for(var pati = 0; pati < prevAssetTargets.length; pati++) prevAssetTargets[pati].classList.remove('wf-current-asset-target');
           pushSnapshot();
-          if(cur.tagName === 'IMG'){
+          if(NAV_EDIT && NAV_EDIT.replaceIcon(cur, d.src)){
+            // Keep the editable wrapper and its identity; replace only its graphic.
+          } else if(cur.tagName === 'IMG'){
             cur.src = d.src;
           } else {
             var innerImg = cur.querySelector ? cur.querySelector('img') : null;
@@ -6235,6 +6289,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     // 交互连线：鼠标停在组件上时，把这块的位置报给画布，用来画右侧蓝点
     function pickHotspotEl(node){
       if(!node) return null;
+      var navOwner = window.__wfNavigationEditing && window.__wfNavigationEditing.item(node);
+      if(navOwner) return navOwner;
       var segment=window.__wfPickTabSegment && window.__wfPickTabSegment(node);
       if(segment) return segment;
       var el = node;
@@ -6309,12 +6365,25 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     document.addEventListener('dblclick', function(e){
       var t = e.target;
       if(!t || t === document.body || t === document.documentElement) return;
+      var navPart = NAV_EDIT && NAV_EDIT.part(t);
+      if(navPart){
+        if(READONLY || !EDIT) return;
+        e.preventDefault(); e.stopPropagation();
+        if(selectedEl !== navPart){ selectElement(navPart, true, false); return; }
+        t = navPart;
+        if(NAV_EDIT.role(navPart)==='navigation-icon'){
+          document.querySelectorAll('.wf-current-asset-target').forEach(function(n){ n.classList.remove('wf-current-asset-target'); });
+          navPart.classList.add('wf-current-asset-target');
+          parent.postMessage({ type:'wf-pick-asset', category:'icons' }, '*');
+          return;
+        }
+      }
 
       // 分组或拖入的组件：双击选中光标下的那个元素。再双击同一个元素才进入改字。
       var groupHit = outermostGroup(t);
       var compHit = t.closest ? t.closest('[data-wf-component="1"], .wf-inserted-component') : null;
       var host = groupHit || compHit;
-      if(host){
+      if(host && !navPart){
         var inner = pickInsideGroup(t, host);
         if(inner && inner !== host && selectedEl !== inner){
           e.preventDefault();
@@ -6680,16 +6749,19 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             var mT = mRect.top + scrollY;
             var mW = mRect.width;
             var mH = mRect.height;
-            mEl.style.position = 'absolute';
-            mEl.style.left = Math.round(mL) + 'px';
-            mEl.style.top = Math.round(mT) + 'px';
+            var navOrigin = NAV_EDIT && NAV_EDIT.isPart(mEl) ? {left:parseFloat(mEl.style.left)||0,top:parseFloat(mEl.style.top)||0,boxL:mL,boxT:mT} : null;
+            if(!navOrigin){
+              mEl.style.position = 'absolute';
+              mEl.style.left = Math.round(mL) + 'px';
+              mEl.style.top = Math.round(mT) + 'px';
+            }
             mEl.style.width = Math.round(mW) + 'px';
             mEl.style.height = Math.round(mH) + 'px';
             mEl.style.maxWidth = 'none';
             mEl.style.minWidth = '0px';
             mEl.style.minHeight = '0px';
             mEl.style.boxSizing = 'border-box';
-            prep.push({ el: mEl, left: mL, top: mT, w: mW, h: mH });
+            prep.push({ el: mEl, left: mL, top: mT, w: mW, h: mH, navOrigin: navOrigin });
             if(mL < minL) minL = mL;
             if(mT < minT) minT = mT;
             if(mL + mW > maxR) maxR = mL + mW;
@@ -6708,6 +6780,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               relH: p.h / boxH,
               initW: p.w,
               initH: p.h,
+              navOrigin: p.navOrigin,
               inners: snapshotInners(p.el)
             });
           }
@@ -6728,7 +6801,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         }
 
         var posInfo = getElementCssPos(selectedEl);
-        if(!posInfo.isAbsolute){
+        var resizingNavPart = NAV_EDIT && NAV_EDIT.isPart(selectedEl);
+        if(resizingNavPart){
+          posInfo.left=parseFloat(selectedEl.style.left)||0;
+          posInfo.top=parseFloat(selectedEl.style.top)||0;
+        }
+        if(!posInfo.isAbsolute && !resizingNavPart){
           selectedEl.style.position = 'absolute';
           selectedEl.style.left = posInfo.left + 'px';
           selectedEl.style.top = posInfo.top + 'px';
@@ -7008,7 +7086,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             var nh = Math.max(2, rit.relH * mh);
             var nl = ml + rit.relL * mw;
             var nt = mt + rit.relT * mh;
-            rit.el.style.position = 'absolute';
+            if(rit.navOrigin){
+              var constrained= NAV_EDIT.constrainBox(rit.el,rit.navOrigin.left+nl-rit.navOrigin.boxL,rit.navOrigin.top+nt-rit.navOrigin.boxT,nw,nh,rit.navOrigin);
+              nl=constrained.left;nt=constrained.top;nw=constrained.width;nh=constrained.height;
+            } else rit.el.style.position = 'absolute';
             rit.el.style.left = Math.round(nl) + 'px';
             rit.el.style.top = Math.round(nt) + 'px';
             rit.el.style.width = Math.round(nw) + 'px';
@@ -7147,6 +7228,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           clearSnapGuides();
         }
 
+        if(NAV_EDIT && NAV_EDIT.isPart(resizing.el)){
+          var constrained = NAV_EDIT.constrainBox(resizing.el,newL,newT,w,h,{left:resizing.initL,top:resizing.initT,boxL:resizing.boxL,boxT:resizing.boxT});
+          newL=constrained.left; newT=constrained.top; w=constrained.width; h=constrained.height;
+        }
         resizing.el.style.width = Math.round(w) + 'px';
         resizing.el.style.height = Math.round(h) + 'px';
         resizing.el.style.left = Math.round(newL) + 'px';
@@ -7295,8 +7380,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           }
           for(var di = 0; di < drag.items.length; di++){
             var it = drag.items[di];
-            it.el.style.left = Math.round(it.initLeft + adx) + 'px';
-            it.el.style.top = Math.round(it.initTop + ady) + 'px';
+            var position = NAV_EDIT ? NAV_EDIT.constrainBox(it.el,it.initLeft+adx,it.initTop+ady,it.boxW,it.boxH,{left:it.initLeft,top:it.initTop,boxL:it.boxL,boxT:it.boxT}) : {left:it.initLeft+adx,top:it.initTop+ady};
+            it.el.style.left = Math.round(position.left) + 'px';
+            it.el.style.top = Math.round(position.top) + 'px';
           }
           if(group) drawSnapGuides(vSnap, hSnap, group, group.marks);
           else clearSnapGuides();
@@ -7530,6 +7616,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           var it = victims[di];
           var dInfo = extractDeletedItemInfo(it);
           if(dInfo) deletedItems.push(dInfo);
+          if(NAV_EDIT) NAV_EDIT.preservePartBindings(it);
           if(it && it.parentNode) it.parentNode.removeChild(it);
         }
         deselect();
@@ -7543,6 +7630,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
       // 方向键微调像素位置（支持多选元素同时平移微调）
       if(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && selectedEls.length > 0 && !isEditing){
+        if(READONLY) return;
         e.preventDefault();
         var step = e.shiftKey ? 10 : 1;
         var dx = 0, dy = 0;
@@ -7551,19 +7639,16 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         if(e.key === 'ArrowUp') dy = -step;
         if(e.key === 'ArrowDown') dy = step;
 
+        pushSnapshot();
         for(var si = 0; si < selectedEls.length; si++){
           var sEl = selectedEls[si];
           if(isLayerLocked(sEl)) continue;
-          var posVal = sEl.style.position || (window.getComputedStyle ? window.getComputedStyle(sEl).position : '');
-          if(posVal !== 'absolute') sEl.style.position = 'relative';
-          var curL = parseFloat(sEl.style.left) || 0;
-          var curT = parseFloat(sEl.style.top) || 0;
-          sEl.style.left = Math.round(curL + dx) + 'px';
-          sEl.style.top = Math.round(curT + dy) + 'px';
+          nudgeElement(sEl, dx, dy);
         }
         if(selectedEls.length === 1) updateTransformBox(selectedEl);
         else updateMultiTransformBox();
         scheduleSave();
+        pushSnapshot();
         return;
       }
 
@@ -7589,6 +7674,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
 
       if(e.key === 'Escape'){
+        if(NAV_EDIT && NAV_EDIT.isPart(selectedEl)){
+          selectElement(NAV_EDIT.item(selectedEl), true, false);
+          return;
+        }
         deselect();
         cleanupStyles();
       }
@@ -7832,6 +7921,7 @@ function onIframeMessage(e: MessageEvent) {
   } else if (d.type === 'wf-back') {
     emit('back')
   } else if (d.type === 'wf-pick-asset') {
+    if ((d as any).category === 'icons') activeAssetCat.value = 'icons'
     openAssetPicker()
   } else if (d.type === 'wf-miss-click') {
     const rawUids = (d as any).uids
@@ -7849,9 +7939,9 @@ function onIframeMessage(e: MessageEvent) {
       items: Array.isArray((d as any).items) ? (d as any).items : []
     })
   } else if (d.type === 'wf-canvas-undo') {
-    emit('canvasUndo', Number((d as any).pageId) || props.page.id)
+    emit('canvasUndo', Number((d as any).pageId) || props.page.id, (d as any).html)
   } else if (d.type === 'wf-canvas-redo') {
-    emit('canvasRedo', Number((d as any).pageId) || props.page.id)
+    emit('canvasRedo', Number((d as any).pageId) || props.page.id, (d as any).html)
   } else if (d.type === 'wf-text-changed') {
     emit('textChanged', { pageId: props.page.id, text: String((d as any).text || '') })
   } else if (d.type === 'wf-save-preparation-failed') {

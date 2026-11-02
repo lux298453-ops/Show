@@ -1158,6 +1158,8 @@ public class ProjectService {
                 throw new IllegalStateException("页面当前正被 " + editor + " 独占微调中，无法保存覆盖！");
             }
         }
+        // 彻底剥离可能残留的前端全屏微调检查器临时样式，避免污染画板持久化内容
+        html = html.replaceAll("(?s)<style\\s+id=[\"']wf-inspector-style[\"'].*?</style>", "");
         page.setHtmlContent(html);
         pageMapper.updateById(page);
     }

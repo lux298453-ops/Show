@@ -109,6 +109,13 @@ public class AiClient {
     }
 
     /**
+     * 纯文本输入（HTML 增强模型优先）→ 模型文本/JSON 输出，供全屏演示 AI 原型微调专用。
+     */
+    public String generateHtmlText(String systemPrompt, String userPrompt) {
+        return generateWithDataUrls(htmlModel != null && !htmlModel.isBlank() ? htmlModel : null, systemPrompt, userPrompt, List.of());
+    }
+
+    /**
      * AI 视觉图像智能高清预处理结果
      */
     public record PreparedImage(byte[] bytes, String mime, int width, int height) {}

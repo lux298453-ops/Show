@@ -2624,6 +2624,7 @@ import type { VectorPathData, VectorPoint } from '../utils/vectorEngine'
 import { scalePointsAndHandles } from '../utils/vectorEngine'
 import { findInteractionByDomUids, hitInteractionElement, findElementAt, interactionDomUid, resolveNavigateElement } from '../utils/interactionHit'
 import { backgroundReturnEnabled } from '../utils/backgroundReturn'
+import { createDeletionHistory } from '../utils/deletionHistory'
 
 // ===== 飞书登录、成员管理与操作审计日志状态 =====
 const isFeishuModalOpen = ref(false)
@@ -3331,10 +3332,32 @@ interface ElementDeletionRecord {
   interaction: Interaction
   domUid?: string
   label?: string
+  deletedRootUid?: string
+  deletedRootElementId?: number
 }
 
-const elementDeletionUndoStack = ref<ElementDeletionRecord[][]>([])
-const elementDeletionRedoStack = ref<ElementDeletionRecord[][]>([])
+const deletionHistory = createDeletionHistory<ElementDeletionRecord>({
+  async remove(record) {
+    if (record.interaction.id) await projectApi.deleteInteraction(id, record.interaction.id)
+    else await projectApi.saveInteraction(id, { elementId: record.elementId, pageId: record.pageId, targetPageId: null })
+    clearStampedNav(record.interaction.params, record.pageId, undefined, record.interaction.target_page_id, record.elementId)
+    const el = pages.value.find(p => p.id === record.pageId)?.elements?.find(e => e.id === record.elementId)
+    if (el) delete el.interaction
+  },
+  async restore(record) {
+    const saved = await projectApi.saveInteraction(id, {
+      elementId: record.elementId, pageId: record.pageId,
+      targetPageId: record.interaction.target_page_id,
+      triggerType: record.interaction.trigger || 'click', actionType: record.interaction.action || 'navigate',
+      params: record.interaction.params,
+    })
+    // Recreated interactions receive a new ID; redo must delete that actual ID.
+    if (saved?.id) record.interaction.id = Number(saved.id)
+    const el = pages.value.find(p => p.id === record.pageId)?.elements?.find(e => e.id === record.elementId)
+    if (el) el.interaction = { ...record.interaction }
+    restoreStampedNav(record.interaction.params, record.pageId, undefined, record.interaction.target_page_id, record.elementId)
+  },
+})
 
 async function handleElementDeleted(payload: {
   pageId: number
@@ -3346,6 +3369,8 @@ async function handleElementDeleted(payload: {
     elementId?: number
     text?: string
     tag?: string
+    navigationRole?: string
+    sourceElementIds?: number[]
   }>
 }) {
   const page = pages.value.find((p) => p.id === payload.pageId)
@@ -3364,6 +3389,8 @@ async function handleElementDeleted(payload: {
   const toRemoveInteractions: ElementDeletionRecord[] = []
 
   for (const item of payload.items) {
+    // Navigation belongs to its item, even when its icon or text is removed.
+    if (item.navigationRole === 'navigation-icon' || item.navigationRole === 'navigation-label') continue
     const allUids = new Set<string>()
     if (item.uid) allUids.add(item.uid)
     if (item.subUids) {
@@ -3376,7 +3403,7 @@ async function handleElementDeleted(payload: {
     const itemCenterY = itemBox.y + itemBox.h / 2
 
     for (const el of (page.elements || [])) {
-      if (!el.interaction || !el.interaction.target_page_id) continue
+      if (!el.interaction) continue
 
       let isMatch = false
       const elDomUid = interactionDomUid(el)
@@ -3387,12 +3414,12 @@ async function handleElementDeleted(payload: {
       }
 
       // 2. elementId 匹配
-      if (!isMatch && item.elementId && el.id === item.elementId) {
+      if (!isMatch && ((item.elementId && el.id === item.elementId) || item.sourceElementIds?.includes(el.id))) {
         isMatch = true
       }
 
       // 3. 几何包围盒重叠匹配（防止没有 UID 的历史连线留在空白处）
-      if (!isMatch && hasValidBox) {
+      if (!isMatch && hasValidBox && !item.navigationRole) {
         let elBox = { x: el.x || 0, y: el.y || 0, w: el.width || 0, h: el.height || 0 }
         if (el.interaction.params) {
           try {
@@ -3412,7 +3439,7 @@ async function handleElementDeleted(payload: {
           const elCenterY = elBox.y + elBox.h / 2
           const dist = Math.hypot(elCenterX - itemCenterX, elCenterY - itemCenterY)
           const xOverlap = Math.max(0, Math.min(itemBox.x + itemBox.w, elBox.x + elBox.w) - Math.max(itemBox.x, elBox.x))
-          const yOverlap = Math.max(0, Math.min(itemBox.y + itemBox.h, elBox.y + elBox.y) - Math.max(itemBox.y, elBox.y))
+          const yOverlap = Math.max(0, Math.min(itemBox.y + itemBox.h, elBox.y + elBox.h) - Math.max(itemBox.y, elBox.y))
           const overlapArea = xOverlap * yOverlap
           const minArea = Math.min(itemBox.w * itemBox.h, elBox.w * elBox.h)
           if (dist <= 35 || (minArea > 0 && overlapArea / minArea > 0.4)) {
@@ -3429,6 +3456,8 @@ async function handleElementDeleted(payload: {
             interaction: { ...el.interaction },
             domUid: elDomUid || item.uid,
             label: el.label || item.text || '组件',
+            deletedRootUid: item.uid,
+            deletedRootElementId: item.elementId,
           })
         }
       }
@@ -3436,25 +3465,10 @@ async function handleElementDeleted(payload: {
   }
 
   if (toRemoveInteractions.length > 0) {
-    elementDeletionUndoStack.value.push(toRemoveInteractions)
     clearAllRedoStacks()
 
-    for (const record of toRemoveInteractions) {
-      clearStampedNav(record.interaction.params, record.pageId, undefined, record.interaction.target_page_id, record.elementId)
-      if (record.interaction.id) {
-        await projectApi.deleteInteraction(id, record.interaction.id).catch(() => {})
-      } else {
-        await projectApi.saveInteraction(id, {
-          elementId: record.elementId,
-          pageId: record.pageId,
-          targetPageId: null,
-        }).catch(() => {})
-      }
-      const targetEl = page.elements?.find((e) => e.id === record.elementId)
-      if (targetEl) {
-        delete targetEl.interaction
-      }
-    }
+    try { await deletionHistory.deleted(payload.pageId, toRemoveInteractions) }
+    catch { ElMessage.error('元素已删除，但关联连线未同步完成，请检查保存状态后重试'); return }
 
     selectedConnIds.value = new Set()
 
@@ -3471,67 +3485,18 @@ async function handleElementDeleted(payload: {
   }
 }
 
-async function handleCanvasUndo(pageId: number) {
-  if (elementDeletionUndoStack.value.length === 0) return
-  const lastIndex = elementDeletionUndoStack.value.length - 1
-  const records = elementDeletionUndoStack.value[lastIndex]
-  if (!records || records.length === 0 || records[0].pageId !== pageId) {
-    return
-  }
-  elementDeletionUndoStack.value.pop()
-  elementDeletionRedoStack.value.push(records)
-
-  const page = pages.value.find((p) => p.id === pageId)
-  for (const record of records) {
-    await projectApi.saveInteraction(id, {
-      elementId: record.elementId,
-      pageId: record.pageId,
-      targetPageId: record.interaction.target_page_id,
-      triggerType: record.interaction.trigger || 'click',
-      actionType: record.interaction.action || 'navigate',
-      params: record.interaction.params,
-    }).catch(() => {})
-
-    if (page) {
-      const el = page.elements?.find((e) => e.id === record.elementId)
-      if (el) {
-        el.interaction = { ...record.interaction }
-      }
-    }
-  }
-  ElMessage.success(`已联动恢复组件的交互连线`)
+async function reconcileDeletedBindings(pageId: number, snapshot?: string) {
+  if (!snapshot) return
+  try { await deletionHistory.reconcile(pageId, snapshot) }
+  catch { ElMessage.error('画面已恢复，但交互连线同步失败，请检查保存状态后重试') }
 }
 
-async function handleCanvasRedo(pageId: number) {
-  if (elementDeletionRedoStack.value.length === 0) return
-  const lastIndex = elementDeletionRedoStack.value.length - 1
-  const records = elementDeletionRedoStack.value[lastIndex]
-  if (!records || records.length === 0 || records[0].pageId !== pageId) {
-    return
-  }
-  elementDeletionRedoStack.value.pop()
-  elementDeletionUndoStack.value.push(records)
+async function handleCanvasUndo(pageId: number, snapshot?: string) {
+  await reconcileDeletedBindings(pageId, snapshot)
+}
 
-  const page = pages.value.find((p) => p.id === pageId)
-  for (const record of records) {
-    clearStampedNav(record.interaction.params, record.pageId, undefined, record.interaction.target_page_id, record.elementId)
-    if (record.interaction.id) {
-      await projectApi.deleteInteraction(id, record.interaction.id).catch(() => {})
-    } else {
-      await projectApi.saveInteraction(id, {
-        elementId: record.elementId,
-        pageId: record.pageId,
-        targetPageId: null,
-      }).catch(() => {})
-    }
-    if (page) {
-      const el = page.elements?.find((e) => e.id === record.elementId)
-      if (el) {
-        delete el.interaction
-      }
-    }
-  }
-  ElMessage.info(`已联动重做删除交互连线`)
+async function handleCanvasRedo(pageId: number, snapshot?: string) {
+  await reconcileDeletedBindings(pageId, snapshot)
 }
 
 function handleTextChanged(payload: { pageId: number; text: string }) {
@@ -4355,7 +4320,6 @@ function clearAllRedoStacks() {
   pageDeletionRedoStack.value = []
   interactionRedoStack.value = []
   pageEditRedoStack.value = []
-  elementDeletionRedoStack.value = []
 }
 
 async function undoPageDeletion(): Promise<boolean> {
@@ -5420,7 +5384,7 @@ function snapshotToFullHtml(snapshot: string, baseHtml: string): string {
 }
 
 /** 将快照写回指定画板：无论开没开，都立刻更新 page.html_content 并落库；正开着的画板额外发送 wf-restore-snapshot 原地更新画面 */
-function applyHtmlToPage(pageId: number, snapshot: string) {
+async function applyHtmlToPage(pageId: number, snapshot: string) {
   const page = pages.value.find((p) => p.id === pageId)
   if (!page || !snapshot) return
 
@@ -5447,7 +5411,8 @@ function applyHtmlToPage(pageId: number, snapshot: string) {
   }
 
   // 4. 同时用新世代调用 onSaveHtml 把退回后的内容存上（这次保存不入栈、不记新快照）
-  onSaveHtml({ pageId, html: fullHtml, saveEpoch: newEpoch })
+  await reconcileDeletedBindings(pageId, snapshot)
+  onSaveHtml({ pageId, html: page.html_content || fullHtml, saveEpoch: newEpoch })
 }
 
 /** 跨画板时间线画板编辑撤回 (Ctrl+Z) */
@@ -5500,7 +5465,7 @@ async function undoPageEdit(): Promise<boolean> {
       pageEditRedoStack.value.push(current)
 
       // 先写回 html 并保存，再移动焦点（确保焦点离开上一页时，editSourceHtml 去读 html_content 读到的已经是退回后的样子）
-      applyHtmlToPage(current.pageId, targetHtml)
+      await applyHtmlToPage(current.pageId, targetHtml)
 
       // 那一页不在眼前时，移动焦点至该页
       if (focusPageId.value !== current.pageId) {
@@ -5532,7 +5497,7 @@ async function redoPageEdit(): Promise<boolean> {
     pageEditUndoStack.value.push(record)
 
     // 5. 先把要重做的 html 写入 page.html_content 并保存，再移动焦点
-    applyHtmlToPage(record.pageId, record.html)
+    await applyHtmlToPage(record.pageId, record.html)
 
     // 移动焦点
     if (focusPageId.value !== record.pageId) {
@@ -6307,7 +6272,7 @@ watch(
       pageEditUndoStack.value = []
       pageDeletionUndoStack.value = []
       interactionUndoStack.value = []
-      elementDeletionUndoStack.value = []
+      deletionHistory.clear()
       clearAllRedoStacks()
     }
   }

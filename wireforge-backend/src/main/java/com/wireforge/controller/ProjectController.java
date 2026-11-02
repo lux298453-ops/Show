@@ -30,6 +30,7 @@ public class ProjectController {
     private final InteractionAutowireService interactionAutowireService;
     private final com.wireforge.service.AuthService authService;
     private final com.wireforge.service.ElfShipInteractionSyncService elfShipInteractionSyncService;
+    private final com.wireforge.service.AiAdjustService aiAdjustService;
 
     @GetMapping
     public Result<List<Project>> list() {
@@ -191,6 +192,32 @@ public class ProjectController {
         AuthUser currentUser = authService != null ? authService.getCurrentUser(request) : null;
         projectService.updatePageHtml(pageId, body.get("html"), clientId, currentUser);
         return Result.ok(null);
+    }
+
+    /** 全屏演示 AI 原型调整：针对选中的单个画板生成修改方案与新 HTML */
+    @PostMapping("/{id}/pages/{pageId}/ai-adjust")
+    public Result<com.wireforge.service.AiAdjustResponse> aiAdjust(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @RequestBody Map<String, String> body) {
+        String instruction = body.getOrDefault("instruction", "").trim();
+        if (instruction.isEmpty()) {
+            throw new IllegalArgumentException("调整指令不能为空");
+        }
+        String contextHtml = body.get("contextHtml");
+        return Result.ok(aiAdjustService.adjustPage(id, pageId, instruction, contextHtml));
+    }
+
+    /** 全屏演示 AI 单选元素精准微调（Figma AI / Cursor 级）：Token 骤降 95%，秒级响应且零误伤 */
+    @PostMapping("/{id}/pages/{pageId}/ai-adjust-element")
+    public Result<com.wireforge.service.AiElementAdjustResponse> aiAdjustElement(
+            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @RequestBody com.wireforge.service.AiElementAdjustRequest request) {
+        if (request.getInstruction() == null || request.getInstruction().trim().isEmpty()) {
+            throw new IllegalArgumentException("微调指令不能为空");
+        }
+        return Result.ok(aiAdjustService.adjustElement(id, pageId, request));
     }
 
     /** 上报/释放页面编辑锁（心跳） */

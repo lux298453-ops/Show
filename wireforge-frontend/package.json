@@ -27,6 +27,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
     "autoprefixer": "^10.5.4",
+    "linkedom": "0.18.15",
     "postcss": "^8.5.26",
     "puppeteer-core": "^25.8.0",
     "sass": "^1.83.4",

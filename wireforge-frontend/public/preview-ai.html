@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WireForge - 纯净全屏演示 (Figma AI / Cursor 级单元素微调与 AI 原型调整)</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes subtlePulse {
+      0%, 100% {
+        box-shadow: 0 0 14px rgba(13, 153, 255, 0.25), inset 0 0 8px rgba(13, 153, 255, 0.15);
+        border-color: rgba(56, 189, 248, 0.5);
+      }
+      50% {
+        box-shadow: 0 0 22px rgba(13, 153, 255, 0.45), inset 0 0 12px rgba(13, 153, 255, 0.25);
+        border-color: rgba(56, 189, 248, 0.85);
+      }
+    }
+    .ai-btn-active {
+      animation: subtlePulse 2.4s infinite ease-in-out;
+    }
+    @keyframes spinLinear {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin-fast {
+      animation: spinLinear 0.85s linear infinite;
+    }
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .shimmer-bar {
+      position: relative;
+      overflow: hidden;
+    }
+    .shimmer-bar::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.25), transparent);
+      animation: shimmer 1.6s infinite;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.16);
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .viewport-stage-transition {
+      transition: margin-right 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .drawer-slide-transition {
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+    }
+    .inspectable-element {
+      cursor: crosshair;
+      transition: outline 0.15s ease;
+    }
+  </style>
+</head>
+<body class="w-screen h-screen overflow-hidden select-none bg-[#090d16] text-slate-100 font-sans flex flex-col antialiased relative m-0 p-0">
+
+  <!-- ===== Ambient Studio Lighting Background (1:1 Match with PurePreviewView.vue) ===== -->
+  <div class="absolute inset-0 pointer-events-none overflow-hidden z-0">
+    <div class="absolute -top-1/4 left-1/2 -translate-x-1/2 w-[1100px] h-[800px] rounded-full bg-gradient-to-b from-slate-800/25 via-emerald-950/10 to-transparent blur-3xl"></div>
+    <div class="absolute -bottom-1/3 left-1/2 -translate-x-1/2 w-[900px] h-[600px] rounded-full bg-gradient-to-t from-cyan-950/15 via-slate-900/10 to-transparent blur-3xl"></div>
+    <div class="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]"></div>
+  </div>
+
+  <!-- ===== Top Floating Action Island (1:1 Reproduction) ===== -->
+  <header
+    id="topIslandHeader"
+    class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-slate-900/85 backdrop-blur-2xl border border-white/12 shadow-[0_12px_45px_rgba(0,0,0,0.65)] text-white text-xs font-medium transition-all duration-300 hover:border-white/20 select-none"
+  >
+    <!-- Left: Project Name & Badge -->
+    <div class="flex items-center gap-2 pr-1">
+      <div class="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+          <polyline points="2 17 12 22 22 17"></polyline>
+          <polyline points="2 12 12 17 22 12"></polyline>
+        </svg>
+      </div>
+      <div class="flex flex-col">
+        <span class="font-bold text-xs tracking-tight text-white max-w-[150px] truncate" title="WireForge 原型">
+          WireForge 原型
+        </span>
+        <span class="text-[9px] text-slate-300 font-normal leading-none">纯净全屏演示</span>
+      </div>
+    </div>
+
+    <!-- Divider -->
+    <div class="h-4 w-[1px] bg-white/15 mx-0.5"></div>
+
+    <!-- Center: Page Selector Dropdown Pill -->
+    <div class="relative">
+      <button
+        type="button"
+        class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 hover:border-white/25 text-white flex items-center justify-between gap-2 min-w-[170px] max-w-[210px] cursor-pointer shadow-xs transition-all select-none"
+        title="切换画板"
+      >
+        <span class="truncate font-semibold text-xs text-white">1. 扭蛋抽奖页</span>
+        <svg class="w-3.5 h-3.5 text-slate-300 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Divider -->
+    <div class="h-4 w-[1px] bg-white/15 mx-0.5"></div>
+
+    <!-- Right: Feature Toggles & Actions -->
+    <div class="flex items-center gap-1.5">
+      <!-- 手机外壳切换按钮 -->
+      <button
+        id="btnDeviceFrame"
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer bg-emerald-500/20 border-emerald-500/60 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]"
+        title="手机外壳切换 (快捷键 D)"
+      >
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+          <line x1="12" y1="18" x2="12.01" y2="18"></line>
+        </svg>
+        <span class="hidden sm:inline">手机外壳</span>
+      </button>
+
+      <!-- 【AI 调整】 -->
+      <button
+        id="btnAiAdjust"
+        type="button"
+        onclick="toggleAiDrawer()"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer bg-[#0D99FF]/20 border-[#0D99FF]/60 text-[#38bdf8] shadow-[0_0_15px_rgba(13,153,255,0.3)] ai-btn-active"
+        title="打开右侧对话框调整当前画板"
+      >
+        <svg class="w-3.5 h-3.5 text-[#38bdf8]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v18"/>
+          <path d="M3 12h18"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        <span>AI 调整</span>
+      </button>
+
+      <!-- 重置原型 -->
+      <button
+        type="button"
+        onclick="resetToOriginal()"
+        class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all cursor-pointer"
+        title="回到初始第一页并重置历史跳转堆栈 (快捷键 R)"
+      >
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+          <path d="M3 3v5h5"></path>
+        </svg>
+        <span class="hidden sm:inline">重置</span>
+      </button>
+
+      <!-- 复制分享链接 -->
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all cursor-pointer"
+        title="复制当前页面独立演示链接到剪贴板"
+      >
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+        </svg>
+        <span class="hidden sm:inline">复制链接</span>
+      </button>
+
+      <!-- 退出全屏 -->
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold shadow-sm transition-all cursor-pointer"
+        title="退出全屏并返回原型画板 (Esc)"
+      >
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <span>退出 (Esc)</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== Main Viewport Stage Container ===== -->
+  <main
+    id="viewportMain"
+    class="flex-1 w-full min-h-0 flex items-center justify-center relative overflow-auto z-10 viewport-stage-transition"
+    style="margin-right: 420px;"
+  >
+    <div class="flex items-center justify-center p-8 box-border">
+      <!-- ===== High-Precision iPhone 16 Pro Chassis ===== -->
+      <div
+        id="phoneChassis"
+        class="phone-chassis relative transition-all duration-300 select-none p-[14px] bg-[#1a1f2c] rounded-[56px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_0_3px_#272e3f,0_0_0_4px_rgba(255,255,255,0.06),0_25px_80px_-15px_rgba(0,0,0,0.9),0_0_50px_rgba(6,182,212,0.1)]"
+      >
+        <!-- iPhone Side Hardware Buttons -->
+        <div class="absolute -left-[5px] top-[108px] w-[5px] h-[28px] bg-slate-700/80 rounded-l-[3px] shadow-sm"></div>
+        <div class="absolute -left-[5px] top-[152px] w-[5px] h-[52px] bg-slate-700/80 rounded-l-[3px] shadow-sm"></div>
+        <div class="absolute -left-[5px] top-[214px] w-[5px] h-[52px] bg-slate-700/80 rounded-l-[3px] shadow-sm"></div>
+        <div class="absolute -right-[5px] top-[168px] w-[5px] h-[68px] bg-slate-700/80 rounded-r-[3px] shadow-sm"></div>
+        <div class="absolute -right-[4px] bottom-[160px] w-[4px] h-[48px] bg-slate-600/60 rounded-r-[2px] shadow-inner"></div>
+
+        <!-- Screen Glass Viewport -->
+        <div
+          id="phoneScreen"
+          class="phone-screen relative bg-black overflow-hidden flex flex-col rounded-[44px] transition-all duration-300"
+          style="width: 375px; height: 812px;"
+        >
+          <!-- Dynamic Island -->
+          <div class="absolute top-3 left-1/2 -translate-x-1/2 w-[110px] h-[30px] bg-black rounded-full z-40 flex items-center justify-between px-3 shadow-sm border border-white/5 pointer-events-none">
+            <div class="w-3 h-3 rounded-full bg-[#0a0f1d] border border-blue-900/30"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-[#0e1626]"></div>
+          </div>
+
+          <!-- Bottom Home Indicator -->
+          <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-36 h-1 rounded-full bg-slate-400/80 shadow-sm z-40 pointer-events-none"></div>
+
+          <!-- Top Inspector Status Hint (Figma AI / Cursor Style) -->
+          <div
+            id="inspectorTopHint"
+            class="pointer-events-none absolute top-12 left-1/2 -translate-x-1/2 z-40 px-3 py-1 rounded-full bg-slate-900/90 backdrop-blur-md border border-white/15 text-[11px] text-slate-200 shadow-xl flex items-center gap-2 whitespace-nowrap"
+          >
+            <div class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
+            <span id="inspectorTopHintText">单元素微调模式：点击画板中任意元素进行精准修改</span>
+          </div>
+
+          <!-- ===== Prototype Screen Stage ===== -->
+          <div class="relative flex-1 w-full overflow-hidden bg-[#f8fafc] flex flex-col items-center justify-center p-5 text-center select-none pt-16">
+            
+            <!-- 视图 1：原版画板状态 (未修改或已还原) -->
+            <div id="artboardStateOriginal" class="w-full h-full rounded-2xl border-2 border-dashed border-slate-300/80 bg-white/60 flex flex-col items-center justify-center p-6 relative">
+              <div class="px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-[11px] font-mono font-medium mb-3 shadow-xs">
+                375 × 812 · 标准手机画板
+              </div>
+              
+              <div class="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 mb-3">
+                <svg class="w-6 h-6 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+              </div>
+
+              <div class="text-slate-700 font-semibold text-sm mb-1">
+                原版画板状态
+              </div>
+              <div class="text-slate-400 text-xs max-w-[220px] leading-relaxed">
+                （当前原型图留空。点击右侧「还原」或长按对比时，即刻呈现此原貌）
+              </div>
+
+              <!-- Top Status Bar Mock Indicator -->
+              <div class="absolute top-4 left-6 text-[10px] font-bold text-slate-400">9:41</div>
+              <div class="absolute top-4 right-6 flex items-center gap-1.5 text-slate-400">
+                <div class="w-4 h-2 border border-slate-400 rounded-xs flex items-center p-0.5">
+                  <div class="w-full h-full bg-slate-400"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 视图 2：AI 实时调整草稿预览态 (Live Preview / Draft with Inspectable Elements) -->
+            <div id="artboardStateModified" class="w-full h-full rounded-2xl border-2 border-[#0D99FF]/40 bg-white flex flex-col justify-between p-5 relative shadow-sm hidden">
+              <!-- Top Banner: 提示当前为 AI 草稿预览 -->
+              <div class="w-full flex items-center justify-between pb-2">
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0D99FF]/10 text-[#0284c7] font-semibold border border-[#0D99FF]/20">
+                  AI 实时草稿预览中 (未保存)
+                </span>
+                <span class="text-[10px] text-slate-400 font-mono">快照 #2</span>
+              </div>
+
+              <!-- 画板中部主体占位（交互式图层示例） -->
+              <div class="flex-1 flex flex-col items-center justify-center text-center py-4 w-full">
+                <!-- Inspectable Card 1: 用户信息卡片 -->
+                <div
+                  id="targetElementCard"
+                  class="w-full p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 shadow-xs mb-3 inspectable-element text-left relative"
+                  onclick="selectDemoElement('div.user-card', '用户信息卡片', this)"
+                >
+                  <div class="text-xs font-bold text-slate-800">VIP 会员权益已激活</div>
+                  <div class="text-[11px] text-slate-500 mt-0.5">每日可免费领取 3 次扭蛋抽奖机会</div>
+                </div>
+
+                <div class="text-xs text-slate-400 mb-1">主体内容区域（点击各图层即可选中微调）</div>
+                <div class="text-[10px] text-slate-400">光标移动至下方按钮查看高亮与选择</div>
+              </div>
+
+              <!-- 底部已调整的目标图层（点击即可针对该按钮单点微调） -->
+              <div class="w-full space-y-2.5 pb-2">
+                <!-- 新增组件：倒计时胶囊卡片 -->
+                <div
+                  id="targetElementCountdown"
+                  class="w-full py-1.5 px-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-amber-700 inspectable-element"
+                  onclick="selectDemoElement('div.countdown', '限时倒计时卡片', this)"
+                >
+                  <span class="text-[11px] font-medium">限时活动倒计时</span>
+                  <span class="text-[11px] font-mono font-bold">距结束 02:45:18</span>
+                </div>
+
+                <!-- 样式调整组件：暖橙色抽奖按钮 (52px) -->
+                <button
+                  id="targetElementBtn"
+                  type="button"
+                  class="w-full h-[52px] rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold text-sm shadow-md shadow-orange-500/25 flex items-center justify-center inspectable-element"
+                  onclick="selectDemoElement('button', '立即抽奖 (消耗10金币)', this)"
+                >
+                  立即抽奖 (消耗10金币)
+                </button>
+              </div>
+
+              <!-- Top Status Bar Mock Indicator -->
+              <div class="absolute top-4 left-6 text-[10px] font-bold text-slate-400">9:41</div>
+              <div class="absolute top-4 right-6 flex items-center gap-1.5 text-slate-400">
+                <div class="w-4 h-2 border border-slate-400 rounded-xs flex items-center p-0.5">
+                  <div class="w-full h-full bg-slate-400"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ===== Figma AI Selection Overlay Box ===== -->
+            <div
+              id="figmaSelectionBox"
+              class="absolute z-40 border-2 border-[#0D99FF] rounded-xs pointer-events-none transition-all duration-150 hidden"
+              style="box-shadow: 0 0 0 1px #0D99FF, 0 0 18px rgba(13,153,255,0.45);"
+            >
+              <!-- 4 Corner White Anchor Handles -->
+              <div class="absolute -top-1.5 -left-1.5 w-2.5 h-2.5 bg-white border border-[#0D99FF] rounded-xs shadow-xs"></div>
+              <div class="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-white border border-[#0D99FF] rounded-xs shadow-xs"></div>
+              <div class="absolute -bottom-1.5 -left-1.5 w-2.5 h-2.5 bg-white border border-[#0D99FF] rounded-xs shadow-xs"></div>
+              <div class="absolute -bottom-1.5 -right-1.5 w-2.5 h-2.5 bg-white border border-[#0D99FF] rounded-xs shadow-xs"></div>
+
+              <!-- Floating Action Badge -->
+              <div
+                class="pointer-events-auto absolute -top-8 left-0 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-900/95 backdrop-blur-xl border border-[#0D99FF]/60 text-white shadow-xl whitespace-nowrap select-none"
+              >
+                <div class="w-2 h-2 rounded-full bg-[#0D99FF] animate-pulse"></div>
+                <span id="badgeTag" class="text-[10px] font-mono font-bold text-[#38bdf8]">&lt;button&gt;</span>
+                <span id="badgeLabel" class="text-[11px] font-medium text-slate-100 max-w-[120px] truncate">立即抽奖</span>
+                <span class="text-[9px] px-1 py-0.5 rounded bg-[#0D99FF]/25 text-[#38bdf8] font-mono font-medium">已锁定</span>
+                <button
+                  type="button"
+                  class="ml-0.5 w-4 h-4 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer transition-colors"
+                  title="取消选中此元素"
+                  onclick="clearElementSelection(event)"
+                >
+                  <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== Right Side AI Co-pilot Drawer ===== -->
+  <aside
+    id="aiDrawer"
+    class="fixed top-0 right-0 h-full w-[420px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-[-20px_0_50px_rgba(0,0,0,0.7)] flex flex-col z-50 drawer-slide-transition"
+  >
+    <!-- Drawer Header -->
+    <div class="px-5 py-4 border-b border-white/10 flex items-center justify-between bg-slate-900/60">
+      <div class="flex items-center gap-2.5">
+        <div class="w-7 h-7 rounded-lg bg-[#0D99FF]/20 border border-[#0D99FF]/40 flex items-center justify-center text-[#38bdf8]">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v18"/>
+            <path d="M3 12h18"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+        <div>
+          <div class="font-bold text-xs text-white tracking-wide flex items-center gap-1.5">
+            <span>AI 调整</span>
+            <span
+              id="headerModeBadge"
+              class="hidden px-1.5 py-0.2 rounded bg-[#0D99FF]/30 text-[#38bdf8] text-[10px] font-mono font-medium border border-[#0D99FF]/40"
+            >
+              单元素微调模式
+            </span>
+          </div>
+          <div class="text-[10px] text-slate-200 mt-0.5">
+            当前画板：<span class="text-[#38bdf8] font-medium">1. 扭蛋抽奖页</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <!-- 一键恢复初始画板（防多轮污染） -->
+        <button
+          id="btnResetAll"
+          type="button"
+          onclick="revertChanges()"
+          class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-[11px] cursor-pointer flex items-center gap-1 transition-all"
+          title="放弃全部草稿，一键恢复到进入时的原版画板"
+        >
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <span>重置原版</span>
+        </button>
+
+        <!-- Close Drawer Button (清晰高对比度) -->
+        <button
+          type="button"
+          onclick="toggleAiDrawer(false)"
+          class="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/25 text-slate-200 hover:text-white flex items-center justify-center transition-all cursor-pointer border border-white/20 hover:border-white/30 shadow-xs"
+          title="收起对话框"
+          aria-label="关闭对话框"
+        >
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Dialogue Messages History Stream -->
+    <div id="chatStream" class="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
+      
+      <!-- Multi-turn History Snapshots -->
+      <div class="p-3 rounded-xl bg-white/5 border border-white/10 text-slate-200 text-xs space-y-1.5">
+        <div class="flex items-center justify-between">
+          <span class="font-medium text-slate-200 text-[11px]">历史快照 #1 (进入时初始态)</span>
+          <button
+            type="button"
+            onclick="rollbackToSnapshot(1)"
+            class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/15 border border-white/15 text-slate-200 hover:text-white text-[11px] cursor-pointer transition-colors"
+            title="回退到进入该画板时的最初状态"
+          >
+            回退至此步骤
+          </button>
+        </div>
+        <div class="text-[11px] text-slate-300">纯净原版画板快照，无任何草稿修改</div>
+      </div>
+
+      <!-- User Message -->
+      <div class="flex flex-col items-end gap-1">
+        <div class="max-w-[88%] px-3.5 py-2.5 rounded-2xl rounded-tr-xs bg-[#0D99FF] text-white text-xs leading-relaxed shadow-md">
+          把抽奖按钮主色换成更醒目的暖橙渐变，并且在上面增加一个限时活动的倒计时卡片
+        </div>
+        <span class="text-[10px] text-slate-400 pr-1">14:35</span>
+      </div>
+
+      <!-- 状态 A：AI 思考生成中 (Loading) -->
+      <div id="aiStateLoading" class="flex flex-col items-start gap-2 max-w-[96%] hidden">
+        <div class="flex items-center gap-2 text-slate-300 text-xs pl-1 font-medium">
+          <div class="w-4 h-4 text-[#38bdf8] animate-spin-fast flex items-center justify-center">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-dasharray="32" stroke-dashoffset="12" d="M12 2a10 10 0 0 1 10 10 10 10 0 0 1-10 10 10 10 0 0 1-10-10"/>
+            </svg>
+          </div>
+          <span id="loadingTitle">正在分析当前画板结构并生成调整方案...</span>
+        </div>
+
+        <div class="w-full rounded-2xl bg-slate-800/80 border border-white/10 p-3.5 space-y-3 shadow-lg">
+          <div class="space-y-2 text-xs">
+            <div class="flex items-center gap-2 text-slate-300">
+              <div class="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <span class="text-slate-200">已检索画板【1. 扭蛋抽奖页】节点结构</span>
+            </div>
+
+            <div class="flex items-center gap-2 text-slate-200 font-medium">
+              <div class="w-4 h-4 rounded-full bg-[#0D99FF]/20 text-[#38bdf8] flex items-center justify-center shrink-0 animate-pulse">
+                <div class="w-1.5 h-1.5 rounded-full bg-[#38bdf8]"></div>
+              </div>
+              <span class="text-[#38bdf8]">正在重新计算页面样式与布局变动...</span>
+            </div>
+
+            <div class="flex items-center gap-2 text-slate-400">
+              <div class="w-4 h-4 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                <div class="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
+              </div>
+              <span class="text-slate-300">准备生成变更清单并实时预览</span>
+            </div>
+          </div>
+
+          <div class="space-y-2 pt-1">
+            <div class="h-3 rounded bg-white/5 shimmer-bar w-full"></div>
+            <div class="h-3 rounded bg-white/5 shimmer-bar w-4/5"></div>
+            <div class="h-3 rounded bg-white/5 shimmer-bar w-2/3"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态 B：生成完成状态 (Completed) -->
+      <div id="aiStateCompleted" class="flex flex-col items-start gap-2 max-w-[96%]">
+        <div class="flex items-center gap-1.5 text-slate-300 text-xs pl-1 font-medium">
+          <div class="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+            <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <span>调整方案已就绪 · 已在屏幕上实时预览</span>
+        </div>
+
+        <!-- 调整明细卡片 -->
+        <div class="w-full rounded-2xl bg-slate-800/80 border border-white/10 p-3.5 space-y-3 shadow-lg">
+          <div class="text-xs text-slate-200 leading-normal flex items-center justify-between">
+            <span class="font-medium text-white">已针对画板完成以下调整：</span>
+            <span class="text-[10px] text-slate-300 font-mono">快照 #2</span>
+          </div>
+
+          <!-- 清晰对比变更项 -->
+          <div class="space-y-2 bg-black/30 rounded-xl p-2.5 border border-white/5 text-xs">
+            <div class="flex items-start gap-2">
+              <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-[10px] font-bold shrink-0">+ 新增</span>
+              <span class="text-slate-200">增加限时倒计时卡片（距结束 02:45:18）</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 font-mono text-[10px] font-bold shrink-0">~ 样式</span>
+              <span class="text-slate-200">抽奖按钮主色调调整为暖橙渐变，保持 52px 高度</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 font-mono text-[10px] font-bold shrink-0">~ 文案</span>
+              <span class="text-slate-200">按钮文本更新为「立即抽奖 (消耗10金币)」</span>
+            </div>
+          </div>
+
+          <!-- 操作按钮组 -->
+          <div class="space-y-2 pt-1">
+            <div class="flex items-center gap-2">
+              <!-- 保留并应用修改 -->
+              <button
+                type="button"
+                onclick="commitChanges()"
+                class="flex-1 py-1.5 px-3 rounded-xl bg-[#0D99FF] hover:bg-[#0284c7] text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>保留并应用修改</span>
+              </button>
+
+              <!-- 核心撤回功能：还原 -->
+              <button
+                type="button"
+                onclick="revertChanges()"
+                class="py-1.5 px-3 rounded-xl bg-white/5 hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-medium transition-all flex items-center gap-1 cursor-pointer"
+                title="放弃本次修改并还原到上一步 (Ctrl+Z)"
+              >
+                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                <span>还原</span>
+              </button>
+            </div>
+
+            <!-- 便捷比对：按住对比原版 -->
+            <button
+              type="button"
+              onmousedown="startCompareOriginal()"
+              onmouseup="endCompareOriginal()"
+              onmouseleave="endCompareOriginal()"
+              class="w-full py-1 rounded-lg bg-black/20 hover:bg-black/40 border border-white/5 text-slate-300 hover:text-white text-[11px] transition-all flex items-center justify-center gap-1 cursor-pointer"
+              title="按住不放查看修改前，松开恢复修改后"
+            >
+              <svg class="w-3 h-3 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2v20"/></svg>
+              <span>按住查看修改前对比 (松开恢复)</span>
+            </button>
+          </div>
+        </div>
+
+        <span class="text-[10px] text-slate-400 pl-1">14:36</span>
+      </div>
+    </div>
+
+    <!-- Bottom Prompt & Target Scope Area -->
+    <div class="p-4 bg-slate-900/95 border-t border-white/10 flex flex-col gap-2.5">
+      
+      <!-- ===== Figma AI / Cursor Style Target Scope Card ===== -->
+      <!-- Case A: Element is selected -->
+      <div
+        id="drawerTargetScopeCard"
+        class="hidden p-3 rounded-2xl bg-gradient-to-r from-[#0D99FF]/15 via-slate-800/80 to-slate-800/80 border border-[#0D99FF]/40 shadow-lg space-y-2 select-none"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-6 h-6 rounded-lg bg-[#0D99FF]/20 border border-[#0D99FF]/50 flex items-center justify-center text-[#38bdf8]">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span id="scopeTag" class="text-[10px] px-1.5 py-0.5 rounded bg-[#0D99FF]/30 text-[#38bdf8] font-mono font-bold">
+                &lt;button&gt;
+              </span>
+              <span id="scopeLabel" class="text-xs font-semibold text-white max-w-[170px] truncate">
+                立即抽奖 (消耗10金币)
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+            title="取消选中，切换回整页画板调整"
+            onclick="clearElementSelection(event)"
+          >
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            <span>切回整页</span>
+          </button>
+        </div>
+
+        <!-- Token & Isolation Metrics Badge -->
+        <div class="flex items-center justify-between text-[10px] text-slate-300 pt-0.5 border-t border-white/5">
+          <span class="text-emerald-400 font-medium">物理级单点隔离 · 绝不误改其他元素</span>
+          <span class="text-cyan-300 font-mono">Token 省 95% (~300) · 耗时 2~3s</span>
+        </div>
+
+        <!-- Quick Suggestion Chips (Cursor / v0.dev style) -->
+        <div id="quickChipsContainer" class="flex flex-wrap gap-1.5 pt-1">
+          <!-- chips dynamically populated -->
+        </div>
+      </div>
+
+      <!-- Case B: No element selected -->
+      <div
+        id="drawerNoTargetScopeCard"
+        class="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-[11px] text-slate-300 flex items-center justify-between"
+      >
+        <span class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+          <span>点击画板上的任意元素，即可针对该组件单独微调</span>
+        </span>
+        <span class="text-[10px] font-mono text-[#38bdf8]">整页调整模式</span>
+      </div>
+
+      <!-- Input Box -->
+      <div class="relative bg-black/40 border border-white/12 focus-within:border-[#0D99FF]/60 rounded-2xl p-2.5 transition-colors">
+        <textarea
+          id="promptInput"
+          rows="3"
+          placeholder="描述您想对当前画板调整的内容..."
+          class="w-full bg-transparent text-xs text-white placeholder-slate-400 outline-none resize-none leading-relaxed custom-scrollbar"
+          onkeydown="if(event.key === 'Enter' && !event.shiftKey){ event.preventDefault(); sendCustomPrompt(); }"
+        ></textarea>
+
+        <div class="flex items-center justify-between pt-1">
+          <span
+            id="scopeIndicatorPill"
+            class="text-[10px] px-2.5 py-1 rounded-lg bg-white/10 text-slate-200 border border-white/15 font-medium transition-colors"
+          >
+            作用于当前画板
+          </span>
+
+          <!-- Send Button (纯图标，无文字，高质感) -->
+          <button
+            type="button"
+            onclick="sendCustomPrompt()"
+            class="w-7 h-7 rounded-lg bg-[#0D99FF] hover:bg-[#0284c7] text-white flex items-center justify-center shadow-md transition-all cursor-pointer"
+            title="发送微调指令 (Enter)"
+            aria-label="发送"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5"></line>
+              <polyline points="5 12 12 5 19 12"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between text-[11px] text-slate-300 px-1 font-normal">
+        <span>Enter 发送 / Shift + Enter 换行 / 支持随时撤回</span>
+        <span class="text-slate-400">WireForge 原型系统</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== Bottom Mode Switcher Pill (便于对比与测试) ===== -->
+  <div class="fixed bottom-5 left-6 z-50 flex items-center gap-2 p-1.5 rounded-2xl bg-slate-900/90 backdrop-blur-xl border border-white/15 shadow-2xl">
+    <div class="text-xs font-semibold text-slate-400 pl-2 pr-1">视图切换:</div>
+    <button
+      id="modeBtnBaseline"
+      type="button"
+      onclick="setMode('baseline')"
+      class="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-white transition-all cursor-pointer"
+    >
+      原先全屏演示 (无对话框)
+    </button>
+    <button
+      id="modeBtnScheme"
+      type="button"
+      onclick="setMode('scheme')"
+      class="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#0D99FF]/20 text-[#38bdf8] border border-[#0D99FF]/40 shadow-xs transition-all cursor-pointer"
+    >
+      AI 调整方案 (含微调抽屉)
+    </button>
+    <div class="h-4 w-[1px] bg-white/15 mx-1"></div>
+    <button
+      type="button"
+      onclick="revertChanges()"
+      class="px-2.5 py-1 rounded-xl text-xs font-medium bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 cursor-pointer"
+      title="点击直接触发还原"
+    >
+      一键还原 (Ctrl+Z)
+    </button>
+    <button
+      type="button"
+      onclick="restoreModifiedPreview()"
+      class="px-2.5 py-1 rounded-xl text-xs font-medium bg-[#0D99FF]/15 text-[#38bdf8] border border-[#0D99FF]/30 cursor-pointer"
+      title="恢复修改后草稿"
+    >
+      重新展示草稿预览
+    </button>
+  </div>
+
+  <!-- Toast Notification -->
+  <div
+    id="toastBox"
+    class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-slate-900/95 border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-2xl transition-all duration-300 opacity-0 -translate-y-2 pointer-events-none"
+  >
+    提示内容
+  </div>
+
+  <script>
+    let isAiDrawerOpen = true;
+    let isModifiedActive = true;
+    let selectedElementInfo = null;
+
+    function updateArtboardView() {
+      const orig = document.getElementById('artboardStateOriginal');
+      const mod = document.getElementById('artboardStateModified');
+      if (isModifiedActive) {
+        orig.classList.add('hidden');
+        mod.classList.remove('hidden');
+      } else {
+        mod.classList.add('hidden');
+        orig.classList.remove('hidden');
+        clearElementSelection();
+      }
+    }
+
+    // 初始化展示草稿态
+    updateArtboardView();
+
+    // 选中单个元素模拟 (Figma AI / Cursor Inspector)
+    function selectDemoElement(tag, label, elementNode) {
+      if (!isAiDrawerOpen) toggleAiDrawer(true);
+
+      const phoneScreen = document.getElementById('phoneScreen');
+      const screenRect = phoneScreen.getBoundingClientRect();
+      const elRect = elementNode.getBoundingClientRect();
+
+      const box = document.getElementById('figmaSelectionBox');
+      box.style.left = (elRect.left - screenRect.left) + 'px';
+      box.style.top = (elRect.top - screenRect.top) + 'px';
+      box.style.width = elRect.width + 'px';
+      box.style.height = elRect.height + 'px';
+      box.classList.remove('hidden');
+
+      document.getElementById('badgeTag').textContent = `<${tag}>`;
+      document.getElementById('badgeLabel').textContent = label;
+
+      selectedElementInfo = { tag, label, elementNode };
+
+      // 更新顶部状态条
+      document.getElementById('inspectorTopHintText').textContent = `已锁定 <${tag}> ${label} · 可输入指令或点击快捷微调`;
+
+      // 更新抽屉目标卡片
+      document.getElementById('headerModeBadge').classList.remove('hidden');
+      document.getElementById('drawerTargetScopeCard').classList.remove('hidden');
+      document.getElementById('drawerNoTargetScopeCard').classList.add('hidden');
+
+      document.getElementById('scopeTag').textContent = `<${tag}>`;
+      document.getElementById('scopeLabel').textContent = label;
+
+      const pill = document.getElementById('scopeIndicatorPill');
+      pill.textContent = `仅作用于选中 <${tag}>`;
+      pill.className = 'text-[10px] px-2.5 py-1 rounded-lg border font-medium transition-colors bg-[#0D99FF]/20 text-[#38bdf8] border-[#0D99FF]/40';
+
+      const promptInput = document.getElementById('promptInput');
+      promptInput.placeholder = `对选中的 <${tag}> 进行微调（例如：换成渐变暖色、加粗、加发光投影）...`;
+
+      // 填充快捷操作选项
+      populateQuickChips(tag);
+      showToast(`已选定 <${tag}> ${label}`);
+    }
+
+    function clearElementSelection(e) {
+      if (e) e.stopPropagation();
+      selectedElementInfo = null;
+      document.getElementById('figmaSelectionBox').classList.add('hidden');
+      document.getElementById('headerModeBadge').classList.add('hidden');
+      document.getElementById('drawerTargetScopeCard').classList.add('hidden');
+      document.getElementById('drawerNoTargetScopeCard').classList.remove('hidden');
+      document.getElementById('inspectorTopHintText').textContent = '单元素微调模式：点击画板中任意元素进行精准修改';
+
+      const pill = document.getElementById('scopeIndicatorPill');
+      pill.textContent = '作用于当前画板';
+      pill.className = 'text-[10px] px-2.5 py-1 rounded-lg bg-white/10 text-slate-200 border border-white/15 font-medium transition-colors';
+
+      document.getElementById('promptInput').placeholder = '描述您想对当前画板调整的内容...';
+    }
+
+    function populateQuickChips(tag) {
+      const container = document.getElementById('quickChipsContainer');
+      container.innerHTML = '';
+
+      let chips = ['换成暖橙色渐变', '加大字号并加粗', '改成圆角胶囊样式', '增加发光立体投影', '删除此元素'];
+      if (tag.includes('div') || tag.includes('card')) {
+        chips = ['背景换为深色磨砂玻璃', '增加 16px 圆角与柔和投影', '居中对齐内容', '删除此卡片容器'];
+      }
+
+      chips.forEach(chip => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 active:bg-[#0D99FF]/30 border border-white/10 hover:border-white/20 text-[11px] text-slate-200 hover:text-white transition-all cursor-pointer select-none';
+        btn.textContent = chip;
+        btn.onclick = () => {
+          document.getElementById('promptInput').value = chip;
+          sendCustomPrompt();
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    function revertChanges() {
+      isModifiedActive = false;
+      updateArtboardView();
+      showToast('已撤回本次修改，恢复到原版状态！');
+    }
+
+    function restoreModifiedPreview() {
+      isModifiedActive = true;
+      updateArtboardView();
+      showToast('已恢复 AI 调整草稿预览');
+    }
+
+    function commitChanges() {
+      showToast('已成功将本次修改保存并固化到当前画板！');
+    }
+
+    function rollbackToSnapshot(snapshotId) {
+      isModifiedActive = false;
+      updateArtboardView();
+      showToast('已回退至历史快照 #1 状态');
+    }
+
+    function startCompareOriginal() {
+      const orig = document.getElementById('artboardStateOriginal');
+      const mod = document.getElementById('artboardStateModified');
+      orig.classList.remove('hidden');
+      mod.classList.add('hidden');
+    }
+
+    function endCompareOriginal() {
+      updateArtboardView();
+    }
+
+    function resetToOriginal() {
+      isModifiedActive = false;
+      updateArtboardView();
+      showToast('已重置原型为初始状态');
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        revertChanges();
+      }
+    });
+
+    function toggleAiDrawer(forceState) {
+      if (typeof forceState === 'boolean') {
+        isAiDrawerOpen = forceState;
+      } else {
+        isAiDrawerOpen = !isAiDrawerOpen;
+      }
+
+      const drawer = document.getElementById('aiDrawer');
+      const viewport = document.getElementById('viewportMain');
+      const btn = document.getElementById('btnAiAdjust');
+
+      if (isAiDrawerOpen) {
+        drawer.style.transform = 'translateX(0)';
+        viewport.style.marginRight = '420px';
+        btn.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer bg-[#0D99FF]/20 border-[#0D99FF]/60 text-[#38bdf8] shadow-[0_0_15px_rgba(13,153,255,0.3)] ai-btn-active';
+      } else {
+        drawer.style.transform = 'translateX(100%)';
+        viewport.style.marginRight = '0px';
+        btn.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white';
+        clearElementSelection();
+      }
+    }
+
+    function setMode(mode) {
+      const btnBaseline = document.getElementById('modeBtnBaseline');
+      const btnScheme = document.getElementById('modeBtnScheme');
+      const btnAiAdjust = document.getElementById('btnAiAdjust');
+
+      if (mode === 'baseline') {
+        btnAiAdjust.style.display = 'none';
+        toggleAiDrawer(false);
+        btnBaseline.className = 'px-3 py-1.5 rounded-xl text-xs font-bold bg-white/20 text-white border border-white/30 shadow-xs transition-all cursor-pointer';
+        btnScheme.className = 'px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-white transition-all cursor-pointer';
+      } else {
+        btnAiAdjust.style.display = 'inline-flex';
+        toggleAiDrawer(true);
+        btnScheme.className = 'px-3 py-1.5 rounded-xl text-xs font-bold bg-[#0D99FF]/20 text-[#38bdf8] border border-[#0D99FF]/40 shadow-xs transition-all cursor-pointer';
+        btnBaseline.className = 'px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-white transition-all cursor-pointer';
+      }
+    }
+
+    function sendCustomPrompt() {
+      const input = document.getElementById('promptInput');
+      const val = input.value.trim();
+      if (!val) return;
+
+      const chat = document.getElementById('chatStream');
+
+      const userBubble = document.createElement('div');
+      userBubble.className = 'flex flex-col items-end gap-1';
+      const promptTitle = selectedElementInfo ? `【微调 &lt;${selectedElementInfo.tag}&gt; ${selectedElementInfo.label}】：` : '';
+      userBubble.innerHTML = `
+        <div class="max-w-[88%] px-3.5 py-2.5 rounded-2xl rounded-tr-xs bg-[#0D99FF] text-white text-xs leading-relaxed shadow-md">
+          ${promptTitle}${escapeHtml(val)}
+        </div>
+        <span class="text-[10px] text-slate-400 pr-1">刚刚</span>
+      `;
+      chat.appendChild(userBubble);
+      input.value = '';
+
+      const loadingEl = document.getElementById('aiStateLoading');
+      const completedEl = document.getElementById('aiStateCompleted');
+      loadingEl.classList.remove('hidden');
+      completedEl.classList.add('hidden');
+      chat.scrollTop = chat.scrollHeight;
+
+      // 模拟微调响应
+      setTimeout(() => {
+        loadingEl.classList.add('hidden');
+        completedEl.classList.remove('hidden');
+        isModifiedActive = true;
+        updateArtboardView();
+
+        if (selectedElementInfo && selectedElementInfo.elementNode) {
+          if (val.includes('暖橙') || val.includes('橙色')) {
+            selectedElementInfo.elementNode.className = 'w-full h-[52px] rounded-2xl bg-gradient-to-r from-amber-500 to-rose-500 text-white font-bold text-sm shadow-lg shadow-orange-500/30 flex items-center justify-center inspectable-element';
+          } else if (val.includes('胶囊') || val.includes('圆角')) {
+            selectedElementInfo.elementNode.className = 'w-full h-[48px] rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold text-sm shadow-md flex items-center justify-center inspectable-element';
+          }
+        }
+
+        chat.scrollTop = chat.scrollHeight;
+        showToast(selectedElementInfo ? '已针对选中元素完成极速微调 (消耗 ~300 Tokens, 耗时 2s)' : '已完成画板调整');
+      }, 1500);
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toastBox');
+      toast.textContent = msg;
+      toast.classList.remove('opacity-0', '-translate-y-2', 'pointer-events-none');
+      toast.classList.add('opacity-100', 'translate-y-0');
+      setTimeout(() => {
+        toast.classList.remove('opacity-100', 'translate-y-0');
+        toast.classList.add('opacity-0', '-translate-y-2', 'pointer-events-none');
+      }, 2200);
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+  </script>
+</body>
+</html>

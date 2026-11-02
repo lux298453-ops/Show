@@ -158,6 +158,19 @@
           <span class="hidden sm:inline">手机外壳</span>
         </button>
 
+        <!-- AI 调整按钮 -->
+        <button
+          class="wf-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer"
+          :class="aiDrawerOpen 
+            ? 'bg-[#0D99FF]/20 border-[#0D99FF]/60 text-[#38bdf8] shadow-[0_0_15px_rgba(13,153,255,0.3)]' 
+            : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white'"
+          title="打开右侧对话框，使用 AI 调整当前画板"
+          @click="aiDrawerOpen = !aiDrawerOpen"
+        >
+          <Sliders class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">AI 调整</span>
+        </button>
+
         <!-- ↺ 重置原型 -->
         <button
           class="wf-pill inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all cursor-pointer"
@@ -193,7 +206,8 @@
     <!-- ===== Main Viewport Stage Container ===== -->
     <main
       ref="viewportContainerRef"
-      class="preview-scroll flex-1 w-full min-h-0"
+      class="preview-scroll flex-1 w-full min-h-0 transition-[margin-right] duration-300 ease-in-out"
+      :style="aiDrawerOpen ? { marginRight: '420px' } : {}"
       @click="onViewportAreaClick"
     >
       <!-- Click Ripple Effect Layer -->
@@ -235,6 +249,7 @@
 
           <!-- ===== Screen Glass Viewport ===== -->
           <div
+            ref="phoneScreenRef"
             class="phone-screen relative bg-black overflow-hidden flex flex-col transition-all duration-300"
             :class="[
               showDeviceFrame ? 'rounded-[44px]' : 'rounded-lg'
@@ -264,9 +279,10 @@
                   class="page-transition-wrapper absolute inset-0 w-full h-full overflow-x-hidden overflow-y-auto custom-scrollbar"
                 >
                   <PageCanvas
-                    v-if="currentPage"
+                    v-if="displayCurrentPage"
+                    :key="`${currentPageId ?? 0}_v${draftVersion}`"
                     ref="pageCanvasRef"
-                    :page="currentPage"
+                    :page="displayCurrentPage"
                     :all-pages="pages"
                     :show-wireframe="true"
                     :show-design="false"
@@ -282,9 +298,76 @@
                   />
                 </div>
               </transition>
-
-
             </div>
+
+            <!-- ===== Figma AI / Cursor Inspector Overlay (单元素选中与高亮视口层) ===== -->
+            <template v-if="aiDrawerOpen">
+              <!-- 1. 悬停轮廓框 (Hover Box) -->
+              <div
+                v-if="hoveredBox && (!selectedElement || hoveredBox.left !== selectedElement.rect.left || hoveredBox.top !== selectedElement.rect.top)"
+                class="pointer-events-none absolute z-30 transition-all duration-75 border border-dashed border-[#38bdf8] bg-[#38bdf8]/10 rounded-sm"
+                :style="{
+                  left: `${hoveredBox.left}px`,
+                  top: `${hoveredBox.top}px`,
+                  width: `${hoveredBox.width}px`,
+                  height: `${hoveredBox.height}px`,
+                }"
+              >
+                <!-- 悬停微型标签 -->
+                <div
+                  class="absolute -top-6 left-0 px-1.5 py-0.5 rounded bg-slate-900/95 text-[10px] font-mono text-[#38bdf8] border border-[#38bdf8]/40 shadow-md whitespace-nowrap"
+                >
+                  &lt;{{ hoveredBox.tag }}&gt; {{ hoveredBox.label }}
+                </div>
+              </div>
+
+              <!-- 2. 选定元素框 (Figma AI 标志性发光边框 + 4角白色手柄 + 浮动胶囊条) -->
+              <div
+                v-if="selectedElement"
+                class="absolute z-40 border-2 border-[#0D99FF] rounded-xs pointer-events-none transition-all duration-150"
+                :style="{
+                  left: `${selectedElement.rect.left}px`,
+                  top: `${selectedElement.rect.top}px`,
+                  width: `${selectedElement.rect.width}px`,
+                  height: `${selectedElement.rect.height}px`,
+                  boxShadow: '0 0 0 1px #0D99FF, 0 0 18px rgba(13,153,255,0.45)',
+                }"
+              >
+                <!-- 4角白色手柄 (Figma 锚点风格) -->
+                <div class="absolute -top-1.5 -left-1.5 w-2.5 h-2.5 bg-white border border-[#0D99FF] rounded-xs shadow-xs"></div>
+                <div class="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-white border border-[#0D99FF] rounded-xs shadow-xs"></div>
+                <div class="absolute -bottom-1.5 -left-1.5 w-2.5 h-2.5 bg-white border border-[#0D99FF] rounded-xs shadow-xs"></div>
+                <div class="absolute -bottom-1.5 -right-1.5 w-2.5 h-2.5 bg-white border border-[#0D99FF] rounded-xs shadow-xs"></div>
+
+                <!-- 浮动操作胶囊 (顶部或底部自动避位) -->
+                <div
+                  class="pointer-events-auto absolute left-0 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-900/95 backdrop-blur-xl border border-[#0D99FF]/60 text-white shadow-xl whitespace-nowrap select-none"
+                  :class="selectedElement.rect.top > 38 ? '-top-8' : '-bottom-8'"
+                >
+                  <div class="w-2 h-2 rounded-full bg-[#0D99FF] animate-pulse"></div>
+                  <span class="text-[10px] font-mono font-bold text-[#38bdf8]">&lt;{{ selectedElement.tag }}&gt;</span>
+                  <span class="text-[11px] font-medium text-slate-100 max-w-[120px] truncate">{{ selectedElement.label }}</span>
+                  <span class="text-[9px] px-1 py-0.5 rounded bg-[#0D99FF]/25 text-[#38bdf8] font-mono font-medium">已锁定</span>
+                  <button
+                    type="button"
+                    class="ml-0.5 w-4 h-4 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer transition-colors"
+                    title="取消选中此元素 (恢复整页调整)"
+                    @click.stop="clearSelectedElement"
+                  >
+                    <X class="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- 3. 画板顶部模式状态提示栏 -->
+              <div
+                class="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 z-30 px-3 py-1 rounded-full bg-slate-900/90 backdrop-blur-md border border-white/15 text-[11px] text-slate-200 shadow-xl flex items-center gap-2"
+              >
+                <div class="w-2 h-2 rounded-full bg-cyan-400" :class="{ 'animate-pulse': !selectedElement }"></div>
+                <span v-if="selectedElement">已选定元素 · 在右侧输入指令或选快捷建议微调</span>
+                <span v-else>单元素微调模式：点击画板中任意元素进行精准修改</span>
+              </div>
+            </template>
 
             <!-- iOS Home Indicator Gesture Bar -->
             <div
@@ -393,6 +476,24 @@
         <span>{{ toastMsg }}</span>
       </div>
     </transition>
+
+    <!-- ===== AI 原型调整抽屉 ===== -->
+    <AiAdjustDrawer
+      :project-id="id"
+      :current-page="currentPage"
+      :is-open="aiDrawerOpen"
+      :current-draft-html="currentPage ? draftHtmlMap[currentPage.id] : null"
+      :selected-element="selectedElement"
+      @close="aiDrawerOpen = false"
+      @clear-selected-element="clearSelectedElement"
+      @patch-element-success="handlePatchElementSuccess"
+      @preview-draft="handlePreviewDraft"
+      @revert-draft="handleRevertDraft"
+      @start-compare="handleStartCompare"
+      @end-compare="handleEndCompare"
+      @commit-success="handleCommitSuccess"
+      @toast="showToast"
+    />
   </div>
 </template>
 
@@ -409,10 +510,12 @@ import {
   ChevronDown,
   Search,
   Check,
+  Sliders,
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import type { Element, Page, Prototype } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
+import AiAdjustDrawer from '../components/AiAdjustDrawer.vue'
 import { findInteractionByDomUids, hitInteractionElement, findElementAt, resolveNavigateElement } from '../utils/interactionHit'
 import { useProjectTitle } from '../utils/pageTitle'
 
@@ -433,6 +536,344 @@ const currentPage = computed<Page | null>(() => {
 const currentPageIndex = computed(() => {
   if (!currentPageId.value) return -1
   return pages.value.findIndex((p) => p.id === currentPageId.value)
+})
+
+// AI 调整状态与单画板草稿映射
+const aiDrawerOpen = ref(false)
+const draftHtmlMap = ref<Record<number, string>>({})
+const isComparingOriginal = ref(false)
+
+const displayCurrentPage = computed<Page | null>(() => {
+  if (!currentPage.value) return null
+  const pageId = currentPage.value.id
+  if (isComparingOriginal.value) {
+    return currentPage.value
+  }
+  const draftHtml = draftHtmlMap.value[pageId]
+  if (draftHtml) {
+    return {
+      ...currentPage.value,
+      html_content: draftHtml,
+    }
+  }
+  return currentPage.value
+})
+
+const hasUnsavedDraft = computed(() => {
+  return Object.keys(draftHtmlMap.value).length > 0
+})
+
+const draftVersion = ref(0)
+
+function handlePreviewDraft(pageId: number, draftHtml: string) {
+  draftHtmlMap.value[pageId] = draftHtml
+  draftVersion.value++
+}
+
+function handleRevertDraft(pageId: number) {
+  delete draftHtmlMap.value[pageId]
+  draftVersion.value++
+}
+
+function handleCommitSuccess(pageId: number, newHtml: string) {
+  const p = pages.value.find((item) => item.id === pageId)
+  if (p) {
+    p.html_content = newHtml
+  }
+  delete draftHtmlMap.value[pageId]
+  draftVersion.value++
+}
+
+function handleStartCompare() {
+  isComparingOriginal.value = true
+}
+
+function handleEndCompare() {
+  isComparingOriginal.value = false
+}
+
+// ===== Figma AI / Cursor 单元素微调模式核心状态与交互逻辑 =====
+interface SelectedElement {
+  id: string
+  tag: string
+  label: string
+  html: string
+  rect: { left: number; top: number; width: number; height: number }
+  domNode?: HTMLElement
+}
+
+interface HoveredBox {
+  left: number
+  top: number
+  width: number
+  height: number
+  tag: string
+  label: string
+}
+
+const phoneScreenRef = ref<HTMLElement | null>(null)
+const selectedElement = ref<SelectedElement | null>(null)
+const hoveredBox = ref<HoveredBox | null>(null)
+
+function getTargetBoundingBox(el: HTMLElement) {
+  const frame = pageCanvasRef.value?.htmlFrameRef as HTMLIFrameElement | null
+  const phoneScreen = phoneScreenRef.value
+  if (!frame || !phoneScreen) return null
+  const frameRect = frame.getBoundingClientRect()
+  const screenRect = phoneScreen.getBoundingClientRect()
+  const elRect = el.getBoundingClientRect()
+  return {
+    left: frameRect.left - screenRect.left + elRect.left,
+    top: frameRect.top - screenRect.top + elRect.top,
+    width: elRect.width,
+    height: elRect.height,
+  }
+}
+
+function updatePositions() {
+  if (selectedElement.value?.domNode) {
+    const box = getTargetBoundingBox(selectedElement.value.domNode)
+    if (box) {
+      selectedElement.value.rect = box
+    }
+  }
+}
+
+function extractLabel(el: HTMLElement): string {
+  const directText = Array.from(el.childNodes)
+    .filter((n) => n.nodeType === Node.TEXT_NODE)
+    .map((n) => n.textContent?.trim())
+    .filter(Boolean)
+    .join(' ')
+  if (directText && directText.length > 0) {
+    return directText.slice(0, 24)
+  }
+  const text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ')
+  if (text && text.length > 0 && text.length <= 30) {
+    return text
+  } else if (text && text.length > 30) {
+    return text.slice(0, 24) + '...'
+  }
+  const aria = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.getAttribute('alt')
+  if (aria) return aria
+  if (el.id) return `#${el.id}`
+  const semanticClasses = Array.from(el.classList).filter((c) => !c.startsWith('wf-') && !c.includes(':') && c.length < 25)
+  if (semanticClasses.length > 0) return `.${semanticClasses[0]}`
+  return el.tagName.toLowerCase()
+}
+
+let currentFrameDoc: Document | null = null
+let currentFrameWin: Window | null = null
+
+function attachInspectorToIframe() {
+  cleanupInspector()
+  if (!aiDrawerOpen.value) return
+
+  const frame = pageCanvasRef.value?.htmlFrameRef as HTMLIFrameElement | null
+  if (!frame) return
+  const doc = frame.contentDocument
+  if (!doc || !doc.body) {
+    frame.addEventListener('load', attachInspectorToIframe, { once: true })
+    return
+  }
+
+  currentFrameDoc = doc
+  currentFrameWin = frame.contentWindow
+
+  let styleEl = doc.getElementById('wf-inspector-style')
+  if (!styleEl) {
+    styleEl = doc.createElement('style')
+    styleEl.id = 'wf-inspector-style'
+    styleEl.textContent = `* { cursor: crosshair !important; }`
+    doc.head.appendChild(styleEl)
+  }
+
+  doc.addEventListener('mousemove', handleIframeMouseMove, true)
+  doc.addEventListener('mouseleave', handleIframeMouseLeave, true)
+  doc.addEventListener('click', handleIframeClick, true)
+  currentFrameWin?.addEventListener('scroll', updatePositions, { passive: true })
+}
+
+function cleanupInspector() {
+  if (currentFrameDoc) {
+    currentFrameDoc.removeEventListener('mousemove', handleIframeMouseMove, true)
+    currentFrameDoc.removeEventListener('mouseleave', handleIframeMouseLeave, true)
+    currentFrameDoc.removeEventListener('click', handleIframeClick, true)
+    const styleEl = currentFrameDoc.getElementById('wf-inspector-style')
+    if (styleEl) styleEl.remove()
+    currentFrameDoc = null
+  }
+  if (currentFrameWin) {
+    currentFrameWin.removeEventListener('scroll', updatePositions)
+    currentFrameWin = null
+  }
+  hoveredBox.value = null
+}
+
+function handleIframeMouseMove(e: MouseEvent) {
+  if (!aiDrawerOpen.value) return
+  const target = e.target as HTMLElement | null
+  if (!target || target === currentFrameDoc?.body || target === currentFrameDoc?.documentElement) {
+    hoveredBox.value = null
+    return
+  }
+  if (selectedElement.value?.domNode === target) {
+    hoveredBox.value = null
+    return
+  }
+  const box = getTargetBoundingBox(target)
+  if (box) {
+    hoveredBox.value = {
+      ...box,
+      tag: target.tagName.toLowerCase(),
+      label: extractLabel(target),
+    }
+  }
+}
+
+function handleIframeMouseLeave() {
+  hoveredBox.value = null
+}
+
+function handleIframeClick(e: MouseEvent) {
+  if (!aiDrawerOpen.value) return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const target = e.target as HTMLElement | null
+  if (!target || target === currentFrameDoc?.body || target === currentFrameDoc?.documentElement) return
+
+  let selectId = target.getAttribute('data-wf-select-id') || target.getAttribute('data-wf-element-id') || target.id
+  if (!selectId) {
+    selectId = 'wf-elem-' + Math.random().toString(36).substring(2, 9)
+    target.setAttribute('data-wf-select-id', selectId)
+  }
+
+  const tag = target.tagName.toLowerCase()
+  const label = extractLabel(target)
+  const html = target.outerHTML
+  const box = getTargetBoundingBox(target)
+
+  if (box) {
+    selectedElement.value = {
+      id: selectId,
+      tag,
+      label,
+      html,
+      rect: box,
+      domNode: target,
+    }
+    hoveredBox.value = null
+    showToast(`已选定 <${tag}> ${label}`)
+  }
+}
+
+function clearSelectedElement() {
+  selectedElement.value = null
+  hoveredBox.value = null
+}
+
+function getCleanPageHtml(doc: Document): string {
+  // 导出/保存草稿前必须剥离临时注入的跨屏检查样式，严防样式污染持久化
+  const styleEl = doc.getElementById('wf-inspector-style')
+  if (styleEl) {
+    styleEl.remove()
+  }
+  let html = doc.documentElement.outerHTML
+  html = html.replace(/<style\s+id=["']wf-inspector-style["'].*?<\/style>/gis, '')
+
+  // 若当前抽屉仍在打开状态，重新挂回临时样式以保持单元素微调的十字准星指针
+  if (aiDrawerOpen.value && doc.head) {
+    const reStyle = doc.createElement('style')
+    reStyle.id = 'wf-inspector-style'
+    reStyle.textContent = `* { cursor: crosshair !important; }`
+    doc.head.appendChild(reStyle)
+  }
+  return html
+}
+
+function handlePatchElementSuccess(payload: {
+  action: 'REPLACE' | 'DELETE'
+  elementId: string
+  summary: string
+  originalSnippet: string
+  modifiedSnippet: string
+  onApplied?: (newCleanHtml: string) => void
+}) {
+  const frame = pageCanvasRef.value?.htmlFrameRef as HTMLIFrameElement | null
+  if (!frame || !frame.contentDocument) return
+  const doc = frame.contentDocument
+
+  let targetEl: HTMLElement | null = null
+  if (selectedElement.value?.domNode && doc.contains(selectedElement.value.domNode)) {
+    targetEl = selectedElement.value.domNode
+  }
+  if (!targetEl && payload.elementId) {
+    targetEl = doc.querySelector(`[data-wf-select-id="${payload.elementId}"]`) as HTMLElement | null
+  }
+  if (!targetEl && payload.elementId) {
+    targetEl = doc.querySelector(`[data-wf-element-id="${payload.elementId}"]`) as HTMLElement | null
+  }
+  if (!targetEl && payload.elementId) {
+    targetEl = doc.getElementById(payload.elementId)
+  }
+
+  if (targetEl) {
+    if (payload.action === 'DELETE') {
+      targetEl.remove()
+      selectedElement.value = null
+      hoveredBox.value = null
+    } else if (payload.action === 'REPLACE') {
+      const template = doc.createElement('template')
+      template.innerHTML = payload.modifiedSnippet.trim()
+      const newNode = template.content.firstElementChild as HTMLElement | null
+      if (newNode) {
+        newNode.setAttribute('data-wf-select-id', payload.elementId)
+        targetEl.replaceWith(newNode)
+        const box = getTargetBoundingBox(newNode)
+        if (box) {
+          selectedElement.value = {
+            id: payload.elementId,
+            tag: newNode.tagName.toLowerCase(),
+            label: extractLabel(newNode),
+            html: newNode.outerHTML,
+            rect: box,
+            domNode: newNode,
+          }
+        }
+      }
+    }
+
+    if (currentPage.value) {
+      const cleanHtml = getCleanPageHtml(doc)
+      draftHtmlMap.value[currentPage.value.id] = cleanHtml
+      payload.onApplied?.(cleanHtml)
+    }
+    showToast(`元素微调已生效 (${payload.summary})`)
+  }
+}
+
+watch(aiDrawerOpen, (open) => {
+  if (open) {
+    nextTick(() => {
+      attachInspectorToIframe()
+    })
+  } else {
+    cleanupInspector()
+    selectedElement.value = null
+  }
+})
+
+watch([currentPageId, draftVersion], () => {
+  selectedElement.value = null
+  hoveredBox.value = null
+  if (aiDrawerOpen.value) {
+    nextTick(() => {
+      setTimeout(() => {
+        attachInspectorToIframe()
+      }, 150)
+    })
+  }
 })
 
 // 分段切换下拉框状态与数据源
@@ -948,6 +1389,16 @@ function copyShareLink() {
 }
 
 function exitPreview() {
+  cleanupInspector()
+  const frame = pageCanvasRef.value?.htmlFrameRef as HTMLIFrameElement | null
+  if (frame?.contentDocument) {
+    const s = frame.contentDocument.getElementById('wf-inspector-style')
+    if (s) s.remove()
+  }
+  if (hasUnsavedDraft.value) {
+    const ok = window.confirm('当前画板有尚未保存的 AI 调整草稿，退出后将丢弃未保存的修改。是否确认退出？')
+    if (!ok) return
+  }
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {})
   }
@@ -991,9 +1442,16 @@ function handleElementClick(el: Element) {
 
 // 快捷键支持
 function onGlobalKeyDown(e: KeyboardEvent) {
+  const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+  const isInputFocused = targetTag === 'input' || targetTag === 'textarea'
+
   if (e.key === 'Escape') {
     if (pageDropdownOpen.value) {
       pageDropdownOpen.value = false
+      return
+    }
+    if (aiDrawerOpen.value) {
+      aiDrawerOpen.value = false
       return
     }
     if (activeModal.value) {
@@ -1001,13 +1459,13 @@ function onGlobalKeyDown(e: KeyboardEvent) {
       return
     }
     exitPreview()
-  } else if (e.key === 'd' || e.key === 'D') {
+  } else if (!isInputFocused && (e.key === 'd' || e.key === 'D')) {
     showDeviceFrame.value = !showDeviceFrame.value
     showToast(showDeviceFrame.value ? '已开启手机外壳' : '已切换无框纯屏模式')
     nextTick(updatePhoneScale)
-  } else if (e.key === 'r' || e.key === 'R') {
+  } else if (!isInputFocused && (e.key === 'r' || e.key === 'R')) {
     resetPrototype()
-  } else if (e.key === 'Backspace') {
+  } else if (!isInputFocused && e.key === 'Backspace') {
     handleBack()
   }
 }
@@ -1050,6 +1508,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  cleanupInspector()
   if (toastTimer) clearTimeout(toastTimer)
   window.removeEventListener('resize', updatePhoneScale)
   window.removeEventListener('keydown', onGlobalKeyDown)
