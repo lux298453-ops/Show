@@ -1,0 +1,58 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Blank workbench editing regression</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h } from 'vue'
+import { createRouter, createMemoryHistory, RouterView } from 'vue-router'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import '../src/styles/main.scss'
+import http from '../src/api/http'
+import PrototypeView from '../src/views/PrototypeView.vue'
+
+// Run the real workbench with a local adapter: creation, edit locks, audit logs
+// and HTML saves are confined to this tab. No backend mutations or AI calls.
+const source = await http.get('/projects/182/prototype')
+const params = new URLSearchParams(location.search)
+const sourcePage = source.pages.find(p => p.id === Number(params.get('sourcePage'))) || source.pages[0]
+const fixtureId = 900001
+const fixture = { ...structuredClone(source), project: { ...source.project, id: fixtureId, name: '空白画板隔离验证' },
+  pages: params.has('all') ? structuredClone(source.pages) : params.has('existing')
+    ? [{ ...structuredClone(sourcePage), id: 900101, project_id: fixtureId, canvas_x: 56, canvas_y: 64 }] : [] }
+const requests = [], saves = []
+let sequence = 900101
+function respond(method, url, body) {
+  requests.push({ method, url })
+  if (url.includes('/auth/me')) return { authenticated: true, userId: 'fixture-user', userName: '隔离测试', projectRole: 'editor', systemAdmin: false }
+  if (url.endsWith('/prototype')) return structuredClone(fixture)
+  if (method === 'post' && url.endsWith('/pages')) {
+    const page = { id: ++sequence, project_id: fixtureId, name: body.name, canvas_width: body.width, canvas_height: body.height,
+      canvas_x: body.x, canvas_y: body.y, html_content: body.htmlContent, background_image: null, analyzed: 1, elements: [], annotations: [], sort_order: 100 + fixture.pages.length }
+    fixture.pages.push(page); return structuredClone(page)
+  }
+  const match = url.match(/\/pages\/(\d+)\/html$/)
+  if (match && method === 'put') {
+    const page = fixture.pages.find(p => p.id === Number(match[1])); if (page) page.html_content = body.html
+    saves.push({ pageId: Number(match[1]), html: body.html }); return null
+  }
+  if (/editing-statuses|editing-status/.test(url)) return {}
+  if (/editing|lock/.test(url)) return { conflict: false, editing: true }
+  if (/\/projects\/900001$/.test(url)) return fixture.project
+  return []
+}
+http.defaults.adapter = async config => ({ data: { code: 0, data: respond(config.method, config.url,
+  typeof config.data === 'string' ? JSON.parse(config.data) : config.data || {}) }, status: 200, statusText: 'OK', headers: {}, config })
+const originalFetch = window.fetch.bind(window)
+window.fetch = async (input, options = {}) => {
+  const url = new URL(typeof input === 'string' ? input : input.url, location.href)
+  const method = (options.method || input.method || 'GET').toLowerCase()
+  // Keep existing artwork readable without treating it as fixture API data.
+  if (method === 'get' && /^\/api\/(assets|files)(\/|$)/.test(url.pathname)) return originalFetch(input, options)
+  if (url.pathname.startsWith('/api/')) return new Response(JSON.stringify({ code: 0, data: respond(method, url.pathname,
+    typeof options.body === 'string' ? JSON.parse(options.body) : {}) }), { headers: { 'content-type': 'application/json' } })
+  if (method !== 'get') throw new Error('Fixture blocks network mutations')
+  return originalFetch(input, options)
+}
+window.blankWorkbenchTest = { fixture, requests, saves }
+const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/projects/:id/prototype', component: PrototypeView }] })
+await router.push(`/projects/${fixtureId}/prototype${fixture.pages.length ? `?page=${fixture.pages.at(-1).id}` : ''}`)
+createApp({ render: () => h(RouterView) }).use(router).use(ElementPlus).mount('#app')
+</script></body></html>

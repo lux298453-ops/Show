@@ -66,6 +66,25 @@ public class AppMapService {
         if (allElements.isEmpty()) return null;
         List<Interaction> allLines = interactionMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
                 .in(Interaction::getElementId,allElements.stream().map(Element::getId).toList()));
+        List<GeneratedPrototypeRelations.MainItem> prototypeNav = GeneratedPrototypeRelations.mainItems(pages, allLines);
+        if (prototypeNav.size() >= 2 && prototypeNav.stream().allMatch(item -> item.targetId() != null)
+                && prototypeNav.stream().map(GeneratedPrototypeRelations.MainItem::targetId).distinct().count() == prototypeNav.size()) {
+            ObjectNode root = objectMapper.createObjectNode();
+            ObjectNode tabBar = root.putObject("tab_bar");
+            ArrayNode pageIds = tabBar.putArray("pages");
+            ArrayNode items = tabBar.putArray("items");
+            for (var item : prototypeNav) {
+                pageIds.add(item.targetId());
+                items.addObject().put("target", item.targetId()).put("label", item.label());
+            }
+            Page base = pages.stream().filter(p -> p.getId().equals(prototypeNav.get(0).targetId())).findFirst().orElseThrow();
+            int height = base.getCanvasHeight() == null ? 812 : base.getCanvasHeight();
+            tabBar.putObject("bar").put("x", 0).put("y", Math.max(0, height - 76))
+                    .put("w", base.getCanvasWidth() == null ? 375 : base.getCanvasWidth()).put("h", 76);
+            Project project = projectMapper.selectById(projectId);
+            if (project != null) { project.setAppMap(root.toString()); projectMapper.updateById(project); }
+            return root;
+        }
         Map<Long, List<Cand>> candsByPage = new LinkedHashMap<>();
         for (Page p : pages) {
             candsByPage.put(p.getId(), collectBottomItems(p, pages, allElements, allLines));

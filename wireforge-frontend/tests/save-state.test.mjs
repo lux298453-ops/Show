@@ -15,7 +15,15 @@ const result = await build({
 })
 await writeFile(output, result.outputFiles[0].contents)
 const { http, useSaveState, beginSave, finishSave, discardSaveState, markLocalEdit, waitForSaved } = createRequire(import.meta.url)(output)
-after(async () => { await unlink(output); await rmdir(directory) })
+const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+// HTTP requests read the browser's login token before reaching the mock adapter.
+Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } })
+after(async () => {
+  if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+  else delete globalThis.localStorage
+  await unlink(output)
+  await rmdir(directory)
+})
 
 function config(scope, route, data, method = 'put') {
   return { url: `/projects/${scope}/${route}`, method, data, headers: {} }

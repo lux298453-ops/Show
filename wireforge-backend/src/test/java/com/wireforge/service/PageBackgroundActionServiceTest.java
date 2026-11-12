@@ -76,7 +76,7 @@ class PageBackgroundActionServiceTest {
         Element managed=setting(9);Element recognized=new Element();recognized.setId(2L);recognized.setType("text");recognized.setLabel("魔女");
         when(elements.selectList(any())).thenReturn(List.of(managed,recognized));
         AnnotationMapper notes=mock(AnnotationMapper.class);when(notes.selectList(any())).thenReturn(List.of());
-        AnalyzeService analyzer=new AnalyzeService(null,null,pages,elements,actions,notes,new ObjectMapper(),null,null,null,null,null,null);
+        AnalyzeService analyzer=new AnalyzeService(null,null,pages,elements,actions,notes,new ObjectMapper(),null,null,null,null,null,null,null);
         ReflectionTestUtils.invokeMethod(analyzer,"clearPageData",1L);
         ArgumentCaptor<Collection> deleted=ArgumentCaptor.forClass(Collection.class);verify(elements).deleteBatchIds(deleted.capture());
         assertEquals(List.of(2L),deleted.getValue());
@@ -87,7 +87,7 @@ class PageBackgroundActionServiceTest {
 
     @Test void settingsOnlyPageSurvivesReanalysisWithoutDeletingAnyActions(){
         when(elements.selectList(any())).thenReturn(List.of(setting(9)));
-        AnalyzeService analyzer=new AnalyzeService(null,null,pages,elements,actions,null,new ObjectMapper(),null,null,null,null,null,null);
+        AnalyzeService analyzer=new AnalyzeService(null,null,pages,elements,actions,null,new ObjectMapper(),null,null,null,null,null,null,null);
         ReflectionTestUtils.invokeMethod(analyzer,"clearPageData",1L);verifyNoInteractions(actions);verify(elements,never()).deleteBatchIds(any());
     }
 

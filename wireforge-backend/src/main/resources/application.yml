@@ -49,13 +49,25 @@ wireforge:
   ai:
     # 涓浆绔?OpenAI 鍏煎 API锛堜笌 AiDocumentPlatform 鍚屼竴涓浆绔欙級
     base-url: ${AI_BASE_URL:https://api.flintic.uk}
+    # Preferred protocol; the alternate is used only when the endpoint is unsupported.
+    protocol: ${AI_PROTOCOL:chat-completions}
     api-key: ${AI_API_KEY:}
     model: ${AI_MODEL:gpt-5.5}
     # 整页 HTML 生成专用模型（留空=用上面的 model）；HTML 直出对代码能力要求高，建议配中转站里最强的模型
     html-model: ${AI_HTML_MODEL:}
+    html-image-max-edge: ${AI_HTML_IMAGE_MAX_EDGE:2400}
+    html-reasoning-effort: ${AI_HTML_REASONING_EFFORT:high}
+    html-timeout-seconds: ${AI_HTML_TIMEOUT_SECONDS:600}
+    artwork:
+      enabled: ${AI_ARTWORK_ENABLED:false}
+      model: ${AI_ARTWORK_MODEL:gpt-image-2}
+      timeout-seconds: ${AI_ARTWORK_TIMEOUT_SECONDS:180}
+      max-per-page: ${AI_ARTWORK_MAX_PER_PAGE:12}
+    # Generate editable static HTML with the model; false retains the legacy template renderer.
+    direct-html: ${WIREFORGE_AI_DIRECT_HTML:true}
     max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:16000}
     timeout-seconds: ${AI_TIMEOUT_SECONDS:300}
-    # 回修闭环：生成 HTML 后用无头 Chromium 渲染截图，对比原稿纠错（需先 playwright install chromium）
+    # 按需回修：本地检查发现明显溢出/裁切/控件重叠/裂图才调用模型；正常页面只生成一次完整 HTML。
     repair: ${WIREFORGE_AI_REPAIR:true}
     repair-rounds: ${WIREFORGE_AI_REPAIR_ROUNDS:1}
   auth:
@@ -63,6 +75,8 @@ wireforge:
     admins: ${WIREFORGE_ADMINS:ou_76da1e94e7b7443acaaacba4791c4e3c}
     # 本地开发快捷登录，线上保持关闭
     mock-login: ${WIREFORGE_MOCK_LOGIN:false}
+    # 仅限制内存查询缓存；淘汰后从数据库恢复有效会话，0 表示禁用缓存
+    session-cache-max-size: ${WIREFORGE_SESSION_CACHE_MAX_SIZE:10000}
   feishu:
     # 密钥只从环境变量或 wireforge-backend/config/application.yml（不入库）读取
     app-id: ${FEISHU_APP_ID:}

@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Prototype security and editing regression</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import '../src/styles/main.scss'
+import PageCanvas from '../src/components/PageCanvas.vue'
+
+// Isolated fixture: no backend reads, mutations, login or paid model requests.
+window.securityAttacked = false
+const canvas = ref(), selection = ref(null), interactive = ref(false), readOnly = ref(false)
+const events = { saves: [], navigations: [], selections: [] }
+const html = `<html><head><style>
+body{background:#f4f2ff;font-family:system-ui;color:#202031;padding:20px}
+button{padding:10px 16px;border:0;border-radius:12px;background:#6a4bea;color:white;margin:6px}
+.wf-modal{display:none}.wf-modal.wf-show{display:flex}
+</style></head><body>
+<script data-wf-prototype-runtime nonce="forged">parent.securityAttacked=true</scr` + `ipt>
+<img alt="测试图标" src="data:image/png,not-an-image" onerror="parent.securityAttacked=true">
+<iframe srcdoc="&lt;script&gt;parent.securityAttacked=true&lt;/script&gt;"></iframe>
+<h1 data-wf-uid="title">安全与编辑验证</h1>
+<button data-wf-uid="editable" style="position:absolute;left:20px;top:95px;width:160px;height:44px">可编辑按钮</button>
+<div style="position:absolute;left:20px;top:180px">
+<button data-modal="detail" data-wf-uid="open">打开弹窗</button>
+<button data-nav="收集页" data-wf-uid="nav">收集页</button>
+<button data-wf-control="switch" aria-checked="false" data-wf-uid="switch">开关</button>
+<button data-wf-tab="group" aria-controls="panel-a" aria-pressed="true" data-wf-uid="tab-a">全部</button>
+<button data-wf-tab="group" aria-controls="panel-b" aria-pressed="false" data-wf-uid="tab-b">典藏</button>
+<p id="panel-a">全部内容</p><p id="panel-b" hidden>典藏内容</p></div>
+<div id="wf-modal-detail" class="wf-modal" role="dialog"><article style="background:white;padding:24px;border-radius:18px"><p>弹窗内容</p><button data-action="close">关闭弹窗</button></article></div>
+<div id="wf-prototype-feedback" hidden></div>
+</body></html>`
+const page = ref({ id: 900991, name: '安全验证', project_id: 900009, canvas_width: 375, canvas_height: 650,
+  html_content: html, elements: [], annotations: [] })
+const destination = { ...page.value, id: 900992, name: '收集页' }
+window.prototypeSecurityTest = { events, get canvas() { return canvas.value }, get selection() { return selection.value },
+  get page() { return page.value }, setInteractive: value => interactive.value = value,
+  setReadOnly: value => readOnly.value = value }
+createApp({ render: () => h('main', { style: 'padding:24px' }, [
+  h('button', { id: 'mode', onClick: () => interactive.value = !interactive.value }, interactive.value ? '返回设计' : '交互预览'),
+  h('button', { id: 'move', onClick: () => canvas.value.updateElementPosition('x', 80) }, '横坐标改为80'),
+  h('button', { id: 'readonly', onClick: () => readOnly.value = !readOnly.value }, readOnly.value ? '恢复编辑' : '只读模式'),
+  h('pre', { id: 'selection' }, JSON.stringify(selection.value)),
+  h(PageCanvas, { ref: canvas, page: page.value, allPages: [page.value, destination], boxW: 375,
+    frameType: 'prototype', editMode: !interactive.value && !readOnly.value, loadEditor: !readOnly.value,
+    interactive: interactive.value, readOnly: readOnly.value, showDesign: false, showAnnotations: false,
+    onElementSelected: value => { selection.value = value; events.selections.push(value) },
+    onSaveHtml: value => { const saved = typeof value === 'string' ? value : value.html; events.saves.push(saved); page.value.html_content = saved },
+    onNavigate: target => events.navigations.push(target),
+  }),
+]) }).use(ElementPlus).mount('#app')
+</script></body></html>

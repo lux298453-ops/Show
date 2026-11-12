@@ -65,15 +65,19 @@ class TemplateHtmlRendererUnifiedComponentsTest {
         assertTrue(match.find(),"Missing "+property+" in "+tag);return Double.parseDouble(match.group(1));
     }
 
-    @Test
-    void ownedAndRedeemableCardsHaveOneHeightAndCannotOverlapExternalButtons() throws Exception {
+    @ParameterizedTest @ValueSource(strings={"卡片","奖品卡片","商品卡片"})
+    void ownedAndRedeemableCardsHaveOneHeightAndCannotOverlapExternalButtons(String hostLabel) throws Exception {
         List<Element> items=new ArrayList<>();
         for(int row=0;row<2;row++)for(int col=0;col<3;col++){
             long id=10+row*40+col*10;double x=20+col*100,y=190+row*180;
-            items.add(e(id,"container","卡片",x,y,86,132));items.add(e(id+1,"image","",x+6,y+8,74,98));
+            items.add(e(id,"container",hostLabel,x,y,86,132));items.add(e(id+1,"image","",x+6,y+8,74,98));
             items.add(e(id+2,"text",col==0?"钻石*12800":"伊莱克斯",x+4,y+110,78,16));
             if(col==2)items.add(e(id+3,"badge","已拥有",x+12,y+40,40,18));
             else items.add(e(id+4,"button","x1兑换",x+8,y+136,70,26));
+        }
+        for(int row=0;row<2;row++){
+            items.add(e(40+row*40,"container",hostLabel,320,190+row*180,20,132));
+            items.add(e(41+row*40,"image","",326,198+row*180,14,98));
         }
         String html=render(items,14,24,54,64);Double height=null;
         for(long id:List.of(10L,20L,30L,50L,60L,70L)){
@@ -82,6 +86,11 @@ class TemplateHtmlRendererUnifiedComponentsTest {
             if(id%40!=30)assertTrue(dimension(card,"top")+h<=dimension(elementTag(html,id+4),"top")-5);
         }
         assertTrue(elementTag(html,12).contains("white-space:nowrap"));
+        assertEquals(8,count(html,"wf-collectible-card"));assertEquals(0,count(html,"wf-product-card"));
+        for(long id:List.of(40L,80L)){
+            assertEquals(height,dimension(elementTag(html,id),"height"));
+            assertEquals(dimension(elementTag(html,11),"width"),dimension(elementTag(html,id+1),"width"));
+        }
     }
 
     @Test

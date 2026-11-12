@@ -45,7 +45,9 @@ public class InteractionAutowireService {
     record Cached(AutowirePlan plan, String fingerprint) {}
 
     public AutowirePlan preview(Long projectId) { return preview(projectId, true, null); }
-    public AutowirePlan preview(Long projectId, PreviewRequest request) { return preview(projectId, true, request); }
+    public AutowirePlan preview(Long projectId, PreviewRequest request) {
+        return preview(projectId, request == null || !request.rulesOnly(), request);
+    }
 
     private AutowirePlan preview(Long projectId, boolean useAi, PreviewRequest request) {
         Snapshot snapshot = snapshot(projectId, false);
@@ -518,12 +520,65 @@ public class InteractionAutowireService {
         String state = jobs.get(0).get("status").toString();
         return new ApplyResult(saved.applicationId(), saved.added(), saved.completed(), saved.removed(), saved.excluded(), "running".equals(state) ? "pending" : state, (String) jobs.get(0).get("error"));
     }
-    /** Legacy/background paths use the same strict planner; never delete or silently apply AI suggestions. */
+    /** Synchronize explicit generated controls before rebinding; preserve manual, local and excluded actions. */
+    public int syncGeneratedPrototypeInteractions(Long projectId) {
+        List<Page> candidates = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId)
+                .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
+        if (candidates.stream().noneMatch(GeneratedPrototypeRelations::hasPrototypeHtml)) return 0;
+        Integer changed = new TransactionTemplate(transactionManager).execute(status -> {
+            Snapshot snapshot = snapshot(projectId, true);
+            List<Interaction> current = new ArrayList<>(snapshot.lines());
+            List<NavigationPlanner.Entry> navigation = NavigationPlanner.detect(snapshot.pages(), snapshot.elements());
+            int count = 0;
+            for (GeneratedPrototypeRelations.Link link : GeneratedPrototypeRelations.links(snapshot.pages(), snapshot.elements(), snapshot.lines())) {
+                Element owner = findElement(snapshot, link.elementId());
+                List<Element> siblings = pageElements(snapshot, link.pageId());
+                var nav = navigation.stream().filter(entry -> entry.ids().contains(owner.getId())).findFirst().orElse(null);
+                Set<Long> members = new HashSet<>(link.memberIds());
+                if (nav != null) members.addAll(nav.ids());
+                if (snapshot.annotations().stream().anyMatch(a -> members.contains(a.getElementId())
+                        && AutowirePlanner.safe(a.getText()).matches("(?s).*(不(?:需要|可|能|支持)?(?:点击|跳转|连线)|仅(?:展示|显示)|无需(?:交互|跳转)).*"))) continue;
+                Page target = snapshot.pages().stream().filter(p -> p.getId() == link.targetId()).findFirst().orElseThrow();
+                String action = AutowirePlanner.safe(target.getName()).matches(".*(弹窗|浮层|对话框).*" ) ? "popup" : "navigate";
+                String relation = AutowirePlanner.relationKey("click", action, target.getId());
+                if (siblings.stream().filter(e -> members.contains(e.getId())).anyMatch(e ->
+                        AutowirePlanner.excluded(e, siblings, "*", snapshot.exclusions())
+                                || AutowirePlanner.excluded(e, siblings, relation, snapshot.exclusions()))) continue;
+                List<Interaction> old = current.stream().filter(line -> members.contains(line.getElementId())).toList();
+                // A missing target may be completed. Existing targets and all local/manual actions win.
+                if (!old.isEmpty() && (old.size() != 1 || !AutowirePlanner.automatic(old.get(0))
+                        || !AutowirePlanner.crossPage(old.get(0)) || old.get(0).getTargetPageId() != null)) continue;
+                Interaction line = old.isEmpty() ? new Interaction() : old.get(0);
+                ObjectNode params = objectMapper.createObjectNode();
+                if (line.getParams() != null && !line.getParams().isBlank()) {
+                    try { if (objectMapper.readTree(line.getParams()) instanceof ObjectNode existing) params.setAll(existing); }
+                    catch (Exception ignored) { }
+                }
+                params.put("dom_uid", link.domUid());
+                params.put("target_name", target.getName());
+                params.put("generated_html", true);
+                if (nav != null && "navigate".equals(action)) params.set("navigation", objectMapper.valueToTree(
+                        NavigationPlanner.proposal(nav, null, target, "prototype_link", "原型导航的明确目标", true, snapshot.pages()).navigation()));
+                line.setElementId(owner.getId()); line.setTriggerType("click"); line.setActionType(action);
+                line.setTargetPageId(target.getId()); line.setParams(write(params));
+                if (old.isEmpty()) {
+                    line.setSource("autowire"); interactionMapper.insert(line); current.add(line);
+                } else interactionMapper.updateById(line);
+                count++;
+            }
+            return count;
+        });
+        return changed == null ? 0 : changed;
+    }
+
+    /** Background generation applies only explicit or deterministic additions; AI suggestions still need review. */
     public int autowireProjectInteractions(Long projectId) {
+        int synchronizedCount = syncGeneratedPrototypeInteractions(projectId);
         AutowirePlan plan = preview(projectId, false, null);
         List<String> safe = plan.items().stream().filter(i -> i.navigation() == null && i.selectedByDefault() && Set.of("add", "complete").contains(i.category())).map(Item::id).toList();
-        if (safe.isEmpty()) return 0;
-        ApplyResult result = apply(projectId, new ApplyRequest(plan.previewId(), UUID.randomUUID().toString(), safe, List.of(), List.of())); return result.added() + result.completed();
+        if (safe.isEmpty()) return synchronizedCount;
+        ApplyResult result = apply(projectId, new ApplyRequest(plan.previewId(), UUID.randomUUID().toString(), safe, List.of(), List.of()));
+        return synchronizedCount + result.added() + result.completed();
     }
     public int autowireUnresolvedWithAi(Long projectId) { return 0; } // AI proposals require review.
     public void deleteProjectRecords(Long projectId) {

@@ -400,7 +400,7 @@
           '!cursor-crosshair': activeDrawTool !== 'select' && activeDrawTool !== 'hand' && activeDrawTool !== 'text' && !isAnyDragging,
           '!cursor-default': activeDrawTool === 'select' && !isSpacePressed,
         }"
-        @wheel.prevent="onWheel"
+        @wheel="onViewportWheel"
         @mousedown="onMouseDown"
         @mousedown.capture="onCanvasPanCapture"
         @mouseenter="canvasHovered = true"
@@ -461,7 +461,7 @@
               矢量编辑模式：拖动锚点与手柄调整曲率，点击 Bend 弯曲线段，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Enter</kbd> 保存修改
             </span>
             <span v-else-if="activeDrawTool === 'pencil'">
-              铅笔手绘模式：松手即保存这一笔，可连续画。按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 退出
+              铅笔手绘模式：松手即保存这一笔，可连续画。点击「完成」或按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Esc</kbd> 退出
             </span>
             <span v-else-if="activeDrawTool === 'pen'">
               钢笔绘制模式：点击落点，按住拖拽出对称控制手柄，靠近起点闭合，按 <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[11px]">Enter</kbd> 完成
@@ -490,20 +490,21 @@
 
         <!-- Full-viewport transparent overlay during drag/zoom to shield iframes and eliminate hit-testing cost -->
         <div
-          v-if="isAnyDragging || isDraggingConnection || selectionMarquee || isWheelZooming"
           class="fixed inset-0 z-[9999] select-none"
           :class="[
-            isDraggingConnection
-              ? 'cursor-crosshair'
-              : ((activeDrawTool === 'hand' || isSpacePressed) ? 'cursor-grabbing' : 'cursor-default')
+            (isAnyDragging || isDraggingConnection || selectionMarquee || isWheelZooming)
+              ? (isDraggingConnection
+                  ? 'cursor-crosshair pointer-events-auto'
+                  : ((activeDrawTool === 'hand' || isSpacePressed) ? 'cursor-grabbing pointer-events-auto' : 'cursor-default pointer-events-auto'))
+              : 'pointer-events-none'
           ]"
-          style="pointer-events: auto;"
+          style="user-select: none;"
         />
 
         <div
+          ref="canvasContentRef"
           class="canvas-content absolute top-0 left-0"
-          :class="{ 'is-animating': !isAnyDragging && animating, 'is-dragging': isAnyDragging, 'is-moving': isLayerBoosted }"
-          :style="contentStyle"
+          :class="{ 'is-animating': !isAnyDragging && !isWheelZooming && animating, 'is-dragging': isAnyDragging, 'is-moving': isLayerBoosted }"
         >
 
 
@@ -531,7 +532,7 @@
 
               <!-- Block Header Capsule Floating Label -->
               <div
-                class="block-label absolute -top-9 left-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 dark:bg-[#2c2c2c]/95 backdrop-blur-md border border-slate-200/85 dark:border-[#383838] rounded-xl shadow-xs text-xs font-bold text-slate-800 dark:text-slate-100 hover:border-emerald-300 dark:hover:border-[#0D99FF] hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:shadow-md transition-all cursor-default whitespace-nowrap select-none"
+                class="block-label absolute -top-9 left-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 dark:bg-[#2c2c2c]/95 backdrop-blur-md border border-slate-200/85 dark:border-[#383838] rounded-xl shadow-xs text-xs font-bold text-slate-800 dark:text-slate-100 hover:border-emerald-300 dark:hover:border-[#0D99FF] hover:text-emerald-600 dark:hover:text-[#38bdf8] hover:shadow-md transition-[border-color,color,background-color] duration-150 cursor-default whitespace-nowrap select-none"
                 @mousedown.stop="onBlockDragStart($event, b)"
                 @contextmenu.prevent.stop="openLayerContextMenu($event.clientX, $event.clientY, undefined, undefined, b.page.id)"
               >
@@ -621,6 +622,7 @@
                 :show-design="true"
                 :edit-mode="workbenchMode !== 'interactive' && activeEditingPageId === b.page.id && !isViewer && !pageEditingConflicts[b.page.id]?.conflict"
                 :load-editor="pagesWithEditor.includes(b.page.id)"
+                :canvas-navigation="b.blockType === 'prototype'"
                 :read-only="isViewer"
                 :interactive="false"
                 :locked-by-other="workbenchMode !== 'interactive' && fineTune && mode === 'edit' && pageEditingConflicts[b.page.id]?.conflict ? (pageEditingConflicts[b.page.id]?.editor || '协同成员') : null"
@@ -661,6 +663,11 @@
                 @pan-start="onFramePanStart"
                 @pan-move="onWindowMouseMove"
                 @pan-end="onWindowMouseUp"
+                @canvas-wheel="onWheel"
+                @canvas-shortcut="onCanvasShortcut"
+                @canvas-settle="finishWheelZoom"
+                :canvas-space-pressed="isSpacePressed"
+                :canvas-point="point => canvasFramePoint(b, point)"
                 @edit-vector="onEditVector(b.page.id, $event)"
                 @hotspot="onPrototypeHotspot(b, $event)"
                 @hotspot-clear="onPrototypeHotspotClear(b.key)"
@@ -1072,11 +1079,21 @@
             </div>
           </div>
 
-          <!-- ===== Figma Prototype 模式：细致贝塞尔连线与节点圆圈 (位于画板之上浮层，确保连线不被画板遮盖) ===== -->
+          <div v-if="!pages.length" class="flex flex-col items-center justify-center p-20 text-slate-400">
+            <Layers class="w-12 h-12 text-slate-300 mb-3" />
+            <p class="text-sm font-medium text-slate-600">还没有画板</p>
+            <p class="text-xs text-slate-400 mt-1 mb-4">可以直接新建空白画板开始画，不必先扫描设计稿。</p>
+            <button type="button" class="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg cursor-pointer" @click="createFirstBlankFrame">新建空白画板</button>
+          </div>
+        </div>
+
+        <!-- Viewport-sized overlay; only its world groups share the camera transform. -->
+        <div class="canvas-connections absolute inset-0 overflow-hidden pointer-events-none z-[45]">
           <template v-if="!isBlockDragging && (visibleConnections.length > 0 || activeDragLine)">
             <svg
               class="interaction-svg-layer pointer-events-none"
-              style="position: absolute; left: 0; top: 0; width: 60000px; height: 60000px; overflow: visible; z-index: 45;"
+              width="100%" height="100%"
+              style="position: absolute; inset: 0; overflow: hidden;"
             >
               <defs>
                 <!-- 激活态高亮箭头 (Figma 天蓝开放式轻灵小箭头) -->
@@ -1117,7 +1134,8 @@
                 </marker>
               </defs>
 
-              <g v-for="conn in visibleConnections" :key="conn.id" class="figma-conn-item">
+              <g ref="connectionWorldRef" class="connection-world">
+              <g v-for="conn in renderedConnections" :key="conn.id" class="figma-conn-item">
                 <!-- 外发光辅线 -->
                 <path
                   :d="conn.path"
@@ -1190,16 +1208,18 @@
                   fill="#0D99FF"
                 />
               </g>
+              </g>
             </svg>
           </template>
 
           <!-- ===== 交互连线中点悬浮操作胶囊与快速删除按钮 (Direct on-canvas interaction pill & delete) ===== -->
           <div
             v-if="!isBlockDragging && workbenchMode === 'interactive' && visibleConnections.length > 0"
-            class="pointer-events-none absolute left-0 top-0 w-0 h-0 overflow-visible z-[48]"
+            ref="connectionBadgeWorldRef"
+            class="connection-world pointer-events-none absolute left-0 top-0 w-0 h-0 overflow-visible z-[48]"
           >
             <div
-              v-for="conn in visibleConnections"
+              v-for="conn in renderedConnections"
               :key="'badge-' + conn.id"
               class="figma-conn-badge group pointer-events-auto absolute flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium shadow-md transition-all select-none cursor-pointer"
               :class="selectedConnIds.has(conn.id)
@@ -1231,18 +1251,6 @@
             </div>
           </div>
 
-          <div v-if="!pages.length" class="flex flex-col items-center justify-center p-20 text-slate-400">
-            <Layers class="w-12 h-12 text-slate-300 mb-3" />
-            <p class="text-sm font-medium text-slate-600">还没有画板</p>
-            <p class="text-xs text-slate-400 mt-1 mb-4">可以直接新建空白画板开始画，不必先扫描设计稿。</p>
-            <button
-              type="button"
-              class="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg cursor-pointer"
-              @click="createFirstBlankFrame"
-            >
-              新建空白画板
-            </button>
-          </div>
         </div>
 
         <!-- ===== Figma 矢量编辑副工具栏 (VectorSubToolbar) ===== -->
@@ -1335,17 +1343,25 @@
             <button
               class="wf-tap p-1 hover:bg-slate-100 dark:hover:bg-[#333333] hover:text-slate-900 dark:hover:text-white rounded transition-colors cursor-pointer"
               :title="t('zoomOut')"
-              @click="zoomAtCenter(0.85)"
+              @click="zoomAtCenter(1 / 1.18)"
             >
               <Minus class="w-3 h-3" />
             </button>
-            <button
-              class="wf-tap px-2 py-0.5 text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-[#0D99FF] hover:bg-slate-100 dark:hover:bg-[#333333] rounded select-none transition-colors cursor-pointer"
-              :title="t('zoomReset')"
-              @click="resetZoom100"
-            >
-              {{ Math.round(view.k * 100) }}%
-            </button>
+            <el-dropdown trigger="click" @command="onCanvasZoomCommand">
+              <button
+                class="wf-tap px-2 py-0.5 text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#333333] rounded cursor-pointer"
+                :title="t('zoomMenu')" :aria-label="t('zoomMenu')"
+              >
+                <span ref="zoomLabelRef">{{ Math.round(view.k * 100) }}%</span>
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-for="percent in [25, 50, 75, 100, 150, 200, 300]" :key="percent" :command="String(percent)">{{ percent }}%</el-dropdown-item>
+                  <el-dropdown-item command="fit-selection" divided>{{ t('focusSelected') }}</el-dropdown-item>
+                  <el-dropdown-item command="fit-all">{{ t('fitAllCanvas') }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <button
               class="wf-tap p-1 hover:bg-slate-100 dark:hover:bg-[#333333] hover:text-slate-900 dark:hover:text-white rounded transition-colors cursor-pointer"
               :title="t('zoomIn')"
@@ -1360,7 +1376,7 @@
             <button
               class="wf-tap p-1.5 hover:bg-slate-200/70 dark:hover:bg-[#333333] hover:text-slate-700 dark:hover:text-white rounded-md transition-colors cursor-pointer"
               :title="t('focusSelected')"
-              @click="focusPage(focusPageId ?? (blocks[0]?.page.id ?? 0), true)"
+              @click="fitSelection"
             >
               <Crosshair class="w-3.5 h-3.5" />
             </button>
@@ -1372,6 +1388,18 @@
               <Maximize2 class="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+
+        <div class="px-3 py-2 border-b border-slate-100 dark:border-[#383838] text-[10px] text-slate-500 dark:text-slate-400 space-y-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span>{{ t('canvasNavigation') }}</span>
+            <select v-model="canvasNavigationMode" :aria-label="t('canvasNavigation')" class="min-w-0 rounded border border-slate-200 dark:border-[#484848] bg-transparent px-1 py-1 text-[11px] text-slate-700 dark:text-slate-200 cursor-pointer">
+              <option value="mouse">{{ t('canvasMouse') }}</option>
+              <option value="trackpad">{{ t('canvasTrackpad') }}</option>
+            </select>
+          </label>
+          <p>{{ t(canvasNavigationMode === 'mouse' ? 'canvasMouseHint' : 'canvasTrackpadHint') }}</p>
+          <p>{{ t('canvasPanHint') }}</p>
         </div>
 
         <!-- 2. Right Sidebar Header: Double Tab Switch -->
@@ -1652,21 +1680,13 @@
                   <!-- 内部 Page View 滚动容器 -->
                   <div ref="simScrollRef" class="w-[375px] overflow-x-hidden overflow-y-auto custom-scrollbar relative" :style="{ height: `${previewHeight}px` }">
                     <div class="relative min-w-[375px]">
-                      <PageCanvas
+                      <PreviewPageStack
                         v-if="previewPage"
                         :page="previewPage"
                         :all-pages="pages"
-                        :show-wireframe="true"
-                        :show-design="false"
-                        :show-annotations="false"
-                        :edit-mode="false"
-                        :interactive="true"
-                        :box-w="0"
-                        :gap="0"
                         @navigate="onProtoNavigate"
                         @back="onProtoBack"
                         @miss-click="onPreviewHotspotClick"
-                        @save-html="onSaveHtml"
                         @element-click="handlePreviewClick"
                       />
 
@@ -1711,21 +1731,13 @@
                 height: `${previewHeight}px`,
               }"
             >
-              <PageCanvas
+              <PreviewPageStack
                 v-if="previewPage"
                 :page="previewPage"
                 :all-pages="pages"
-                :show-wireframe="true"
-                :show-design="false"
-                :show-annotations="false"
-                :edit-mode="false"
-                :interactive="true"
-                :box-w="0"
-                :gap="0"
                 @navigate="onProtoNavigate"
                 @back="onProtoBack"
                 @miss-click="onPreviewHotspotClick"
-                @save-html="onSaveHtml"
                 @element-click="handlePreviewClick"
               />
 
@@ -2090,8 +2102,9 @@
     </el-dialog>
 
     <AutowireReviewDialog v-model="showAutowireReview" :plan="autowirePlan" :result="autowireResult"
+      :saved-preview-id="autowireSavedPreviewId"
       :busy="isAutowiringAi || isApplyingAutowire" :error="autowireError" :pages="pages" :loading-message="autowireLoadingMessage"
-      @apply="applyAutowireReview" @recompute="triggerAutowireAi" @retry="retryAutowirePreview" @refresh="refreshAutowireStatus" />
+      @apply="applyAutowireReview" @recompute="triggerAutowireAi" @retry="retryAutowirePreview" @refresh="refreshAutowireStatus" @continue="continueAutowireReview" />
 
     <AnnotationCreateDialog v-model="showAnnotationCreate" :project-id="id" :page="annotationCreatePage"
       :initial-element-id="annotationInitialElementId" :annotation="editingAnnotation"
@@ -2544,7 +2557,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -2597,6 +2610,10 @@ import { getFileUrl, withBackendFiles } from '../api/http'
 import { useProjectTitle } from '../utils/pageTitle'
 import type { Annotation, Element, Interaction, Page, Prototype, CommentThread, CommentReply } from '../types'
 import PageCanvas from '../components/PageCanvas.vue'
+import PreviewPageStack from '../components/PreviewPageStack.vue'
+import { isTabNavigation } from '../utils/previewTabs'
+import { mainNavigation } from '../utils/mainNavigation'
+import { previewEntryPage } from '../utils/previewEntry'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 import { createMyComponent, loadMyComponents } from '../services/customComponentService'
 import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBottomToolbar.vue'
@@ -2624,7 +2641,12 @@ import type { VectorPathData, VectorPoint } from '../utils/vectorEngine'
 import { scalePointsAndHandles } from '../utils/vectorEngine'
 import { findInteractionByDomUids, hitInteractionElement, findElementAt, interactionDomUid, resolveNavigateElement } from '../utils/interactionHit'
 import { backgroundReturnEnabled } from '../utils/backgroundReturn'
+import { isPrototypeFrameMessage } from '../utils/prototypeSecurity'
 import { createDeletionHistory } from '../utils/deletionHistory'
+import { visiblePrototypeBlocks } from '../utils/canvasHydration'
+import { canvasTransform, createCanvasMotion, scheduleCanvasPaint, zoomCanvasAt, fitCanvasBounds, type CanvasView } from '../utils/canvasMotion'
+import { connectionPathBounds, connectionInViewport, type ConnectionBounds } from '../utils/canvasConnections'
+import { canvasShortcut, canvasWheelIntent, type CanvasPoint, type CanvasWheel, type CanvasShortcut, type CanvasNavigationMode } from '../utils/canvasInput'
 
 // ===== 飞书登录、成员管理与操作审计日志状态 =====
 const isFeishuModalOpen = ref(false)
@@ -2809,6 +2831,9 @@ interface FramePreset {
 }
 const pendingFramePreset = ref<FramePreset | null>(null)
 watch(activeDrawTool, (newTool) => {
+  if (['frame', 'rect', 'circle', 'container', 'line', 'pen', 'pencil', 'text'].includes(newTool)) {
+    enterDesignMode()
+  }
   if (newTool !== 'frame') {
     pendingFramePreset.value = null
   }
@@ -3134,9 +3159,14 @@ const workbenchMode = ref<'design' | 'interactive'>('design')
 
 function setWorkbenchMode(m: 'design' | 'interactive') {
   if (m === 'interactive') {
-    // 切换到交互模式前，先强制提交保存任何尚未防抖入库的画板微调，确保最新修改绝不丢失
-    for (const ref of Object.values(pageRefs.value)) {
-      try { (ref as any)?.flushPendingSave?.() } catch (e) {}
+    // Export pending DOM edits; switching modes keeps the same iframe and does
+    // not need to wait for database writes. Handle asynchronous flush failures.
+    for (const frame of Object.values(pageRefs.value)) {
+      try {
+        Promise.resolve(frame?.flushPendingSave?.()).catch(err => console.warn('[Save] 切换交互模式时导出失败:', err))
+      } catch (err) {
+        console.warn('[Save] 切换交互模式时导出失败:', err)
+      }
     }
   }
   workbenchMode.value = m
@@ -3167,6 +3197,13 @@ function setWorkbenchMode(m: 'design' | 'interactive') {
   }
 }
 
+/** Creation tools express an edit intent even when the user was connecting pages. */
+function enterDesignMode() {
+  if (isViewer.value) return
+  if (workbenchMode.value === 'interactive') setWorkbenchMode('design')
+  fineTune.value = true
+}
+
 const showWireframe = ref(true)
 const showAnnotations = ref(false)
 /** 整页原型微调与编辑模式：8点控制盒调整大小 / 双击改文案 / 拖动位移 / Del 删除 / 自动落库 */
@@ -3191,11 +3228,8 @@ function requestPageEditor(pageId?: number | null) {
   while (pagesWithEditor.value.length >= MAX_EDITOR_PAGES) {
     const candidateIdx = pagesWithEditor.value.findIndex((pid) => pid !== pageId && pid !== activeEditingPageId.value)
     if (candidateIdx !== -1) {
-      const [evictedPageId] = pagesWithEditor.value.splice(candidateIdx, 1)
-      const refInst = pageRefs.value[evictedPageId]
-      if (refInst && typeof (refInst as any).unloadEditor === 'function') {
-        (refInst as any).unloadEditor()
-      }
+      pagesWithEditor.value.splice(candidateIdx, 1)
+      // PageCanvas observes loadEditor and owns the save/dispose lifecycle.
     } else {
       break
     }
@@ -3647,8 +3681,36 @@ function onPaletteDragStart(item: any) {
 }
 
 function onPaletteDragEnd() {
+  resetComponentDrag()
+}
+
+function resetComponentDrag() {
   isDraggingComponent.value = false
   hoveredDropBlockId.value = null
+  ;(window as any).__wfDraggingComponent = null
+}
+
+function onComponentDragOver(e: DragEvent) {
+  if (!(window as any).__wfDraggingComponent && !isDraggingComponent.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  isDraggingComponent.value = true
+}
+
+function onComponentPointerMove(e: PointerEvent) {
+  // Native HTML drag suppresses pointermove while carrying a component. A
+  // normal unpressed pointer means dragend/drop was lost (e.g. cancelled or
+  // released outside the window); do not leave the receiving layer on top.
+  if (!e.buttons && (isDraggingComponent.value || (window as any).__wfDraggingComponent)) resetComponentDrag()
+}
+
+function onComponentPointerDown() {
+  // A new press cannot belong to the preceding native drag gesture.
+  if (isDraggingComponent.value || (window as any).__wfDraggingComponent) resetComponentDrag()
+}
+
+function onComponentDragVisibilityChange() {
+  if (document.hidden) resetComponentDrag()
 }
 
 function onViewportDragOver(e: DragEvent) {
@@ -3711,8 +3773,7 @@ function onViewportDrop(e: DragEvent) {
     html = e.dataTransfer.getData('text/html') || e.dataTransfer.getData('text/plain') || ''
   }
 
-  isDraggingComponent.value = false
-  hoveredDropBlockId.value = null
+  resetComponentDrag()
 
   if (targetId && html) {
     const rect = viewportRef.value?.getBoundingClientRect()
@@ -3776,9 +3837,6 @@ function artboardPointInBlock(e: DragEvent, block: CanvasBlock, host?: HTMLEleme
 function onDropZoneDrop(e: DragEvent, block: CanvasBlock) {
   e.preventDefault()
   e.stopPropagation()
-  hoveredDropBlockId.value = null
-  isDraggingComponent.value = false
-
   let html = ''
   if ((window as any).__wfDraggingComponent?.html) {
     html = (window as any).__wfDraggingComponent.html
@@ -3787,6 +3845,7 @@ function onDropZoneDrop(e: DragEvent, block: CanvasBlock) {
   }
 
   const item = (window as any).__wfDraggingComponent
+  resetComponentDrag()
   if (!html) return
 
   const host = e.currentTarget as HTMLElement | null
@@ -3820,7 +3879,8 @@ function insertComponentIntoPage(pageId: number, itemOrHtml: any, dropX = 20, dr
 
   if (!htmlSnippet) return
 
-  fineTune.value = true
+  resetComponentDrag()
+  enterDesignMode()
   if (!isViewer.value && pageId) {
     requestPageEditor(pageId)
   }
@@ -4192,6 +4252,7 @@ async function doCreatePage(params: { name: string; width: number; height: numbe
       y: params.y,
       htmlContent: params.htmlContent || defaultHtml,
     })
+    enterDesignMode()
     clearAllRedoStacks()
 
     recordAuditLog({
@@ -4926,11 +4987,8 @@ async function loadData() {
         pageAnnOrders.value[p.id] = p.annotations.map((a) => a.id)
       }
     }
-    const qPage = route.query.page ? Number(route.query.page) : null
-    if (qPage && proto.value.pages.some((p) => p.id === qPage)) {
-      focusPageId.value = qPage
-      previewPageId.value = qPage
-    }
+    // URL targeting belongs to initial navigation/the route watcher. Data-only
+    // reloads (saving/deleting relations) must not reset the current selection.
     if (!activeInteractionPageId.value && proto.value.pages.length > 0) {
       activeInteractionPageId.value = focusPageId.value || proto.value.pages[0]?.id || null
     }
@@ -4946,6 +5004,7 @@ const isApplyingAutowire = ref(false)
 const showAutowireReview = ref(false)
 const autowirePlan = ref<AutowirePlan | null>(null)
 const autowireResult = ref<AutowireApplyResult | null>(null)
+const autowireSavedPreviewId = ref<string | null>(null)
 const autowireError = ref('')
 const autowireLoadingMessage = ref('')
 let autowireAbort: AbortController | null = null
@@ -4963,6 +5022,7 @@ async function triggerAutowireAi(request?: AutowirePreviewRequest | Event) {
   resetCanvasPan()
   autowireError.value = ''
   autowireResult.value = null
+  autowireSavedPreviewId.value = null
   showAutowireReview.value = true
   const controller = new AbortController()
   autowireAbort = controller
@@ -4990,7 +5050,8 @@ async function triggerAutowireAi(request?: AutowirePreviewRequest | Event) {
 }
 
 async function applyAutowireReview(decisions: AutowireDecisions) {
-  if (!autowirePlan.value || isApplyingAutowire.value) return
+  if (!autowirePlan.value || isApplyingAutowire.value || isAutowiringAi.value) return
+  if (autowireResult.value && autowireSavedPreviewId.value === autowirePlan.value.previewId) return
   if (hasUnsavedChanges.value) { autowireError.value = '当前编辑尚未保存，请完成保存后重新预检'; return }
   const base = { previewId: autowirePlan.value.previewId, ...decisions }
   const previous = pendingAutowireRequest && (({ idempotencyKey: _key, ...body }) => body)(pendingAutowireRequest)
@@ -5001,32 +5062,69 @@ async function applyAutowireReview(decisions: AutowireDecisions) {
   autowireLoadingMessage.value = '正在校验并保存你选择的关系…'
   try {
     autowireResult.value = await projectApi.applyAutowire(id, pendingAutowireRequest!)
+    autowireSavedPreviewId.value = base.previewId
     await loadData()
+    await refreshRemainingAutowirePlan()
     showToast('已保存审核结果')
   } catch (err: any) {
     autowireError.value = err.message || '应用失败，可重试相同审核结果'
   } finally { isApplyingAutowire.value = false; autowireLoadingMessage.value = '' }
 }
 
-async function refreshAutowireStatus() {
-  if (!autowireResult.value || isApplyingAutowire.value) return
+async function refreshRemainingAutowirePlan() {
+  if (autowireResult.value?.renderStatus !== 'done') return
+  const controller = new AbortController()
+  autowireAbort = controller
+  autowireLoadingMessage.value = '关系已保存，正在刷新剩余待配置关系…'
+  try {
+    // Saving invalidates the previous snapshot. Continuing needs fresh rules,
+    // without stale resolutions or another AI request.
+    const plan = await projectApi.previewAutowire(id, { rulesOnly: true }, controller.signal)
+    if (workbenchDisposed) return
+    autowirePlan.value = plan
+    pendingAutowireRequest = null
+  } catch (err: any) {
+    if (workbenchDisposed || controller.signal.aborted) return
+    autowireError.value = `关系已保存，但剩余关系刷新失败。请点击“继续配置”重试。${err.message || ''}`
+  } finally {
+    if (autowireAbort === controller) autowireAbort = null
+  }
+}
+
+async function continueAutowireReview() {
+  if (isApplyingAutowire.value || isAutowiringAi.value || autowireResult.value?.renderStatus !== 'done') return
   isApplyingAutowire.value = true
+  autowireError.value = ''
+  try {
+    await loadData()
+    await refreshRemainingAutowirePlan()
+  } finally { isApplyingAutowire.value = false; autowireLoadingMessage.value = '' }
+}
+
+async function refreshAutowireStatus() {
+  if (!autowireResult.value || isApplyingAutowire.value || isAutowiringAi.value) return
+  isApplyingAutowire.value = true
+  autowireError.value = ''
   try {
     autowireResult.value = await projectApi.autowireStatus(id, autowireResult.value.applicationId)
-    if (autowireResult.value.renderStatus === 'done') await loadData()
+    if (autowireResult.value.renderStatus === 'done') {
+      await loadData()
+      await refreshRemainingAutowirePlan()
+    }
   } catch (err: any) { autowireError.value = err.message || '状态查询失败' }
-  finally { isApplyingAutowire.value = false }
+  finally { isApplyingAutowire.value = false; autowireLoadingMessage.value = '' }
 }
 
 async function retryAutowirePreview() {
-  if (!autowireResult.value || isApplyingAutowire.value) return
+  if (!autowireResult.value || isApplyingAutowire.value || isAutowiringAi.value) return
   isApplyingAutowire.value = true
   autowireError.value = ''
   try {
     autowireResult.value = await projectApi.retryAutowireRender(id, autowireResult.value.applicationId)
     await loadData()
+    await refreshRemainingAutowirePlan()
   } catch (err: any) { autowireError.value = err.message || '预览更新失败，关系已经保存' }
-  finally { isApplyingAutowire.value = false }
+  finally { isApplyingAutowire.value = false; autowireLoadingMessage.value = '' }
 }
 
 async function onReanalyzePage(pageId: number) {
@@ -5036,8 +5134,10 @@ async function onReanalyzePage(pageId: number) {
   const page = proto.value?.pages.find((p) => p.id === pageId)
   showToast(`正在调用 AI 重新深度识别「${page?.name || pageId}」...`)
   try {
-    await projectApi.reanalyzePage(id, pageId)
+    const results = await projectApi.reanalyzePage(id, pageId)
     await loadData()
+    const failed = results.find(item => item.status === 'error')
+    if (failed) throw new Error(failed.error || '原型生成未完成')
     showToast(`页面「${page?.name || pageId}」已由 AI 重新识别并更新`)
   } catch (e: any) {
     showToast(`识别失败: ${e?.message || '未知错误'}`)
@@ -5058,10 +5158,13 @@ async function onReanalyzeChecked(event?: MouseEvent) {
   isReanalyzing.value = true
   showToast(`正在调用 AI 重新深度识别选中的 ${targets.length} 个页面...`)
   try {
+    const failures: string[] = []
     for (const pageId of targets) {
-      await projectApi.reanalyzePage(id, pageId)
+      const results = await projectApi.reanalyzePage(id, pageId)
+      for (const item of results) if (item.status === 'error') failures.push(`${item.page_name}：${item.error || '原型生成未完成'}`)
     }
     await loadData()
+    if (failures.length) throw new Error(failures.join('；'))
     showToast(`已完成 ${targets.length} 个页面的 AI 深度重新识别`)
   } catch (e: any) {
     showToast(`重新识别失败: ${e?.message || '未知错误'}`)
@@ -5079,7 +5182,7 @@ function onPreviewHotspotClick(pos?: { x: number; y: number; uids?: string[] }) 
   const targetId = hit?.interaction?.target_page_id
   if (!targetId) return
   const name = pages.value.find((p) => p.id === targetId)?.name
-  if (name) onProtoNavigate(name)
+  if (name) onProtoNavigate(name, pos.uids, pos)
 }
 
 function clearStampedNav(params?: string | null, pageId?: number, toPageName?: string, toPageId?: number | null, elementId?: number) {
@@ -5255,9 +5358,11 @@ function onProtoNavigate(pageName: string, uids?: string[], pos?: { x?: number; 
   const byUid = findInteractionByDomUids(fromPage, uids)
   const uidTargetId = byUid?.interaction?.target_page_id
   if (uidTargetId) {
-    if (current != null) backStack.value.push(current)
+    if (uidTargetId === current) return
+    const tab = isTabNavigation(fromPage, uids, byUid?.id)
+    if (!tab && current != null) backStack.value.push(current)
     if (mode.value === 'preview' && previewPageId.value != null) {
-      slideClass.value = 'slide-in-right'
+      slideClass.value = tab ? '' : 'slide-in-right'
       previewPageId.value = uidTargetId
       setTimeout(() => (slideClass.value = ''), 400)
     } else {
@@ -5273,9 +5378,11 @@ function onProtoNavigate(pageName: string, uids?: string[], pos?: { x?: number; 
     const hit = hitInteractionElement(fromPage, pos.x, pos.y)
     const hitTarget = hit?.interaction?.target_page_id
     if (hitTarget) {
-      if (current != null) backStack.value.push(current)
+      if (hitTarget === current) return
+      const tab = isTabNavigation(fromPage, uids, hit?.id)
+      if (!tab && current != null) backStack.value.push(current)
       if (mode.value === 'preview' && previewPageId.value != null) {
-        slideClass.value = 'slide-in-right'
+        slideClass.value = tab ? '' : 'slide-in-right'
         previewPageId.value = hitTarget
         setTimeout(() => (slideClass.value = ''), 400)
       } else {
@@ -5314,9 +5421,10 @@ function onProtoNavigate(pageName: string, uids?: string[], pos?: { x?: number; 
     showToast(`未找到页面「${pageName}」`)
     return
   }
-  if (current != null) backStack.value.push(current)
+  const tab = isTabNavigation(fromPage, uids)
+  if (!tab && current != null) backStack.value.push(current)
   if (mode.value === 'preview' && previewPageId.value != null) {
-    slideClass.value = 'slide-in-right'
+    slideClass.value = tab ? '' : 'slide-in-right'
     previewPageId.value = target.id
     setTimeout(() => (slideClass.value = ''), 400)
   } else {
@@ -5326,13 +5434,20 @@ function onProtoNavigate(pageName: string, uids?: string[], pos?: { x?: number; 
 }
 
 // ===== 无限画布状态（translate + scale） =====
-const view = ref({ x: 0, y: 0, k: 1 })
-/** 全貌全览模式（临界阈值 k < 0.25）：真页面停止 GPU 重绘，表面展示 1:1 原型快照，大幅提升百页漫游帧率 */
+// Gesture input mutates this plain object and paints only the transform. Replacing
+// it on release notifies layout, hydration and persistence once per gesture.
+const view = shallowRef({ x: 0, y: 0, k: 1 })
 const isDragging = ref(false)
 const isBlockDragging = ref(false)
 const isAnyDragging = computed(() => isDragging.value || isBlockDragging.value)
 const animating = ref(false)
 const isWheelZooming = ref(false)
+const canvasNavigationMode = ref<CanvasNavigationMode>('mouse')
+try { if (localStorage.getItem('wf_canvas_navigation') === 'trackpad') canvasNavigationMode.value = 'trackpad' } catch {}
+watch(canvasNavigationMode, value => {
+  finishWheelZoom()
+  try { localStorage.setItem('wf_canvas_navigation', value) } catch {}
+})
 const isLayerBoosted = computed(() => isAnyDragging.value || animating.value || isWheelZooming.value)
 let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null
 let dragStart = { x: 0, y: 0 }
@@ -5340,6 +5455,10 @@ let dragOrigin = { x: 0, y: 0 }
 let animTimer: ReturnType<typeof setTimeout> | null = null
 
 const viewportRef = ref<HTMLElement | null>(null)
+const canvasContentRef = ref<HTMLElement | null>(null)
+const connectionWorldRef = ref<SVGGElement | null>(null)
+const connectionBadgeWorldRef = ref<HTMLElement | null>(null)
+const zoomLabelRef = ref<HTMLElement | null>(null)
 
 // ===== 页面区块布局 =====
 const pageRefs = ref<Record<number, InstanceType<typeof PageCanvas> | null>>({})
@@ -6003,6 +6122,7 @@ function onCanvasPanKey(e: KeyboardEvent) {
   isSpacePressed.value = true
 }
 function onCanvasPanCapture(e: MouseEvent) {
+  if (isWheelZooming.value && (e.button === 0 || e.button === 1)) finishWheelZoom()
   if (mode.value === 'preview' || (e.button !== 0 && e.button !== 1) || !(isSpacePressed.value || activeDrawTool.value === 'hand' || e.button === 1)) return
   if ((e.target instanceof HTMLElement || e.target instanceof SVGElement) && e.target.closest('input,textarea,select,[contenteditable="true"],button,a,.figma-bottom-toolbar,.ann-panel,.draft-comment-container')) return
   e.preventDefault(); e.stopImmediatePropagation()
@@ -6011,6 +6131,7 @@ function onCanvasPanCapture(e: MouseEvent) {
 function resetCanvasPan() {
   isSpacePressed.value = false
   onWindowMouseUp()
+  finishWheelZoom()
 }
 function onCanvasVisibilityChange() { if (document.hidden) resetCanvasPan() }
 
@@ -6117,6 +6238,7 @@ interface ConnectionItem {
   x2: number
   y2: number
   path: string
+  bounds: ConnectionBounds | null
   midX: number
   midY: number
   triggerLabel: string
@@ -6223,6 +6345,7 @@ const connections = computed<ConnectionItem[]>(() => {
         x2: endX,
         y2: endY,
         path,
+        bounds: connectionPathBounds(path),
         midX,
         midY,
         triggerLabel,
@@ -6257,6 +6380,15 @@ const visibleConnections = computed<ConnectionItem[]>(() => {
     if (selectedConnIds.value.has(conn.id)) merged.set(conn.id, conn)
   }
   return [...merged.values()]
+})
+
+// Keep selection/business scope unchanged. During navigation all scoped paths
+// stay mounted so a fast pan cannot reveal a not-yet-rendered curve. The SVG
+// viewport clips painting; idle culling reduces DOM without per-event Vue work.
+const renderedConnections = computed(() => {
+  if (visibleConnections.value.length <= 120) return visibleConnections.value
+  return visibleConnections.value.filter(conn => connectionInViewport(conn.bounds, conn.midX, conn.midY,
+    view.value, viewportWidth.value, viewportHeight.value))
 })
 
 function getPageName(pageId?: number | null): string {
@@ -7093,15 +7225,30 @@ function onBlockClickCapture(e: MouseEvent) {
   }
 }
 
-const contentStyle = computed(() => {
-  const v = view.value
-  const snappedX = Math.round(v.x)
-  const snappedY = Math.round(v.y)
-  return {
-    transform: `translate3d(${snappedX}px, ${snappedY}px, 0) scale(${v.k})`,
-    transformOrigin: '0 0',
-  }
+let paintedCanvasView: CanvasView | null = null
+function paintCanvasTransform(next: CanvasView) {
+  paintedCanvasView = { ...next }
+  const transform = canvasTransform(next)
+  if (canvasContentRef.value) canvasContentRef.value.style.transform = transform
+  if (connectionWorldRef.value) connectionWorldRef.value.style.transform = transform
+  if (connectionBadgeWorldRef.value) connectionBadgeWorldRef.value.style.transform = transform
+  const label = `${Math.round(next.k * 100)}%`
+  if (zoomLabelRef.value && zoomLabelRef.value.textContent !== label) zoomLabelRef.value.textContent = label
+}
+
+const canvasMotion = createCanvasMotion({
+  read: () => view.value,
+  update: (next) => { Object.assign(view.value, next) },
+  paint: paintCanvasTransform,
+  schedule: scheduleCanvasPaint,
+  commit: (next) => { view.value = next },
 })
+// DOM transforms have one owner. A Vue :style binding here would reapply its
+// cached pre-gesture transform during unrelated renders and snap the view back.
+// Explicit focus/fit/reset replaces the view and cancels the old gesture commit.
+watch(view, () => { canvasMotion.cancel(); paintCanvasTransform(view.value) }, { flush: 'sync' })
+watch(canvasContentRef, () => paintCanvasTransform(view.value), { flush: 'sync' })
+watch([connectionWorldRef, connectionBadgeWorldRef], () => paintCanvasTransform(view.value), { flush: 'post' })
 
 const focusPageId = ref<number | null>(null)
 
@@ -7109,7 +7256,7 @@ const focusPageId = ref<number | null>(null)
 // 渐进式阶梯水合引擎 (Progressive One-Way Hydration)
 // 核心原则：
 // 1. 只增不减，打开后永久常驻，绝不再卸载（状态、滚动、弹窗、Undo 永不丢失）；
-// 2. 视野优先排队，每 60ms 平滑补齐一页，彻底消除并发卡顿与白屏；
+// 2. 仅加载视野及附近页面，每 60ms 打开一页，远处保留占位；
 // 3. 点选、双击、聚焦时立即插队秒开。
 // ==========================================
 const openedBlockKeys = ref<Set<string>>(new Set())
@@ -7119,20 +7266,36 @@ let viewportObserver: ResizeObserver | null = null
 
 const viewportWidth = ref(1920)
 const viewportHeight = ref(1080)
+let viewportOrigin: { left: number; top: number } | null = null
+
+function canvasFramePoint(block: Pick<CanvasBlock, 'x' | 'y' | 'pageId'>, point: CanvasPoint): CanvasPoint | null {
+  // During a CSS focus transition the visual camera lies between two states;
+  // retain DOM measurement in that case. Normal gesture input needs no layout.
+  if (!viewportOrigin || !paintedCanvasView || animating.value || hoveredTargetBlockId.value === block.pageId) return null
+  return {
+    clientX: viewportOrigin.left + paintedCanvasView.x + (block.x + point.clientX) * paintedCanvasView.k,
+    clientY: viewportOrigin.top + paintedCanvasView.y + (block.y + point.clientY) * paintedCanvasView.k,
+  }
+}
 
 function onWindowResize() { updateViewportDims(); scheduleQueueUpdate(); }
 function updateViewportDims(rect?: { width: number; height: number }) {
+  // Read geometry on mount/resize, before gesture styles are changed. Reading
+  // this at the first wheel event forces pending artboard styles to resolve.
+  const bounds = viewportRef.value?.getBoundingClientRect()
+  viewportOrigin = bounds ? { left: bounds.left, top: bounds.top } : null
+  finishWheelZoom()
   if (rect && rect.width > 0 && rect.height > 0) {
     viewportWidth.value = rect.width
     viewportHeight.value = rect.height
     return
   }
-  if (viewportRef.value) {
-    const r = viewportRef.value.getBoundingClientRect()
-    if (r.width > 0) viewportWidth.value = r.width
-    if (r.height > 0) viewportHeight.value = r.height
+  if (bounds) {
+    if (bounds.width > 0) viewportWidth.value = bounds.width
+    if (bounds.height > 0) viewportHeight.value = bounds.height
   }
 }
+watch(viewportRef, () => updateViewportDims(), { flush: 'post' })
 
 /** 立即打开指定画板（点选、双击、聚焦时插队顶格秒开） */
 function openBlockImmediately(blockKey?: string | null) {
@@ -7171,41 +7334,13 @@ function pumpNextInQueue() {
   }, 60)
 }
 
-/** 调度并排定打开队列（眼前看得到的排前面，视野外的排后面） */
+/** 只调度眼前及附近的画板；已打开页面保留 DOM 和编辑状态。 */
 function scheduleQueueUpdate() {
   // 拖拽或滚轮期间暂停调度
   if (isAnyDragging.value || isWheelZooming.value) return
 
-  const v = view.value
-  const w = viewportWidth.value
-  const h = viewportHeight.value
-  const margin = 500
-  const minX = -v.x / v.k - margin
-  const maxX = (w - v.x) / v.k + margin
-  const minY = -v.y / v.k - margin
-  const maxY = (h - v.y) / v.k + margin
-
-  // 找出所有还未打开的原型画板
-  const unopened = blocks.value.filter((b) => b.blockType === 'prototype' && !openedBlockKeys.value.has(b.key))
-  if (unopened.length === 0) return
-
-  const inView: CanvasBlock[] = []
-  const outView: CanvasBlock[] = []
-
-  unopened.forEach((b) => {
-    const isIn = b.x + b.w >= minX && b.x <= maxX && b.y + b.h >= minY && b.y <= maxY
-    if (isIn) inView.push(b)
-    else outView.push(b)
-  })
-
-  // 眼前的画板：距离视口中心越近的排在越前面
-  const centerX = -v.x / v.k + w / (2 * v.k)
-  const centerY = -v.y / v.k + h / (2 * v.k)
-  inView.sort((a, b) => {
-    const distA = Math.hypot(a.x + a.w / 2 - centerX, a.y + a.h / 2 - centerY)
-    const distB = Math.hypot(b.x + b.w / 2 - centerX, b.y + b.h / 2 - centerY)
-    return distA - distB
-  })
+  const inView = visiblePrototypeBlocks(blocks.value, openedBlockKeys.value, view.value,
+    viewportWidth.value, viewportHeight.value)
 
   // 如果眼前有未打开的，直接先把最靠近的 1~2 个立刻打开（避免首屏第一眼看到骨架）
   const immediateBatch = inView.splice(0, 2)
@@ -7220,8 +7355,8 @@ function scheduleQueueUpdate() {
     if (added) openedBlockKeys.value = new Set(openedBlockKeys.value)
   }
 
-  // 剩余的眼前画板在前，视野外的在后，排入队列
-  pendingQueue = [...inView.map((b) => b.key), ...outView.map((b) => b.key)]
+  // 重新排队时剔除已离开视野的待加载页，避免后台最终仍把整个项目加载完。
+  pendingQueue = inView.map((b) => b.key)
   startQueuePump()
 }
 
@@ -7312,9 +7447,8 @@ function viewportSize() {
 
 async function focusPage(pageId: number, fitGroup = false) {
   openBlockImmediately(`proto-${pageId}`)
-  const b = (workbenchMode.value === 'interactive'
-    ? blocks.value.find((bb) => bb.page.id === pageId && bb.blockType === 'prototype')
-    : null) || blocks.value.find((bb) => bb.page.id === pageId)
+  const b = blocks.value.find((bb) => bb.page.id === pageId && bb.blockType === 'prototype')
+    || blocks.value.find((bb) => bb.page.id === pageId)
   if (!b) return
   selectedBlockKeys.value = new Set([b.key])
   selectedNodeKey.value = b.key
@@ -7379,11 +7513,14 @@ let persistViewTimer: ReturnType<typeof setTimeout> | null = null
 
 function persistWorkbenchView() {
   if (!didInitialFocus || !viewportRef.value) return
-  const { w, h } = viewportSize()
+  // ResizeObserver maintains these values. Measuring after a camera write can
+  // synchronously flush layout/raster work across every retained iframe.
+  const w = viewportWidth.value, h = viewportHeight.value
   try {
     localStorage.setItem(workbenchStorageKey, JSON.stringify({
       view: view.value,
       pageId: focusPageId.value,
+      blockKey: selectedNodeKey.value,
       viewport: { w, h },
     }))
   } catch {
@@ -7391,10 +7528,13 @@ function persistWorkbenchView() {
   }
 }
 
-function restoreWorkbenchView() {
+function restoreWorkbenchView(requestedPageId?: number | null) {
   try {
     const saved = JSON.parse(localStorage.getItem(workbenchStorageKey) || 'null')
     if (!saved || !pages.value.some((page) => page.id === saved.pageId)) return false
+    // A new explicit deep link takes priority. Reloading the current deep link
+    // restores its exact viewport instead of fitting the page group again.
+    if (requestedPageId && saved.pageId !== requestedPageId) return false
     const savedView = saved.view
     if (!savedView || ![savedView.x, savedView.y, savedView.k].every(Number.isFinite) || savedView.k <= 0 || savedView.k > 3) return false
     const { w, h } = viewportSize()
@@ -7402,7 +7542,9 @@ function restoreWorkbenchView() {
     const oldH = Number.isFinite(saved.viewport?.h) ? saved.viewport.h : h
     focusPageId.value = saved.pageId
     selectedNodeId.value = saved.pageId
-    const savedBlock = blocks.value.find((block) => block.pageId === saved.pageId)
+    const savedBlock = blocks.value.find((block) => block.key === saved.blockKey && block.pageId === saved.pageId)
+      || blocks.value.find((block) => block.pageId === saved.pageId && block.blockType === 'prototype')
+      || blocks.value.find((block) => block.pageId === saved.pageId)
     selectedNodeKey.value = savedBlock?.key || null
     selectedBlockKeys.value = new Set(savedBlock ? [savedBlock.key] : [])
     activeInteractionPageId.value = saved.pageId
@@ -7415,20 +7557,27 @@ function restoreWorkbenchView() {
   }
 }
 
-let dragRafId: number | null = null
-let pendingDragX = 0
-let pendingDragY = 0
+function syncWorkbenchLocation() {
+  const pageId = focusPageId.value
+  if (!didInitialFocus || !pageId || !pages.value.some(page => page.id === pageId)) return
+  if (Number(route.query.page) === pageId) return
+  // Replace this history entry: ordinary canvas selection is not a navigation
+  // step, but a subsequent refresh/share must target the selected page.
+  void router.replace({ query: { ...route.query, page: String(pageId) } }).catch(() => {})
+}
 
 function startCanvasPan(e: Pick<MouseEvent, 'clientX' | 'clientY'>) {
   if (isDragging.value || isBlockDragging.value) return
+  finishWheelZoom()
+  animating.value = false
+  canvasContentRef.value?.classList.remove('is-animating')
+  canvasContentRef.value?.classList.add('is-moving', 'is-dragging')
   selectedElementId.value = null
-  selectedConnIds.value = new Set()
+  if (selectedConnIds.value.size) selectedConnIds.value = new Set()
   isDragging.value = true
   suppressBlockClick = true
   dragStart = { x: e.clientX, y: e.clientY }
   dragOrigin = { x: view.value.x, y: view.value.y }
-  pendingDragX = dragOrigin.x
-  pendingDragY = dragOrigin.y
   window.addEventListener('mousemove', onWindowMouseMove, { passive: true })
   window.addEventListener('mouseup', onWindowMouseUp)
 }
@@ -7436,32 +7585,17 @@ function startCanvasPan(e: Pick<MouseEvent, 'clientX' | 'clientY'>) {
 function onWindowMouseMove(e: Pick<MouseEvent, 'clientX' | 'clientY' | 'buttons'>) {
   if (!isDragging.value) return
   if (!e.buttons) { onWindowMouseUp(); return }
-  pendingDragX = dragOrigin.x + (e.clientX - dragStart.x)
-  pendingDragY = dragOrigin.y + (e.clientY - dragStart.y)
-  if (dragRafId === null) {
-    dragRafId = requestAnimationFrame(() => {
-      view.value = {
-        ...view.value,
-        x: pendingDragX,
-        y: pendingDragY,
-      }
-      dragRafId = null
-    })
-  }
+  canvasMotion.panTo(dragOrigin.x + (e.clientX - dragStart.x), dragOrigin.y + (e.clientY - dragStart.y))
 }
 
 function onWindowMouseUp() {
-  if (isDragging.value) Object.values(pageRefs.value).forEach(frame => frame?.stopCanvasPan())
-  if (dragRafId !== null) {
-    cancelAnimationFrame(dragRafId)
-    dragRafId = null
-    view.value = {
-      ...view.value,
-      x: pendingDragX,
-      y: pendingDragY,
-    }
+  if (isDragging.value) {
+    canvasMotion.finish()
+    Object.values(pageRefs.value).forEach(frame => frame?.stopCanvasPan())
   }
   isDragging.value = false
+  canvasContentRef.value?.classList.remove('is-dragging')
+  if (!isWheelZooming.value && !isBlockDragging.value && !animating.value) canvasContentRef.value?.classList.remove('is-moving')
   window.removeEventListener('mousemove', onWindowMouseMove)
   window.removeEventListener('mouseup', onWindowMouseUp)
   setTimeout(() => { suppressBlockClick = false }, 0)
@@ -7744,100 +7878,102 @@ function onMouseDown(e: MouseEvent) {
     window.focus()
     viewportRef.value?.focus?.()
   }
-  isDragging.value = true
-  dragStart = { x: e.clientX, y: e.clientY }
-  dragOrigin = { x: view.value.x, y: view.value.y }
-  pendingDragX = dragOrigin.x
-  pendingDragY = dragOrigin.y
-
-  window.addEventListener('mousemove', onWindowMouseMove, { passive: true })
-  window.addEventListener('mouseup', onWindowMouseUp)
+  startCanvasPan(e)
 }
 
-let wheelRafId: number | null = null
-let accumulatedDeltaFactor = 1
-let lastWheelX = 0
-let lastWheelY = 0
+let wheelViewportRect: { left: number; top: number } | null = null
 
-function onWheel(e: WheelEvent) {
+function finishWheelZoom() {
+  if (wheelIdleTimer) clearTimeout(wheelIdleTimer)
+  wheelIdleTimer = null
+  if (isWheelZooming.value) canvasMotion.finish()
+  isWheelZooming.value = false
+  wheelViewportRect = null
+  if (!isAnyDragging.value && !animating.value) canvasContentRef.value?.classList.remove('is-moving')
+}
+
+function onWheel(e: CanvasWheel) {
+  if (!viewportRef.value) return
+  if (isDragging.value) onWindowMouseUp()
+  if (!isWheelZooming.value) {
+    wheelViewportRect = viewportOrigin || viewportRef.value.getBoundingClientRect()
+    animating.value = false
+    canvasContentRef.value?.classList.remove('is-animating')
+    canvasContentRef.value?.classList.add('is-moving')
+  }
   isWheelZooming.value = true
   if (wheelIdleTimer) clearTimeout(wheelIdleTimer)
-  wheelIdleTimer = setTimeout(() => {
-    isWheelZooming.value = false
-    wheelIdleTimer = null
-  }, 180)
-  const factor = Math.exp(-e.deltaY * 0.0012)
-  accumulatedDeltaFactor *= factor
-  lastWheelX = e.clientX
-  lastWheelY = e.clientY
-  if (wheelRafId === null) {
-    wheelRafId = requestAnimationFrame(() => {
-      zoomAt(lastWheelX, lastWheelY, accumulatedDeltaFactor)
-      accumulatedDeltaFactor = 1
-      wheelRafId = null
-    })
-  }
+  wheelIdleTimer = setTimeout(finishWheelZoom, 180)
+  const rect = wheelViewportRect!
+  const intent = canvasWheelIntent(e, canvasNavigationMode.value, viewportHeight.value)
+  if (intent.kind === 'zoom') canvasMotion.zoomAt(e.clientX - rect.left, e.clientY - rect.top, intent.factor)
+  else canvasMotion.panTo(view.value.x - intent.x, view.value.y - intent.y)
+}
+
+function onViewportWheel(e: WheelEvent) {
+  // Side panels, annotation lists and typing controls retain native scrolling.
+  if ((e.target as HTMLElement | SVGElement)?.closest?.('input,textarea,select,[contenteditable="true"],[role="textbox"],.ann-panel,.draft-comment-container,.figma-bottom-toolbar')) return
+  e.preventDefault()
+  onWheel(e)
+}
+
+function onCanvasShortcut(command: CanvasShortcut) {
+  if (mode.value === 'preview') return
+  if (command === 'fit-all') fitAll()
+  else if (command === 'fit-selection') fitSelection()
+  else if (command === 'reset-zoom') resetZoom100()
+  else zoomAtCenter(command === 'zoom-in' ? 1.18 : 1 / 1.18)
+}
+
+function onCanvasZoomCommand(command: string) {
+  if (command === 'fit-all' || command === 'fit-selection') { onCanvasShortcut(command); return }
+  const percent = Number(command)
+  if (!Number.isFinite(percent) || percent < 4 || percent > 300) return
+  finishWheelZoom()
+  zoomAtCenter(percent / 100 / view.value.k)
 }
 
 function zoomAtCenter(factor: number) {
+  if (!viewportRef.value) return
   const { w, h } = viewportSize()
   zoomAt(viewportRef.value!.getBoundingClientRect().left + w / 2, viewportRef.value!.getBoundingClientRect().top + h / 2, factor)
 }
 
 function zoomAt(cx: number, cy: number, factor: number) {
   if (!viewportRef.value) return
+  if (isDragging.value) onWindowMouseUp()
+  finishWheelZoom()
   const rect = viewportRef.value.getBoundingClientRect()
-  const px = cx - rect.left
-  const py = cy - rect.top
-  const v = view.value
-  const newK = Math.min(3, Math.max(0.04, v.k * factor))
-  view.value = {
-    k: newK,
-    x: px - ((px - v.x) * newK) / v.k,
-    y: py - ((py - v.y) * newK) / v.k,
-  }
+  view.value = zoomCanvasAt(view.value, cx - rect.left, cy - rect.top, factor)
 }
 
 function resetZoom100() {
   if (!viewportRef.value) return
+  finishWheelZoom()
   const { w, h } = viewportSize()
   zoomAt(viewportRef.value.getBoundingClientRect().left + w / 2, viewportRef.value.getBoundingClientRect().top + h / 2, 1 / view.value.k)
 }
 
 function fitAll() {
-  if (!blocks.value.length || !viewportRef.value) return
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
+  fitCanvasItems(blocks.value)
+}
 
-  blocks.value.forEach((b) => {
-    minX = Math.min(minX, b.x)
-    minY = Math.min(minY, b.y)
-    maxX = Math.max(maxX, b.x + b.w)
-    maxY = Math.max(maxY, b.y + b.h)
-  })
+function fitSelection() {
+  const selected = blocks.value.filter(b => selectedBlockKeys.value.has(b.key))
+  const focused = blocks.value.find(b => b.key === selectedNodeKey.value)
+    || blocks.value.find(b => b.pageId === focusPageId.value && b.blockType === 'prototype')
+    || blocks.value.find(b => b.blockType === 'prototype')
+    || blocks.value[0]
+  fitCanvasItems(selected.length ? selected : focused ? [focused] : [])
+}
 
-  const totalW = maxX - minX
-  const totalH = maxY - minY
-  if (totalW <= 0 || totalH <= 0) return
-
-  const { w, h } = viewportSize()
-  const padX = 72
-  const padY = 72
-  const availW = Math.max(120, w - padX * 2)
-  const availH = Math.max(120, h - padY * 2)
-
-  const scale = Math.min(1.5, Math.max(0.04, Math.min(availW / totalW, availH / totalH)))
-  const targetCenterX = minX + totalW / 2
-  const targetCenterY = minY + totalH / 2
-
+function fitCanvasItems(items: { x: number; y: number; w: number; h: number }[]) {
+  if (!viewportRef.value) return
+  resetCanvasPan()
+  const { w, h } = viewportSize(), next = fitCanvasBounds(items, w, h)
+  if (!next) return
   animating.value = true
-  view.value = {
-    k: scale,
-    x: w / 2 - targetCenterX * scale,
-    y: h / 2 - targetCenterY * scale,
-  }
+  view.value = next
   if (animTimer) clearTimeout(animTimer)
   animTimer = setTimeout(() => (animating.value = false), 450)
 }
@@ -8035,11 +8171,14 @@ function openPreview() {
 
 function openPurePreview() {
   if (!pages.value.length) return
-  const targetPage = previewPageId.value || focusPageId.value || pages.value[0].id
+  const targetPage = previewEntryPage(pages.value, mainNavigation(pages.value, proto.value?.project?.appMap), {
+    requestedPageId: mode.value === 'preview' ? previewPageId.value : focusPageId.value,
+    mainOnly: true,
+  })
   router.push({
     name: 'PurePreview',
     params: { id },
-    query: targetPage ? { page: String(targetPage) } : undefined,
+    query: { entry: 'main', ...(targetPage ? { page: String(targetPage.id) } : {}) },
   })
 }
 
@@ -8336,9 +8475,9 @@ function runLayerMenu(action: string) {
   } else if (action === 'paste-properties') {
     postToFocusFrame({ type: 'wf-paste-properties' })
   } else if (action === 'front') {
-    postToFocusFrame({ type: 'wf-restack', edge: 'front' })
+    postToFocusFrame({ type: 'wf-restack', edge: 'front', uids: selectedDomLayerUids.value.length ? [...selectedDomLayerUids.value] : selectedDomLayerUid.value ? [selectedDomLayerUid.value] : undefined })
   } else if (action === 'back') {
-    postToFocusFrame({ type: 'wf-restack', edge: 'back' })
+    postToFocusFrame({ type: 'wf-restack', edge: 'back', uids: selectedDomLayerUids.value.length ? [...selectedDomLayerUids.value] : selectedDomLayerUid.value ? [selectedDomLayerUid.value] : undefined })
   } else if (action === 'flip-x') {
     postToFocusFrame({ type: 'wf-flip', axis: 'x' })
   } else if (action === 'flip-y') {
@@ -8958,7 +9097,7 @@ function onVectorToolbarDone() {
   const inst = Array.isArray(vectorOverlayRef.value) ? vectorOverlayRef.value[0] : vectorOverlayRef.value
   if (activeDrawTool.value === 'pencil' && !isEditingVector.value) {
     if (inst?.hasActivePoints?.()) inst.commitPath?.()
-    showToast('这一笔已加入画板，可以继续画下一笔。按 Esc 或点叉退出铅笔')
+    onVectorCancel()
     return
   }
   if (inst && typeof inst.commitPath === 'function') {
@@ -9424,6 +9563,7 @@ async function handleGlobalRedo(): Promise<boolean> {
 }
 
 function onSimMessage(ev: MessageEvent) {
+  if (!isPrototypeFrameMessage(ev)) return
   if (!ev.data) return
   if (ev.data.type === 'wf-preview-wheel') {
     if (isCurrentPhone.value) {
@@ -9569,6 +9709,7 @@ onUnmounted(() => {
     queueTimer = null
   }
   window.removeEventListener('resize', onWindowResize)
+  window.removeEventListener('scroll', onWindowResize)
   window.removeEventListener('message', onSimMessage)
   sidebarThumbObservers.forEach((ro) => ro.disconnect())
   sidebarThumbObservers.clear()
@@ -9692,7 +9833,14 @@ async function syncEditingSession() {
   // 1. 批量拉取所有页面的编辑/冲突状态
   try {
     const statuses = await projectApi.getAllPageEditingStatuses(id, clientId.value)
-    pageEditingConflicts.value = statuses || {}
+    const next = statuses || {}, previous = pageEditingConflicts.value
+    const keys = Object.keys(next)
+    // The heartbeat normally returns identical data. Publishing a fresh object
+    // would rerender the whole workbench every 3.5 seconds, including mid-pan.
+    if (keys.length !== Object.keys(previous).length || keys.some(key => {
+      const before = previous[Number(key)], after = next[Number(key)]
+      return !before || before.editing !== after.editing || before.conflict !== after.conflict || before.editor !== after.editor
+    })) pageEditingConflicts.value = next
   } catch {}
 
   // 2. 如果当前有合法的待锁定页面，上报独占心跳锁
@@ -9721,6 +9869,16 @@ async function syncEditingSession() {
   }
 }
 
+function onFeishuLoginMessage(e: MessageEvent) {
+  if (e.origin !== window.location.origin || e.data?.type !== 'wf-feishu-login-success') return
+  syncLoginFromStorage().then((u) => {
+    if (u) {
+      ElMessage.success(`飞书登录成功，欢迎 ${u.name}`)
+      loadMyComponents()
+    }
+  })
+}
+
 watch(activeEditingPageId, (newId, oldId) => {
   if (oldId && oldId !== newId) {
     projectApi.lockPageEditing(id, oldId, { clientId: clientId.value, active: false }).catch(() => {})
@@ -9734,6 +9892,7 @@ onMounted(async () => {
   updateViewportDims()
   loadMyComponents()
   window.addEventListener('resize', onWindowResize, { passive: true })
+  window.addEventListener('scroll', onWindowResize, { passive: true })
   if (viewportRef.value && typeof ResizeObserver !== 'undefined') {
     viewportObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -9745,17 +9904,7 @@ onMounted(async () => {
     })
     viewportObserver.observe(viewportRef.value)
   }
-  // 监听来自飞书回调子窗口的登录成功通知
-  window.addEventListener('message', (e) => {
-    if (e.origin === window.location.origin && e.data?.type === 'wf-feishu-login-success') {
-      syncLoginFromStorage().then((u) => {
-        if (u) {
-          ElMessage.success(`飞书登录成功，欢迎 ${u.name}`)
-          loadMyComponents()
-        }
-      })
-    }
-  })
+  window.addEventListener('message', onFeishuLoginMessage)
   loadProjectRole(id)
 
   // 若飞书直接重定向回当前画板页面并携带 ?code=
@@ -9775,30 +9924,15 @@ onMounted(async () => {
 
   window.addEventListener('beforeunload', onUnsavedBeforeUnload)
   window.addEventListener('resize', updatePhoneScale)
-  window.addEventListener('wf-component-dragstart', () => {
-    isDraggingComponent.value = true
-  })
-  window.addEventListener('wf-component-dragend', () => {
-    isDraggingComponent.value = false
-    hoveredDropBlockId.value = null
-  })
-  window.addEventListener('dragover', (e) => {
-    if ((window as any).__wfDraggingComponent || isDraggingComponent.value) {
-      e.preventDefault()
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = 'copy'
-      }
-      isDraggingComponent.value = true
-    }
-  })
-  window.addEventListener('dragend', () => {
-    isDraggingComponent.value = false
-    hoveredDropBlockId.value = null
-  })
-  window.addEventListener('drop', () => {
-    isDraggingComponent.value = false
-    hoveredDropBlockId.value = null
-  })
+  window.addEventListener('wf-component-dragstart', onPaletteDragStart)
+  window.addEventListener('wf-component-dragend', resetComponentDrag)
+  window.addEventListener('dragover', onComponentDragOver)
+  window.addEventListener('dragend', resetComponentDrag)
+  window.addEventListener('drop', resetComponentDrag)
+  window.addEventListener('pointermove', onComponentPointerMove, true)
+  window.addEventListener('pointerdown', onComponentPointerDown, true)
+  window.addEventListener('blur', resetComponentDrag)
+  document.addEventListener('visibilitychange', onComponentDragVisibilityChange)
   editStatusTimer = setInterval(syncEditingSession, 3500)
   syncEditingSession()
   await loadData()
@@ -9809,47 +9943,48 @@ const pageReady = computed(() => {
   return pages.value.every((p) => !!pageRefs.value[p.id])
 })
 let didInitialFocus = false
+function initializeWorkbenchView() {
+  const qPage = route.query.page ? Number(route.query.page) : null
+  const requestedBlock = qPage ? blocks.value.find(b => b.pageId === qPage && b.blockType === 'prototype')
+    || blocks.value.find(b => b.pageId === qPage) : null
+  if (restoreWorkbenchView(requestedBlock?.pageId)) return
+  const targetBlock = requestedBlock || blocks.value.find(b => b.blockType === 'prototype') || blocks.value[0]
+  if (!targetBlock) return
+  previewPageId.value = targetBlock.pageId
+  void focusPage(targetBlock.pageId, true)
+}
 watch(
   pageReady,
   (ready) => {
     if (ready && !didInitialFocus) {
       didInitialFocus = true
-      nextTick(() => {
-        const qPage = route.query.page ? Number(route.query.page) : null
-        const requestedBlock = qPage ? blocks.value.find((b) => b.page.id === qPage) : null
-        if (!requestedBlock && restoreWorkbenchView()) return
-        const targetBlock = requestedBlock || blocks.value[0]
-        if (!targetBlock) return
-        previewPageId.value = targetBlock.page.id
-        focusPage(targetBlock.page.id, true)
-      })
+      nextTick(initializeWorkbenchView)
     }
   },
   { immediate: true },
 )
 
-watch(
-  () => route.query.page,
-  (newPageId) => {
-    if (newPageId != null) {
-      const pid = Number(newPageId)
-      if (!isNaN(pid) && pages.value.some((p) => p.id === pid)) {
-        focusPage(pid, true)
-        if (mode.value === 'preview') {
-          previewPageId.value = pid
-        }
-      }
-    }
-  },
-)
+async function onRequestedPageChange(newPageId: unknown) {
+  if (!didInitialFocus || !pageReady.value || newPageId == null) return
+  const pid = Number(newPageId)
+  if (!Number.isFinite(pid) || !pages.value.some(p => p.id === pid)) return
+  // A URL replacement from our own selection must not refit the camera.
+  if (focusPageId.value !== pid) await focusPage(pid, true)
+  if (mode.value === 'preview') previewPageId.value = pid
+}
+watch(() => route.query.page, onRequestedPageChange)
+watch(focusPageId, syncWorkbenchLocation, { flush: 'post' })
 
 onBeforeUnmount(() => {
   workbenchDisposed = true
   clearProjectRole()
   autowireAbort?.abort()
+  canvasMotion.finish()
+  canvasMotion.dispose()
   persistWorkbenchView()
   if (persistViewTimer) clearTimeout(persistViewTimer)
   window.removeEventListener('beforeunload', onUnsavedBeforeUnload)
+  window.removeEventListener('message', onFeishuLoginMessage)
   window.removeEventListener('mousedown', onLayerMenuPointerDown, true)
   window.removeEventListener('keydown', onLayerMenuKey)
   if (editStatusTimer) clearInterval(editStatusTimer)
@@ -9857,14 +9992,22 @@ onBeforeUnmount(() => {
     projectApi.lockPageEditing(id, lastLockedPageId, { clientId: clientId.value, active: false }).catch(() => {})
   }
   if (animTimer) clearTimeout(animTimer)
-  if (dragRafId !== null) cancelAnimationFrame(dragRafId)
-  if (wheelRafId !== null) cancelAnimationFrame(wheelRafId)
+  if (wheelIdleTimer) clearTimeout(wheelIdleTimer)
   window.removeEventListener('mousemove', onWindowMouseMove)
   window.removeEventListener('mouseup', onWindowMouseUp)
   window.removeEventListener('resize', updatePhoneScale)
+  window.removeEventListener('wf-component-dragstart', onPaletteDragStart)
+  window.removeEventListener('wf-component-dragend', resetComponentDrag)
+  window.removeEventListener('dragover', onComponentDragOver)
+  window.removeEventListener('dragend', resetComponentDrag)
+  window.removeEventListener('drop', resetComponentDrag)
+  window.removeEventListener('pointermove', onComponentPointerMove, true)
+  window.removeEventListener('pointerdown', onComponentPointerDown, true)
+  window.removeEventListener('blur', resetComponentDrag)
+  document.removeEventListener('visibilitychange', onComponentDragVisibilityChange)
 })
 
-watch([view, focusPageId], () => {
+watch([view, focusPageId, selectedNodeKey], () => {
   if (!didInitialFocus) return
   if (persistViewTimer) clearTimeout(persistViewTimer)
   persistViewTimer = setTimeout(persistWorkbenchView, 250)
@@ -9887,6 +10030,7 @@ async function onGlobalKeydown(e: KeyboardEvent) {
 
   // 1. ESC：优先退出绘制工具；仅在已是选择工具时才清空画板多选
   if (e.key === 'Escape') {
+    resetComponentDrag()
     if (activeDrawTool.value !== 'select' || activeShapeDraw.value || activeFrameDraw.value || pendingFramePreset.value) {
       e.preventDefault()
       activeShapeDraw.value = null
@@ -9912,7 +10056,7 @@ async function onGlobalKeydown(e: KeyboardEvent) {
 
   // 2. 绘制工具快捷键监听 (V: 指针选择, R: 矩形方框, T: 文本落字, O: 圆形, P: 钢笔)
   const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-  const isInput = activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable
+  const isInput = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || (document.activeElement as HTMLElement)?.isContentEditable
 
   // 快捷键 Shift+I: 调出 Figma 风格资源与插件中心 (Resources / Plugins Modal)
   if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && (e.key === 'I' || e.key === 'i') && mode.value !== 'preview') {
@@ -10068,19 +10212,10 @@ async function onGlobalKeydown(e: KeyboardEvent) {
   }
 
   // 2. Canvas zoom shortcuts
-  if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+  const navigationCommand = !isInput && canvasShortcut(e)
+  if (navigationCommand && mode.value !== 'preview') {
     e.preventDefault()
-    resetZoom100()
-    return
-  }
-  if (e.shiftKey && (e.key === '1' || e.key === '!')) {
-    e.preventDefault()
-    fitAll()
-    return
-  }
-  if (e.shiftKey && (e.key === '2' || e.key === '@')) {
-    e.preventDefault()
-    focusPage(focusPageId.value ?? (blocks.value[0]?.page.id ?? 0))
+    onCanvasShortcut(navigationCommand)
     return
   }
 
@@ -10522,14 +10657,12 @@ onUnmounted(() => {
 
 .canvas-viewport {
   background-color: #f2f4f7;
+  overscroll-behavior: none;
 }
 
 .canvas-content {
   transform-origin: 0 0;
-
-  &.is-moving {
-    will-change: transform;
-  }
+  will-change: transform;
 
   &.is-animating {
     transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.35, 1);
@@ -10544,6 +10677,12 @@ onUnmounted(() => {
     pointer-events: none !important;
   }
 }
+
+.connection-world { transform-origin: 0 0; }
+.canvas-content.is-animating ~ .canvas-connections .connection-world {
+  transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.35, 1);
+}
+.canvas-content.is-dragging ~ .canvas-connections :deep(*) { pointer-events: none !important; }
 
 .page-block {
   transform-origin: 0 0;

@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Preview stability regression</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import '../src/styles/main.scss'
+import PreviewPageStack from '../src/components/PreviewPageStack.vue'
+
+// All pages, edits and interactions stay in this tab; no project or AI calls.
+const html = id => `<!doctype html><html><head><style>
+body{margin:0;background:#f4f6fb;color:#26344c;font:14px system-ui}
+header{height:40px;padding:8px 16px;box-sizing:border-box;background:white}
+main{position:relative;margin:20px;padding:16px;height:640px;background:#e4ecfa;border-radius:12px;box-sizing:border-box}
+.fixed-control{position:fixed;left:12px;top:80px;padding:8px;background:#fff}
+.centered-control{position:absolute;left:50%;top:220px;transform:translateX(-50%);padding:8px;background:#fff}
+input{display:block;margin-top:70px;padding:8px}nav{position:fixed;bottom:0;width:100%;height:68px;display:flex;background:white}
+nav button{flex:1}.dialog-shade{position:fixed;inset:0;background:rgb(0 0 0 / .4)}
+.wf-modal-card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:280px;padding:20px;background:#fff;border-radius:16px}
+</style></head><body><header>固定页头</header><main><h1>Page ${id}</h1><input data-wf-uid="draft-${id}" placeholder="保留输入"><button class="fixed-control" data-wf-uid="fixed-${id}">固定按钮</button><button class="centered-control" data-wf-uid="centered-${id}">居中按钮</button></main>
+<nav data-wf-navigation="bar">${[1,2,3,4].map(target=>`<button data-nav-item="1" data-wf-uid="p${id}-tab-${target}" data-nav="${target}">页面${target}</button>`).join('')}</nav>
+${id===4?'<div class="dialog-shade" data-wf-role="modal"><section class="wf-modal-card" role="dialog"><h2>确认弹窗</h2><input placeholder="弹窗输入"><button data-action="back">关闭弹窗</button></section></div>':''}
+</body></html>`
+const pages=[1,2,3,4].map(id=>({id,name:`Page ${id}`,canvas_width:375,canvas_height:833,html_content:html(id),analyzed:1,
+  elements:[1,2,3,4].map(target=>({id:id*10+target,type:'button',label:`页面${target}`,x:0,y:765,width:94,height:68,
+    interaction:{action:'navigate',target_page_id:target,params:JSON.stringify({dom_uid:`p${id}-tab-${target}`})}})),annotations:[]}))
+const chosen=ref(pages[0]),direction=ref('tab'),stack=ref(),history=[]
+function choose(id,type='tab'){
+  if(chosen.value.id===id)return
+  if(type==='forward')history.push(chosen.value.id)
+  direction.value=type;chosen.value=pages.find(p=>p.id===id)
+}
+function back(){const id=history.pop();if(id)choose(id,'backward')}
+window.stabilityTest={choose,pages,get stack(){return stack.value},get current(){return chosen.value.id},get history(){return history}}
+createApp({setup:()=>()=>h('main',[
+  h('p','隔离切换验证：不修改项目数据'),
+  h('button',{id:'one',onClick:()=>choose(1)},'栏目一'),
+  h('button',{id:'two',onClick:()=>choose(2)},'栏目二'),
+  h('button',{id:'detail',onClick:()=>choose(3,'forward')},'详情'),
+  h('button',{id:'dialog',onClick:()=>choose(4,'forward')},'弹窗'),
+  h('button',{id:'back',onClick:back},'返回'),
+  h('div',{style:'position:relative;width:375px;height:833px;overflow:hidden;border:1px solid #aaa'},h(PreviewPageStack,{
+    ref:stack,page:chosen.value,allPages:pages,transition:direction.value,onNavigate:id=>choose(Number(id)),onBack:back,
+  })),
+])}).use(ElementPlus).mount('#app')
+</script></body></html>

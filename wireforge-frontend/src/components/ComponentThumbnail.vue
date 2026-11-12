@@ -1,11 +1,15 @@
 <template>
-  <div class="wf-component-thumbnail" aria-hidden="true">
-    <div class="wf-component-sample" v-html="html"></div>
+  <div class="wf-component-thumbnail" aria-hidden="true" inert>
+    <div class="wf-component-sample" v-html="safeHtml"></div>
   </div>
 </template>
 
 <script setup lang="ts">
-defineProps<{ html: string }>()
+import { computed } from 'vue'
+import { sanitizeComponentPreview } from '../utils/prototypeSecurity'
+
+const props = defineProps<{ html: string }>()
+const safeHtml = computed(() => sanitizeComponentPreview(props.html))
 </script>
 
 <style scoped>
@@ -15,6 +19,7 @@ defineProps<{ html: string }>()
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  contain: layout style paint;
   pointer-events: none;
   background: #f5f6f8;
   border-bottom: 1px solid var(--editor-border, #e6e8eb);

@@ -1,0 +1,106 @@
+/* Shared controls: geometry may still be changed by the canvas editor. */
+html body [data-wf-control] {
+  box-sizing: border-box !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  display: inline-block !important;
+  position: relative;
+  flex: none !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  padding: 0 !important;
+  margin: 0;
+  vertical-align: middle;
+  cursor: pointer;
+  overflow: visible !important;
+  transition: background-color .18s ease, border-color .18s ease !important;
+  /* Navigation's active color is foreground ink and may be white on a colored tile. */
+  --wf-control-color: var(--wf-control-accent, var(--primary, #f87f2c));
+}
+html body [data-wf-control]::before,
+html body [data-wf-control]::after {
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  pointer-events: none !important;
+}
+html body [data-wf-control] > * { display: none !important; }
+html body [data-wf-control="switch"] {
+  width: 44px;
+  height: 25px;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: var(--wf-control-off, #dfe2e6) !important;
+  box-shadow: none !important;
+}
+html body [data-wf-control="switch"]::before {
+  content: "" !important;
+  display: block !important;
+  position: absolute !important;
+  top: 3px !important;
+  bottom: auto !important;
+  left: 3px !important;
+  right: auto !important;
+  height: calc(100% - 6px) !important;
+  width: auto !important;
+  aspect-ratio: 1 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: #fff !important;
+  box-shadow: 0 1px 3px #0002 !important;
+  transform: none !important;
+  transition: left .18s ease, transform .18s ease !important;
+}
+html body [data-wf-control="switch"]::after { content: none !important; display: none !important; }
+html body [data-wf-control="switch"][aria-checked="true"] { background: var(--wf-control-color) !important; }
+html body [data-wf-control="switch"][aria-checked="true"]::before {
+  left: calc(100% - 3px) !important;
+  transform: translateX(-100%) !important;
+}
+html body [data-wf-control="checkbox"],
+html body [data-wf-control="radio"] {
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--wf-control-border, #b6bdc8) !important;
+  background: var(--bg-card, #fff) !important;
+  box-shadow: none !important;
+}
+html body [data-wf-control="checkbox"] { border-radius: 5px !important; }
+html body [data-wf-control="radio"] { border-radius: 50% !important; }
+html body [data-wf-control="checkbox"]::before,
+html body [data-wf-control="radio"]::before { content: none !important; display: none !important; }
+html body [data-wf-control="checkbox"]::after,
+html body [data-wf-control="radio"]::after { content: none !important; }
+html body [data-wf-control="checkbox"][aria-checked="true"] {
+  border-color: var(--wf-control-color) !important;
+  background: var(--wf-control-color) !important;
+}
+html body [data-wf-control="checkbox"][aria-checked="true"]::after {
+  content: "" !important;
+  display: block !important;
+  position: absolute !important;
+  width: 32% !important;
+  height: 58% !important;
+  left: 34% !important;
+  top: 12% !important;
+  border: solid #fff !important;
+  border-width: 0 2px 2px 0 !important;
+  background: transparent !important;
+  transform: rotate(45deg) !important;
+}
+html body [data-wf-control="radio"][aria-checked="true"] { border-color: var(--wf-control-color) !important; }
+html body [data-wf-control="radio"][aria-checked="true"]::after {
+  content: "" !important;
+  display: block !important;
+  position: absolute !important;
+  inset: 22% !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: var(--wf-control-color) !important;
+  transform: none !important;
+}
+html body [data-wf-control]:disabled,
+html body [data-wf-control][aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+html body [data-wf-control]:focus-visible { outline: 2px solid var(--wf-control-color); outline-offset: 3px; }

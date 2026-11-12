@@ -30,9 +30,78 @@ class AutowireReviewServiceTest {
         service=new InteractionAutowireService(pages,elements,lines,annotations,projects,exclusions,ai,json,new AutowirePlanner(),jdbc,tx,render);
     }
     ApplyRequest request(String token,List<String> selected) {return new ApplyRequest(token,"review-key-1234",selected,List.of(),List.of());}
+    private void explicitPrototypeLink() {
+        page.setHtmlContent("<html><head><meta name='wf-renderer' content='ai-static-v1'></head><body><button data-wf-uid='open-records' data-nav='兑换记录'><span data-wf-element-id='10'>记录</span></button></body></html>");
+    }
+    @Test void generatedPrototypeDeclarationSynchronizesAStableOwnerWithoutCallingAi() {
+        explicitPrototypeLink();
+        assertEquals(1,service.syncGeneratedPrototypeInteractions(1L));
+        verify(lines).insert(argThat((Interaction line)->line.getElementId()==10L&&line.getTargetPageId()==3L
+                &&"navigate".equals(line.getActionType())&&line.getParams().contains("open-records")&&line.getParams().contains("generated_html")));
+        verify(tx).commit(any());verifyNoInteractions(ai,render);
+    }
+    @Test void generatedDeclarationsCannotReplaceManualOrLocalActions() {
+        explicitPrototypeLink();
+        Interaction manual=AutowirePlannerTest.line(60,button,"user",3L);when(lines.selectList(any())).thenReturn(List.of(manual));
+        assertEquals(0,service.syncGeneratedPrototypeInteractions(1L));
+        manual.setSource("ai");manual.setActionType("tab_switch");manual.setTargetPageId(null);
+        assertEquals(0,service.syncGeneratedPrototypeInteractions(1L));
+        verify(lines,never()).insert(any(Interaction.class));verify(lines,never()).updateById(any(Interaction.class));
+    }
+    @Test void explicitNoNavigationAnnotationsStillBlockGeneratedLinks() {
+        explicitPrototypeLink();when(annotations.selectList(any())).thenReturn(List.of(AutowirePlannerTest.annotation(1,button,"仅展示，不需要跳转")));
+        assertEquals(0,service.syncGeneratedPrototypeInteractions(1L));verify(lines,never()).insert(any(Interaction.class));
+    }
+    @Test void repeatingGeneratedSynchronizationDoesNotDuplicateTheRelationship() {
+        explicitPrototypeLink();List<Interaction> stored=new ArrayList<>();when(lines.selectList(any())).thenAnswer(inv->new ArrayList<>(stored));
+        doAnswer(inv->{Interaction line=inv.getArgument(0);line.setId(70L);stored.add(line);return 1;}).when(lines).insert(any(Interaction.class));
+        assertEquals(1,service.syncGeneratedPrototypeInteractions(1L));assertEquals(0,service.syncGeneratedPrototypeInteractions(1L));
+        verify(lines,times(1)).insert(any(Interaction.class));
+    }
     @Test void previewNeverWritesOrRenders() {
         var plan=service.preview(1L);assertEquals(1,plan.items().size());
         verifyNoInteractions(render,tx);verify(jdbc,never()).update(anyString(),any(Object[].class));verify(lines,never()).insert(any(Interaction.class));verify(lines,never()).deleteById(anyLong());verifyNoInteractions(ai);
+    }
+    @Test void rulesOnlyRefreshKeepsSelectableTargetsWithoutCallingAi() {
+        page.setName("首页");
+        when(elements.selectList(any())).thenReturn(NavigationPlannerTest.bar(1,"首页","我的"));
+        when(ai.generateText(anyString(),anyString())).thenReturn("[]");
+        var rules=service.preview(1L,new PreviewRequest(null,List.of(),List.of(),true));
+        assertEquals(1,rules.items().size());
+        assertFalse(rules.items().get(0).navigation().candidateTargets().isEmpty());
+        verifyNoInteractions(ai,render,tx);
+        var standard=service.preview(1L);
+        assertNotEquals(rules.previewId(),standard.previewId());
+        verify(ai).generateText(anyString(),anyString());
+        verify(lines,never()).insert(any(Interaction.class));
+    }
+    @Test void deletingOldLinesCanBeFollowedByAnotherReviewedBatchWithFreshSnapshot() {
+        button.setLabel("功能入口");
+        Element image=AutowirePlannerTest.el(11,"image","装饰图片",10,180,100,100);
+        when(elements.selectList(any())).thenReturn(List.of(button,image));
+        List<Interaction> stored=new ArrayList<>(List.of(AutowirePlannerTest.line(40,button,"ai",null),AutowirePlannerTest.line(41,image,"ai",3L)));
+        when(lines.selectList(any())).thenAnswer(inv->new ArrayList<>(stored));
+        when(lines.deleteById(anyLong())).thenAnswer(inv->stored.removeIf(line->line.getId().equals(inv.getArgument(0)))?1:0);
+        var first=service.preview(1L,new PreviewRequest(null,List.of(),List.of(),true));
+        var removal=first.items().stream().filter(item->"remove".equals(item.category())).findFirst().orElseThrow();
+        assertEquals(1,service.apply(1L,request(first.previewId(),List.of(removal.id()))).removed());
+        var stale=first.items().stream().filter(item->item.elementId()==10).findFirst().orElseThrow();
+        assertThrows(ResponseStatusException.class,()->service.apply(1L,new ApplyRequest(first.previewId(),"stale-batch-key",List.of(stale.id()),List.of(),List.of(),List.of(),List.of(new NavigationResolution(stale.stableKey(),3)))));
+        var next=service.preview(1L,new PreviewRequest(null,List.of(),List.of(),true));
+        assertNotEquals(first.previewId(),next.previewId());
+        assertEquals(1,next.items().size());
+        var remaining=next.items().get(0);
+        assertEquals(List.of(new TargetOption(3,"兑换记录")),remaining.targetSelection().candidateTargets());
+        var result=service.apply(1L,new ApplyRequest(next.previewId(),"second-batch-key",List.of(remaining.id()),List.of(),List.of(),List.of(),List.of(new NavigationResolution(remaining.stableKey(),3))));
+        assertEquals(1,result.completed());assertEquals(0,result.removed());
+        verify(lines,times(1)).deleteById(41L);
+        verify(lines).updateById(argThat((Interaction line)->line.getId()==40&&line.getTargetPageId()==3));
+        verifyNoInteractions(ai);
+    }
+    @Test void existingPreviewPayloadsStillUseAiByDefault() throws Exception {
+        var request=json.readValue("{\"navigationResolutions\":[],\"targetResolutions\":[]}",PreviewRequest.class);
+        assertFalse(request.rulesOnly());
+        assertTrue(json.readValue("{\"rulesOnly\":true}",PreviewRequest.class).rulesOnly());
     }
     @Test void stalePlanRollsBackWithoutChangingRelations() {
         var plan=service.preview(1L);button.setLabel("同时编辑后的入口");

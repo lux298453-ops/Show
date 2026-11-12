@@ -41,7 +41,7 @@ class PermissionInterceptorTest {
         });
         when(sessionMapper.selectById(anyString())).thenAnswer(inv -> table.get(inv.<String>getArgument(0)));
         authService = new AuthService(projectMemberMapper, new LogService(mock(OperationLogMapper.class)), sessionMapper,
-                mock(com.wireforge.mapper.AppUserMapper.class));
+                mock(com.wireforge.mapper.AppUserMapper.class), new AuthSessionCacheConfig().authSessionCache(10_000));
         ReflectionTestUtils.setField(authService, "adminIds", "ou_sys_admin");
         ReflectionTestUtils.setField(authService, "mockLoginEnabled", true);
         interceptor = new PermissionInterceptor(authService, new ObjectMapper());
@@ -66,7 +66,14 @@ class PermissionInterceptorTest {
 
     @Test
     void requirementTable() {
+        assertEquals(OPEN, PermissionInterceptor.requirement("GET", "/api/projects"));
+        assertEquals(OPEN, PermissionInterceptor.requirement("GET", "/api/projects/7"));
         assertEquals(OPEN, PermissionInterceptor.requirement("GET", "/api/projects/7/prototype"));
+        assertEquals(OPEN, PermissionInterceptor.requirement("HEAD", "/api/projects/7/prototype"));
+        assertEquals(PROJECT_ADMIN, PermissionInterceptor.requirement("HEAD", "/api/projects/7/logs"));
+        assertEquals(EDITOR, PermissionInterceptor.requirement("POST", "/api/projects/7/sync-elfship-interactions"));
+        assertEquals(LOGIN, PermissionInterceptor.requirement("GET", "/api/assets/list"));
+        assertEquals(OPEN, PermissionInterceptor.requirement("GET", "/api/assets/artwork/7/digest.png"));
         assertEquals(OPEN, PermissionInterceptor.requirement("POST", "/api/auth/feishu/callback"));
         assertEquals(OPEN, PermissionInterceptor.requirement("OPTIONS", "/api/projects/7/pages/1/html"));
         assertEquals(LOGIN, PermissionInterceptor.requirement("POST", "/api/projects"));
@@ -93,8 +100,21 @@ class PermissionInterceptorTest {
     }
 
     @Test
-    void guestCanReadButNotWrite() throws Exception {
-        assertEquals(200, call("GET", "/api/projects/7/prototype", null).getStatus());
+    void guestCanViewProjectsButCannotWriteOrReadProtectedMetadata() throws Exception {
+        for (String path : new String[]{"/api/projects", "/api/projects/7", "/api/projects/7/prototype", "/api/projects/7/comments", "/api/projects/7/analysis-status"}) {
+            assertEquals(200, call("GET", path, null).getStatus());
+            assertEquals(200, call("HEAD", path, null).getStatus());
+        }
+        for (String path : new String[]{"/api/projects/7/members", "/api/projects/7/members/lookup", "/api/projects/7/logs", "/api/logs/projects"}) {
+            assertEquals(401, call("GET", path, null).getStatus());
+            assertEquals(401, call("HEAD", path, null).getStatus());
+        }
+        assertEquals(401, call("PUT", "/api/projects/7/pages/1/html", null).getStatus());
+        assertEquals(401, call("DELETE", "/api/projects/7/pages/1", null).getStatus());
+        assertEquals(401, call("POST", "/api/projects/7/reanalyze-all", null).getStatus());
+        assertEquals(401, call("PUT", "/api/projects/7", null).getStatus());
+        assertEquals(401, call("DELETE", "/api/projects/7", null).getStatus());
+        assertEquals(401, call("POST", "/api/projects/7/sync-elfship-interactions", null).getStatus());
         MockHttpServletResponse res = call("POST", "/api/projects/7/comments", null);
         assertEquals(401, res.getStatus());
         assertTrue(res.getContentAsString(java.nio.charset.StandardCharsets.UTF_8).contains("请先登录飞书账号"));
@@ -103,6 +123,8 @@ class PermissionInterceptorTest {
     @Test
     void viewerCanCommentButNotEdit() throws Exception {
         memberRole(null);
+        assertEquals(200, call("GET", "/api/projects/7/prototype", "ou_user").getStatus());
+        assertEquals(403, call("POST", "/api/projects/7/sync-elfship-interactions", "ou_user").getStatus());
         assertEquals(200, call("POST", "/api/projects/7/comments", "ou_user").getStatus());
         assertEquals(403, call("PUT", "/api/projects/7/pages/1/html", "ou_user").getStatus());
         assertEquals(403, call("POST", "/api/projects/7/members", "ou_user").getStatus());
@@ -111,6 +133,7 @@ class PermissionInterceptorTest {
     @Test
     void editorCanEditButNotManageMembersOrDelete() throws Exception {
         memberRole("editor");
+        assertEquals(200, call("POST", "/api/projects/7/sync-elfship-interactions", "ou_user").getStatus());
         assertEquals(200, call("PUT", "/api/projects/7/pages/1/html", "ou_user").getStatus());
         assertEquals(403, call("POST", "/api/projects/7/members", "ou_user").getStatus());
         assertEquals(403, call("DELETE", "/api/projects/7", "ou_user").getStatus());

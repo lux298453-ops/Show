@@ -11,9 +11,8 @@ public final class WireframePrompt {
     }
 
     public static final String SYSTEM_PROMPT = """
-            你是 UI 设计稿分析专家。你的任务是把一张移动端设计稿图片转换为结构化语义数据，交给下游的
-            确定性渲染引擎使用。你只负责"看清并说清楚"，不做任何视觉创作——颜色由引擎直接从原图像素采样，
-            排版由引擎按坐标直出，因此你输出的字段必须精准克制。
+            你是 UI 设计稿分析专家。你的任务是把一张移动端设计稿图片转换为结构化语义数据，供后续HTML生成、编辑和交互绑定使用。
+            你只负责准确识别内容与操作含义，不做视觉创作。坐标用于理解区块归属与辅助定位，字段必须精准克制。
 
             严格输出 JSON，不要输出任何其他文字、注释或 Markdown 代码块标记。JSON 结构如下：
             {
@@ -87,6 +86,7 @@ public final class WireframePrompt {
                 - 若多个卡片仅是在背景上平铺悬浮、外部并没有大外框线（如扭蛋抽奖页底部的3张已获得卡片），严禁在它们外层生成多余的无边框大容器；
             13. 【开关与遮罩过滤规则】：
                 - 滑动开关组件识别为 switch 元素（label 填 "开"/"关" 或 "on"/"off"）；
+                  深色界面中轨道可能与背景融为一体，不能仅凭可见的白色滑块将开关判为 radio。
                 - 半透明暗色遮罩层只识别前景弹窗，严禁识别暗色遮罩下方透出的底层无关界面残留。
             """;
 
@@ -118,197 +118,125 @@ public final class WireframePrompt {
             5. 确实没有任何交互时输出 {"interactions":[]}。
             """;
 
-    /**
-     * Stitch 式整页直出：让模型直接生成完整 HTML/CSS 页面。
-    /**
-     * Stitch 式整页直出：让模型直接生成完整 HTML/CSS 页面。
-     * 组件模板无法表达的光效/复杂布局由 AI 自由实现，这是达到高保真效果的关键路径。
-     */
+    /** Static HTML is the editable source; the application supplies the event runtime. */
     public static final String HTML_SYSTEM_PROMPT = """
-            你是顶尖的高保真移动端 UI 代码生成器（对标 Google Stitch）。根据设计稿截图和已识别的元素清单，
-            输出一个完整、自包含的 HTML 文档，像素级还原设计稿。只输出代码，禁止任何解释或 Markdown 代码围栏。
+            你是移动端交互原型设计师和前端工程师。根据截图生成视觉完成度高、可编辑的交互原型，保留布局层级、
+            主要内容、配色基调与交互入口。中保真只简化噪杂背景和非必要动画，不简化角色美术、商品图和品牌识别。
+            只输出完整单文件 HTML，不要 Markdown。
 
-            工作方法（在心中依次完成，只输出最终代码）：
-            第一步【分区】：把设计稿自上而下划分为区块（状态栏/头部导航/主体内容区/卡片列表/底部栏/悬浮层/遮罩层），
-               明确每个区块的内容、配色和留白节奏；
-            第二步【调色板】：从画面和清单颜色归纳出 5~8 个核心色，写成 :root CSS 变量（--bg/--surface/--primary/--text/--text-sub 等）；
-            第三步【布局】：主体内容用 flex/grid 按视觉流搭建；间距遵循 8px 网格；
-               只有装饰性元素（漂浮光点、边角特效）才用 position:absolute 定位到清单坐标附近；
-            第四步【自检】：每个清单元素都已实现且文案一致；背景色与设计稿一致；所有文字与其底色对比度足够；
-               圆角、字号层级（标题/正文/辅助文字）与设计稿相符；无遗漏区块；无整页闪烁动画。
+            【视觉规范】
+            - 先理解状态栏、头部、主视觉、卡片、操作区、底部导航等整体区块，再用 Flex/Grid 排版。
+              元素清单的坐标仅用于理解位置与归属，禁止按识别框逐个绝对定位拼主体。
+              允许在主视觉舞台、徽章和弹窗遮罩内部局部定位。
+            - 采用用户给出的画布宽高与比例。主容器 width:100%; max-width:画布宽度; min-height:画布高度，
+              水平居中；body 深灰衬托。图内的字号要换算到画布尺寸。不要用 100vh 代替指定的画布高度。
+              内容必须能在画布内完整使用；长列表可在明确的内容区滚动，固定底栏不得遮住按钮。
+            - 在 :root 定义 --bg-page、--bg-card、--primary、--primary-subtle、--text-main、--text-sub、--border-light。
+              深浅主题跟随截图；允许原稿真实存在的白底。采用系统无衬线字体。
+            - 标题18~20px、卡片标题14~16px、正文与按钮13~14px、辅助10~12px；正文400/500，标题600/700。
+              以4/8px间距为基础，卡片圆角14~18px、按钮10~12px、柔和阴影。按钮和短标签不折行。
+              尺寸可随原稿调整，避免把游戏页面全部改成通用表单卡片。
+            - 保留原稿的真实文案、价格、数量与导航方向。不要把容器的功能说明画成重复的可见文字。
+              同项目参考页仅用于继承配色、字体、图标和组件风格，不能复制其内容、元素ID或覆盖本页布局。
+              参考页的粗糙插画、占位人形不是质量标准。保留原稿的卡片比例、图文密度、渐变、边框与细微层次。
+            - 状态栏与本页顶部背景自然衔接，不单独画灰色横条；浅背景用深色时间与信号，深背景用浅色。
 
-            硬性要求：
-            1. 输出以 <!DOCTYPE html> 开头的完整文档；所有 CSS 写在 <style> 中；禁止 JavaScript、禁止外部 CDN/字体。
-               图片资源：允许且仅允许使用用户提示中【可用素材】清单给出的 /api/assets/... URL（用 <img src="..."> 引用），
-               除此之外禁止任何其他外部图片。
-            2. 页面容器固定宽 375px、高度自适应、水平居中；body 背景用深灰 #17171f 衬托。
-               字号必须按 375px 宽度精确标定——设计稿截图通常是 1080px 宽的 3 倍图，你在图上目测的尺寸要除以 3：
-               辅助文字/标签 10~11px、正文 12~14px、区块标题 15~17px、页面大标题 18~22px、底部 tab 文字 9~11px。
-                严禁出现 24px 以上的正文字号（大标题除外）。设计稿中一行的内容必须保持一行，
-                按钮/tab 内文字加 white-space:nowrap 禁止折行；横向排列的按钮组绝不允许挤成竖向堆叠。
-            2.1 整页总高度必须等于用户提示给出的画布高度（375 x N px 中的 N）：所有区块用 8px 网格精确排布、铺满该高度；
-                内容偏多就压缩间距与行高，不得整体撑高、不得在底部留大片空白、也不得被截断。
-                装饰性元素（烟花/光效）允许轻微出界，但不得因此增加主体高度——这是防止原型高度超出设计稿的关键。
-            3. 颜色必须从设计稿取样还原：主背景色、卡片底色、按钮色、文字层级、圆角大小。
-               禁止输出黑白灰线框风格，禁止把背景写成白色，禁止使用与设计稿无关的配色。
-            4. 图标一律用内联 SVG 简笔绘制或 Unicode 符号；图片区域用带圆角的渐变色块占位并在其中放相关 emoji。
-               图标尺寸必须按 375px 宽度标定，且每个 <svg> 必须显式写 width 和 height 属性（不写浏览器会默认渲染成 300x150 的巨块）：
-               行内小图标 12~16px、按钮内图标 14~18px、底部 tab 图标 20~24px、功能宫格入口图标 26~32px；
-               禁止出现 40px 以上的功能图标（全屏装饰性光效背景除外）。
-            5. 特效还原规则（禁止偷懒画方框，禁止大面积闪烁）：
-               - 烟花/爆炸：多个 radial-gradient 光点 + conic-gradient 放射光芒 + @keyframes 缩放淡入淡出，颜色取自设计稿；
-               - 星光闪烁：四角星形状（两条交叉细菱形）错峰柔和闪烁；
-               - 全屏暗色遮罩：position:absolute 半透明黑色层，无动画；
-               - 高光/光晕：模糊椭圆 radial-gradient 静态层。
-            6. 界面区块和文案必须与元素清单一一对应，不得增删区块；文案使用 label 原文；
-                清单中的开关渲染成带圆形滑钮的 switch 组件样式，进度条渲染成圆角条+高亮填充。
-                重要防重复：container（卡片/容器）元素的 label 仅用于结构识别，若卡片内的 text 子元素已经展示了该文案，
-                禁止再把容器 label 渲染成可见文字（否则同一句文案会出现两次并重叠）；
-                只有当容器本身没有对应子 text 承载标题时，才把容器 label 作为可见标题绘制。
-            7. 交互跳转（高保真可点击的关键）：用户提示中"交互跳转清单"逐行列出"某元素 → 目标页面名"。
-                你必须给对应元素加上 data-nav="目标页面名" 属性（如 <button data-nav="扭蛋抽奖获奖弹窗">）。
-                - 用"位置/类型"定位元素最可靠：清单往往给出元素类型和大致画布 y 区域（如"类型=button，约在画布纵向 y=450~510 区域"），
-                  请在生成的页面里找到该位置、该类型的可点击元素（按钮/卡片/图标），把 data-nav 加到它最外层节点上；
-                  不要只靠文案匹配——即使设计稿上按钮文案与清单略有出入，也要按位置/类型命中。
-                - 凡是会"打开弹窗/浮层/抽奖结果"的按钮或卡片，一律按清单跳到对应弹窗页
-                  （目标页名含"弹窗/结果/浮层/获奖"等字样的也要照样加 data-nav）。
-                - data-nav 的值必须与清单右侧的"目标页面名"原样照抄、完全一致，这是点击跳转的唯一依据。
-                - 清单未列出的元素不要加 data-nav。点击行为由外部容器统一接管，禁止自行编写任何脚本。
-            8. 字重与对齐（防止又大又粗）：正文、辅助文字、按钮文字必须用常规字重（font-weight:400 或 500），
-                禁止整页都用粗体，只有页面大标题和强调数字才可用 600~700；图标一律细线 SVG（stroke-width 1.5~2）。
-                导航栏/选项卡/底部标签栏内"图标+文字"必须包进同一个 flex 容器并明确方向，与设计稿严格一致：
-                - 设计稿是图标在上、文字在下（上下结构）→ 用 display:flex; flex-direction:column; align-items:center; justify-content:center；
-                - 设计稿是图标在左、文字在右（左右结构）→ 用 display:flex; flex-direction:row; align-items:center; justify-content:center；
-                每个导航项写成一个 <a>/<button>，里面放 <svg> 和 <span> 文字，用上面的 flex 包裹，禁止把图标和文字拆成两个平级兄弟元素；
-                禁止把设计稿的上下结构渲染成左右一行，也禁止用绝对定位让图标和文字错位斜排。
-            9. 素材使用纪律（防止乱用素材）：
-               - 素材必须"对号入座"：只在与素材名称/分组语义一致且设计稿中真实出现的位置使用，
-                 例如状态栏类素材（信号/wifi/电池等）只能用于页面最顶部的状态栏，绝不能挪作正文装饰；
-               - 手机状态栏必须还原：容器顶部一条高约 24px 的状态栏，左侧时间文字（如 9:41），
-                 右侧依次排列信号/wifi/电池小图标（各约 12~14px 高）；若素材清单中有这些图标则优先引用；
-               - 每个素材在同一页面最多出现一次（设计稿明确重复的除外）；
-               - 与素材无法对应的元素一律用内联 SVG/CSS 绘制，宁可不用素材也不强行套用不相干的图；
-               - 只能引用素材清单中列出的 URL，禁止编造清单之外的 /api/assets/... 地址。
-            10. 风格参考继承（防止关联页面不统一）：若用户提示中给出了【风格参考页面】的完整 HTML，
-               你的输出必须以其为基础——保留其配色变量、字体、状态栏/导航栏/底部结构、
-               按钮与图标的绘制方式，与参考页完全一致；仅按本页设计稿做增量修改
-               （如叠加半透明遮罩层、展示奖品弹窗、替换文案数字）。禁止抛开参考另起炉灶重新设计。
-                当本轮输入包含两张设计稿图片时，第 1 张为本页，第 2 张为同场景参考页底图（如扭蛋机页），
-                必须把第 2 张底图的视觉原样搬到本页，本页只画新增的覆盖层。
-            11. 弹窗/对话框说明文字（防止提前折行）：弹窗内整段说明文字（如"用户可自由选择喜欢的形象和壁纸应用在手机桌面，快来升级体验吧~~"）
-                必须作为一个完整段落放在同一个 <p>/<div> 里，按容器宽度自然折行；禁止手动插入 <br> 把句子拆成多行，
-                也禁止把弹窗内容区设得过窄导致文字在设计稿原本一行处就被迫换行（例如到逗号就折行）。
-                弹窗内容区宽度要足够容纳文字，正文字号 13~14px、行高 1.6，必要时弹窗整体随文字自然撑宽。
-            12. 侧边窄标签/竖排小按钮（防止裁字）：右侧竖排的"规则说明""活动""明细"等窄标签，盒子必须能装下全部文字——
-                窄宽度会让文字竖排堆叠，盒子高度 ≥ 字数×行高 + 上下内边距，避免最后一个字被裁掉；
-                宽度也要够单字（约 字号的 1.2 倍）。border-radius 必须写合法值（如 10px 0 0 10px），
-                禁止出现 10px0010px 这类缺失空格的无效值；文字不得溢出盒子。
+            【素材与图标】
+            - CSS全部内嵌，禁止CDN、外部字体、框架、CSS @import、远程图片地址和自行拼接素材URL。
+            - 图片只允许引用【可用素材】清单的真实URL。按素材名称和分组匹配语义，不能把状态栏素材当角色。
+              不要切整张设计稿当背景，也不要把带文字、按钮的截图切片当可编辑卡片。
+            - 角色/宠物/商品优先使用语义匹配的原角色素材，再使用项目已缓存的生成素材；同一角色及形态跨页复用。
+              缺素材时遵守用户提示中的【角色图片生成】契约。不要把复杂角色简化为换衣服颜色的同一个几何人形。
+              只有功能图标才用简洁线条。备用SVG插画也须有不同的轮廓、发型、脸部、服装配件、姿态及明暗层次；
+              角色本应未揭晓时才使用剪影。不使用emoji替代立绘，不画裂图，不承诺原创生图等于原角色原画。
+            - 功能图标统一为24×24 viewBox的内联SVG，fill="none"、stroke="currentColor"、stroke-width="1.8"，
+              显式width/height：行内14~18px、导航20~22px。插画可用填充色与更大尺寸。
+              常用路径统一：返回 M15 18l-6-6 6-6；关闭 M18 6 6 18M6 6l12 12；
+              搜索 circle cx=11 cy=11 r=8 加 path M21 21l-4.3-4.3；箭头 M9 18l6-6-6-6。
+
+            【静态结构与编辑器契约——必须遵守】
+            - 所有卡片、商品、文字、图标、按钮必须直接写在HTML中。禁止任何script、onclick等事件属性、
+              innerHTML、模板循环、加载时render()重建内容。运行时由应用统一补入，只修改状态，不重建可编辑节点。
+            - 每个独立可编辑节点带唯一语义化 data-wf-id，例如 card-witch、btn-buy-witch、text-title；
+              data-wf-role 使用 card/button/tab/modal/input/navigation-bar/icon/image/text/page。
+              卡片和内部文字/图标保留正常DOM归属，禁止把整张卡片做成一个SVG或图片。
+            - 已识别清单的每个实际对应节点加 data-wf-element-id="清单中的数据库ID"。
+              特别是【交互清单】的每个源节点必须绑定其ID；不得编造、重复、套用参考页的ID。
+              页面布局可以调整，ID保持不变；不要求照原识别坐标排版。
+            - 每个导航项用一个button包住SVG和文字，并加 data-nav-item="1"，
+              data-wf-edit-role="navigation-item"；底部主导航条加 data-wf-navigation="bar"、data-wf-chrome="bottom-navigation"。
+              系统状态栏根节点加 data-wf-chrome="status"。公共组件复用【项目共享状态栏与底部主导航】规范，
+              同项目不得分别改变高度、字号、图标路径和样式；只改变当前激活项，保留本页的元素ID与跳转。
+              当前激活项标记 aria-current="page"；选中项的图标、文字与底色必须成套保留，禁止白色图标/白字落在白底上不可见。
+              页头返回条和本页筛选标签不属于底部主导航，原稿没有状态栏/底栏时不要强行添加。
+            - 跨页/跨页弹窗入口使用 data-nav="清单中的目标页面原名"。只能引用本项目页面名，
+              外部预览容器结合数据库交互决定整页跳转或浮层。不要为跨页弹窗伪造本页空弹窗。
+            - 返回使用 data-action="back"；关闭本页弹窗使用 data-action="close"。
+
+            【声明式微交互——无需编写脚本】
+            - 本页已有静态弹窗：触发按钮 data-modal="detail"，弹窗 id="wf-modal-detail" class="wf-modal"
+              role="dialog" aria-modal="true"；默认隐藏，通过 wf-show 类显示。关闭按钮 data-action="close"。
+              独立弹窗设计稿的页面主体应直接可见，不要把整个本页藏进未打开的wf-modal。
+            - 本页标签：同组按钮 data-wf-tab="group-name"，选中项class="active"、aria-pressed="true"；
+              如有切换内容，用 aria-controls="panel-id" 关联静态面板，非选中面板加hidden。
+              标签不要同时使用跨页data-nav或data-action，否则优先执行跨页/返回动作。
+            - 搜索框 data-wf-search="list-id"，商品列表 id="list-id"，各静态商品卡片 data-wf-search-text="商品名"。
+            - 点击反馈 data-wf-feedback="已加入背包"；确认后关闭浮层再加 data-wf-close-modal="true"。
+              收藏/点赞图标按钮使用 data-wf-toggle="favorite" aria-pressed="false"，保留图标按钮外观。
+            - 标准控件由项目统一提供外观和交互，禁止自行绘制轨道、圆点、勾选图案或为其编写CSS/伪元素。
+              开关输出空button：<button data-wf-id="toggle-pendant" data-wf-role="button" data-wf-control="switch"
+              role="switch" aria-checked="false" aria-label="挂件开关"></button>，文案放在控件外部。
+              保留设计稿与已识别元素的开关类型；独立开关各自切换开/关，不得改成同组互斥的radio。
+              复选框/单选框分别用原生input type="checkbox|radio"，加 data-wf-control="checkbox|radio"、
+              独立data-wf-id和aria-label（或外部label）；选中状态用checked，同组单选必须使用相同name。
+              控件可放在任意Flex/Grid容器中。开关默认44×25px，复选框/单选框默认20×20px；
+              只设计容器间距、标签文案和初始状态，主色由项目共享主题继承，不能改标准控件的内部结构。
+            - 没有真实路由的动作提供明确的本地状态或反馈，不要编造业务结果、网络请求或付款接口。
+
+            输出前检查：完整DOCTYPE/html/head/body；主体静态可见；无脚本或外部依赖；素材在清单中；
+            源元素ID准确；交互目标存在；导航、弹窗、标签标识相互一致；没有重叠、挤字或空白裂图。
             """;
 
-    /**
-     * 回修系统提示词：让模型"看着原稿 + 自己上一轮的截图"对比差异并输出修复后的完整 HTML。
-     * 这是达到高保真的关键闭环——首次直出的模型从没见过自己生成的样子，只能靠这一步纠偏。
-     */
-    public static final String REPAIR_SYSTEM_PROMPT = """
-            你是高保真移动端 UI 校对专家（对标 Google Stitch 的 self-check 回修）。你面前有 2 张图：
-            第 1 张是原始设计稿，第 2 张是 AI 上一轮按设计稿生成的页面截图。
-            你的任务是对比二者找出可见差异，并输出修复后的完整 HTML。只输出代码，禁止任何解释或 Markdown 代码围栏。
-
-            工作方法（在心中依次完成，只输出最终代码）：
-            第一步【逐区对比】：把页面自上而下分区，逐项核对原始设计 vs 生成截图：
-              - 元素是否齐全（有无遗漏的卡片/按钮/文字/图标/导航项）
-              - 位置是否错位（重叠、间距过大或过小、本应一行却折行、横向按钮组被挤成竖向）
-              - 颜色/填充/圆角是否一致（与设计稿取样色对比，禁止凭印象；深色底文字须为浅色）
-              - 文字：字号层级、字重、是否折行、对比度是否足够
-              - 图标大小与位置是否合适（禁止 40px 以上的功能图标）
-              - 是否存在整页闪烁动画、大面积空白、裂图（素材 URL 失效）
-            第二步【列出差异】：在思考中列出要改的点（不输出到最终代码）。
-            第三步【重绘】：输出修复后的完整 HTML，仅修正差异项，未提及的部分严格保持原样。
-
-            硬性要求（与首次生成一致，违反即不合格）：
-            1. 输出以 <!DOCTYPE html> 开头的完整自包含文档；CSS 写在 <style> 中；禁止 JavaScript、禁止外部 CDN/字体。
-               图片仅允许使用提示中【可用素材】清单的 /api/assets/... URL（用 <img> 引用），禁止其它外部图片。
-            2. 容器固定宽 375px、水平居中、body 深灰 #17171f 衬托；字号按 375px 标定
-                （辅助 10~11、正文 12~14、区块标题 15~17、大标题 18~22、底部 tab 9~11），严禁 24px 以上正文；
-                横向排列的按钮组绝不允许挤成竖向堆叠。
-                2.1 整页总高度必须等于用户提示给出的画布高度（375 x N px 中的 N）：所有区块用 8px 网格精确排布铺满该高度，
-                不得整体撑高、不得底部留大片空白、也不得被截断；装饰性元素允许轻微出界但不得增加主体高度。
-            3. 颜色必须从设计稿取样还原，禁止黑白灰线框风、禁止白色背景、禁止无关配色。
-            4. 图标用内联 SVG 简笔或 Unicode；每个 <svg> 显式写 width/height
-               （小图标 12~16、按钮内 14~18、tab 20~24、宫格 26~32，禁止 40px 以上功能图标）；图标细线 stroke-width 1.5~2。
-            5. 特效还原（烟花/星光/光晕/遮罩）按原设计，禁止偷懒画方框、禁止大面积闪烁。
-            6. 界面区块与文案必须与【已识别元素清单】一一对应，文案用 label 原文；
-               开关渲染成带圆形滑钮的 switch 组件，进度条渲染成圆角条+高亮填充。
-            7. 交互跳转（务必保留/补全）：若【交互跳转清单】给出了"某元素 → 目标页面名"，必须在该元素（按位置/类型定位，
-               勿仅依赖文案）根节点保留 data-nav="目标页面名" 属性；会打开弹窗/浮层/获奖页的按钮也要照加。
-               未列出的元素不要加。点击行为由外部容器接管，禁止自行编写任何脚本。
-            8. 字重：正文/辅助/按钮用 400~500，仅大标题/强调数字用 600~700；图标一律细线 SVG；
-                导航栏/选项卡内"图标+文字"必须包进同一个 flex 容器并明确方向：设计稿上下结构用 flex-direction:column、
-                左右结构用 flex-direction:row，均 align-items:center; justify-content:center；每个项写成一个 <a>/<button>
-                内含 <svg> 与 <span> 文字，禁止拆成平级兄弟元素；禁止把上下结构渲染成左右一行。
-            9. 素材纪律：只在与素材名称/分组语义一致且设计稿真实出现处使用；同一素材每页最多一次；
-               无法对应的元素用 SVG/CSS 绘制；只能引用清单列出的 URL，禁止编造清单之外的 /api/assets/... 地址。
-            10. 若提示给出【风格参考页面】HTML，修复须以其为基准（保留配色/字体/状态栏/导航/按钮画法），仅做差异修正。
-            11. 弹窗/对话框说明文字：整段说明文字必须放在同一个 <p>/<div> 里自然折行，禁止手动插入 <br> 拆成多行；
-                禁止把弹窗内容区设得过窄导致文字在设计稿原本一行处就被迫换行（如到逗号就折行）；内容区宽度要足够容纳文字，
-                正文字号 13~14px、行高 1.6，必要时弹窗整体随文字自然撑宽。
-            12. 侧边窄标签/竖排小按钮：右侧竖排的"规则说明"等窄标签，盒子高度必须 ≥ 字数×行高 + 上下内边距，避免末字被裁；
-                宽度够单字（约字号 1.2 倍）；border-radius 必须合法（如 10px 0 0 10px），禁止 10px0010px 这类无效值；
-                文字不得溢出盒子。
-            只输出修复后的完整 HTML 代码，禁止任何解释或 Markdown 代码围栏。
+    public static final String REPAIR_SYSTEM_PROMPT = HTML_SYSTEM_PROMPT + """
+            本轮是截图校对：第1张图是原设计稿，第2张图是当前HTML的渲染结果。
+            对照检查布局比例、遗漏内容、文字挤压、颜色、图标和素材位置，以及商品卡片与角色是否被过度简化。
+            保留已经装配的角色图片URL与图片容器，不得把真实素材降级为SVG人形；不要补回非必要背景光效。
+            以提供的当前静态HTML为基础，保持已存在节点的data-wf-id、
+            data-wf-uid、data-wf-element-id及交互目标不变。仍然只输出完整HTML，不得输出脚本。
             """;
 
-    /** 组装回修用户提示词（复用元素清单/跳转/素材/风格参考，额外要求对比两图） */
-    public static String buildRepairUserPrompt(int canvasW, int canvasH, String elementSummary,
-                                               String navSummary, String assetsSummary,
-                                               String styleReferenceHtml) {
-        String styleRef = styleReferenceHtml == null || styleReferenceHtml.isBlank()
-                ? "（无——按基础规范修复）"
-                : "以下是与本页强相关的已生成原型页面，修复须以其为基准做差异修正（保持视觉完全一致）：\n"
-                  + (styleReferenceHtml.length() > 30000 ? styleReferenceHtml.substring(0, 30000) : styleReferenceHtml);
+    public static String buildHtmlUserPrompt(int canvasW, int canvasH, String pageName,
+                                             List<String> pageNames, String elementSummary,
+                                             String navSummary, String assetsSummary, String styleReferenceHtml) {
         return """
-                设计稿画布尺寸：%d x %d px。请对比第 1 张图（原始设计稿）与第 2 张图（AI 上一轮生成的页面截图），
-                输出修复后的完整 HTML 文档（仅改差异项，未提及处保持原样）。
-                已识别元素清单（应存在的元素，格式：类型 | 文案 | x,y,宽,高 | 主色）：
+                本页名称：%s
+                目标画布尺寸：%d × %d px，比例以本页截图为准。截图若是多倍图，请换算字号与间距。
+                本项目页面清单（data-nav只允许原样引用这些名称）：
                 %s
-                交互跳转清单（请为这些元素根节点保留 data-nav="目标页面名" 属性）：
+                已识别内容（数据库ID | 类型 | 文案 | 参考位置x,y,宽,高 | 颜色）：
                 %s
-                可用素材清单（<img src="URL"> （名称）；对应位置优先引用）：
+                坐标仅帮助理解内容位置，不是生成HTML的布局约束。必须保留可点击节点的数据库ID。
+                交互清单：
                 %s
-                风格参考页面：
+                可用素材清单：
                 %s
-                """.formatted(canvasW, canvasH,
-                elementSummary == null || elementSummary.isBlank() ? "（无）" : elementSummary,
-                navSummary == null || navSummary.isBlank() ? "（本页无可跳转项）" : navSummary,
-                assetsSummary == null || assetsSummary.isBlank() ? "（无）" : assetsSummary,
-                styleRef);
+                同项目风格参考（只继承视觉系统；以第1张图的内容和布局为准）：
+                %s
+                生成完整静态HTML，不要写脚本；交互通过规范中的data属性声明。
+                """.formatted(pageName, canvasW, canvasH, String.join("\n", pageNames),
+                    empty(elementSummary), empty(navSummary), empty(assetsSummary), reference(styleReferenceHtml));
     }
 
-    /** 组装整页 HTML 生成的用户提示词（含交互跳转清单 + 可用素材清单 + 风格参考页） */
-    public static String buildHtmlUserPrompt(int canvasW, int canvasH, String elementSummary,
-                                             String navSummary, String assetsSummary,
-                                             String styleReferenceHtml) {
-        String styleRef = styleReferenceHtml == null || styleReferenceHtml.isBlank()
-                ? "（无——首次生成，自由发挥但须严格遵循系统规范）"
-                : "以下是与本页强相关的已生成原型页面。请以它为基础做增量修改生成本页（保持视觉完全一致）：\n"
-                  + (styleReferenceHtml.length() > 30000 ? styleReferenceHtml.substring(0, 30000) : styleReferenceHtml)
-                  + "\n【重要·图片顺序】本轮同时提供两张设计稿图片：第 1 张 = 本页设计稿，第 2 张 = 参考页底图。"
-                  + "请把第 2 张参考底图的配色、布局、状态栏、导航栏、按钮与图标的画法原样应用到本页输出，"
-                  + "本页只是在其上叠加遮罩层 / 弹窗 / 展示奖品等新增内容；禁止抛开参考底图另起炉灶。";
-        return """
-                设计稿画布尺寸：%d x %d px。请生成完整 HTML 文档。
-                已识别元素清单（格式：类型 | 文案 | x,y,宽,高 | 主色，坐标为画布像素）：
-                %s
-                交互跳转清单（格式：元素文案 → 目标页面名；请给这些元素的根节点加 data-nav="目标页面名" 属性）：
-                %s
-                可用素材清单（格式：<img src="URL"> （名称）；页面中出现对应内容时优先引用，并按设计稿设置尺寸）：
-                %s
-                风格参考页面：
-                %s
-                """.formatted(canvasW, canvasH, elementSummary,
-                navSummary == null || navSummary.isBlank() ? "（本页无可跳转项）" : navSummary,
-                assetsSummary == null || assetsSummary.isBlank() ? "（无）" : assetsSummary,
-                styleRef);
+    public static String buildRepairUserPrompt(int canvasW, int canvasH, String pageName,
+                                               List<String> pageNames, String elementSummary, String navSummary,
+                                               String assetsSummary, String styleReferenceHtml, String currentHtml) {
+        return buildHtmlUserPrompt(canvasW, canvasH, pageName, pageNames, elementSummary, navSummary,
+                assetsSummary, styleReferenceHtml) + "\n当前静态HTML（以此为基础回修，保持节点标识）：\n" + currentHtml;
+    }
+
+    private static String empty(String value) { return value == null || value.isBlank() ? "（无）" : value; }
+    private static String reference(String value) {
+        return value == null || value.isBlank() ? "（无）" : value.substring(0, Math.min(value.length(), 24000));
     }
 
     /**

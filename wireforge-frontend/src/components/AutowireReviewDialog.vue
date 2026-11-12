@@ -2,7 +2,7 @@
   <el-dialog v-model="visible" title="配置智能连线" width="min(1180px, 96vw)" top="4vh" append-to-body
     :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy" class="autowire-dialog">
     <div v-if="loadingMessage" class="notice review-progress" role="status" aria-live="polite"><span class="progress-spinner" aria-hidden="true"></span>{{ loadingMessage }}</div>
-    <div v-if="error" class="notice error" role="alert">{{ error }}<el-button v-if="plan && !result" class="error-recheck" text size="small" :disabled="busy" @click="recompute">重新检查</el-button></div>
+    <div v-if="error" class="notice error" role="alert">{{ error }}<el-button v-if="plan && !reviewLocked" class="error-recheck" text size="small" :disabled="busy" @click="recompute">重新检查</el-button></div>
     <p v-if="!plan && !busy && !error" class="empty">尚未生成检查结果。</p>
     <div v-if="plan" class="review-content">
       <div class="review-topline">
@@ -10,13 +10,14 @@
         <label class="navigation-filter"><input type="checkbox" v-model="onlyNavigation" :disabled="busy" />仅看导航</label>
       </div>
       <div v-if="result" class="notice result-notice" role="status">
-        已保存：补全 {{ result.completed }} 条，新增 {{ result.added }} 条，删除 {{ result.removed }} 条<template v-if="result.excluded">，不再推荐 {{ result.excluded }} 项</template>。
+        {{ reviewLocked ? '已保存' : '上次已保存' }}：补全 {{ result.completed }} 条，新增 {{ result.added }} 条，删除 {{ result.removed }} 条<template v-if="result.excluded">，不再推荐 {{ result.excluded }} 项</template>。
         <span v-if="result.renderStatus === 'done'">交互预览已更新。</span>
         <span v-else-if="result.renderStatus === 'pending'">交互预览更新中。</span>
         <span v-else>交互预览更新失败，关系已保存。</span>
         <p v-if="result.renderError" class="muted">{{ result.renderError }}</p>
         <el-button v-if="result.renderStatus === 'failed'" size="small" :loading="busy" @click="$emit('retry')">重试预览更新</el-button>
         <el-button v-if="result.renderStatus === 'pending'" size="small" :loading="busy" @click="$emit('refresh')">刷新状态</el-button>
+        <el-button v-if="result.renderStatus === 'done' && reviewLocked" size="small" :loading="busy" @click="$emit('continue')">继续配置</el-button>
       </div>
       <div class="review-tabs" role="tablist" aria-label="关系类型">
         <button v-for="group in groups" :key="group.key" type="button" role="tab" :aria-selected="tab === group.key" :class="{ active: tab === group.key }" @click="tab = group.key">{{ group.label }}<span>{{ count(group.key) }}</span></button>
@@ -29,11 +30,11 @@
             <p v-if="!filteredItems.length" class="empty">{{ search ? '没有匹配的关系' : groups.find(group => group.key === tab)?.empty }}</p>
             <section v-for="pageGroup in pageGroups" :key="pageGroup.id" class="page-group">
               <header class="page-group-heading">
-                <input v-if="pageGroup.items.some(canApplyItem)" type="checkbox" :checked="pageFullySelected(pageGroup.items)" :indeterminate="pagePartiallySelected(pageGroup.items)" :disabled="busy || !!result" :aria-label="`选中 ${pageTitle(pageGroup.id, pageGroup.name)} 的可应用关系`" @change="choosePage(pageGroup.items, ($event.target as HTMLInputElement).checked)" />
+                <input v-if="pageGroup.items.some(canApplyItem)" type="checkbox" :checked="pageFullySelected(pageGroup.items)" :indeterminate="pagePartiallySelected(pageGroup.items)" :disabled="busy || reviewLocked" :aria-label="`选中 ${pageTitle(pageGroup.id, pageGroup.name)} 的可应用关系`" @change="choosePage(pageGroup.items, ($event.target as HTMLInputElement).checked)" />
                 <FileText v-else :size="14" aria-hidden="true" /><strong>{{ pageTitle(pageGroup.id, pageGroup.name) }}</strong><span>{{ pageGroup.items.length }}</span>
               </header>
               <article v-for="item in pageGroup.items" :key="item.id" :data-item-id="item.id" class="relation-row" :class="{ active: activeItem?.id === item.id, chosen: selected.includes(item.id), blocked: !canApplyItem(item), excluded: !!excluded[item.id] }" tabindex="0" role="button" :aria-label="relationSummary(item)" :aria-pressed="activeItem?.id === item.id" @click="activeKey = reviewKey(item)" @keydown.enter.prevent="activeKey = reviewKey(item)" @keydown.space.prevent="activeKey = reviewKey(item)">
-                <input type="checkbox" :checked="selected.includes(item.id)" :disabled="!canApplyItem(item) || busy || !!result || !!excluded[item.id]" :aria-label="`应用 ${item.pageName} · ${item.elementLabel || '未命名控件'}`" @click.stop @keydown.stop @change="chooseRelation(item, ($event.target as HTMLInputElement).checked)" />
+                <input type="checkbox" :checked="selected.includes(item.id)" :disabled="!canApplyItem(item) || busy || reviewLocked || !!excluded[item.id]" :aria-label="`应用 ${item.pageName} · ${item.elementLabel || '未命名控件'}`" @click.stop @keydown.stop @change="chooseRelation(item, ($event.target as HTMLInputElement).checked)" />
                 <span class="row-thumbnail"><img v-if="pageThumbnail(item.pageId)" :src="pageThumbnail(item.pageId)" alt="" loading="lazy" /><FileText v-else :size="18" aria-hidden="true" /></span>
                 <div class="relation-row-copy"><strong>{{ item.elementLabel || '未命名控件' }}</strong><span class="row-destination"><ArrowRight :size="12" aria-hidden="true" />{{ targetTitle(item) }}</span><span class="row-status" :class="{ warning: !canApplyItem(item), removal: item.category === 'remove' }">{{ rowStatus(item) }}</span></div>
                 <ChevronRight :size="15" class="row-chevron" aria-hidden="true" />
@@ -52,18 +53,18 @@
             <ArrowRight :size="22" class="comparison-arrow" aria-hidden="true" />
             <div class="preview-card target-card" :class="{ missing: needsTarget(activeItem.action) && chosenTarget(activeItem) == null, removal: activeItem.category === 'remove' }">
               <header>
-                <label v-if="canChooseTarget(activeItem)" class="target-picker"><span class="preview-caption">{{ targetCaption(activeItem) }}</span><select :value="chosenTarget(activeItem) ?? ''" :disabled="busy || !!result || !!excluded[activeItem.id]" :aria-label="`跳转目标 ${activeItem.pageName} · ${activeItem.elementLabel}`" @change="chooseTarget(activeItem, ($event.target as HTMLSelectElement).value)"><option value="">请选择跳转页面</option><option v-for="target in reviewTargets(activeItem)" :key="target.id" :value="target.id">{{ pageTitle(target.id, target.name) }}</option></select></label>
+                <label v-if="canChooseTarget(activeItem)" class="target-picker"><span class="preview-caption">{{ targetCaption(activeItem) }}</span><select :value="chosenTarget(activeItem) ?? ''" :disabled="busy || reviewLocked || !!excluded[activeItem.id]" :aria-label="`跳转目标 ${activeItem.pageName} · ${activeItem.elementLabel}`" @change="chooseTarget(activeItem, ($event.target as HTMLSelectElement).value)"><option value="">请选择跳转页面</option><option v-for="target in reviewTargets(activeItem)" :key="target.id" :value="target.id">{{ pageTitle(target.id, target.name) }}</option></select></label>
                 <template v-else><span class="preview-caption">{{ targetCaption(activeItem) }}</span><strong>{{ targetTitle(activeItem) }}</strong></template>
               </header>
               <AutowirePagePreview v-if="needsTarget(activeItem.action) && activeTargetPage" class="comparison-preview" :page="activeTargetPage" />
               <div v-else class="target-empty"><component :is="activeItem.action === 'back' ? CornerUpLeft : activeItem.category === 'remove' ? Unlink : Files" :size="30" aria-hidden="true" /><strong>{{ targetEmptyTitle(activeItem) }}</strong><p>{{ targetEmptyHint(activeItem) }}</p></div>
             </div>
           </div>
-          <div class="relation-sentence" :class="{ removal: activeItem.category === 'remove' }"><span class="sentence-label">{{ excluded[activeItem.id] ? '以后不再推荐的关系' : activeItem.category === 'remove' ? '应用后删除' : '应用后的关系' }}</span><p>{{ relationSummary(activeItem) }}</p><div class="previous-relation"><span>原有关系</span><p>{{ previousState(activeItem) || '尚未设置此交互关系' }}</p></div><span v-if="selected.includes(activeItem.id) && canApplyItem(activeItem)" class="selected-indicator"><Check :size="13" aria-hidden="true" />{{ result ? '已应用' : '已选，将在应用时保存' }}</span></div>
+          <div class="relation-sentence" :class="{ removal: activeItem.category === 'remove' }"><span class="sentence-label">{{ excluded[activeItem.id] ? '以后不再推荐的关系' : activeItem.category === 'remove' ? '应用后删除' : '应用后的关系' }}</span><p>{{ relationSummary(activeItem) }}</p><div class="previous-relation"><span>原有关系</span><p>{{ previousState(activeItem) || '尚未设置此交互关系' }}</p></div><span v-if="selected.includes(activeItem.id) && canApplyItem(activeItem)" class="selected-indicator"><Check :size="13" aria-hidden="true" />{{ reviewLocked ? '已应用' : '已选，将在应用时保存' }}</span></div>
           <div v-if="!canApplyItem(activeItem)" class="notice needs-attention" role="status">{{ targetUnavailableReason(activeItem) }}</div>
           <details class="item-more" :open="!!excluded[activeItem.id]">
             <summary>{{ excluded[activeItem.id] ? recommendationChoice(activeItem) : '更多设置' }}</summary>
-            <label class="exclude-label">后续推荐<select v-model="excluded[activeItem.id]" :disabled="busy || !!result" :aria-label="`下次还推荐吗 ${activeItem.pageName} · ${activeItem.elementLabel || '未命名控件'}`" @change="onExclude(activeItem.id)"><option value="">继续推荐</option><option v-if="activeItem.targetPageId != null || activeItem.action === 'back'" value="relation">以后不再推荐这条{{ activeItem.action === 'back' ? '返回关系' : activeItem.action === 'navigate' ? '跳转' : '弹窗关系' }}</option><option value="element">以后不再推荐此控件的关系</option></select></label>
+            <label class="exclude-label">后续推荐<select v-model="excluded[activeItem.id]" :disabled="busy || reviewLocked" :aria-label="`下次还推荐吗 ${activeItem.pageName} · ${activeItem.elementLabel || '未命名控件'}`" @change="onExclude(activeItem.id)"><option value="">继续推荐</option><option v-if="activeItem.targetPageId != null || activeItem.action === 'back'" value="relation">以后不再推荐这条{{ activeItem.action === 'back' ? '返回关系' : activeItem.action === 'navigate' ? '跳转' : '弹窗关系' }}</option><option value="element">以后不再推荐此控件的关系</option></select></label>
             <p v-if="excluded[activeItem.id]" class="preference-effect">应用后会记住选择，并删除该范围内已有的自动连线。</p>
             <div class="recommendation-evidence"><span>推荐依据</span><p>{{ activeItem.reason }}</p><p class="muted">{{ sourceName(activeItem.source) }}<template v-if="activeItem.navigation"> · {{ regionName(activeItem.navigation.region) }} · {{ basisName(activeItem.navigation.basis) }}</template><template v-if="activeItem.evidenceRefs.length"> · {{ [...new Set(activeItem.evidenceRefs.map(evidenceName))].join('、') }}</template></p></div>
           </details>
@@ -73,11 +74,11 @@
       <div v-else class="exclusions-panel">
         <p class="muted">勾选要恢复的控件，再应用。恢复后会在下次检查中重新推荐。</p>
         <p v-if="!plan.exclusions.length" class="empty">没有不再推荐的项目</p>
-        <article v-for="item in plan.exclusions" :key="item.id" class="exclusion-row"><label><input type="checkbox" v-model="restores" :value="item.id" :disabled="busy || !!result" :aria-label="`恢复 ${item.elementLabel}`" /><div><strong>{{ item.pageName }} · {{ item.elementLabel || '未命名控件' }}</strong><p>{{ item.scope === 'element' ? '不推荐此控件的关系' : '不推荐原来的关系' }}<template v-if="!item.matched"> · 控件已变化，需重新检查</template></p><p v-if="item.reason" class="muted">{{ item.reason }}</p></div><span>恢复推荐</span></label></article>
+        <article v-for="item in plan.exclusions" :key="item.id" class="exclusion-row"><label><input type="checkbox" v-model="restores" :value="item.id" :disabled="busy || reviewLocked" :aria-label="`恢复 ${item.elementLabel}`" /><div><strong>{{ item.pageName }} · {{ item.elementLabel || '未命名控件' }}</strong><p>{{ item.scope === 'element' ? '不推荐此控件的关系' : '不推荐原来的关系' }}<template v-if="!item.matched"> · 控件已变化，需重新检查</template></p><p v-if="item.reason" class="muted">{{ item.reason }}</p></div><span>恢复推荐</span></label></article>
       </div>
       <details v-if="plan.warnings.length || plan.navigationDiagnostics?.length || plan.protectedCount" class="navigation-diagnostics"><summary>其他检查结果<template v-if="plan.warnings.length"> · {{ plan.warnings.length }} 条提示</template></summary><p v-for="warning in plan.warnings" :key="warning" class="muted">{{ warning }}</p><p v-if="plan.protectedCount" class="muted">{{ plan.protectedCount }} 条人工关系已保留。</p><p v-if="diagnosticSummary" class="muted">{{ diagnosticSummary }}</p><p v-for="(entry, index) in plan.navigationDiagnostics" :key="`${entry.pageId}:${entry.label}:${index}`" class="muted">{{ entry.pageName }} · {{ entry.label || '导航项' }}：{{ entry.reason }}</p></details>
     </div>
-    <template #footer><div class="footer"><span class="muted">{{ footerSummary }}</span><div class="actions"><el-button :disabled="busy" @click="visible = false">{{ result ? '完成' : '取消' }}</el-button><el-button v-if="!plan && error && !result" :disabled="busy" @click="recompute">重试检查</el-button><el-button v-if="plan && !result" type="primary" :loading="busy" :disabled="busy || !hasDecisions" @click="submit">{{ primaryLabel }}</el-button></div></div></template>
+    <template #footer><div class="footer"><span class="muted">{{ footerSummary }}</span><div class="actions"><el-button :disabled="busy" @click="visible = false">{{ result ? '完成' : '取消' }}</el-button><el-button v-if="!plan && error && !result" :disabled="busy" @click="recompute">重试检查</el-button><el-button v-if="plan && !reviewLocked" type="primary" :loading="busy" :disabled="busy || !hasDecisions" @click="submit">{{ primaryLabel }}</el-button></div></div></template>
   </el-dialog>
 </template>
 
@@ -91,8 +92,10 @@ import type { AutowirePlan, AutowireApplyResult, AutowireDecisions, AutowireItem
 import { rememberReview, restoreReview, reviewKey, reviewTargets, reviewFingerprint, type ExclusionScope } from '../utils/autowireReviewState'
 
 const visible = defineModel<boolean>({ default: false })
-const props = defineProps<{ plan: AutowirePlan | null; result: AutowireApplyResult | null; busy: boolean; error: string; pages?: Page[]; loadingMessage?: string }>()
-const emit = defineEmits<{ apply: [AutowireDecisions]; recompute: [AutowirePreviewRequest]; retry: []; refresh: [] }>()
+const props = defineProps<{ plan: AutowirePlan | null; result: AutowireApplyResult | null; busy: boolean; error: string; pages?: Page[]; loadingMessage?: string; savedPreviewId?: string | null }>()
+const emit = defineEmits<{ apply: [AutowireDecisions]; recompute: [AutowirePreviewRequest]; retry: []; refresh: []; continue: [] }>()
+// A saved snapshot cannot be submitted again; a fresh preview unlocks the next batch.
+const reviewLocked = computed(() => !!props.result && (props.result.renderStatus !== 'done' || !props.savedPreviewId || props.plan?.previewId === props.savedPreviewId))
 const tab = ref('set')
 const selected = ref<string[]>([])
 const excluded = ref<Record<string, ExclusionScope>>({})
@@ -118,6 +121,13 @@ watch(() => props.plan, (next, previous) => {
     return [item.id, { action: item.navigation?.previousAction || original?.action, target: item.navigation?.previousAction ? item.navigation.previousTargetPageId : original?.target_page_id }]
   }))
   const memory = next.projectId === previous?.projectId ? rememberReview(previous, selected.value, excluded.value, targetChoices.value) : new Map()
+  if (previous?.previewId === props.savedPreviewId) {
+    for (const decision of memory.values()) {
+      if (decision.selected || decision.excluded) delete decision.target
+      decision.selected = false
+      decision.excluded = ''
+    }
+  }
   const restored = restoreReview(next, memory)
   selected.value = restored.selected
   excluded.value = restored.excluded
@@ -258,13 +268,13 @@ function pagePartiallySelected(items: AutowireItem[]) { const eligible = eligibl
 function choosePage(items: AutowireItem[], on: boolean) { for (const item of eligibleItems(items)) chooseRelation(item, on) }
 function toggle(id: string, on: boolean) { selected.value = selected.value.filter(itemId => itemId !== id); if (on) selected.value.push(id) }
 function chooseRelation(item: AutowireItem, on: boolean) {
-  if (props.busy || props.result || excluded.value[item.id] || (on && !canApplyItem(item))) return
+  if (props.busy || reviewLocked.value || excluded.value[item.id] || (on && !canApplyItem(item))) return
   if (on && canChooseTarget(item) && chosenTarget(item) != null) targetChoices.value[reviewKey(item)] = chosenTarget(item)
   toggle(item.id, on)
   activeKey.value = reviewKey(item)
 }
 function chooseTarget(item: AutowireItem, value: string) {
-  if (props.busy || props.result || excluded.value[item.id] || !canChooseTarget(item)) return
+  if (props.busy || reviewLocked.value || excluded.value[item.id] || !canChooseTarget(item)) return
   if (value && !reviewTargets(item).some(target => target.id === Number(value))) return
   targetChoices.value[reviewKey(item)] = value ? Number(value) : undefined
   toggle(item.id, canApplyItem(item))
@@ -281,7 +291,7 @@ const decisionCount = computed(() => selected.value.length + excludeCount.value 
 const hasDecisions = computed(() => decisionCount.value > 0)
 const primaryLabel = computed(() => selected.value.length || !(excludeCount.value || restores.value.length) ? `应用已选（${selected.value.length}）` : '保存推荐设置')
 const footerSummary = computed(() => {
-  if (props.result) return '关系已保存'
+  if (reviewLocked.value) return '关系已保存'
   if (!props.plan) return props.busy ? '正在准备检查结果' : '检查未完成'
   const shownIds = new Set(filteredItems.value.map(item => item.id))
   const hiddenCount = selected.value.filter(id => !shownIds.has(id)).length
@@ -299,7 +309,7 @@ function recompute() {
   emit('recompute', { previousPreviewId: props.plan?.previewId, navigationResolutions: choices.filter(item => !!item.navigation).map(resolution), targetResolutions: choices.filter(item => !item.navigation).map(resolution) })
 }
 function submit() {
-  if (props.busy || props.result || !props.plan || !hasDecisions.value) return
+  if (props.busy || reviewLocked.value || !props.plan || !hasDecisions.value) return
   const chosen = props.plan.items.filter(item => selected.value.includes(item.id))
   if (chosen.some(item => !canApplyItem(item) || !!excluded.value[item.id])) return
   const resolutions = chosen.filter(item => canChooseTarget(item) && chosenTarget(item) != null)

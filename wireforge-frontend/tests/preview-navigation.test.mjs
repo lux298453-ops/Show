@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import ts from 'typescript'
 import { transformSync } from 'esbuild'
+import { DOMParser } from 'linkedom'
+import { createTestPrototypeSecurity } from './fixtures/prototype-security.mjs'
+
+const security = createTestPrototypeSecurity()
 
 // Exercise the actual injected runtime with a small DOM test double; no browser or project writes.
 const sfc = readFileSync('src/components/PageCanvas.vue', 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
@@ -16,18 +20,25 @@ vm.runInContext(transformSync(readFileSync('src/utils/backgroundReturn.ts','utf8
 const navigationModule={exports:{}}
 const navigationContext={module:navigationModule,exports:navigationModule.exports};vm.createContext(navigationContext)
 vm.runInContext(transformSync(readFileSync('src/utils/navigationEditing.ts','utf8'),{loader:'ts',format:'cjs'}).code,navigationContext)
+const routingModule={exports:{}}
+const routingContext={module:routingModule,exports:routingModule.exports,require:()=>({interactionDomUid:()=>''})};vm.createContext(routingContext)
+vm.runInContext(transformSync(readFileSync('src/utils/canvasRouting.ts','utf8'),{loader:'ts',format:'cjs'}).code,routingContext)
+const controlsModule={exports:{}}
+const controlsContext={module:controlsModule,exports:controlsModule.exports,DOMParser,require:id=>readFileSync(id.replace('?raw','').replace('../../../','../'),'utf8')};vm.createContext(controlsContext)
+vm.runInContext(transformSync(readFileSync('src/utils/prototypeControls.ts','utf8'),{loader:'ts',format:'cjs'}).code,controlsContext)
 
 class Node {
   constructor(tag='div', attrs={}, box={left:0,top:0,width:375,height:833}) {
     this.tagName=tag.toUpperCase();this.attrs={...attrs};this.children=[];this.style={};this.box=box
     const names=new Set((attrs.class||'').split(/\s+/).filter(Boolean))
+    this.classNames=names
     this.classList={contains:n=>names.has(n),add:n=>names.add(n),remove:n=>names.delete(n),toggle:(n,on)=>on?names.add(n):names.delete(n)}
     this.isConnected=true;this.innerText=''
   }
   get parentNode(){return this.parentElement}
   get firstChild(){return this.children[0]||null}
   get id(){return this.getAttribute('id')||''}
-  set className(value){this.attrs.class=value}
+  set className(value){this.attrs.class=value;this.classNames.clear();value.split(/\s+/).filter(Boolean).forEach(n=>this.classNames.add(n))}
   getAttribute(k){return this.attrs[k]??null}
   setAttribute(k,v){this.attrs[k]=String(v)}
   hasAttribute(k){return k in this.attrs}
@@ -55,19 +66,64 @@ function setup(elements=[], interactive=true, populate=()=>{}) {
   const listeners={}, messages=[], body=new Node('body'), root=new Node('html');root.appendChild(body)
   const doc={body,documentElement:root,createElement:t=>new Node(t),querySelector:s=>root.querySelector(s),querySelectorAll:s=>root.querySelectorAll(s),
     addEventListener:(type,fn)=>(listeners[type]??=[]).push(fn)}
-  const window={scrollX:0,scrollY:0,innerWidth:375,innerHeight:833,addEventListener(){}}
-  const scope={props:{page:{id:1,canvas_width:375,canvas_height:833,elements},protoHotspot:false},...backgroundModule.exports,...navigationModule.exports};vm.createContext(scope);vm.runInContext(compiled,scope)
+  const window={scrollX:0,scrollY:0,innerWidth:375,innerHeight:833,addEventListener:(type,fn)=>(listeners['window:'+type]??=[]).push(fn)}
+  const scope={DOMParser,props:{page:{id:1,canvas_width:375,canvas_height:833,elements},protoHotspot:false},...backgroundModule.exports,...navigationModule.exports,...routingModule.exports,...controlsModule.exports,...security};vm.createContext(scope);vm.runInContext(compiled,scope)
   populate(body)
   const html=scope.generate('<html><body></body></html>',interactive,false,false)
-  const runtime=html.match(/<script data-wf-inject>([\s\S]*?)<\/script>/)[1]
+  const runtime=new DOMParser().parseFromString(html,'text/html').querySelector('body > script[data-wf-inject]').textContent
   const context={document:doc,window,parent:{postMessage:m=>messages.push(m)},requestAnimationFrame:fn=>{fn();return 1},console,setTimeout(){}}
   vm.createContext(context);vm.runInContext(runtime,context)
   function event(type,target){
     const r=target.getBoundingClientRect();const e={target,clientX:r.left+r.width/2,clientY:r.top+r.height/2,preventDefault(){},stopPropagation(){}}
     for(const fn of listeners[type]||[])fn(e)
   }
-  return {doc,body,context,window,messages,event,editor:scope.editor,html}
+  const message=data=>{for(const fn of listeners['window:message']||[])fn({data,source:context.parent})}
+  return {doc,body,context,window,messages,event,message,editor:scope.editor,generate:scope.generate,html}
 }
+
+test('runtime injection removes embedded documents and preserves safe JSON data',()=>{
+  const {generate}=setup()
+  const nested='<html><head><style data-wf-inject>body{color:red}</style></head><body><button>弹窗</button><script data-wf-inject>window.nested=true</script></body></html>'
+  const source=`<!doctype html><html><head><script id="page-data" type="application/json">${JSON.stringify({markup:'</body>',token:'$&'})}</script></head><body><main data-wf-uid="main">商店</main><iframe id="embedded" srcdoc="${nested.replace(/"/g,'&quot;')}"></iframe></body></html>`
+  const output=generate(source,false,false,true),doc=new DOMParser().parseFromString(output,'text/html')
+  assert.equal(doc.querySelector('#embedded'),null)
+  assert.deepEqual(JSON.parse(doc.querySelector('#page-data').textContent),{markup:'</body>',token:'$&'})
+  const scripts=[...doc.querySelectorAll('script[data-wf-inject]')]
+  assert.equal(scripts.length,5)
+  for(const script of scripts) new vm.Script(script.textContent)
+  assert.ok(doc.querySelector('body > style[data-wf-inject]'))
+  assert.ok(doc.querySelector('body > script[data-wf-editor]'))
+  assert.equal(doc.querySelectorAll('[data-wf-uid="main"]').length,1)
+})
+
+test('saved autowire popup surfaces are rebuilt from their map, with no stale editor mode',()=>{
+  const {generate}=setup()
+  const data=JSON.stringify({modalPages:{2:'<html><body>兑换记录</body></html>'}})
+  const source=`<html><body class="theme wf-edit-mode wf-dragging wf-proto-hotspot wf-interactive"><main data-wf-uid="item">商品</main><div class="wf-modal wf-autowire-modal wf-show"><iframe srcdoc="<body>旧弹窗</body>"></iframe></div><div class="wf-modal" id="designed-modal">设计内弹窗</div><script id="wf-autowire-map" type="application/json">${data}</script><style data-wf-inject>old runtime</style><div id="wf-transform-box"></div></body></html>`
+  const doc=new DOMParser().parseFromString(generate(source,false,false,false),'text/html')
+  assert.equal(doc.querySelector('.wf-autowire-modal'),null)
+  assert.equal(doc.querySelector('#wf-transform-box'),null)
+  assert.equal(doc.body.className,'theme')
+  assert.ok(doc.querySelector('#designed-modal'))
+  assert.deepEqual(JSON.parse(doc.querySelector('#wf-autowire-map').textContent),JSON.parse(data))
+  assert.ok(doc.querySelector('[data-wf-uid="item"]'))
+})
+
+test('background return bindings update in the live document without replacing visible content',()=>{
+  const back={id:1,type:'background',x:0,y:0,width:375,height:833,interaction:{action:'back'}}
+  let card
+  const state=setup([back],true,body=>{card=body.appendChild(new Node('article',{id:'card'}))})
+  state.message({type:'wf-interactive',on:true,backdropReturns:[{id:2,action:'close',x:5,y:6,w:350,h:800}]})
+  assert.equal(state.doc.querySelector('[data-wf-element-id="1"]'),null)
+  const area=state.doc.querySelector('[data-wf-element-id="2"]')
+  assert.equal(area.getAttribute('data-action'),'close');assert.match(area.style.cssText,/left:5px/)
+  state.message({type:'wf-interactive',on:false,backdropReturns:[{id:2,action:'back',x:7,y:6,w:350,h:800}]})
+  assert.equal(state.doc.querySelector('[data-wf-element-id="2"]'),area)
+  assert.equal(area.getAttribute('data-action'),'back');assert.match(area.style.cssText,/left:7px/)
+  state.message({type:'wf-interactive',on:true,backdropReturns:[],disabledBackgroundReturn:true})
+  assert.equal(state.doc.querySelector('.wf-page-dismiss'),null)
+  assert.equal(state.doc.querySelector('#card'),card)
+})
 
 function tabs(body) {
   const owner=body.appendChild(new Node('div',{'data-wf-element-id':'10',class:'wf-tabs'}))
@@ -117,7 +173,7 @@ test('each tab gets a stable identity and sends its own coordinates and UID exac
 
 test('hotspot selection resolves a segment even when its entire parent is already selected',()=>{
   let parts;const state=setup([],false,body=>{parts=tabs(body)})
-  const script=state.editor(false,false).match(/<script data-wf-inject>([\s\S]*?)<\/script>/)[1]
+  const script=state.editor(false,false).match(/<script data-wf-inject[^>]*>([\s\S]*?)<\/script>/)[1]
   const tree=ts.createSourceFile('editor.js',script,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS)
   let picker
   function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='pickHotspotEl')picker=n.getText(tree);ts.forEachChild(n,visit)}visit(tree)
@@ -152,6 +208,25 @@ test('full-screen back returns to the actual previous page and closes native ove
   vm.runInContext('handleBack()',context);assert.equal(context.currentPageId.value,7)
   vm.runInContext('handleBack()',context);assert.equal(context.currentPageId.value,4)
   assert.equal(context.transitionDirection.value,'backward')
+})
+
+test('full-screen popup and modal relations use the saved destination, while local modal actions stay local',()=>{
+  const sfc=readFileSync('src/views/PurePreviewView.vue','utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
+  const tree=ts.createSourceFile('preview.ts',sfc,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS)
+  const handler=tree.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='handleElementClick').getText(tree)
+  const calls=[]
+  const context={currentPage:{value:{}},activeModal:{value:null},isTabNavigation:()=>false,navigateTo:(...args)=>calls.push(args)}
+  vm.createContext(context);vm.runInContext(transformSync(handler,{loader:'ts'}).code,context)
+  for(const action of ['popup','modal']){
+    context.element={id:40,label:'背包',interaction:{action,target_page_id:12}}
+    vm.runInContext('handleElementClick(element)',context)
+  }
+  assert.deepEqual(calls,[[12,false],[12,false]])
+  assert.equal(context.activeModal.value,null)
+  context.element={id:41,label:'操作菜单',interaction:{action:'modal'}}
+  vm.runInContext('handleElementClick(element)',context)
+  assert.equal(calls.length,2)
+  assert.equal(context.activeModal.value.type,'sheet')
 })
 
 test('explicit background behavior overrides inferred return and can be switched off without touching the card',()=>{

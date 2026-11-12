@@ -37,6 +37,8 @@ export interface NavigationInfo {
   candidateTargets: { id: number; name: string }[]
 }
 export interface AutowirePreviewRequest {
+  /** Refresh remaining relations after saving without another AI request. */
+  rulesOnly?: boolean
   previousPreviewId?: string
   navigationResolutions?: { stableKey: string; targetPageId: number }[]
   targetResolutions?: { stableKey: string; targetPageId: number }[]

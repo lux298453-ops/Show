@@ -24,7 +24,7 @@ const plan = { previewId: 'compare-preview', projectId: 901, expiresAt: Date.now
   item('conflict', { elementLabel: '商店', targetPageId: null, navigation: { ...item('unused').navigation, status: 'conflict', basis: 'conflict' }, reason: '现有跳转有冲突，请在画布交互设置处理' }),
 ] }
 let previewCalls = 0, saveCalls = 0
-const applies = [], renderRetries = [], errors = []
+const applies = [], renderRetries = [], errors = [], previews = []
 const result = { applicationId: 'compare-application', added: 0, completed: 1, removed: 0, excluded: 0, renderStatus: 'pending', renderError: null }
 try {
   const page = await browser.newPage()
@@ -36,10 +36,16 @@ try {
     if (url.pathname.startsWith('/api/')) {
       let data = {}, status = 200, message = ''
       if (url.pathname.endsWith('/prototype')) data = model
+      else if (url.pathname === '/api/auth/me') data = { authenticated: true, userId: 'autowire-test', userName: '回归测试', systemAdmin: true, projectRole: 'admin' }
       else if (url.pathname.endsWith('/edit-statuses')) data = {}
       else if (url.pathname.endsWith('/edit-lock')) data = { editing: true, conflict: false }
       else if (url.pathname.endsWith('/html')) saveCalls++
-      else if (url.pathname.endsWith('/autowire/preview')) { previewCalls++; data = plan }
+      else if (url.pathname.endsWith('/autowire/preview')) {
+        previewCalls++
+        const body = request.postData() ? JSON.parse(request.postData()) : {}
+        previews.push(body)
+        data = body.rulesOnly ? { ...plan, previewId: 'compare-remaining', items: plan.items.filter(item => !applies.at(-1).selectedIds.includes(item.id)) } : plan
+      }
       else if (url.pathname.endsWith('/autowire/apply')) {
         applies.push(JSON.parse(request.postData()))
         if (applies.length < 3) { status = 503; message = '模拟保存响应失败，请重试' } else data = result
@@ -116,10 +122,11 @@ try {
   await page.$$eval('.autowire-dialog button', nodes => nodes.find(node => node.textContent.includes('刷新状态')).click())
   await page.waitForFunction(() => document.querySelector('.autowire-dialog')?.textContent.includes('模拟预览失败'))
   await page.$$eval('.autowire-dialog button', nodes => nodes.find(node => node.textContent.includes('重试预览更新')).click())
-  await page.waitForFunction(() => document.querySelector('.autowire-dialog')?.textContent.includes('交互预览已更新'))
+  await page.waitForFunction(() => document.querySelector('.autowire-dialog')?.textContent.includes('交互预览已更新') && !document.querySelector('.review-progress'))
   assert.equal(renderRetries.length, 1)
   assert.equal(applies.length, 3, 'Rendering retry never re-applies the saved relationships')
-  assert.equal(previewCalls, 1)
+  assert.equal(previewCalls, 2)
+  assert.deepEqual(previews[1], { rulesOnly: true }, 'After rendering finishes, continuing uses a fresh rule-only snapshot')
   assert.equal(saveCalls, 0, 'Read-only preview never saves prototype HTML')
   assert.deepEqual(errors, [])
   console.log('PASS: real PrototypeView comparison, precise source preview, direct target application, unchanged retry idempotency, changed-target keys, dark/narrow layout, render-only retry; mocked APIs only.')

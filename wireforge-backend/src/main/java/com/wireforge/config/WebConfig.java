@@ -9,6 +9,7 @@ import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.nio.file.Paths;
+import java.util.Arrays;
 
 @Configuration
 @RequiredArgsConstructor
@@ -19,18 +20,26 @@ public class WebConfig implements WebMvcConfigurer {
     @Value("${wireforge.designs-dir}")
     private String designsDir;
 
+    @Value("${wireforge.web.allowed-origins:${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}}")
+    private String allowedOrigins;
+
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOriginPatterns("*")
+                .allowedOrigins(Arrays.stream(allowedOrigins.split(",")).map(String::trim)
+                        .filter(origin -> !origin.isEmpty() && !origin.contains("*") && !origin.equals("null"))
+                        .toArray(String[]::new))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                 .allowedHeaders("*")
-                .allowCredentials(true)
+                // Authentication uses an explicit Authorization header, never ambient cookies.
+                .allowCredentials(false)
                 .maxAge(3600);
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new AssetSecurityHeadersInterceptor())
+                .addPathPatterns("/api/assets/**", "/files/**");
         registry.addInterceptor(permissionInterceptor).addPathPatterns("/api/**");
     }
 

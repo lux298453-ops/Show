@@ -51,8 +51,16 @@ public class AnalyzeService {
     private final ElementGroupService elementGroupService;
     private final com.wireforge.mapper.ProjectMapper projectMapper;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    private final AutowireRenderService autowireRenderService;
+    private final GeneratedHtmlContract htmlContract = new GeneratedHtmlContract();
+    private final ProjectChrome projectChrome = new ProjectChrome();
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectArtworkService artworkService;
 
-    /** 是否开启"渲染→截图→对比原稿→回修"闭环（默认开；Chromium 不可用时自动跳过） */
+    @org.springframework.beans.factory.annotation.Value("${wireforge.ai.direct-html:true}")
+    private boolean directHtml = true;
+
+    /** 本地检测到明显布局/素材问题才执行截图回修；正常页面不额外调用模型。 */
     @org.springframework.beans.factory.annotation.Value("${wireforge.ai.repair:true}")
     private boolean repairEnabled;
 
@@ -156,15 +164,16 @@ public class AnalyzeService {
         int count = savedCount == null ? 0 : savedCount;
         log.info("页面 [{}] 分析数据入库完成: {} 个元素", page.getName(), count);
 
-        // 确定性整页渲染（零 AI，置于事务外部）：内部会重算全项目连线，避免长时间占住数据库连接
+        // HTML generation and optional visual repair stay outside the database transaction.
         if (!mock) {
             try {
-                String html = renderTemplateHtml(page);
+                String html = renderPageHtml(page);
                 page.setHtmlContent(html);
                 pageMapper.updateById(page);
-                log.info("页面 [{}] 模板化整页 HTML 渲染完成（{} 字符）", page.getName(), html.length());
+                log.info("页面 [{}] 整页 HTML 生成完成（{} 字符）", page.getName(), html.length());
             } catch (Exception e) {
-                log.warn("页面 [{}] 模板化渲染失败（保留组件模式）: {}", page.getName(), e.getMessage());
+                log.warn("页面 [{}] 原型生成失败: {}", page.getName(), e.getMessage());
+                throw new IllegalStateException("页面「" + page.getName() + "」识别已完成，但原型生成失败。" + e.getMessage(), e);
             }
         }
         return count;
@@ -210,6 +219,89 @@ public class AnalyzeService {
         return templateHtmlRenderer.render(page, bundles, nameById, page.getName(), appMap);
     }
 
+    /** Explicit AI generation must report failure instead of silently replacing it with a low-fidelity template. */
+    public String renderPageHtml(Page page) {
+        if (!mock && directHtml && page.getBackgroundImage() != null && !page.getBackgroundImage().isBlank()) {
+            Path imagePath = Path.of(page.getBackgroundImage());
+            try {
+                byte[] bytes = Files.readAllBytes(imagePath);
+                AiClient.setUsageLabel("原型「" + page.getName() + "」");
+                return generateFinalHtml(page, guessMime(imagePath.getFileName().toString()), bytes, imagePath);
+            } catch (Exception e) {
+                String reason = e.getMessage() == null ? "生成结果无效" : e.getMessage();
+                String message = reason.contains("502") ? "AI 服务返回 502 网关错误"
+                        : reason.contains("超时") || reason.toLowerCase(java.util.Locale.ROOT).contains("timeout") ? "AI 服务请求超时"
+                        : reason.contains("未收到完成事件") ? "AI 服务在生成完成前断开连接（未收到完成事件）"
+                        : reason.contains("长度上限") ? "AI 输出达到长度上限，HTML 未生成完整"
+                        : reason.contains("响应未完成") ? "AI 服务返回未完成的结果"
+                        : reason.contains("响应格式无效") ? "AI 服务返回格式无法解析"
+                        : reason.contains("上游返回错误") ? "AI 服务在流式生成过程中返回错误"
+                        : reason.contains("没有文本内容") || reason.contains("空响应") ? "AI 服务未返回可用的原型内容"
+                        : e instanceof IllegalArgumentException ? "生成的 HTML 未通过结构或编辑兼容校验"
+                        : "AI 服务调用失败或生成内容未通过校验";
+                log.warn("页面 [{}] HTML 生成失败，未用旧模板替代（{}）", page.getName(), message);
+                throw new IllegalStateException(message + "，本次未生成新原型。请稍后重试。", e);
+            } finally {
+                AiClient.setUsageLabel(null);
+            }
+        }
+        return renderTemplateHtml(page);
+    }
+
+    /** Maintenance must read the current row: analysis and editor saves can make caller snapshots stale. */
+    public String preserveOrRenderHtml(Page page) {
+        Page current = pageMapper.selectById(page.getId());
+        if (current != null && current.getHtmlContent() != null && !current.getHtmlContent().isBlank()) {
+            if (ProjectChrome.generated(current.getHtmlContent())) {
+                String aligned = projectChrome.apply(current, chromePages(current.getProjectId()), current.getHtmlContent());
+                if (!aligned.equals(current.getHtmlContent())) saveChrome(current, aligned);
+                return aligned;
+            }
+            return current.getHtmlContent();
+        }
+        String html = renderTemplateHtml(current == null ? page : current);
+        pageMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
+                .eq(Page::getId, page.getId())
+                .and(w -> w.isNull(Page::getHtmlContent).or().eq(Page::getHtmlContent, ""))
+                .set(Page::getHtmlContent, html));
+        return html;
+    }
+
+    /** Normalize existing shared components without model calls or rebuilding page content. */
+    @Transactional
+    public int normalizeProjectChrome(long projectId) {
+        List<Page> pages = chromePages(projectId);
+        int changed = 0;
+        for (Page page : pages) {
+            if (!ProjectChrome.generated(page.getHtmlContent())) continue;
+            String html = page.getHtmlContent();
+            if (artworkService != null) {
+                java.util.Set<String> cached = artworkService.assets(projectId).stream().map(ProjectArtworkService.Artwork::url)
+                        .collect(java.util.stream.Collectors.toSet());
+                html = artworkService.resolve(projectId, html, cached, false);
+            }
+            html = projectChrome.apply(page, pages, html);
+            if (html.equals(page.getHtmlContent())) continue;
+            saveChrome(page, html);
+            page.setHtmlContent(html);
+            changed++;
+        }
+        return changed;
+    }
+
+    private List<Page> chromePages(long projectId) {
+        return pageMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
+                .eq(Page::getProjectId, projectId)
+                .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
+                .orderByAsc(Page::getSortOrder).orderByAsc(Page::getId));
+    }
+
+    private void saveChrome(Page page, String html) {
+        int updated = pageMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
+                .eq(Page::getId, page.getId()).eq(Page::getHtmlContent, page.getHtmlContent()).set(Page::getHtmlContent, html));
+        if (updated != 1) throw new IllegalStateException("页面正在被编辑，请稍后重试统一导航与状态栏");
+    }
+
     /**
      * 按现有元素重算点击分组和自动连线，不重跑视觉模型。人手动保存的线保留。
      */
@@ -225,15 +317,12 @@ public class AnalyzeService {
         }
         for (Page page : pages) {
             try {
-                String html = renderTemplateHtml(page);
-                pageMapper.update(null,
-                        com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
-                                .eq(Page::getId, page.getId())
-                                .set(Page::getHtmlContent, html));
+                preserveOrRenderHtml(page);
             } catch (Exception e) {
                 log.warn("页面 [{}] 重算后渲染失败: {}", page.getName(), e.getMessage());
             }
         }
+        autowireRenderService.refreshProjectBindings(projectId);
         return groups;
     }
 
@@ -302,7 +391,9 @@ public class AnalyzeService {
         for (var entry : scores.entrySet().stream()
                 .sorted((a, b) -> b.getValue() - a.getValue()).toList()) {
             Page p = pageMapper.selectById(entry.getKey());
-            if (p != null && p.getHtmlContent() != null && p.getHtmlContent().length() > 50) {
+            if (p != null && page.getProjectId().equals(p.getProjectId())
+                    && !Integer.valueOf(1).equals(p.getIsDeleted())
+                    && p.getHtmlContent() != null && p.getHtmlContent().length() > 50) {
                 bestPage = p;
                 bestScore = entry.getValue();
                 break;
@@ -344,17 +435,18 @@ public class AnalyzeService {
      * 仅重新生成某页的整页 HTML（不重跑元素识别），供前端"重新生成"按钮快速迭代。
      * 返回新的 HTML 内容。
      */
-    @Transactional
     public String regeneratePageHtml(long pageId) {
         Page page = pageMapper.selectById(pageId);
         if (page == null) {
             throw new IllegalArgumentException("页面不存在: " + pageId);
         }
-        String html = renderTemplateHtml(page);
-        page.setHtmlContent(html);
-        pageMapper.updateById(page);
-        log.info("页面 [{}] 模板化整页 HTML 重新渲染完成（{} 字符）", page.getName(), html.length());
-        return html;
+        String html = renderPageHtml(page);
+        pageMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
+                .eq(Page::getId, pageId).set(Page::getHtmlContent, html));
+        interactionAutowireService.autowireProjectInteractions(page.getProjectId());
+        autowireRenderService.refreshProjectBindings(page.getProjectId());
+        log.info("页面 [{}] 整页 HTML 重新生成完成（{} 字符）", page.getName(), html.length());
+        return pageMapper.selectById(pageId).getHtmlContent();
     }
 
     /**
@@ -366,16 +458,18 @@ public class AnalyzeService {
         if (refPage != null && refPage.getBackgroundImage() != null && !refPage.getBackgroundImage().isBlank()) {
             Path refImg = Path.of(refPage.getBackgroundImage());
             if (Files.exists(refImg) && !refImg.toAbsolutePath().equals(pageImagePath.toAbsolutePath())) {
+                byte[] refBytes = null;
                 try {
-                    String refMime = guessMime(refImg.getFileName().toString());
-                    byte[] refBytes = Files.readAllBytes(refImg);
+                    refBytes = Files.readAllBytes(refImg);
+                } catch (IOException e) {
+                    log.warn("参考底图读取失败，退回单图生成: {}", e.getMessage());
+                }
+                if (refBytes != null) {
                     log.info("页面 [{}] 使用多图方式生成：参考底图 [{}] + 本页设计稿", page.getName(), refPage.getName());
                     return aiClient.generateHtmlWithImages(
                             WireframePrompt.HTML_SYSTEM_PROMPT, prompt,
                             List.of(new AiClient.ImageInput(mime, imageBytes),
-                                    new AiClient.ImageInput(refMime, refBytes)));
-                } catch (Exception e) {
-                    log.warn("参考底图读取失败，退回单图生成: {}", e.getMessage());
+                                    new AiClient.ImageInput(guessMime(refImg.getFileName().toString()), refBytes)));
                 }
             }
         }
@@ -387,49 +481,88 @@ public class AnalyzeService {
      * 供 analyzePage 与 regeneratePageHtml 共用，保证两条入口行为一致。
      */
     private String generateFinalHtml(Page page, String mime, byte[] imageBytes, Path imagePath) {
+        List<Page> pages = pageMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
+                .eq(Page::getProjectId, page.getProjectId())
+                .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)).orderByAsc(Page::getSortOrder));
+        List<Element> sources = elementMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
+                .eq(Element::getPageId, page.getId())).stream().filter(e -> !PageBackgroundAction.persistent(e)).toList();
+        java.util.Set<Long> requiredBindings = new java.util.HashSet<>();
+        if (!sources.isEmpty()) interactionMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
+                .in(Interaction::getElementId, sources.stream().map(Element::getId).toList()))
+                .stream().filter(i -> i.getActionType() != null && !"none".equals(i.getActionType()))
+                .forEach(i -> requiredBindings.add(i.getElementId()));
+        java.util.Set<String> assetUrls = assetService.scanUserAssetsFor(imagePath).stream()
+                .map(a -> "/api/assets/" + a.assetId()).collect(java.util.stream.Collectors.toSet());
+        if (artworkService != null) artworkService.assets(page.getProjectId()).forEach(a -> assetUrls.add(a.url()));
         Page refPage = findStyleReferencePage(page);
-        String refHtml = refPage == null ? null : refPage.getHtmlContent();
+        if (refPage == null) refPage = pages.stream()
+                .filter(p -> !p.getId().equals(page.getId()) && p.getHtmlContent() != null
+                        && p.getHtmlContent().contains("ai-static-v1")).findFirst().orElse(null);
+        String refHtml = refPage == null ? null : GeneratedHtmlContract.forModel(refPage.getHtmlContent());
         String elementSummary = buildElementSummary(page.getId());
-        String navSummary = buildNavSummary(page.getId());
+        String navSummary = buildNavSummary(sources, pages);
         String assetsSummary = assetService.getUserAssetsHtmlPrompt(imagePath);
+        if (artworkService != null) assetsSummary += artworkService.prompt(page.getProjectId());
         String prompt = WireframePrompt.buildHtmlUserPrompt(
                 page.getCanvasWidth() == null ? 375 : page.getCanvasWidth(),
                 page.getCanvasHeight() == null ? 812 : page.getCanvasHeight(),
-                elementSummary, navSummary, assetsSummary, refHtml);
+                page.getName(), buildPageNames(pages), elementSummary, navSummary, assetsSummary, refHtml)
+                + projectChrome.prompt(page, pages);
         String rawHtml = generateHtmlWithRef(page, prompt, mime, imageBytes, refPage, imagePath);
-        String html = sanitizeAssetRefs(stripCodeFence(rawHtml));
-        if (repairEnabled && htmlRenderer != null && htmlRenderer.isAvailable()) {
-            html = repairHtml(html, page, elementSummary, navSummary, assetsSummary, mime, imageBytes, refHtml);
+        String html = htmlContract.prepare(rawHtml, page, sources, pages, assetUrls, requiredBindings);
+        if (artworkService != null) html = artworkService.resolve(page.getProjectId(), html, assetUrls, true);
+        html = projectChrome.apply(page, pages, html);
+        if (repairEnabled && repairRounds > 0 && htmlRenderer != null && htmlRenderer.isAvailable()) {
+            html = repairHtml(html, page, elementSummary, navSummary, assetsSummary, mime, imageBytes, refHtml,
+                    sources, pages, assetUrls, requiredBindings);
         }
         return html;
     }
 
     /**
-     * 回修闭环：把当前 HTML 渲染成截图，连同原始设计稿一起喂回模型做"对比→修复"，最多 repairRounds 轮。
-     * 模型从没见过自己的输出，这一闭环是纠正错位/色差/字体失衡的关键。
+     * 本地检查→有明显问题才截图回修。检查不调用模型；每轮复查，问题消失即停止。
      */
     private String repairHtml(String html, Page page, String elementSummary, String navSummary,
-                              String assetsSummary, String mime, byte[] imageBytes, String refHtml) {
+                              String assetsSummary, String mime, byte[] imageBytes, String refHtml,
+                              List<Element> sources, List<Page> pages, java.util.Set<String> assetUrls,
+                              java.util.Set<Long> requiredBindings) {
         int canvasW = page.getCanvasWidth() == null ? 375 : page.getCanvasWidth();
         int canvasH = page.getCanvasHeight() == null ? 812 : page.getCanvasHeight();
         String current = html;
-        for (int round = 1; round <= Math.max(1, repairRounds); round++) {
+        for (int round = 1; round <= Math.min(2, repairRounds); round++) {
             try {
-                byte[] shot = htmlRenderer.screenshot(current, canvasW);
+                HtmlRenderer.QualityReport quality = htmlRenderer.inspect(current, canvasW, canvasH);
+                if (quality == null || !quality.needsRepair()) {
+                    log.info("页面 [{}] 本地检查未发现明显问题，跳过 AI 回修", page.getName());
+                    break;
+                }
+                if (quality.screenshot() == null || quality.screenshot().length == 0) {
+                    log.warn("页面 [{}] 本地检查截图不可用，保留当前 HTML", page.getName());
+                    break;
+                }
+                log.info("页面 [{}] 检测到明显问题，触发第 {} 轮回修：{}", page.getName(), round, quality.issues());
                 String repairPrompt = WireframePrompt.buildRepairUserPrompt(
-                        canvasW, canvasH, elementSummary, navSummary, assetsSummary, refHtml);
+                        canvasW, canvasH, page.getName(), buildPageNames(pages), elementSummary, navSummary,
+                        assetsSummary, refHtml, GeneratedHtmlContract.forModel(current)) + projectChrome.prompt(page, pages)
+                        + "\n本地渲染检测到的明确问题（优先只修复这些问题，保留现有视觉与内容）：\n- "
+                        + String.join("\n- ", quality.issues());
                 String repaired = aiClient.generateHtmlWithImages(
                         WireframePrompt.REPAIR_SYSTEM_PROMPT, repairPrompt,
                         List.of(new AiClient.ImageInput(mime, imageBytes),
-                                new AiClient.ImageInput("image/png", shot)));
-                String fixed = sanitizeAssetRefs(stripCodeFence(repaired));
-                if (fixed != null && fixed.length() > 200 && fixed.contains("<!DOCTYPE")) {
-                    current = fixed;
-                    log.info("页面 [{}] 回修第 {} 轮完成（{} 字符）", page.getName(), round, current.length());
-                } else {
-                    log.warn("页面 [{}] 回修第 {} 轮模型未返回有效 HTML，停止回修", page.getName(), round);
-                    break;
-                }
+                                new AiClient.ImageInput("image/png", quality.screenshot())));
+                Page frozen = new Page();
+                frozen.setId(page.getId()); frozen.setProjectId(page.getProjectId()); frozen.setName(page.getName());
+                frozen.setSortOrder(Integer.MIN_VALUE); frozen.setHtmlContent(current);
+                List<Page> chromeReferences = new ArrayList<>(); chromeReferences.add(frozen); chromeReferences.addAll(pages);
+                String candidate = htmlContract.prepare(repaired, page, sources, pages, assetUrls, requiredBindings);
+                if (artworkService != null) candidate = artworkService.resolve(page.getProjectId(), candidate, assetUrls, false);
+                java.util.Set<String> previousArtwork = org.jsoup.Jsoup.parse(current).select("img[src^=/api/assets/artwork/]")
+                        .stream().map(n -> n.attr("src")).collect(java.util.stream.Collectors.toSet());
+                java.util.Set<String> repairedArtwork = org.jsoup.Jsoup.parse(candidate).select("img[src^=/api/assets/artwork/]")
+                        .stream().map(n -> n.attr("src")).collect(java.util.stream.Collectors.toSet());
+                if (!repairedArtwork.containsAll(previousArtwork)) throw new IllegalArgumentException("回修遗漏已生成的角色图片");
+                current = projectChrome.apply(page, chromeReferences, candidate);
+                log.info("页面 [{}] 回修第 {} 轮完成（{} 字符）", page.getName(), round, current.length());
             } catch (Exception e) {
                 log.warn("页面 [{}] 回修第 {} 轮失败（保留上一版 HTML）：{}", page.getName(), round, e.getMessage());
                 break;
@@ -472,27 +605,25 @@ public class AnalyzeService {
     }
 
     /** 跳转清单摘要（供整页 HTML 生成时给元素打 data-nav 标记）：元素文案 → 目标页名 */
-    private String buildNavSummary(long pageId) {
-        List<Element> els = elementMapper.selectList(
-                com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
-                        .eq(Element::getPageId, pageId));
+    private String buildNavSummary(List<Element> els, List<Page> pages) {
         if (els.isEmpty()) {
             return "";
         }
-        Map<Long, String> labelById = new HashMap<>();
-        for (Element e : els) {
-            labelById.put(e.getId(), e.getLabel() == null ? "" : e.getLabel());
-        }
         List<Interaction> inters = interactionMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Interaction>lambdaQuery()
-                        .in(Interaction::getElementId, els.stream().map(Element::getId).toList())
-                        .isNotNull(Interaction::getTargetPageId).or()
-                        .isNotNull(Interaction::getParams));
+                        .in(Interaction::getElementId, els.stream().map(Element::getId).toList()));
         StringBuilder sb = new StringBuilder();
         for (Interaction it : inters) {
+            Element src = els.stream().filter(e -> e.getId().equals(it.getElementId())).findFirst().orElse(null);
+            if (src == null || it.getActionType() == null || "none".equals(it.getActionType())) continue;
+            String prefix = "ID=" + src.getId() + " | " + src.getType() + " | " + (src.getLabel() == null ? "" : src.getLabel());
+            if ("back".equals(it.getActionType()) || "close".equals(it.getActionType())) {
+                sb.append(prefix).append(" → data-action=back\n");
+                continue;
+            }
             String targetName = null;
             if (it.getTargetPageId() != null) {
-                Page target = pageMapper.selectById(it.getTargetPageId());
+                Page target = pages.stream().filter(p -> p.getId().equals(it.getTargetPageId())).findFirst().orElse(null);
                 targetName = target == null ? null : target.getName();
             } else if (it.getParams() != null && !it.getParams().isBlank()) {
                 // 分析刚完成、补链未跑时，目标还存放在 params.target_name 里
@@ -502,17 +633,12 @@ public class AnalyzeService {
                     // 非法 JSON 忽略
                 }
             }
-            if (targetName == null || targetName.isBlank()) continue;
-            Element src = els.stream().filter(e -> e.getId().equals(it.getElementId())).findFirst().orElse(null);
-            String type = src != null && src.getType() != null ? src.getType() : "按钮";
-            String pos = "";
-            if (src != null && src.getPositionY() != null && src.getHeight() != null) {
-                double y = src.getPositionY();
-                double h = src.getHeight();
-                pos = String.format("（类型=%s，约在画布纵向 y=%d~%d 区域）", type, (int) y, (int) (y + h));
+            String resolved = targetName;
+            if (resolved != null && pages.stream().anyMatch(p -> resolved.equals(p.getName()))) {
+                sb.append(prefix).append(" → data-nav=\"").append(resolved).append("\"（").append(it.getActionType()).append("）\n");
+            } else {
+                sb.append(prefix).append(" → 本页状态切换或反馈；无可靠跨页目标，不加data-nav\n");
             }
-            String label = labelById.getOrDefault(it.getElementId(), "");
-            sb.append(label.isBlank() ? "(未命名元素)" : label).append(pos).append(" → ").append(targetName).append('\n');
         }
         return sb.toString();
     }
@@ -1228,6 +1354,7 @@ public class AnalyzeService {
         // 则抑制容器自身 label，避免整页生成时同一句文案被渲染两次并重叠（如"限时兑换商店"）。
         StringBuilder sb = new StringBuilder();
         for (Element e : els) {
+            if (PageBackgroundAction.persistent(e)) continue;
             String label = e.getLabel() == null ? "" : e.getLabel().trim();
             boolean suppressLabel = "container".equals(e.getType()) && !label.isBlank()
                     && els.stream().anyMatch(o -> isTextBearer(o)
@@ -1236,8 +1363,8 @@ public class AnalyzeService {
                             && bboxOverlap(e, o));
             String effectiveLabel = suppressLabel ? "" : (e.getLabel() == null ? "" : e.getLabel());
             String fill = styleAttr(e.getStyle(), "fill");
-            sb.append(String.format("%s | %s | %.0f,%.0f,%.0f,%.0f%s%n",
-                    e.getType(),
+            sb.append(String.format("%d | %s | %s | %.0f,%.0f,%.0f,%.0f%s%n",
+                    e.getId(), e.getType(),
                     effectiveLabel,
                     e.getPositionX(), e.getPositionY(), e.getWidth(), e.getHeight(),
                     fill.isBlank() ? "" : " | " + fill));

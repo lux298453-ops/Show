@@ -136,11 +136,11 @@
     <!-- 【分割线】 -->
     <div class="h-4 w-[1px] bg-slate-200 mx-1"></div>
 
-    <!-- 7) 完成。铅笔连续绘制时这一笔松手已保存，点这里不退出。 -->
+    <!-- 7) 完成当前绘制并退出；铅笔已保存的笔画继续保留。 -->
     <button
       type="button"
       class="h-8 px-3 rounded-xl flex items-center gap-1.5 text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 active:scale-95 transition-all shadow-xs cursor-pointer ml-0.5"
-      :title="continuous ? '这一笔松手已保存，点这里不会退出。按 Esc 或右侧叉才退出' : '完成矢量编辑 (Enter 或 Esc)'"
+      :title="continuous ? '完成手绘并退出铅笔模式，保留已画笔画' : '完成矢量编辑 (Enter 或 Esc)'"
       @click="emit('done')"
     >
       <Check class="w-3.5 h-3.5 stroke-[2.5]" />

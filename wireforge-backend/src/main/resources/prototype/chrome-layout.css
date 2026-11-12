@@ -1,0 +1,35 @@
+/* Shared navigation geometry, including saved pages with intermediate Grid/Flex wrappers. */
+body [data-wf-shared-chrome=navigation][data-wf-chrome-layout=row]{
+  box-sizing:border-box!important;display:grid!important;
+  grid-template-columns:repeat(var(--wf-chrome-columns),minmax(0,1fr))!important;
+  grid-template-rows:min(48px,calc(var(--wf-chrome-nav-height,68px) - 13px))!important;
+  align-items:center!important;align-content:start!important;justify-content:stretch!important;
+  gap:0!important;padding:4px 14px 8px!important;
+  height:var(--wf-chrome-nav-height,68px)!important;
+  min-height:var(--wf-chrome-nav-height,68px)!important;max-height:var(--wf-chrome-nav-height,68px)!important;
+}
+body [data-wf-shared-chrome=navigation] [data-wf-chrome-layout=group]{
+  box-sizing:border-box!important;position:relative!important;inset:auto!important;
+  display:grid!important;grid-column:span var(--wf-chrome-columns)!important;
+  grid-template-columns:repeat(var(--wf-chrome-columns),minmax(0,1fr))!important;
+  grid-template-rows:min(48px,calc(var(--wf-chrome-nav-height,68px) - 13px))!important;
+  align-items:center!important;align-content:start!important;gap:0!important;
+  width:auto!important;min-width:0!important;max-width:none!important;
+  height:min(48px,calc(var(--wf-chrome-nav-height,68px) - 13px))!important;
+  min-height:0!important;max-height:none!important;margin:0!important;padding:0!important;
+  border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;transform:none!important;
+}
+body [data-wf-shared-chrome=navigation][data-wf-chrome-layout=row] [data-wf-chrome-part=item]{
+  align-self:center!important;justify-self:stretch!important;grid-column:auto!important;
+  width:100%!important;min-width:0!important;max-width:none!important;
+  height:min(40px,calc(var(--wf-chrome-nav-height,68px) - 13px))!important;
+  min-height:0!important;max-height:none!important;
+}
+body [data-wf-shared-chrome=navigation] [data-wf-chrome-layout=decoration]{display:none!important}
+body [data-wf-shared-chrome=navigation] [data-wf-chrome-layout=indicator]{
+  box-sizing:border-box!important;position:absolute!important;display:block!important;
+  inset:auto auto 7px 50%!important;transform:translateX(-50%)!important;
+  width:125px!important;max-width:35%!important;height:4px!important;min-height:0!important;
+  margin:0!important;padding:0!important;border:0!important;border-radius:2px!important;
+  background:var(--wf-chrome-nav-ink,#686969)!important;box-shadow:none!important;pointer-events:none!important;
+}

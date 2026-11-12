@@ -18,4 +18,6 @@ public class AiElementAdjustResponse {
     private String summary;
     /** 修改后的该元素外层 HTML (若 action 为 DELETE 则为空字符串) */
     private String modifiedSnippet;
+    private boolean changed;
+    private java.util.List<AiGeneratedImage> generatedImages;
 }

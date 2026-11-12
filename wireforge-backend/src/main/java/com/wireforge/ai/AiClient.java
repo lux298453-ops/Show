@@ -2,6 +2,7 @@ package com.wireforge.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -28,8 +29,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 中转站 OpenAI 兼容客户端（chat-completions 为主，responses 兜底）。
- * 兼容 AiDocumentPlatform 使用的同一中转站（api.flintic.uk）的两种协议。
+ * OpenAI 兼容客户端；可配置优先使用 Chat Completions 或 Responses。
  */
 @Slf4j
 @Component
@@ -43,6 +43,20 @@ public class AiClient {
     private final String htmlModel;
     private final int maxOutputTokens;
     private final int timeoutSeconds;
+    // One client/pool per Spring singleton; creating one per request also creates
+    // a selector manager and makes resource reclamation depend on GC.
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(Duration.ofSeconds(30))
+            .build();
+    @Value("${wireforge.ai.html-timeout-seconds:600}")
+    private int htmlTimeoutSeconds = 600;
+    @Value("${wireforge.ai.protocol:chat-completions}")
+    private String protocol = "chat-completions";
+    @Value("${wireforge.ai.html-image-max-edge:2400}")
+    private int htmlImageMaxEdge = 2400;
+    @Value("${wireforge.ai.html-reasoning-effort:high}")
+    private String htmlReasoningEffort = "high";
 
     public AiClient(@Value("${wireforge.ai.base-url}") String baseUrl,
                     @Value("${wireforge.ai.api-key}") String apiKey,
@@ -58,15 +72,10 @@ public class AiClient {
         this.timeoutSeconds = timeoutSeconds;
     }
 
-    /**
-     * 每次请求新建客户端：中转站/代理会静默关闭空闲连接，复用旧连接会得到
-     * "header parser received no bytes" 等传输错误；HTTP/1.1 避免 HTTP/2 流截断问题。
-     */
-    private HttpClient newHttpClient() {
-        return HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofSeconds(30))
-                .build();
+    @PostConstruct
+    void logConfiguration() {
+        log.info("[AI配置] host={} 优先协议={} 识别模型={} HTML模型={}", URI.create(baseUrl).getHost(),
+                protocol, model, htmlModel.isBlank() ? model : htmlModel);
     }
 
     /**
@@ -80,7 +89,9 @@ public class AiClient {
     /** 整页 HTML 生成专用：优先使用 wireforge.ai.html-model 配置的模型（未配置则回退默认模型）。 */
     public String generateHtmlWithImage(String systemPrompt, String userPrompt,
                                         String imageMime, byte[] imageBytes) {
-        return generateWithImageModel(htmlModel, systemPrompt, userPrompt, imageMime, imageBytes);
+        PreparedImage image = prepareImage(imageBytes, imageMime, htmlImageMaxEdge);
+        String dataUrl = "data:" + image.mime() + ";base64," + Base64.getEncoder().encodeToString(image.bytes());
+        return generateWithDataUrls(htmlModel, systemPrompt, userPrompt, List.of(dataUrl), true);
     }
 
     /** 多图输入（如"参考底图 + 本页设计稿"）：图片按列表顺序进入上下文，供整页 HTML 生成参考 */
@@ -92,12 +103,11 @@ public class AiClient {
         }
         List<String> dataUrls = images.stream()
                 .map(img -> {
-                    byte[] opt = optimizeImageForAi(img.bytes());
-                    String mime = (opt != img.bytes()) ? "image/jpeg" : normalizeMime(img.mime());
-                    return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(opt);
+                    PreparedImage image = prepareImage(img.bytes(), img.mime(), htmlImageMaxEdge);
+                    return "data:" + image.mime() + ";base64," + Base64.getEncoder().encodeToString(image.bytes());
                 })
                 .toList();
-        return generateWithDataUrls(htmlModel, systemPrompt, userPrompt, dataUrls);
+        return generateWithDataUrls(htmlModel, systemPrompt, userPrompt, dataUrls, true);
     }
 
     /**
@@ -112,7 +122,7 @@ public class AiClient {
      * 纯文本输入（HTML 增强模型优先）→ 模型文本/JSON 输出，供全屏演示 AI 原型微调专用。
      */
     public String generateHtmlText(String systemPrompt, String userPrompt) {
-        return generateWithDataUrls(htmlModel != null && !htmlModel.isBlank() ? htmlModel : null, systemPrompt, userPrompt, List.of());
+        return generateWithDataUrls(htmlModel != null && !htmlModel.isBlank() ? htmlModel : null, systemPrompt, userPrompt, List.of(), true);
     }
 
     /**
@@ -122,10 +132,15 @@ public class AiClient {
 
     /**
      * 智能压缩预处理：在不改变长宽比的前提下，将超大尺寸或高体积设计稿
-     * 降采样至最大边 <= 1280px、体积适中的 JPEG，彻底避免超时与大额 Token 浪费。
+     * 识别阶段最长边1080px；HTML阶段保留更高分辨率，避免小卡片的角色细节丢失。
      * 同时返回实际发送给大模型的真实物理宽高，确保 Prompt 声明与坐标缩放 100% 吻合。
      */
     public static PreparedImage prepareImage(byte[] raw, String rawMime) {
+        return prepareImage(raw, rawMime, 1080);
+    }
+
+    static PreparedImage prepareImage(byte[] raw, String rawMime, int maxEdge) {
+        maxEdge = Math.max(1080, Math.min(3840, maxEdge));
         if (raw == null) {
             return new PreparedImage(new byte[0], "image/png", 0, 0);
         }
@@ -137,10 +152,10 @@ public class AiClient {
             }
             int w = img.getWidth(), h = img.getHeight();
             int maxDim = Math.max(w, h);
-            if (maxDim <= 1080 && raw.length <= 500 * 1024) {
+            if (maxDim <= maxEdge && raw.length <= (maxEdge > 1080 ? 4 * 1024 * 1024 : 500 * 1024)) {
                 return new PreparedImage(raw, normalizeMime(rawMime), w, h);
             }
-            double scale = Math.min(1.0, 1080.0 / maxDim);
+            double scale = Math.min(1.0, (double) maxEdge / maxDim);
             int targetW = (int) Math.round(w * scale);
             int targetH = (int) Math.round(h * scale);
             BufferedImage resized = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
@@ -165,10 +180,6 @@ public class AiClient {
         }
     }
 
-    private byte[] optimizeImageForAi(byte[] raw) {
-        return prepareImage(raw, "image/png").bytes();
-    }
-
     /** 图片 + 提示词 → 文本输出；modelOverride 为空时使用默认模型。 */
     public String generateWithImageModel(String modelOverride, String systemPrompt, String userPrompt,
                                          String imageMime, byte[] imageBytes) {
@@ -178,7 +189,7 @@ public class AiClient {
     }
 
     /**
-     * 一次调用失败时是否值得再发：只有确定上游还没开始算（连不上、限流、网关拒绝）才重发。
+     * 一次调用失败时是否值得再发：只有确定连接未建立才重发。
      * 超时或读到一半断开时上游多半已经计费，重发会把同一张图再算一遍。
      */
     static final class AiCallException extends RuntimeException {
@@ -196,42 +207,61 @@ public class AiClient {
     /** 公共生成逻辑：支持单/多图，带线程级执行超时；超时不重发，只有没连上时重试一次 */
     private String generateWithDataUrls(String modelOverride, String systemPrompt, String userPrompt,
                                         List<String> dataUrls) {
+        return generateWithDataUrls(modelOverride, systemPrompt, userPrompt, dataUrls, false);
+    }
+
+    private String generateWithDataUrls(String modelOverride, String systemPrompt, String userPrompt,
+                                        List<String> dataUrls, boolean htmlGeneration) {
         if (apiKey.isBlank()) {
             throw new IllegalStateException("未配置 AI API Key（wireforge.ai.api-key / 环境变量 AI_API_KEY）");
         }
         String effectiveModel = modelOverride == null || modelOverride.isBlank() ? model : modelOverride.trim();
+        int requestTimeout = htmlGeneration ? Math.max(timeoutSeconds, htmlTimeoutSeconds) : timeoutSeconds;
         String label = USAGE_LABEL.get();
 
         Map<String, Object> chatBody = chatCompletionsBody(effectiveModel, systemPrompt, userPrompt, dataUrls);
         Map<String, Object> responsesBody = responsesBody(effectiveModel, systemPrompt, userPrompt, dataUrls);
+        if (htmlGeneration) {
+            String effort = List.of("low", "medium", "high").contains(htmlReasoningEffort) ? htmlReasoningEffort : "high";
+            chatBody.put("reasoning_effort", effort);
+            responsesBody.put("reasoning", Map.of("effort", effort));
+        }
+        boolean responsesFirst = "responses".equalsIgnoreCase(protocol);
+        String primaryPath = responsesFirst ? "/v1/responses" : "/v1/chat/completions";
+        String fallbackPath = responsesFirst ? "/v1/chat/completions" : "/v1/responses";
+        Map<String, Object> primaryBody = responsesFirst ? responsesBody : chatBody;
+        Map<String, Object> fallbackBody = responsesFirst ? chatBody : responsesBody;
 
         // 每次调用包一层"执行超时"：HttpRequest.timeout 只管响应头，SSE 流式读取若被上游
         // 挂起会无限期阻塞并卡死整个分析队列——必须在线程级强制中断。
-        // 严格遵循规范：未收到字节的连接握手丢包才重连；一旦开始传输或超时，绝不自动重发，避免重复扣 token。
+        // 没收到响应头不代表请求未被处理；只有明确的建连失败才允许重试。
         try {
             try {
-                return callWithTimeout("/v1/chat/completions", chatBody, label, effectiveModel);
+                return callWithConnectionRetry(primaryPath, primaryBody, label, effectiveModel, requestTimeout);
             } catch (AiCallException e) {
-                if (e.retryable) {
-                    log.warn("[AI连接] 物理握手/连接在建立前中断（0 字节抵达，无计费风险），等待 1.5s 后握手重试: {}", e.getMessage());
-                    try { Thread.sleep(1500); } catch (InterruptedException ignore) {}
-                    return callWithTimeout("/v1/chat/completions", chatBody, label, effectiveModel);
-                }
                 if (!e.unsupported) throw e;
-                log.warn("chat-completions 不可用（{}），改用 responses", e.getMessage());
-                return callWithTimeout("/v1/responses", responsesBody, label, effectiveModel);
+                log.warn("{} 不可用（{}），改用 {}", primaryPath, e.getMessage(), fallbackPath);
+                return callWithConnectionRetry(fallbackPath, fallbackBody, label, effectiveModel, requestTimeout);
             }
         } catch (AiCallException e) {
-            if (e.retryable) {
-                log.warn("[AI连接] 物理握手再次中断（0 字节抵达，无计费风险），等待 1.5s 后进行最后一次握手重试: {}", e.getMessage());
-                try { Thread.sleep(1500); } catch (InterruptedException ignore) {}
-                try {
-                    return callWithTimeout("/v1/chat/completions", chatBody, label, effectiveModel);
-                } catch (AiCallException finalEx) {
-                    throw new RuntimeException("AI 连接中断（已终止，未重复计费）: " + finalEx.getMessage(), finalEx);
-                }
+            throw new RuntimeException("AI 调用失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String callWithConnectionRetry(String path, Map<String, Object> body, String label,
+                                           String modelName, int requestTimeout) {
+        try {
+            return callWithTimeout(path, body, label, modelName, requestTimeout);
+        } catch (AiCallException e) {
+            if (!e.retryable) throw e;
+            log.warn("[AI连接] {} 连接未建立，等待 1.5s 后重试一次: {}", labelText(label), e.getMessage());
+            try {
+                Thread.sleep(1500);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AiCallException("AI API 请求被中断", false, false, interrupted);
             }
-            throw new RuntimeException("AI 调用失败（未自动重发，避免重复计费）: " + e.getMessage(), e);
+            return callWithTimeout(path, body, label, modelName, requestTimeout);
         }
     }
 
@@ -244,19 +274,19 @@ public class AiClient {
     }
 
     /** 在独立线程中执行 AI 调用，超过 timeoutSeconds 强制中断——防止流式读取被上游挂起后无限阻塞 */
-    private String callWithTimeout(String path, Map<String, Object> body, String label, String modelName) {
+    private String callWithTimeout(String path, Map<String, Object> body, String label, String modelName, int requestTimeout) {
         long started = System.currentTimeMillis();
-        FutureTask<String> task = new FutureTask<>(() -> call(path, body, label, modelName, started));
+        FutureTask<String> task = new FutureTask<>(() -> call(path, body, label, modelName, started, requestTimeout));
         Thread worker = new Thread(task, "ai-call-" + path);
         worker.setDaemon(true);
         worker.start();
         try {
-            return task.get(timeoutSeconds, TimeUnit.SECONDS);
+            return task.get(requestTimeout, TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException te) {
             task.cancel(true);
             worker.interrupt();
-            log.warn("[AI用量] {} 超时 {}s 已中断，上游可能已按这次请求计费", labelText(label), timeoutSeconds);
-            throw new AiCallException("AI 调用超时（" + timeoutSeconds + "s），已中断: " + path, false, false, te);
+            log.warn("[AI用量] {} 超时 {}s 已中断，上游可能已按这次请求计费", labelText(label), requestTimeout);
+            throw new AiCallException("AI 调用超时（" + requestTimeout + "s），已中断: " + path, false, false, te);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             task.cancel(true);
@@ -269,35 +299,30 @@ public class AiClient {
         }
     }
 
-    /** 按状态码判断：404/405 等说明接口不支持，可换另一种；429/502/503 说明没开始算，可重试 */
+    /** HTTP 网关错误不能证明上游未处理请求，不自动重发；仅明确不支持接口时切换协议。 */
     private AiCallException statusError(int status, String body) {
         String msg = "AI API 调用失败 (status=" + status + "): " + extractError(body);
         boolean unsupported = status == 404 || status == 405 || status == 415 || status == 501;
-        boolean retryable = status == 429 || status == 502 || status == 503;
-        return new AiCallException(msg, retryable, unsupported, null);
+        return new AiCallException(msg, false, unsupported, null);
     }
 
-    /** 发送阶段就失败（连不上、握手失败）或未收到任何字节可以重试；等响应时超时说明上游已在算，不重试 */
-    private static AiCallException ioError(IOException e, boolean receivedAnyBytes) {
-        boolean notConnected = !receivedAnyBytes
-                || e instanceof java.net.http.HttpConnectTimeoutException
+    /** 没收到正文或响应头仍可能已发出POST，不能据此重试。 */
+    static AiCallException ioError(IOException e) {
+        boolean notConnected = e instanceof java.net.http.HttpConnectTimeoutException
                 || e instanceof java.net.ConnectException
                 || e instanceof java.net.UnknownHostException
                 || e instanceof javax.net.ssl.SSLHandshakeException;
         return new AiCallException("AI API 请求异常: " + e.getMessage(), notConnected, false, e);
     }
 
-    private String call(String path, Map<String, Object> body, String label, String modelName, long started) {
+    private String call(String path, Map<String, Object> body, String label, String modelName, long started, int requestTimeout) {
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) + path : baseUrl + path;
 
-        // 1. 优先流式。非流式要等整段写完才有响应头，中转站大约 1 分钟收不到头就会掐断，
-        //    上游往往已经开始计费。流式会先返回头，内容边到边收，失败不再补发第二次。
-        AiCallException streamFailure;
+        // 1. 优先流式以接收进度。连接截断和超时均不能证明未计费，不补发。
         try {
-            return callStream(path, body, label, modelName, started);
+            return callStream(path, body, label, modelName, started, requestTimeout);
         } catch (AiCallException e) {
             if (!e.unsupported) throw e;
-            streamFailure = e;
             log.warn("流式被拒绝，改为一次非流式: {}", e.getMessage());
         }
 
@@ -309,15 +334,15 @@ public class AiClient {
             String json = objectMapper.writeValueAsString(syncBody);
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .timeout(Duration.ofSeconds(requestTimeout))
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
-            resp = newHttpClient().send(req, HttpResponse.BodyHandlers.ofString());
+            resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
-            throw ioError(e, false);
+            throw ioError(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AiCallException("AI API 请求被中断", false, false, e);
@@ -325,44 +350,26 @@ public class AiClient {
 
         String syncText = resp.body() == null ? "" : resp.body().trim();
         if (resp.statusCode() >= 400) {
-            if (reasoningRejected(syncText) && stripReasoning(syncBody)) {
+            if (parameterRejected(resp.statusCode(), syncText, "reasoning") && stripReasoning(syncBody)) {
                 log.warn("中转站不接受推理档位参数，去掉后重发一次");
-                return call(path, syncBody, label, modelName, started);
+                return call(path, syncBody, label, modelName, started, requestTimeout);
             }
-            if (temperatureRejected(syncText) && stripTemperature(syncBody)) {
+            if (parameterRejected(resp.statusCode(), syncText, "temperature") && stripTemperature(syncBody)) {
                 log.warn("中转站不接受 temperature 参数，去掉后重发一次");
-                return call(path, syncBody, label, modelName, started);
+                return call(path, syncBody, label, modelName, started, requestTimeout);
             }
             throw statusError(resp.statusCode(), syncText);
-        } else if (!syncText.isEmpty()) {
-            if (syncText.startsWith("{")) {
-                Usage usage = new Usage();
-                try {
-                    usage.read(objectMapper.readTree(syncText).path("usage"));
-                } catch (Exception ignore) {
-                    // 用量读不到不影响结果
-                }
-                usage.log(label, modelName, path, started);
-                String content = extractContent(syncText);
-                if (content != null && !content.isBlank() && !content.equals(syncText)) {
-                    return content.trim();
-                }
-                throw new AiCallException("AI 返回里没有文本内容（已计费，未重发）", false, false, null);
-            }
-            // 部分中转对非流式请求直接回 SSE 文本：按流式行解析，不再重发
-            StringBuilder parsed = new StringBuilder();
-            Usage usage = new Usage();
-            for (String line : syncText.split("\n")) handleStreamLine(line, parsed, usage);
-            usage.log(label, modelName, path, started);
-            if (!parsed.isEmpty()) return parsed.toString().trim();
-            return syncText;
-        } else {
-            throw new AiCallException("AI 返回了空响应（未重发）", false, false, streamFailure);
         }
+        // 有的中转站即使接受 stream=false，仍返回 SSE；统一按内容解码，不补发请求。
+        ResponseReader reader = new ResponseReader();
+        syncText.lines().forEach(reader::line);
+        String content = reader.result();
+        reader.usage.log(label, modelName, path, started);
+        return content;
     }
 
     /** 流式发送一次。中转站明确拒绝流式时标记为可改走非流式；其余失败直接抛出，不再补发。 */
-    private String callStream(String path, Map<String, Object> body, String label, String modelName, long started) {
+    private String callStream(String path, Map<String, Object> body, String label, String modelName, long started, int requestTimeout) {
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) + path : baseUrl + path;
         Map<String, Object> streamBody = new LinkedHashMap<>(body);
         streamBody.put("stream", true);
@@ -378,67 +385,78 @@ public class AiClient {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(timeoutSeconds))
+                .timeout(Duration.ofSeconds(requestTimeout))
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream")
                 .header("Authorization", "Bearer " + apiKey)
                 .POST(HttpRequest.BodyPublishers.ofString(streamJson))
                 .build();
 
-        boolean[] hasBytes = new boolean[]{false};
+        ResponseReader reader = new ResponseReader();
+        int responseStatus = -1;
+        String contentType = "unreceived";
         try {
             HttpResponse<java.util.stream.Stream<String>> response =
-                    newHttpClient().send(request, HttpResponse.BodyHandlers.ofLines());
+                    httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
+            responseStatus = response.statusCode();
+            contentType = diagnosticToken(response.headers().firstValue("Content-Type").orElse("missing").split(";", 2)[0]);
+            log.info("[AI响应头] {} 接口={} HTTP={} 类型={} 等待={}ms 请求字符={}", labelText(label),
+                    path, responseStatus, contentType, System.currentTimeMillis() - started, streamJson.length());
             if (response.statusCode() >= 400) {
-                String errorBody = response.body().collect(java.util.stream.Collectors.joining("\n"));
-                if (reasoningRejected(errorBody) && stripReasoning(body)) {
+                String errorBody;
+                try (var lines = response.body()) {
+                    errorBody = lines.collect(java.util.stream.Collectors.joining("\n"));
+                }
+                if (parameterRejected(responseStatus, errorBody, "reasoning") && stripReasoning(body)) {
                     log.warn("中转站不接受推理档位参数，去掉后重发一次");
-                    return callStream(path, body, label, modelName, started);
+                    return callStream(path, body, label, modelName, started, requestTimeout);
                 }
-                if (temperatureRejected(errorBody) && stripTemperature(body)) {
+                if (parameterRejected(responseStatus, errorBody, "temperature") && stripTemperature(body)) {
                     log.warn("中转站不接受 temperature 参数，去掉后重发一次");
-                    return callStream(path, body, label, modelName, started);
+                    return callStream(path, body, label, modelName, started, requestTimeout);
                 }
-                if (streamRejected(errorBody)) {
-                    throw new AiCallException(errorBody, false, true, null);
+                if ((responseStatus == 400 || responseStatus == 422) && streamRejected(errorBody)) {
+                    throw new AiCallException("中转站明确不支持 stream 参数", false, true, null);
                 }
                 throw statusError(response.statusCode(), errorBody);
             }
 
-            StringBuilder text = new StringBuilder();
-            StringBuilder raw = new StringBuilder();
-            Usage usage = new Usage();
             try (var lines = response.body()) {
-                lines.forEach(line -> {
-                    hasBytes[0] = true;
-                    raw.append(line).append('\n');
-                    handleStreamLine(line, text, usage);
-                });
+                var iterator = lines.iterator();
+                while (!reader.terminal && iterator.hasNext()) {
+                    reader.line(iterator.next());
+                }
             }
-            if (!text.isEmpty()) {
-                usage.log(label, modelName, path, started);
-                return text.toString().trim();
-            }
-            String rawText = raw.toString().trim();
-            try {
-                usage.read(objectMapper.readTree(rawText).path("usage"));
-            } catch (Exception ignore) {
-                // 不是完整 JSON
-            }
-            usage.log(label, modelName, path, started);
-            String content = extractContent(rawText);
-            if (content == null || content.isBlank()) {
-                throw new AiCallException("AI 流式返回为空（已连接，未重发）", false, false, null);
-            }
+            String content = reader.result();
+            reader.usage.log(label, modelName, path, started);
             return content;
         } catch (AiCallException e) {
+            logStreamFailure(label, path, started, responseStatus, contentType, reader, "protocol_or_upstream");
             throw e;
+        } catch (java.io.UncheckedIOException e) {
+            logStreamFailure(label, path, started, responseStatus, contentType, reader, "body_io");
+            throw new AiCallException("AI 流式响应中断（连接读取失败，未收到完成事件，未重发）", false, false, e);
         } catch (IOException e) {
-            throw ioError(e, hasBytes[0]);
+            logStreamFailure(label, path, started, responseStatus, contentType, reader, "connection_io");
+            throw ioError(e);
         } catch (InterruptedException e) {
+            logStreamFailure(label, path, started, responseStatus, contentType, reader, "interrupted");
             Thread.currentThread().interrupt();
             throw new AiCallException("AI API 请求被中断", false, false, e);
         }
+    }
+
+    private void logStreamFailure(String label, String path, long started, int status, String contentType,
+                                  ResponseReader reader, String category) {
+        // Only transport metadata and counters. Never log response frames, prompts, HTML or images.
+        log.warn("[AI响应失败] {} 接口={} HTTP={} 类型={} 耗时={}ms 行数={} 接收字符={} 事件数={} 正文字符={} 最后事件={} 完成={} 类别={}",
+                labelText(label), path, status, contentType, System.currentTimeMillis() - started,
+                reader.lineCount, reader.receivedCharacters, reader.frameCount, reader.textLength(),
+                reader.lastEvent, reader.completed, category);
+    }
+
+    private static String diagnosticToken(String value) {
+        return value != null && value.matches("[a-zA-Z0-9_./:-]{1,96}") ? value : "unrecognized";
     }
 
     /** 400 且明确表示不要流式，才允许改走一次非流式。 */
@@ -452,10 +470,14 @@ public class AiClient {
         return mentionsStream && rejected;
     }
 
-    private static boolean reasoningRejected(String body) {
-        if (body == null) return false;
-        String text = body.toLowerCase();
-        return text.contains("reasoning");
+    private static boolean parameterRejected(int status, String body, String parameter) {
+        if ((status != 400 && status != 422) || body == null) return false;
+        String text = body.toLowerCase(java.util.Locale.ROOT);
+        boolean rejected = text.contains("not support") || text.contains("unsupported")
+                || text.contains("unknown parameter") || text.contains("unrecognized")
+                || text.contains("not allowed") || text.contains("not permitted")
+                || text.contains("invalid parameter") || body.contains("不支持");
+        return text.contains(parameter) && rejected;
     }
 
     /** 去掉推理档位参数。返回是否真的去掉了，避免失败后反复重发。 */
@@ -463,12 +485,6 @@ public class AiClient {
         boolean removed = body.remove("reasoning_effort") != null;
         removed = body.remove("reasoning") != null || removed;
         return removed;
-    }
-
-    private static boolean temperatureRejected(String body) {
-        if (body == null) return false;
-        String text = body.toLowerCase();
-        return text.contains("temperature");
     }
 
     private static boolean stripTemperature(Map<String, Object> body) {
@@ -514,44 +530,162 @@ public class AiClient {
         return label == null || label.isBlank() ? "(未标注)" : label;
     }
 
-    /**
-     * 解析单行 SSE：兼容 chat-completions（choices[].delta.content）与
-     * responses（response.output_text.delta）两种事件格式。
-     */
-    private void handleStreamLine(String line, StringBuilder text, Usage usage) {
-        if (line == null || line.isBlank()) return;
-        String payload = line.startsWith("data:") ? line.substring(5).trim() : line.trim();
-        if (payload.isBlank() || "[DONE]".equals(payload) || !payload.startsWith("{")) return;
-        try {
-            JsonNode node = objectMapper.readTree(payload);
-            String errorMessage = node.path("error").path("message").asText("");
-            if (!errorMessage.isBlank()) throw new RuntimeException(errorMessage);
+    /** Read SSE frames, not individual JSON lines. Relays may omit deltas and send only final snapshots. */
+    private final class ResponseReader {
+        final Usage usage = new Usage();
+        final StringBuilder raw = new StringBuilder();
+        final StringBuilder data = new StringBuilder();
+        final java.util.SortedMap<Integer, java.util.SortedMap<Integer, StringBuilder>> parts = new java.util.TreeMap<>();
+        String event = "";
+        boolean sse;
+        boolean completed;
+        boolean terminal;
+        boolean firstLine = true;
+        long lineCount;
+        long receivedCharacters;
+        long frameCount;
+        String lastEvent = "none";
 
-            if (node.has("usage")) usage.read(node.path("usage"));
-            if (node.path("response").has("usage")) usage.read(node.path("response").path("usage"));
-
-            String type = node.path("type").asText("");
-            if ("response.failed".equals(type) || "response.error".equals(type)) {
-                String message = node.path("message").asText("");
-                if (message.isBlank()) message = node.path("response").path("error").path("message").asText("");
-                throw new RuntimeException(message.isBlank() ? "AI 流式响应失败" : message);
+        void line(String line) {
+            if (terminal) return;
+            lineCount++;
+            receivedCharacters += line.length();
+            if (firstLine) {
+                line = line.startsWith("\uFEFF") ? line.substring(1) : line;
+                firstLine = false;
             }
-            if ("response.output_text.delta".equals(type)) {
-                text.append(node.path("delta").asText(""));
+            if (line.isEmpty()) {
+                dispatch();
                 return;
             }
-            JsonNode choices = node.path("choices");
-            if (choices.isArray()) {
-                for (JsonNode choice : choices) {
-                    String delta = extractMessageText(choice.path("delta").path("content"));
-                    if (delta.isBlank()) delta = extractMessageText(choice.path("message").path("content"));
-                    if (!delta.isBlank()) text.append(delta);
+            if (line.startsWith(":")) { sse = true; raw.setLength(0); return; }
+            int colon = line.indexOf(':');
+            String field = colon < 0 ? line : line.substring(0, colon);
+            String value = colon < 0 ? "" : line.substring(colon + 1);
+            if (value.startsWith(" ")) value = value.substring(1);
+            if (List.of("data", "event", "id", "retry").contains(field)) {
+                sse = true;
+                raw.setLength(0);
+                if ("data".equals(field)) data.append(value).append('\n');
+                if ("event".equals(field)) event = value;
+            } else if (!sse) {
+                raw.append(line).append('\n');
+            }
+        }
+
+        void dispatch() {
+            if (!data.isEmpty()) {
+                frameCount++;
+                String payload = data.toString().stripTrailing();
+                data.setLength(0);
+                if ("[DONE]".equals(payload)) {
+                    lastEvent = "DONE";
+                    completed = terminal = true;
+                } else {
+                    accept(parse(payload), event);
                 }
             }
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception ignore) {
-            // 无法解析的心跳/元数据行，跳过
+            event = "";
+        }
+
+        JsonNode parse(String payload) {
+            try {
+                JsonNode node = objectMapper.readTree(payload);
+                if (node != null && node.isObject()) return node;
+            } catch (IOException ignored) {
+                // Do not log payloads: response.created can echo prompts, images and other input.
+            }
+            throw failure("AI 响应格式无效（未重发）");
+        }
+
+        StringBuilder part(int output, int content) {
+            return parts.computeIfAbsent(output, k -> new java.util.TreeMap<>())
+                    .computeIfAbsent(content, k -> new StringBuilder());
+        }
+
+        void replacePart(int output, int content, String text) {
+            StringBuilder target = part(output, content);
+            target.setLength(0);
+            target.append(text);
+        }
+
+        void accept(JsonNode node, String eventName) {
+            usage.read(node.path("usage"));
+            JsonNode response = node.path("response");
+            usage.read(response.path("usage"));
+            String type = node.path("type").asText(eventName);
+            lastEvent = type.isBlank() ? (node.has("choices") ? "chat.completion" : "json") : diagnosticToken(type);
+            String status = (response.isObject() ? response : node).path("status").asText("");
+            if ("response.incomplete".equals(type) || "incomplete".equals(status)) {
+                String reason = (response.isObject() ? response : node).path("incomplete_details").path("reason").asText("");
+                throw failure("max_output_tokens".equals(reason) ? "AI 输出达到长度上限，内容未完成" : "AI 响应未完成");
+            }
+            if ("error".equals(type) || "response.failed".equals(type) || "response.error".equals(type)
+                    || "failed".equals(status) || "cancelled".equals(status)
+                    || node.path("error").isObject() || response.path("error").isObject()) {
+                throw failure("AI 流式响应失败（上游返回错误，未重发）");
+            }
+            int output = node.path("output_index").asInt(0);
+            int content = node.path("content_index").asInt(0);
+            if ("response.output_text.delta".equals(type)) {
+                part(output, content).append(node.path("delta").asText(""));
+            } else if ("response.output_text.done".equals(type)) {
+                replacePart(output, content, node.path("text").asText(""));
+            } else if ("response.content_part.done".equals(type) && "output_text".equals(node.path("part").path("type").asText())) {
+                replacePart(output, content, node.path("part").path("text").asText(""));
+            } else if ("response.output_item.done".equals(type) && node.path("item").path("content").isArray()) {
+                parts.remove(output);
+                int index = 0;
+                for (JsonNode block : node.path("item").path("content")) {
+                    if ("output_text".equals(block.path("type").asText())) replacePart(output, index, block.path("text").asText(""));
+                    index++;
+                }
+            } else if ("response.completed".equals(type)) {
+                if (response.has("output") || response.has("output_text")) {
+                    parts.clear();
+                    replacePart(0, 0, responseText(response));
+                }
+                completed = terminal = true;
+            } else if (node.path("choices").isArray()) {
+                for (JsonNode choice : node.path("choices")) {
+                    if (choice.path("index").asInt(0) != 0) continue;
+                    String reason = choice.path("finish_reason").asText("");
+                    if ("length".equals(reason)) throw failure("AI 输出达到长度上限，内容未完成");
+                    if ("content_filter".equals(reason)) throw failure("AI 响应未完成（内容过滤）");
+                    if (!reason.isBlank()) completed = true;
+                    String delta = extractMessageText(choice.path("delta").path("content"));
+                    if (!delta.isEmpty()) part(0, 0).append(delta);
+                    String snapshot = extractMessageText(choice.path("message").path("content"));
+                    if (!snapshot.isBlank()) replacePart(0, 0, snapshot);
+                }
+            } else if (type.isEmpty() && (node.has("output") || node.has("output_text"))) {
+                replacePart(0, 0, responseText(node));
+                completed = status.isBlank() || "completed".equals(status);
+            }
+        }
+
+        String result() {
+            dispatch();
+            if (!sse) {
+                if (raw.isEmpty()) throw failure("AI 返回了空响应（未重发）");
+                JsonNode node = parse(raw.toString());
+                accept(node, "");
+                // Legacy non-streaming chat responses may omit finish_reason.
+                if (node.path("choices").isArray() && node.path("status").asText("").isBlank()) completed = true;
+            }
+            if (!completed) throw failure("AI 流式响应中断（未收到完成事件，未重发）");
+            StringBuilder text = new StringBuilder();
+            parts.values().forEach(blocks -> blocks.values().forEach(text::append));
+            if (text.toString().isBlank()) throw failure("AI 返回里没有文本内容（未重发）");
+            return text.toString().trim();
+        }
+
+        AiCallException failure(String message) {
+            return new AiCallException(message, false, false, null);
+        }
+
+        int textLength() {
+            return parts.values().stream().flatMap(blocks -> blocks.values().stream()).mapToInt(StringBuilder::length).sum();
         }
     }
 
@@ -607,35 +741,24 @@ public class AiClient {
         return body;
     }
 
-    private String extractContent(String responseJson) {
-        try {
-            JsonNode root = objectMapper.readTree(responseJson);
-            String errorMessage = root.path("error").path("message").asText("");
-            if (!errorMessage.isBlank()) throw new RuntimeException(errorMessage);
+    private String responseText(JsonNode root) {
+        String outputText = root.path("output_text").asText("");
+        if (!outputText.isBlank()) return outputText;
 
-            String outputText = root.path("output_text").asText("");
-            if (!outputText.isBlank()) return outputText;
-
-            StringBuilder sb = new StringBuilder();
-            JsonNode output = root.path("output");
-            if (output.isArray()) {
-                for (JsonNode item : output) appendText(sb, item.path("content"));
-            }
-            if (!sb.isEmpty()) return sb.toString().trim();
-
-            JsonNode choices = root.path("choices");
-            if (choices.isArray() && choices.size() > 0) {
-                JsonNode message = choices.get(0).path("message");
-                String content = extractMessageText(message.path("content"));
-                if (!content.isBlank()) return content;
-            }
-            return responseJson;
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            log.warn("AI 响应解析失败，返回原始文本: {}", e.getMessage());
-            return responseJson;
+        StringBuilder sb = new StringBuilder();
+        JsonNode output = root.path("output");
+        if (output.isArray()) {
+            for (JsonNode item : output) appendText(sb, item.path("content"));
         }
+        if (!sb.isEmpty()) return sb.toString().trim();
+
+        JsonNode choices = root.path("choices");
+        if (choices.isArray() && choices.size() > 0) {
+            JsonNode message = choices.get(0).path("message");
+            String content = extractMessageText(message.path("content"));
+            if (!content.isBlank()) return content;
+        }
+        return "";
     }
 
     private void appendText(StringBuilder sb, JsonNode content) {
@@ -682,13 +805,15 @@ public class AiClient {
     }
 
     private String extractError(String responseJson) {
+        // Gateways can return whole HTML pages or echo sensitive input in error.message.
+        // Expose only a bounded code/type; the HTTP status is always included by the caller.
         try {
             JsonNode root = objectMapper.readTree(responseJson);
-            String message = root.path("error").path("message").asText("");
-            if (!message.isBlank()) return message;
-            return root.path("message").asText("");
+            String code = root.path("error").path("code").asText("");
+            if (code.isBlank()) code = root.path("error").path("type").asText("");
+            return code.isBlank() ? "上游返回错误" : diagnosticToken(code);
         } catch (Exception e) {
-            return responseJson;
+            return "上游返回非 JSON 错误页";
         }
     }
 

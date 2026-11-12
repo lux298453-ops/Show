@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AI adjustment panel style check</title></head><body><div id="app"></div>
+<script type="module">
+import {createApp,h,ref} from 'vue'
+import '../src/styles/main.scss'
+import AiAdjustDrawer from '../src/components/AiAdjustDrawer.vue'
+import {projectApi} from '../src/api/project'
+
+// Visual fixture only: AI and save operations resolve locally; no project is read or written.
+const page={id:1,name:'宠物家园首页',canvas_width:375,canvas_height:833,html_content:'<main>本地预览</main>',elements:[]}
+const open=ref(true),selected=ref(null),draft=ref(null),events=[],requests=[],saves=[]
+let pending
+projectApi.aiAdjust=async(...args)=>{requests.push(args);return new Promise((resolve,reject)=>{pending={resolve,reject}})}
+projectApi.aiAdjustElement=projectApi.aiAdjust
+projectApi.saveHtml=async(...args)=>{saves.push(args)}
+function success(){pending?.resolve(selected.value?{action:'REPLACE',summary:'已优化主按钮的圆角、字号和间距',modifiedSnippet:'<button>开始探险</button>'}:{summary:'已统一按钮样式，并整理卡片间距',modifiedHtml:'<main>调整后的本地预览</main>',diffList:['[修改] 主按钮统一为 8px 圆角，强化文字层级','[新增] 卡片之间增加 16px 间距','[删除] 移除多余的装饰投影']});pending=null}
+window.aiStyleTest={requests,saves,events,get selected(){return selected.value}}
+createApp({setup:()=>()=>h('main',{style:'min-height:100vh;background:#090d16;color:white;padding:24px;font:13px system-ui'},[
+  h('p','AI 面板样式验证：模拟数据，所有操作仅保留在本窗口'),
+  ...[
+    ['reopen','打开面板',()=>open.value=true],
+    ['select','选中元素',()=>selected.value={id:'hero',tag:'button',label:'开始探险按钮（较长名称的元素展示）',html:'<button>开始探险</button>'}],
+    ['theme','切换明暗主题',()=>document.documentElement.classList.toggle('dark')],
+    ['resolve','模拟成功',success],
+    ['reject','模拟失败',()=>{pending?.reject(new Error('暂时无法连接，请稍后重试'));pending=null}],
+  ].map(([id,text,click])=>h('button',{id,onClick:click,style:'display:block;padding:8px;margin:8px 0;border:1px solid #4b5563;border-radius:6px'},text)),
+  h(AiAdjustDrawer,{projectId:0,currentPage:page,isOpen:open.value,selectedElement:selected.value,currentDraftHtml:draft.value,
+    onClose:()=>open.value=false,onClearSelectedElement:()=>selected.value=null,
+    onPreviewDraft:(id,html)=>{draft.value=html;events.push('preview')},onRevertDraft:()=>{draft.value=null;events.push('revert')},
+    onCommitSuccess:()=>events.push('commit'),onStartCompare:()=>events.push('compare-start'),onEndCompare:()=>events.push('compare-end'),
+    onPatchElementSuccess:()=>events.push('patch'),
+  })
+])}).mount('#app')
+</script></body></html>

@@ -17,19 +17,29 @@ export interface AnalysisStatus {
   updateTime?: number
 }
 
+export interface AiGeneratedImage {
+  name: string
+  url: string
+  kind: 'background' | 'character' | 'illustration' | 'product'
+}
+
 export interface AiAdjustResponse {
   pageId: number
   pageName: string
   summary: string
   diffList: string[]
   modifiedHtml: string
+  changed?: boolean
+  generatedImages?: AiGeneratedImage[]
 }
 
 export interface AiElementAdjustResponse {
-  action: 'REPLACE' | 'DELETE'
+  action: 'REPLACE' | 'DELETE' | 'NO_CHANGE'
   elementId: string
   summary: string
   modifiedSnippet: string
+  changed?: boolean
+  generatedImages?: AiGeneratedImage[]
 }
 
 export const projectApi = {
@@ -46,36 +56,40 @@ export const projectApi = {
     http.post<any, { page_id: number; page_name: string; status: string; elements?: number; error?: string }[]>(
       `/projects/${id}/pages/${pageId}/reanalyze`,
       null,
-      { params: { force } },
+      { params: { force }, timeout: 1800000 },
     ),
   reanalyzeAll: (id: number, force = true) =>
     http.post<any, { page_id: number; page_name: string; status: string; elements?: number; error?: string }[]>(
       `/projects/${id}/reanalyze-all`,
       null,
-      { params: { force } },
+      { params: { force }, timeout: 1800000 },
     ),
   prototype: (id: number) => http.get<any, Prototype>(`/projects/${id}/prototype`),
   /** 仅重新生成某页的整页 HTML（Stitch 式直出），返回新 HTML */
   regenerateHtml: (id: number, pageId: number) =>
-    http.post<any, string>(`/projects/${id}/pages/${pageId}/regenerate-html`),
+    http.post<any, string>(`/projects/${id}/pages/${pageId}/regenerate-html`, null, { timeout: 1800000 }),
   /** 全屏演示 AI 原型微调：针对指定画板生成增量修改方案与新 HTML */
-  aiAdjust: (id: number, pageId: number, body: { instruction: string; contextHtml?: string }) =>
-    http.post<any, AiAdjustResponse>(`/projects/${id}/pages/${pageId}/ai-adjust`, body),
-  /** 全屏演示 AI 单选元素精准微调（Figma AI / Cursor 级）：Token 骤降 95%，秒级响应且零误伤 */
+  aiAdjust: (id: number, pageId: number, body: { requestId?: string; instruction: string; contextHtml?: string; conversationContext?: string }, signal?: AbortSignal) =>
+    http.post<any, AiAdjustResponse>(`/projects/${id}/pages/${pageId}/ai-adjust`, body, { signal, timeout: 1800000 }),
+  /** 仅调整指定元素，并提供有限的会话与布局上下文。 */
   aiAdjustElement: (
     id: number,
     pageId: number,
     body: {
+      requestId?: string
       elementId: string
       elementTag?: string
       elementLabel?: string
       elementHtml: string
       instruction: string
-    }
-  ) => http.post<any, AiElementAdjustResponse>(`/projects/${id}/pages/${pageId}/ai-adjust-element`, body),
+      conversationContext?: string
+      layoutContext?: string
+    },
+    signal?: AbortSignal,
+  ) => http.post<any, AiElementAdjustResponse>(`/projects/${id}/pages/${pageId}/ai-adjust-element`, body, { signal, timeout: 1800000 }),
   /** 保存用户微调后的完整整页 HTML */
-  saveHtml: (id: number, pageId: number, html: string, clientId?: string) =>
-    http.put<any, void>(`/projects/${id}/pages/${pageId}/html`, { html, clientId }),
+  saveHtml: (id: number, pageId: number, html: string, clientId?: string, expectedHtml?: string) =>
+    http.put<any, void>(`/projects/${id}/pages/${pageId}/html`, { html, clientId, expectedHtml }),
   createAnnotation: (id: number, pageId: number, body: { elementId: number | null; title: string; text: string }) =>
     http.post<any, Annotation>(`/projects/${id}/pages/${pageId}/annotations`, body),
   deleteAnnotation: (id: number, annId: number) => http.delete<any, void>(`/projects/${id}/annotations/${annId}`),

@@ -55,6 +55,7 @@
           <div
             v-for="row in visibleDomRows"
             :key="row.layer.uid"
+            :data-layer-uid="row.layer.uid"
             class="layer-row group relative flex items-center cursor-pointer"
             :class="isRowSelected(row.layer.uid) ? 'is-selected bg-[#0D99FF] text-white' : 'hover:bg-[#f5f5f5] dark:hover:bg-[#333333]'"
             :style="{ paddingLeft: (16 + row.depth * 18) + 'px', paddingRight: '8px' }"
@@ -339,6 +340,9 @@ function onLayerContextMenu(uid: string, e: MouseEvent) {
   if (!isRowSelected(uid)) {
     anchorUid.value = uid
     emit('select-dom-layer', uid, [uid])
+  } else {
+    // The iframe may have reloaded while the sidebar kept its selected rows.
+    emit('select-dom-layer', uid, props.selectedLayerUids?.length ? [...props.selectedLayerUids] : [uid])
   }
   emit('open-layer-menu', { x: e.clientX, y: e.clientY })
 }

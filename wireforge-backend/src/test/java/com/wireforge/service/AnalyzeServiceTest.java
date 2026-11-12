@@ -15,7 +15,7 @@ public class AnalyzeServiceTest {
         // Simulate AnalyzeService.parseJson logic
         AnalyzeService service = new AnalyzeService(
                 null, null, null, null, null, null,
-                objectMapper, null, null, null, null, null, null
+                objectMapper, null, null, null, null, null, null, null
         );
 
         String truncatedRaw = """
@@ -53,7 +53,7 @@ public class AnalyzeServiceTest {
     public void testParseJsonNormal() {
         AnalyzeService service = new AnalyzeService(
                 null, null, null, null, null, null,
-                objectMapper, null, null, null, null, null, null
+                objectMapper, null, null, null, null, null, null, null
         );
 
         String normalRaw = """

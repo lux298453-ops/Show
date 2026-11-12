@@ -27,6 +27,8 @@ public class HtmlRenderer {
     private Playwright playwright;
     private Browser browser;
     private final int deviceScaleFactor;
+    @Value("${wireforge.ai.asset-base-url:http://127.0.0.1:${server.port:8090}}")
+    private String assetBaseUrl = "http://127.0.0.1:8090";
 
     public HtmlRenderer(@Value("${wireforge.ai.render-scale:2}") int deviceScaleFactor) {
         this.deviceScaleFactor = deviceScaleFactor;
@@ -59,18 +61,54 @@ public class HtmlRenderer {
      * @param width 逻辑宽度（如 375），决定布局与截图宽度
      */
     public byte[] screenshot(String html, int width) {
+        return screenshot(html, width, 800);
+    }
+
+    public synchronized byte[] screenshot(String html, int width, int height) {
+        return render(html, width, height, false).screenshot();
+    }
+
+    /** No model call. Clean pages do not even need a screenshot. */
+    public synchronized QualityReport inspect(String html, int width, int height) {
+        return render(html, width, height, true);
+    }
+
+    public record QualityReport(List<String> issues, byte[] screenshot) {
+        public boolean needsRepair() { return issues != null && !issues.isEmpty(); }
+    }
+
+    private static final String QUALITY_CHECK = readQualityCheck();
+
+    private static String readQualityCheck() {
+        try (var in = HtmlRenderer.class.getResourceAsStream("/prototype/quality.js")) {
+            if (in == null) throw new IllegalStateException("缺少本地原型检查脚本");
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) { throw new IllegalStateException(e); }
+    }
+
+    private QualityReport render(String html, int width, int height, boolean inspect) {
         if (browser == null) {
             throw new IllegalStateException("HtmlRenderer 不可用（Chromium 未初始化）");
         }
         int w = width > 0 ? width : 375;
         try (Page page = browser.newPage(new Browser.NewPageOptions()
-                .setViewportSize(w, 800)
+                .setViewportSize(w, height > 0 ? height : 812)
                 .setDeviceScaleFactor(deviceScaleFactor))) {
-            page.setContent(html);
+            // Relative asset URLs must resolve exactly as they do in the application preview.
+            String base = "<base href=\"" + assetBaseUrl + "/\">";
+            page.setContent(html.replaceFirst("(?i)<head[^>]*>", "$0" + java.util.regex.Matcher.quoteReplacement(base)));
             // 等 CSS/字体/图片基本就位；固定等待避免依赖网络空闲导致卡顿
             page.waitForTimeout(500);
-            return page.screenshot(new Page.ScreenshotOptions()
-                    .setFullPage(true));
+            try {
+                page.waitForFunction("() => Array.from(document.images).every(i => i.complete)",
+                        null, new Page.WaitForFunctionOptions().setTimeout(3000));
+            } catch (com.microsoft.playwright.TimeoutError ignored) {
+                // A slow asset must not block generation indefinitely.
+            }
+            List<String> issues = inspect ? ((List<?>) page.evaluate(QUALITY_CHECK)).stream().map(String::valueOf).toList() : List.of();
+            byte[] shot = !inspect || !issues.isEmpty()
+                    ? page.screenshot(new Page.ScreenshotOptions().setFullPage(!inspect)) : null;
+            return new QualityReport(issues, shot);
         } catch (Exception e) {
             throw new RuntimeException("HTML 渲染截图失败: " + e.getMessage(), e);
         }
@@ -111,7 +149,7 @@ public class HtmlRenderer {
      *  - [data-action=back]（浮层外）：应发出 {type:'wf-back'}
      * 返回逐条检查结果，全部通过返回空失败列表（结果包含 ok 项便于统计）。
      */
-    public List<CheckResult> verifyInteractions(String pageName, String html) {
+    public synchronized List<CheckResult> verifyInteractions(String pageName, String html) {
         List<CheckResult> out = new java.util.ArrayList<>();
         if (browser == null) {
             return out;

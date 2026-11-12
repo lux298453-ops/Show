@@ -952,7 +952,7 @@ function commitPath() {
     if (extra.length >= 2) pieces.push({ pts: extra, closed: false })
   }
   if (pieces.length === 0) {
-    // 铅笔每一笔在松手时已经入画板。空路径再按 Enter / 完成，不能把铅笔模式关掉。
+    // 铅笔每一笔在松手时已经入画板。空路径不重复提交；工具栏的完成按钮负责退出会话。
     if (props.activeTool === 'pencil' && !isEditingExisting.value) return
     if (isEditingExisting.value) {
       emit('delete-original')

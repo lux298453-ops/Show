@@ -215,14 +215,14 @@ function onDragStart(event: DragEvent, item: PaletteItem) {
 }
 
 function onDragEnd(event: DragEvent) {
+  // Drop handlers consume the payload before dragend. Clear it synchronously:
+  // a trailing dragover must not reactivate the workbench's input shield.
+  ;(window as any).__wfDraggingComponent = null
   emit('dragEnd')
   window.dispatchEvent(new CustomEvent('wf-component-dragend'))
   if (event.target instanceof HTMLElement) {
     event.target.style.opacity = '1'
   }
-  setTimeout(() => {
-    ;(window as any).__wfDraggingComponent = null
-  }, 100)
 }
 </script>
 

@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Shared popup background regression</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import '../src/styles/main.scss'
+import PreviewPageStack from '../src/components/PreviewPageStack.vue'
+import http from '../src/api/http'
+
+// Read existing artboards, retaining every navigation and state change in memory.
+const params = new URLSearchParams(location.search)
+const project = Number(params.get('project')), base = Number(params.get('base')), target = Number(params.get('target'))
+if (!project || !base || !target) throw new Error('Provide project, base and target page IDs')
+const data = await http.get(`/projects/${project}/prototype`)
+const pages = structuredClone(data.pages), current = ref(pages.find(page => page.id === base)), direction = ref('forward'), stack = ref()
+const history = [], events = []
+function navigate(value) {
+  const page = pages.find(page => String(page.id) === String(value) || page.name === value)
+  if (!page || page.id === current.value.id) return
+  history.push(current.value.id); direction.value = 'forward'; current.value = page
+}
+function back() { const id = history.pop(); if (id) { direction.value = 'backward'; current.value = pages.find(page => page.id === id) } }
+window.previewOverlayTest = { get current() { return current.value.id }, get stack() { return stack.value }, history, events }
+createApp({ setup: () => () => h('main', [
+  h('p', '弹窗背景隔离验证：只读取项目，所有状态仅保留在当前窗口'),
+  h('button', { id: 'open-popup', onClick: () => navigate(target) }, '打开购买弹窗'),
+  h('button', { id: 'return', onClick: back }, '返回'),
+  h('div', { style: `position:relative;width:${current.value.canvas_width}px;height:833px;overflow:hidden;border:1px solid #888` }, h(PreviewPageStack, {
+    ref: stack, page: current.value, allPages: pages, transition: direction.value,
+    onNavigate: navigate, onBack: back, onDisplayPage: page => events.push(page.id),
+  })),
+]) }).use(ElementPlus).mount('#app')
+</script></body></html>

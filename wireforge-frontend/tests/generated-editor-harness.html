@@ -1,0 +1,76 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Generated HTML editor regression</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import '../src/styles/main.scss'
+import PageCanvas from '../src/components/PageCanvas.vue'
+import LayerTree from '../src/components/LayerTree.vue'
+import http from '../src/api/http'
+
+// Read-only fixture: all changes and save events stay in this tab's memory.
+const params = new URLSearchParams(location.search), projectId = Number(params.get('project')), pageId = Number(params.get('page'))
+if (!projectId || !pageId) throw new Error('Provide ?project=<id>&page=<id> for a read-only fixture')
+const data = await http.get(`/projects/${projectId}/prototype`)
+const pages = structuredClone(data.pages)
+const chosen = ref(pages.find(p => p.id === pageId)), canvas = ref(), selection = ref(null), version = ref(0)
+const interactive = ref(params.get('interactive') === 'true')
+const workbenchMode = ref('design')
+const readOnly = ref(false)
+const layers = ref([]), selectedUids = ref([]), menu = ref(null)
+const events = { saves: [], selections: [], requests: [], navigations: [] }
+const post = message => canvas.value?.$el.querySelector('iframe')?.contentWindow?.postMessage(message, '*')
+const select = (_uid, uids) => { selectedUids.value = uids; post({ type: 'wf-select-uids', uids }) }
+const restack = edge => { menu.value = null; post({ type: 'wf-restack', edge, uids: [...selectedUids.value] }) }
+window.editorTest = { events, get canvas() { return canvas.value }, get selection() { return selection.value },
+  get layers() { return layers.value },
+  get mode() { return workbenchMode.value },
+  get page() { return chosen.value },
+  setReadOnly: value => { readOnly.value = value },
+  choose: id => { chosen.value = pages.find(p => p.id === id) },
+  reload: () => { chosen.value = { ...chosen.value, html_content: events.saves.at(-1) || chosen.value.html_content }; version.value++ },
+}
+createApp({ setup: () => () => h('main', { class: 'canvas-content', style: 'padding:16px' }, [
+  h('p', '隔离编辑验证：读取现有 HTML，修改仅留在内存，不写入项目'),
+  h('button', { id: 'rename', onClick: () => canvas.value.updateText('编辑验证') }, '修改文字'),
+  h('button', { id: 'move', onClick: () => canvas.value.updateElementPosition('x', (selection.value?.x || 0) + 20) }, '向右移动20'),
+  h('button', { id: 'resize', onClick: () => canvas.value.updateElementDimension('width', 100) }, '宽度100'),
+  h('button', { id: 'remove', onClick: () => canvas.value.deleteSelectedElement() }, '删除'),
+  h('button', { id: 'preview', onClick: () => { interactive.value = !interactive.value } }, interactive.value ? '返回编辑' : '交互预览'),
+  h('button', { id: 'workbench-mode', onClick: () => {
+    if (workbenchMode.value === 'design') canvas.value.flushPendingSave().catch(console.error)
+    workbenchMode.value = workbenchMode.value === 'design' ? 'interactive' : 'design'
+  } }, workbenchMode.value === 'design' ? '交互连线' : '设计模式'),
+  h('pre', { id: 'selection', style: 'max-height:100px;overflow:auto' }, JSON.stringify(selection.value)),
+  h('div', { style: 'display:flex;align-items:flex-start;gap:16px' }, [
+  h('aside', { style: 'width:300px;height:850px;overflow:auto;flex-shrink:0' }, h(LayerTree, {
+    currentPage: chosen.value, selectedElementId: null, domLayers: layers.value,
+    selectedLayerUid: selectedUids.value.at(-1), selectedLayerUids: selectedUids.value,
+    onSelectDomLayer: select,
+    onReorderLayer: e => post({ type: 'wf-reorder-layer', ...e }),
+    onOpenLayerMenu: e => { menu.value = e },
+  })),
+  h(PageCanvas, { ref: canvas, key: version.value, page: chosen.value, allPages: pages, boxW: 375,
+    canvasNavigation: params.get('navigation') === 'true',
+    editMode: !interactive.value && workbenchMode.value === 'design', loadEditor: true,
+    protoHotspot: workbenchMode.value === 'interactive', interactive: interactive.value, readOnly: readOnly.value,
+    showDesign: false, showAnnotations: false,
+    onElementSelected: v => { selection.value = v; events.selections.push(v) },
+    onSaveHtml: v => {
+      const html = typeof v === 'string' ? v : v.html
+      events.saves.push(html)
+      chosen.value.html_content = html
+    },
+    onRequestEdit: v => events.requests.push(v),
+    onNavigate: target => events.navigations.push(target),
+    onLayersChanged: v => { layers.value = v.layers },
+    onSelectionChanged: v => { selectedUids.value = v },
+    onContextMenu: v => { menu.value = v },
+  }),
+  ]),
+  menu.value && h('div', { id: 'test-layer-menu', style: `position:fixed;left:${menu.value.x}px;top:${menu.value.y}px;z-index:100000;background:white;padding:12px;border:1px solid #999;display:flex;gap:8px` }, [
+    h('button', { id: 'front', onClick: () => restack('front') }, '置于顶层'),
+    h('button', { id: 'back', onClick: () => restack('back') }, '置于底层'),
+  ]),
+]) }).use(ElementPlus).mount('#app')
+</script></body></html>

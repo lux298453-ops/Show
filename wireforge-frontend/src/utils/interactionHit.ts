@@ -21,7 +21,7 @@ export function interactionDomUid(el: Element): string {
   if (!raw) return ''
   try {
     const parsed = JSON.parse(raw)
-    return parsed?.domUid ? String(parsed.domUid) : ''
+    return parsed?.domUid || parsed?.dom_uid ? String(parsed.domUid || parsed.dom_uid) : ''
   } catch {
     return ''
   }
@@ -33,12 +33,16 @@ export function findInteractionByDomUids(page: Page | null | undefined, uids?: s
   for (const uid of uids) {
     if (!uid) continue
     if (page.html_content && !page.html_content.includes(uid)) continue
-    for (const el of page.elements || []) {
+    const ordered = [...(page.elements || [])].sort((a, b) =>
+      Number(b.interaction?.source === 'user') - Number(a.interaction?.source === 'user') ||
+      (b.interaction?.id || 0) - (a.interaction?.id || 0),
+    )
+    for (const el of ordered) {
       if (interactionDomUid(el) !== uid) continue
       const target = el.interaction?.target_page_id
       if (!target) continue
       const action = el.interaction?.action
-      if (action && action !== 'navigate') continue
+      if (action && !['navigate', 'popup', 'modal'].includes(action)) continue
       return el
     }
   }
@@ -55,7 +59,7 @@ export function hitInteractionElement(page: Page | null | undefined, x: number, 
     const target = el.interaction?.target_page_id
     if (!target) continue
     const action = el.interaction?.action
-    if (action && action !== 'navigate') continue
+    if (action && !['navigate', 'popup', 'modal'].includes(action)) continue
 
     // 防御孤儿热区：若交互绑定了 DOM UID，但当前 HTML 内容中已无该 UID，说明已被删除，绝不触发跳转
     const domUid = interactionDomUid(el)

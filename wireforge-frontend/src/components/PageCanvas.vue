@@ -362,6 +362,10 @@ import { apiUrl, getFileUrl, withBackendFiles, withoutBackendFiles } from '../ap
 import { projectApi } from '../api/project'
 import { backgroundReturnSetting, backgroundReturnTargets } from '../utils/backgroundReturn'
 import { installNavigationEditing } from '../utils/navigationEditing'
+import { canvasBindings, installCanvasRouting } from '../utils/canvasRouting'
+import { installPrototypeControls, installPrototypeRuntime } from '../utils/prototypeControls'
+import { createPrototypeDocument, securePrototypeDocument } from '../utils/prototypeSecurity'
+import { installCanvasInput, type CanvasPoint, type CanvasWheel, type CanvasShortcut } from '../utils/canvasInput'
 import type { Annotation, Element, Page } from '../types'
 import WireframeElement from './WireframeElement.vue'
 
@@ -399,8 +403,14 @@ const props = withDefaults(
     protoHotspot?: boolean
     /** 只读防误触模式 (Viewer Protection) */
     readOnly?: boolean
-    /** 是否激活挂载内部重型 iframe（为 false 时渲染轻量骨架/快照占位，零内存占用） */
+    /** 是否挂载内部 iframe；未激活时仅显示轻量占位。 */
     active?: boolean
+    /** Bridge wheel, hand-tool and shortcuts from the live iframe to the workbench. */
+    canvasNavigation?: boolean
+    /** Keep the iframe's temporary hand tool in sync when Space is released outside it. */
+    canvasSpacePressed?: boolean
+    /** Map iframe-local input through the workbench's last painted camera. */
+    canvasPoint?: (point: CanvasPoint) => CanvasPoint | null
   }>(),
   {
     showWireframe: true,
@@ -420,10 +430,14 @@ const props = withDefaults(
     protoHotspot: false,
     readOnly: false,
     active: true,
+    canvasNavigation: false,
+    canvasSpacePressed: false,
   },
 )
 
 const emit = defineEmits<{
+  (e: 'frame-loading'): void
+  (e: 'frame-ready'): void
   (e: 'elementClick', el: Element): void
   (e: 'elementHover', el: Element, on: boolean): void
   (e: 'annHover', annId: number | null): void
@@ -453,6 +467,7 @@ const emit = defineEmits<{
   (e: 'panStart', position: { clientX: number; clientY: number; button: number }): void
   (e: 'panMove', position: { clientX: number; clientY: number; buttons: number }): void
   (e: 'panEnd'): void
+  (e: 'canvasWheel', event: CanvasWheel): void
   (e: 'editVector', payload: any): void
   (e: 'hotspot', payload: { x: number; y: number; w: number; h: number; label: string; uid: string }): void
   (e: 'hotspotClear'): void
@@ -471,6 +486,8 @@ const emit = defineEmits<{
   (e: 'canvasUndo', pageId: number, snapshot?: string): void
   (e: 'canvasRedo', pageId: number, snapshot?: string): void
   (e: 'textChanged', payload: { pageId: number; text: string }): void
+  (e: 'canvasShortcut', command: CanvasShortcut): void
+  (e: 'canvasSettle'): void
 }>()
 
 // Stitch 式整页直出：页面有 AI 生成的 HTML 时只展示整页视图（无 HTML 的未分析页回退组件渲染）。
@@ -479,17 +496,16 @@ const htmlMode = computed(() => !!props.page.html_content)
 
 /**
  * 微调模式下的 HTML 快照：编辑期间冻结 srcdoc，避免自动保存更新 html_content 导致
- * iframe 重载、清空 undo 历史栈与丢失正在进行的调整；退出微调或切换页面后再同步最新内容。
+ * iframe 重载、清空 undo 历史栈与丢失正在进行的调整；模式变化只发送消息，外部替换才更新源码。
  */
 const editSourceHtml = ref(props.page.html_content || '')
-let isInternalSaving = false
 let lastInternalSavedHtml = ''
-let saveResetTimer: any = null
 
 // 初始是否装载编辑器：若直接为微调页、连线交互模式或父级指定了装载，则直接装载；否则以薄页面启动（节省 95% 脚本开销与内存）
 const initialIncludeEditor = !props.readOnly && (!!props.loadEditor || !!props.editMode || !!props.protoHotspot)
 let hasLoadedEditorState = initialIncludeEditor
 const hasLoadedEditor = ref(initialIncludeEditor)
+let editorLifecycleVersion = 0
 
 watch(
   () => props.page.html_content,
@@ -512,7 +528,7 @@ watch(
     // 自动保存引起的外层 page.html_content 变更，绝对不要触发整页重新打开（防白屏闪烁与位置回弹）
     // 撤回靠画板内部换回原来的样子，不靠整页重开
     if (props.active) {
-      if (isInternalSaving || v === lastInternalSavedHtml) {
+      if (v === lastInternalSavedHtml) {
         // 来自当前画板微调的自动保存：画面中已经是最新 DOM，不重换 iframe
         return
       }
@@ -547,11 +563,7 @@ watch(
     const oldLe = oldVal ? oldVal[1] : false
     const oldPh = oldVal ? oldVal[2] : false
     if ((em || le || ph) && !props.readOnly) {
-      if (!hasLoadedEditorState) {
-        hasLoadedEditorState = true
-        hasLoadedEditor.value = true
-        hydrateEditorInFrame()
-      }
+      hydrateEditorInFrame()
     } else if (!le && !ph && (oldLe || oldPh)) {
       // 当被淘汰出 LRU 活跃编辑器队列且非连线模式时，自动卸载退回薄页面，释放撤销栈与控制盒内存
       unloadEditorInFrame()
@@ -568,6 +580,11 @@ watch(
 watch(
   () => props.readOnly,
   () => {
+    if (props.readOnly) {
+      disposeEditorInFrame()
+    } else if (props.loadEditor || props.editMode || props.protoHotspot) {
+      hydrateEditorInFrame()
+    }
     sendEditMode()
   },
 )
@@ -582,16 +599,28 @@ watch(
 )
 
 /** 向 AI 生成的 HTML 注入运行时：跨页跳转 + 防溢出兜底 + 微调编辑器（按需加载） */
-const navRuntimeHtml = computed(() =>
-  injectNavRuntime(
-    withBackendFiles(editSourceHtml.value),
-    !!props.interactive,
-    !!props.readOnly,
-    hasLoadedEditorState,
-  ),
+const navRuntimeHtml = ref('')
+// Only document replacement owns srcdoc. A computed also tracks props read deep
+// inside injection (hotspot mode, bindings, etc.), reloading the initial HTML
+// over the live, edited DOM. Watch callbacks do not collect those dependencies.
+watch(
+  () => [editSourceHtml.value, props.page.id, props.active, props.frameType] as const,
+  () => {
+    // Inactive prototypes and design-image twins do not render this document.
+    // Build it when hydration opens the iframe, using the latest source then.
+    if (!props.active || props.frameType === 'design') return
+    navRuntimeHtml.value = injectNavRuntime(
+      withBackendFiles(editSourceHtml.value),
+      !!props.interactive,
+      !!props.readOnly,
+      hasLoadedEditorState && !props.readOnly,
+    )
+  },
+  { immediate: true },
 )
 
 const htmlFrameRef = ref<HTMLIFrameElement | null>(null)
+watch(navRuntimeHtml, () => emit('frame-loading'), { flush: 'sync' })
 /** 整页 HTML 的实际内容高度（由注入脚本测量后回传）；未上报时回退画布高度 */
 const iframeH = ref(0)
 /** 高度兜底是否已下发（防止 wf-fit 后的二次回传触发重复缩放） */
@@ -605,6 +634,8 @@ function sendEditMode() {
 
 function hydrateEditorInFrame() {
   if (props.readOnly) return
+  // A renewed request wins over an older asynchronous unload waiting for a save.
+  editorLifecycleVersion++
   hasLoadedEditorState = true
   hasLoadedEditor.value = true
 
@@ -613,12 +644,15 @@ function hydrateEditorInFrame() {
   const doc = frame.contentDocument
   if (!doc || !doc.body) return
 
-  // 避免重复注入
-  if (doc.querySelector('style[data-wf-editor]') || doc.getElementById('wf-transform-box')) {
+  const editor = (frame.contentWindow as any)?.__wfEditorLifecycle
+  // A leftover selection box is not evidence of a live editor.
+  if (editor?.active) {
     sendEditMode()
     sendProtoHotspot()
     return
   }
+  editor?.dispose?.()
+  doc.querySelectorAll('[data-wf-editor]').forEach((node) => node.remove())
 
   const editorHtml = buildEditorPayload(!!props.interactive, !!props.readOnly)
   const styleMatch = editorHtml.match(/<style[^>]*data-wf-inject[^>]*>([\s\S]*?)<\/style>/i)
@@ -634,6 +668,7 @@ function hydrateEditorInFrame() {
 
   if (scriptMatch && scriptMatch[1]) {
     const sc = doc.createElement('script')
+    sc.nonce = doc.querySelector<HTMLScriptElement>('script[nonce]')?.nonce || ''
     sc.setAttribute('data-wf-inject', 'editor')
     sc.setAttribute('data-wf-editor', 'true')
     sc.textContent = scriptMatch[1]
@@ -645,15 +680,26 @@ function hydrateEditorInFrame() {
 }
 
 async function unloadEditorInFrame() {
+  const version = ++editorLifecycleVersion
+  const frame = htmlFrameRef.value
+  const doc = frame?.contentDocument
   try {
     await flushPendingSave()
   } catch (e) {}
+  if (version !== editorLifecycleVersion || frame !== htmlFrameRef.value || doc !== frame?.contentDocument) return
+  disposeEditorInFrame()
+}
+
+function disposeEditorInFrame() {
+  editorLifecycleVersion++
   hasLoadedEditorState = false
   hasLoadedEditor.value = false
+  const frame = htmlFrameRef.value
+  const doc = frame?.contentDocument
 
-  htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-unload-editor' }, '*')
+  // Dispose synchronously, before a later hydration can install a new instance.
+  ;(frame?.contentWindow as any)?.__wfEditorLifecycle?.dispose?.()
 
-  const doc = htmlFrameRef.value?.contentDocument
   if (doc) {
     try {
       const injectedStyles = doc.querySelectorAll('style[data-wf-editor]')
@@ -681,8 +727,13 @@ function sendInteractiveMode() {
     on: !!props.interactive,
     hasInteractionSystem: hasSystem,
     validTargets: activeTargets,
+    bindings: canvasBindings(props.page),
+    backdropReturns: backgroundReturnTargets(props.page),
+    disabledBackgroundReturn: backgroundReturnSetting(props.page)?.interaction?.action === 'none',
   }, '*')
 }
+
+watch(() => props.page.elements, sendInteractiveMode, { deep: true })
 
 /** 用户刚改过画板尺寸时，短时间内不要再把内容缩回旧比例，否则看起来像没变化 */
 let suppressFitUntil = 0
@@ -714,7 +765,31 @@ function removeElementNav(uid?: string | null, targetPageName?: string | null, t
 }
 
 
+let canvasInput: ReturnType<typeof installCanvasInput> | null = null
+watch(() => props.canvasSpacePressed, pressed => canvasInput?.setSpacePressed(!!pressed))
+watch(htmlFrameRef, frame => {
+  if (frame) return
+  canvasInput?.dispose()
+  canvasInput = null
+})
+
 function onFrameLoad() {
+  canvasInput?.dispose()
+  canvasInput = null
+  const frame = htmlFrameRef.value
+  if (props.canvasNavigation && frame?.contentDocument) {
+    canvasInput = installCanvasInput(frame, {
+      point: event => props.canvasPoint?.(event) || null,
+      wheel: event => emit('canvasWheel', event),
+      panKey: pressed => emit('panKey', pressed),
+      panStart: event => emit('panStart', event),
+      panMove: event => emit('panMove', event),
+      panEnd: () => emit('panEnd'),
+      shortcut: command => emit('canvasShortcut', command),
+      settle: () => emit('canvasSettle'),
+    })
+    canvasInput.setSpacePressed(!!props.canvasSpacePressed)
+  }
   if (hasLoadedEditorState || props.loadEditor || props.editMode) {
     hydrateEditorInFrame()
   }
@@ -722,6 +797,7 @@ function onFrameLoad() {
   sendInteractiveMode()
   sendProtoHotspot()
   pushFrameSize()
+  emit('frame-ready')
 }
 
 watch(
@@ -749,23 +825,25 @@ watch(
 function injectNavRuntime(html: string, initialInteractive = false, isReadOnly = false, includeEditor = true): string {
   const backdropReturns = backgroundReturnTargets(props.page)
   const explicitBackgroundReturn = backgroundReturnSetting(props.page)
-  const supersededBackgroundIds = explicitBackgroundReturn
-    ? (props.page.elements || []).filter(el => el.type === 'background' && el.id !== explicitBackgroundReturn.id).map(el => el.id)
-    : []
-  // 清理可能已残留的旧版本注入运行时（确保始终采用最新微调系统与通信逻辑）
-  const cleanHtml = html
-    .replace(/<style\b[^>]*\bdata-wf-inject[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script\b[^>]*\bdata-wf-inject[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*\bid=["']wf-inspector-style["'][^>]*>[\s\S]*?<\/style>/gi, '')
+  // Parse the outer document: srcdoc attributes and JSON/scripts may contain
+  // closing body tags or old runtime markup that must never be regex-replaced.
+  const doc = createPrototypeDocument(html)
+  doc.querySelectorAll('[data-wf-inject],#wf-inspector-style,#wf-edit-toast,#wf-transform-box,#wf-marquee-box,#wf-snap-guides,.wf-autowire-modal').forEach(node => node.remove())
+  doc.body.classList.remove('wf-edit-mode', 'wf-dragging', 'wf-proto-hotspot', 'wf-interactive')
+  installPrototypeControls(doc)
+  installPrototypeRuntime(doc)
+  // Register before the generated runtime: a saved line must win over an in-page tab handler.
+  const routing = doc.createElement('script')
+  routing.setAttribute('data-wf-inject', 'routing')
+  routing.textContent = `window.__wfCanvasRouting=(${installCanvasRouting.toString()})(document,${JSON.stringify(canvasBindings(props.page)).replace(/</g, '\\u003c')});`
+  doc.head.prepend(routing)
   // 防溢出兜底：AI 常把字号写得过大（按 1080px 设计稿而非 375px 容器标定），
   // 导致一行折成两行、横向按钮组挤成竖排、元素相互重叠。
-  // 样式层：禁止按钮/tab 折行；脚本层：检测到横向溢出时先逐步收敛最大字号，仍溢出则整体等比微缩。
-  // 样式层兜底（非破坏性）：按钮/tab 不折行、无宽高 svg 矫正、导航项 flex 居中。
+  // 预览基础防护：按钮/tab 不折行、无宽高 svg 矫正。导航布局由原稿与标准组件样式负责。
   // 注意：不要在这里做任何"检测溢出就整体 scale"的逻辑——装饰元素（烟花/光效）天然会稍微
   // 出界几个像素，触发缩放后整页缩小但布局占位不变，右侧和下侧会留出大片空白。
   // 轻微出界让浏览器自然裁掉即可，远比整页缩小好。
   const guard = `<style data-wf-inject>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     *{box-sizing:border-box}
     /* 上下左右超出画框都裁掉。只写 overflow-x:hidden 时，浏览器会把上下当成可滚动，
        元素拖出下边后画框右边就会出现滚动条。 */
@@ -828,17 +906,8 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       max-height: none !important;
       display: block !important;
     }
-    /* 导航栏/选项卡本身作为横向 flex 容器排布各项（底部标签栏本就该左右排列） */
-    nav, [class*="navbar"], [class*="tabbar"], [class*="nav"], [class*="tab"]{
-      display:flex; align-items:center;
-    }
-    /* 导航项：图标+文字必须包进同一个 flex 容器并垂直居中；方向(上下/左右)由模型按设计稿用
-       flex-direction 指定（此处不强制方向，避免把上下结构压成左右）。仅做居中兜底，防对不齐。 */
-    nav a, nav button, [class*="navbar"] a, [class*="navbar"] button,
-    [class*="tabbar"] a, [class*="tabbar"] button,
-    [class*="tab"], [class*="nav-item"], [class*="menu-item"]{
-      display:flex; align-items:center; justify-content:center; gap:6px;
-    }
+    /* 保留页面原有的导航/标签布局，不按类名包含 nav/tab 覆盖 display 或间距。
+       包装容器可能使用 Grid 等分导航项；统一改成 Flex 会让各项收缩并挤到一起。 */
     /* 仅在真机原型预览交互模式下，按钮与控件具有真机按压弹性触感 (Active Feedback) */
     body.wf-interactive .wf-btn:active,
     body.wf-interactive .wf-act:active,
@@ -921,25 +990,27 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     // 旧 HTML 可能省略了带返回交互的背景。运行时只补透明热区，不改原稿或已保存的 HTML。
     var backdropReturns = ${JSON.stringify(backdropReturns)};
     // 显式设置可覆盖旧 AI 背景返回；禁用时移除旧透明热区，不接触可见控件。
-    var supersededBackgroundIds = ${JSON.stringify(supersededBackgroundIds)};
-    supersededBackgroundIds.forEach(function(id){
-      var node=document.querySelector('[data-wf-element-id="'+id+'"]');
-      if(node && node.classList.contains('wf-page-dismiss')) node.remove();
-    });
-    if(${explicitBackgroundReturn?.interaction?.action === 'none' ? 'true' : 'false'}){
-      document.querySelectorAll('.wf-page-dismiss').forEach(function(node){node.remove();});
+    function syncBackdropReturns(returns, disabled){
+      document.querySelectorAll('.wf-page-dismiss').forEach(function(node){
+        var id=Number(node.getAttribute('data-wf-element-id'));
+        if(disabled || !returns.some(function(b){return b.id === id;})) node.remove();
+      });
+      if(disabled) return;
+      returns.forEach(function(b){
+        var area=document.querySelector('[data-wf-element-id="'+b.id+'"]');
+        if(area && !area.classList.contains('wf-page-dismiss')) return;
+        var isNew=!area;
+        if(isNew) area=document.createElement('div');
+        area.className='wf-page-dismiss';
+        area.setAttribute('data-wf-inject','backdrop-return');
+        area.setAttribute('data-wf-element-id',String(b.id));
+        area.setAttribute('data-action',b.action);
+        area.setAttribute('aria-label','返回上一页');
+        area.style.cssText='position:absolute;left:'+b.x+'px;top:'+b.y+'px;width:'+b.w+'px;height:'+b.h+'px;background:transparent;border:0;z-index:1;cursor:pointer';
+        if(isNew) document.body.insertBefore(area,document.body.firstChild);
+      });
     }
-    backdropReturns.forEach(function(b){
-      if(document.querySelector('[data-wf-element-id="'+b.id+'"]')) return;
-      var area=document.createElement('div');
-      area.className='wf-page-dismiss';
-      area.setAttribute('data-wf-inject','backdrop-return');
-      area.setAttribute('data-wf-element-id',String(b.id));
-      area.setAttribute('data-action',b.action);
-      area.setAttribute('aria-label','返回上一页');
-      area.style.cssText='position:absolute;left:'+b.x+'px;top:'+b.y+'px;width:'+b.w+'px;height:'+b.h+'px;background:transparent;border:0;z-index:1;cursor:pointer';
-      document.body.insertBefore(area,document.body.firstChild);
-    });
+    syncBackdropReturns(backdropReturns, ${explicitBackgroundReturn?.interaction?.action === 'none' ? 'true' : 'false'});
     // 每一个分段都是独立连线目标；UID 与后端模板一致，更新预览后仍可找到原来的单项连线。
     document.querySelectorAll('.wf-segs').forEach(function(row){
       var owner=row.closest('[data-wf-element-id]');
@@ -1008,8 +1079,11 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
     }
 
     window.addEventListener('message', function(ev){
+      if(ev.source !== parent) return;
       if(!ev.data) return;
       if(ev.data.type === 'wf-interactive'){
+        if(window.__wfCanvasRouting && ev.data.bindings) window.__wfCanvasRouting.update(ev.data.bindings);
+        if(Array.isArray(ev.data.backdropReturns)) syncBackdropReturns(ev.data.backdropReturns, !!ev.data.disabledBackgroundReturn);
         isInteractive = !!ev.data.on;
         if(isInteractive) document.body.classList.add('wf-interactive');
         else document.body.classList.remove('wf-interactive');
@@ -1412,6 +1486,31 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   // 内容高度上报：等防溢出 fit 跑完后把整页实际高度发给父级，让 iframe/手机壳随内容自适应（避免固定高度裁剪产生滚动）
   const sizer = `<script data-wf-inject>
   (function(){
+    // A preview must not wait for every off-screen or stalled image's window.load.
+    // Let the visible artwork settle briefly, then reveal an already laid-out page.
+    if(${initialInteractive && !includeEditor ? 'true' : 'false'}){
+      function previewReady(){
+        var cleanup=[],finished=false,timer;
+        function announce(){
+          if(finished)return;finished=true;clearTimeout(timer);cleanup.forEach(function(fn){fn();});
+          try{if(window.frameElement&&window.frameElement.contentDocument===document)
+            parent.postMessage({type:'wf-frame-ready',timeOrigin:performance.timeOrigin},'*');}catch(e){}
+        }
+        var images=Array.from(document.images).filter(function(img){
+          var r=img.getBoundingClientRect();
+          return !img.complete&&r.bottom>0&&r.top<innerHeight&&r.width>0&&r.height>0;
+        });
+        var waits=images.map(function(img){return new Promise(function(resolve){
+          img.addEventListener('load',resolve,{once:true});img.addEventListener('error',resolve,{once:true});
+          cleanup.push(function(){img.removeEventListener('load',resolve);img.removeEventListener('error',resolve);});
+        });});
+        if(document.fonts)waits.push(document.fonts.ready);
+        timer=setTimeout(announce,800);
+        Promise.allSettled(waits).then(announce);
+      }
+      if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',previewReady,{once:true});
+      else previewReady();
+    }
     function report(){
       try{
         var h=Math.max(document.body.scrollHeight,document.documentElement.scrollHeight)||0;
@@ -1424,11 +1523,11 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   })();
   <\/script>`
   const editor = includeEditor ? buildEditorPayload(initialInteractive, isReadOnly) : ''
-  const payload = guard + runtime + sizer + editor
-  if (/<\/body>/i.test(cleanHtml)) {
-    return cleanHtml.replace(/<\/body>/i, `${payload}</body>`)
-  }
-  return cleanHtml + payload
+  const payload = doc.createElement('template')
+  payload.innerHTML = guard + runtime + sizer + editor
+  doc.body.appendChild(payload.content)
+  securePrototypeDocument(doc)
+  return '<!doctype html>\n' + doc.documentElement.outerHTML
 }
 
 // 微调编辑器：选中与8点缩放控制盒、双击/点按钮编辑文字、替换图片、Del/Backspace删除、Ctrl+Z撤回、Ctrl+Y重做、方向键微调、拖动移动、自动落库
@@ -1457,6 +1556,16 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       pointer-events: auto !important;
     }
     body.wf-edit-mode .wf-layer-locked .wf-message {
+      pointer-events: none !important;
+    }
+    /* Generated illustrations may inherit pointer-events:none from decorative wrappers. */
+    body.wf-edit-mode img[data-wf-artwork-image] {
+      pointer-events: auto !important;
+    }
+    body.wf-edit-mode img[data-wf-artwork-image].wf-layer-locked,
+    body.wf-edit-mode img[data-wf-artwork-image][data-wf-locked="1"],
+    body.wf-edit-mode .wf-layer-locked img[data-wf-artwork-image],
+    body.wf-edit-mode [data-wf-locked="1"] img[data-wf-artwork-image] {
       pointer-events: none !important;
     }
     body.wf-edit-mode [data-wf-editing-text="true"],
@@ -1527,7 +1636,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       overflow: visible;
     }
   </style>
-  <script data-wf-inject>
+  <script data-wf-inject data-wf-editor>
   (function(){
     var EDIT = ${initialInteractive || isReadOnly ? 'false' : 'true'}, READONLY = ${isReadOnly ? 'true' : 'false'}, hovered = null, touched = [], st = null, PROTO_HOTSPOT = ${props.protoHotspot ? 'true' : 'false'};
     var NAV_EDIT = window.__wfNavigationEditing;
@@ -1566,11 +1675,11 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       parent.postMessage({ type: 'wf-pan-end' }, '*');
     }, true);
     document.addEventListener('wheel', function(e){
-      if(EDIT) return;
+      if(document.body.classList.contains('wf-edit-mode')) return;
       parent.postMessage({ type: 'wf-preview-wheel', dx: e.deltaX, dy: e.deltaY }, '*');
     }, { passive: true });
     document.addEventListener('click', function(){
-      if(EDIT) return;
+      if(document.body.classList.contains('wf-edit-mode')) return;
       parent.postMessage({ type: 'wf-preview-page-click' }, '*');
     }, true);
     }
@@ -1581,7 +1690,46 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     var resizing = null;
     var drag = null;
     var marquee = null;
+    var pointerMoveFrame = 0, pendingPointerMove = null;
     var history = [], hIdx = -1, MAX_HIST = 30, suppressSnapshot = false, currentSaveEpoch = 0;
+    var editorDisposed = false, editorListeners = [];
+    var previousEditor = window.__wfEditorLifecycle;
+    if(previousEditor) previousEditor.dispose();
+    var editorInstance = { get active(){ return !editorDisposed; }, dispose: disposeEditor };
+    window.__wfEditorLifecycle = editorInstance;
+
+    function parseEditorHtml(html){
+      var wrap = document.createElement('div');
+      // All imports (components, clipboard, vectors and undo) cross this boundary.
+      // Keep the sanitized DOM rather than reparsing a serialized string.
+      wrap.appendChild(window.__wfSanitizeFragment(html));
+      return wrap;
+    }
+
+    function listenEditor(target, type, callback, options){
+      var listener = function(event){ if(!editorDisposed) callback(event); };
+      target.addEventListener(type, listener, options);
+      editorListeners.push(function(){ target.removeEventListener(type, listener, options); });
+    }
+
+    function disposeEditor(){
+      if(editorDisposed) return;
+      EDIT = false; READONLY = true; editorDisposed = true;
+      for(var i = 0; i < editorListeners.length; i++) editorListeners[i]();
+      editorListeners = [];
+      clearTimeout(st); st = null;
+      if(pointerMoveFrame) cancelAnimationFrame(pointerMoveFrame);
+      pointerMoveFrame = 0; pendingPointerMove = null;
+      deselect(); clearHover(); cleanupStyles(); clearSnapGuides();
+      ['wf-transform-box','wf-dim-badge','wf-marquee-box','wf-edit-toast','wf-snap-guides'].forEach(function(id){
+        var node = document.getElementById(id);
+        if(node){ clearTimeout(node._st); node.remove(); }
+      });
+      drag = null; resizing = null; marquee = null; history = []; hIdx = -1;
+      document.body.classList.remove('wf-edit-mode','wf-dragging');
+      document.body.style.cursor = '';
+      if(window.__wfEditorLifecycle === editorInstance) delete window.__wfEditorLifecycle;
+    }
 
     function findVectorElement(uid){
       if(!uid) return null;
@@ -1594,7 +1742,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(!el || !el.tagName) return true;
       var tag = String(el.tagName || '').toUpperCase();
       if(tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'LINK' || tag === 'META') return true;
-      if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || el.id === 'wf-snap-guides') return true;
+      if(el.classList && el.classList.contains('wf-autowire-modal')) return true;
+      if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || el.id === 'wf-snap-guides' || el.id === 'wf-prototype-feedback') return true;
       return false;
     }
 
@@ -1632,6 +1781,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         var m = html.match(new RegExp('<body[^>]*>([\\\\s\\\\S]*?)<\\\\/body>', 'i'));
         if (m) html = m[1];
       }
+      var wrap = parseEditorHtml(html);
       var gone = [];
       var kids = document.body.children;
       for(var i = 0; i < kids.length; i++){
@@ -1640,8 +1790,6 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       for(var j = 0; j < gone.length; j++){
         if(gone[j].parentNode) gone[j].parentNode.removeChild(gone[j]);
       }
-      var wrap = document.createElement('div');
-      wrap.innerHTML = html || '';
       wrap.querySelectorAll('.wf-multi-selected,.wf-current-asset-target').forEach(function(node){
         node.classList.remove('wf-multi-selected', 'wf-current-asset-target');
       });
@@ -1792,6 +1940,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     }
 
     function nudgeElement(el, dx, dy){
+      prepareArtworkLayout(el);
       var posVal = el.style.position || (window.getComputedStyle ? window.getComputedStyle(el).position : '');
       var isAbsolute = posVal === 'absolute';
       var curL = parseFloat(el.style.left);
@@ -1960,11 +2109,43 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
     function isChromeNode(el){
       if(!el || !el.tagName) return true;
+      if(el.hasAttribute && el.hasAttribute('data-wf-inject')) return true;
+      if(el.classList && el.classList.contains('wf-autowire-modal')) return true;
       if(el.classList && el.classList.contains('wf-binding-alias')) return true;
       var tag = String(el.tagName || '').toUpperCase();
       if(tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'LINK' || tag === 'META') return true;
       if(el.id === 'wf-transform-box' || el.id === 'wf-marquee-box' || el.id === 'wf-edit-toast' || el.id === 'wf-snap-guides') return true;
       return false;
+    }
+
+    /** Back-to-front paint order, including z-index supplied by generated stylesheets. */
+    function orderedLayerChildren(parent){
+      if(!parent || !parent.children) return [];
+      var parentStyle = window.getComputedStyle(parent);
+      var flexOrGrid = /^(inline-)?(flex|grid)$/.test(parentStyle.display);
+      return Array.from(parent.children).filter(function(el){ return !isChromeNode(el); }).map(function(el, index){
+        var cs = window.getComputedStyle(el);
+        var positioned = cs.position && cs.position !== 'static';
+        var z = positioned || flexOrGrid ? parseInt(cs.zIndex, 10) || 0 : 0;
+        return { el:el, z:z, order:flexOrGrid ? parseInt(cs.order, 10) || 0 : 0, index:index };
+      }).sort(function(a, b){ return a.z - b.z || a.order - b.order || a.index - b.index; })
+        .map(function(item){ return item.el; });
+    }
+
+    function applyLayerOrder(nodes){
+      if(!nodes.length) return;
+      var parentStyle = window.getComputedStyle(nodes[0].parentElement);
+      var flexOrGrid = /^(inline-)?(flex|grid)$/.test(parentStyle.display);
+      for(var i = 0; i < nodes.length; i++){
+        var el = nodes[i];
+        var cs = window.getComputedStyle(el);
+        if((!cs.position || cs.position === 'static') && !flexOrGrid){
+          el.style.setProperty('position', 'relative', 'important');
+        }
+        // A high z-index is valid prototype content, not an editor-overlay marker.
+        // Keep DOM/layout order intact: moving Flex/Grid children changes their positions.
+        el.style.setProperty('z-index', String(i + 1), 'important');
+      }
     }
 
     function listableChild(el){
@@ -1986,6 +2167,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(named) return oneLine(String(named)).slice(0, 24);
       if(NAV_EDIT && NAV_EDIT.describe(el)) return NAV_EDIT.describe(el);
       if(kind === 'group') return '分组';
+      if(kind === 'frame'){
+        var frameName = el.getAttribute('aria-label') || el.getAttribute('data-wf-id');
+        if(frameName) return oneLine(frameName).slice(0, 40);
+        if(el.classList && el.classList.length) return el.classList[0];
+        return String(el.tagName || '容器').toLowerCase();
+      }
       return layerShortName(el);
     }
 
@@ -2002,12 +2189,17 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       var tag = String(el.tagName || '').toUpperCase();
       if(tag !== 'DIV' && tag !== 'SPAN') return false;
       if(el.getAttribute && (el.getAttribute('data-wf-group') === '1' || el.getAttribute('data-wf-component') === '1')) return false;
+      if(el.hasAttribute('data-wf-id') || el.hasAttribute('data-wf-role') || el.hasAttribute('data-wf-name')) return false;
       if(!el.children || !el.children.length) return false;
       var cls = '';
       try { cls = typeof el.className === 'string' ? el.className : ''; } catch(e) { cls = ''; }
       if(/\bwf-(card|btn|box|avatar|shape|text|nav|modal|inserted-component|group|profile-header)\b/.test(cls)) return false;
       try{
         var cs = window.getComputedStyle(el);
+        // A transparent wrapper can still isolate its descendants' paint order.
+        if((cs.zIndex && cs.zIndex !== 'auto') || (cs.transform && cs.transform !== 'none') ||
+          (cs.filter && cs.filter !== 'none') || (cs.isolation === 'isolate') ||
+          (cs.opacity && Number(cs.opacity) < 1) || (cs.contain && cs.contain !== 'none')) return false;
         var bg = cs.backgroundColor || '';
         var transparent = isTransparentColor(bg);
         var noImage = !cs.backgroundImage || cs.backgroundImage === 'none';
@@ -2035,8 +2227,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     function layerChildNodes(el){
       var out = [];
       if(!el || !el.children) return out;
-      for(var i = el.children.length - 1; i >= 0; i--){
-        var c = el.children[i];
+      var ordered = orderedLayerChildren(el);
+      for(var i = ordered.length - 1; i >= 0; i--){
+        var c = ordered[i];
         if(isChromeNode(c)) continue;
         var cTag = String(c.tagName || '').toUpperCase();
         if(cTag === 'BR') continue;
@@ -2160,7 +2353,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       var isComponent = isComponentRoot(el);
       var kind = isGroup ? 'group' : layerKind(el);
       var children = [];
-      if((isGroup || isComponent) && depth < 8){
+      // Generated HTML containers are editable too; SVG paths remain one vector layer.
+      var atomic = /^(SVG|IMG|INPUT|TEXTAREA|SELECT)$/.test(String(el.tagName || '').toUpperCase()) ||
+        !!(NAV_EDIT && NAV_EDIT.role(el) === 'navigation-icon');
+      if(!atomic && depth < 24){
         var nodes = layerChildNodes(el);
         for(var i = 0; i < nodes.length; i++){
           children.push(serializeLayer(nodes[i], depth + 1));
@@ -2188,11 +2384,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     }
 
     function publishLayers(){
+      if(editorDisposed) return;
       try{
         if(NAV_EDIT) NAV_EDIT.normalize();
         normalizeInsertedComponents();
         var layers = [];
-        var kids = document.body ? document.body.children : [];
+        var kids = orderedLayerChildren(document.body);
         for(var i = kids.length - 1; i >= 0; i--){
           var el = kids[i];
           if(!listableChild(el)) continue;
@@ -2491,8 +2688,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       var stamp = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       for(var i = 0; i < items.length; i++){
         var item = items[i];
-        var temp = document.createElement('div');
-        temp.innerHTML = String(item.html || '').trim();
+        var temp = parseEditorHtml(item.html);
         var newEl = temp.firstElementChild;
         if(!newEl) continue;
         var nodes = [newEl].concat(Array.from(newEl.querySelectorAll('*')));
@@ -3090,8 +3286,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       var targetH = selectedEl.style.height || (selectedEl.offsetHeight + 'px');
       var targetZ = selectedEl.style.zIndex || '10';
 
-      var temp = document.createElement('div');
-      temp.innerHTML = data.html.trim();
+      var temp = parseEditorHtml(data.html);
       var newEl = temp.firstElementChild || temp;
       if(newEl.id && !newEl.id.startsWith('wf-modal-')){
         newEl.id = newEl.id + '-replace-' + Date.now();
@@ -3144,12 +3339,15 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
 
     var isDirty = false;
     function doExport(){
+      if(editorDisposed) return;
       clearTimeout(st); st = null;
       isDirty = false;
       try{
         var clone = document.documentElement.cloneNode(true);
-        var bad = clone.querySelectorAll('[data-wf-inject],#wf-edit-toast,#wf-transform-box,#wf-marquee-box,#wf-snap-guides,[data-wf-editing-text]');
+        var bad = clone.querySelectorAll('[data-wf-inject],#wf-edit-toast,#wf-transform-box,#wf-marquee-box,#wf-snap-guides,[data-wf-editing-text],.wf-autowire-modal');
         for(var i = 0; i < bad.length; i++) bad[i].parentNode.removeChild(bad[i]);
+        var savedBody = clone.querySelector('body');
+        if(savedBody) savedBody.classList.remove('wf-edit-mode', 'wf-dragging', 'wf-proto-hotspot', 'wf-interactive');
         var multi = clone.querySelectorAll('.wf-multi-selected');
         for(var mi = 0; mi < multi.length; mi++) multi[mi].classList.remove('wf-multi-selected');
         var targets = clone.querySelectorAll('.wf-current-asset-target');
@@ -3158,6 +3356,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         for(var ei = 0; ei < editings.length; ei++) editings[ei].removeAttribute('contenteditable');
         var outlined = clone.querySelectorAll('*');
         for(var oi = 0; oi < outlined.length; oi++){
+          outlined[oi].removeAttribute('nonce');
           if(outlined[oi].style.outline) outlined[oi].style.outline = '';
           if(outlined[oi].style.outlineOffset) outlined[oi].style.outlineOffset = '';
         }
@@ -3170,7 +3369,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         parent.postMessage({ type: 'wf-save', html: '<!DOCTYPE html>\\n' + clone.outerHTML, saveEpoch: currentSaveEpoch }, '*');
       }catch(e){ parent.postMessage({ type: 'wf-save-preparation-failed' }, '*'); }
     }
-    function scheduleSave(){ isDirty = true; parent.postMessage({ type: 'wf-save-dirty' }, '*'); clearTimeout(st); st = setTimeout(doExport, 500); }
+    function scheduleSave(){ if(editorDisposed) return; isDirty = true; parent.postMessage({ type: 'wf-save-dirty' }, '*'); clearTimeout(st); st = setTimeout(doExport, 500); }
 
     function getTransformBox(){
       var b = document.getElementById('wf-transform-box');
@@ -4310,10 +4509,41 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       return false;
     }
 
+    function prepareArtworkLayout(el){
+      if(!el || !el.matches || !el.matches('img[data-wf-artwork-image]:not([data-wf-artwork-layout])')) return;
+      // Legacy edited images can still have unmarked generated !important rules.
+      // A separate release marker lets undo restore their original fitted geometry too.
+      var cs = window.getComputedStyle(el);
+      var baseline = {position:cs.position,left:cs.left,top:cs.top,width:cs.width,height:cs.height,objectFit:cs.objectFit,objectPosition:cs.objectPosition,transform:cs.transform};
+      document.querySelectorAll('style:not([data-wf-inject])').forEach(function(style){
+        var selector='img[data-wf-artwork-image]', released=selector+':not([data-wf-artwork-layout])';
+        style.textContent=style.textContent.split(released).join(selector).split(selector).join(released);
+      });
+      el.setAttribute('data-wf-artwork-layout','manual');
+      el.setAttribute('data-wf-layout-edited','true');
+      Object.keys(baseline).forEach(function(key){el.style[key]=baseline[key];});
+      el.style.right='auto';el.style.bottom='auto';
+    }
+
+    function resolveArtworkTarget(t, e){
+      if(!EDIT || READONLY || PROTO_HOTSPOT || !t || !e || !document.elementsFromPoint ||
+        document.body.classList.contains('wf-interactive') || typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return t;
+      // Negative-z artwork can paint behind its own transparent section. Pick only
+      // descendants of that hit container, never through an unrelated foreground control.
+      var hits=document.elementsFromPoint(e.clientX,e.clientY);
+      for(var i=0;i<hits.length;i++){
+        var image=hits[i];
+        if(image.matches && image.matches('img[data-wf-artwork-image]') && t.contains(image) &&
+          !isLayerLocked(image) && !image.closest('[data-wf-hidden="1"],.wf-layer-hidden')) return image;
+      }
+      return t;
+    }
+
     function resolveTargetElement(t, e){
       if(!t || t === document.body || t === document.documentElement) return null;
       if(t.id === 'wf-transform-box' || (t.closest && t.closest('#wf-transform-box'))) return null;
       if(t.id === 'wf-marquee-box' || (t.closest && t.closest('#wf-marquee-box'))) return null;
+      t = resolveArtworkTarget(t, e);
 
       // 如果点击的是 SVG 内部的具体路径或图形节点，直接收拢到最顶层的 SVG 元素
       var svgRoot = t.ownerSVGElement || (t.tagName && t.tagName.toLowerCase() === 'svg' ? t : (t.closest ? t.closest('svg') : null));
@@ -4333,7 +4563,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(navTarget) return navTarget;
 
       // 1. 优先查找当前点击是否位于某个顶级插入组件或复合模块内部
-      var compRoot = t.closest ? t.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-card, .wf-product-card, .wf-task-list, .wf-settings-list, .wf-inventory-tile, .wf-box, .wf-container, .wf-ios-app-item, .wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-tab-bar, .wf-modal, .wf-nav, .wf-switch-row, .wf-search-bar, .wf-message') : null;
+      var compRoot = t.closest ? t.closest('.wf-inserted-component, .wf-vector-icon, .wf-brand-logo, .wf-card, .wf-product-card, .wf-task-list, .wf-settings-list, .wf-inventory-tile, .wf-box, .wf-container, .wf-ios-app-item, .wf-ios-story-card, .wf-ios-avatar-grid, .wf-ios-tab-bar, .wf-modal, .wf-nav, .wf-switch-row, .wf-search-bar, .wf-message, [data-wf-role="card"]') : null;
+      // Generated cards often use a button as their root. Keep the selected leaf on the next drag.
+      var semanticCard = t.closest ? t.closest('button[data-wf-role="card"],article[data-wf-role="card"]') : null;
+      if(semanticCard) compRoot = semanticCard;
 
       // 如果点击的目标位于某个复合组件内：
       if(compRoot && compRoot !== document.body && compRoot !== document.documentElement){
@@ -4345,21 +4578,21 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         // 如果当前选中的正是这个复合组件本身（用户二次点击该组件内部）：
         // 允许钻取 (Drill-down) 深入点选内部具体的子控件/文字/图片/按钮
         if(selectedEl === compRoot && compRoot.contains(t) && compRoot !== t){
-          var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, .wf-text, [data-wf-text], [class*="avatar"], [class*="btn"]') : null;
+          var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, svg, [data-wf-role="image"], [data-wf-role="text"], .wf-avatar, .wf-btn, .wf-text, [data-wf-text], [class*="avatar"], [class*="btn"]') : null;
           if(!subItem && t && t !== compRoot && (!t.children || !t.children.length) && (t.innerText || t.textContent || '').trim()){
             subItem = t;
           }
-          if(subItem && compRoot.contains(subItem) && !subItem.ownerSVGElement && subItem.tagName.toLowerCase() !== 'svg') return subItem;
+          if(subItem && subItem !== compRoot && compRoot.contains(subItem) && !subItem.ownerSVGElement) return subItem;
           return compRoot;
         }
 
         // 如果当前选中的已经是该组件内的某个子元素，且本次点击的也是组件内的子元素：
         if(selectedEl && compRoot.contains(selectedEl) && compRoot !== selectedEl){
-          var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, .wf-avatar, .wf-btn, .wf-text, [data-wf-text], [class*="avatar"], [class*="btn"]') : null;
+          var subItem = t.closest ? t.closest('button, img, input, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, svg, [data-wf-role="image"], [data-wf-role="text"], .wf-avatar, .wf-btn, .wf-text, [data-wf-text], [class*="avatar"], [class*="btn"]') : null;
           if(!subItem && t && t !== compRoot && (!t.children || !t.children.length) && (t.innerText || t.textContent || '').trim()){
             subItem = t;
           }
-          if(subItem && compRoot.contains(subItem) && !subItem.ownerSVGElement && subItem.tagName.toLowerCase() !== 'svg') return subItem;
+          if(subItem && subItem !== compRoot && compRoot.contains(subItem) && !subItem.ownerSVGElement) return subItem;
           return compRoot;
         }
 
@@ -4472,8 +4705,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           info: {
             tagName: el.tagName.toLowerCase(),
             className: clsStr,
-            x: Math.round(el.offsetLeft || rect.left),
-            y: Math.round(el.offsetTop || rect.top),
+            x: Math.round(rect.left + (window.scrollX || 0)),
+            y: Math.round(rect.top + (window.scrollY || 0)),
             width: Math.round(el.offsetWidth || rect.width),
             height: Math.round(el.offsetHeight || rect.height),
             borderRadius: parseInt(cs.borderRadius) || 0,
@@ -4539,6 +4772,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     window.__wf_getSelectedEls = function(){ return selectedEls; };
 
     function publishFrameFill(){
+      if(editorDisposed) return;
       var bg = '#ffffff';
       try {
         var cs = window.getComputedStyle(document.body);
@@ -4928,7 +5162,27 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       publishLayers();
     }
 
+    /** Keep explicit cards, dialogs, navigation components and user groups independent. */
+    function layerOrderScope(el){
+      var p = el && el.parentElement;
+      while(p && p !== document.body && p !== document.documentElement){
+        var role = p.getAttribute('data-wf-role') || '';
+        if(p.getAttribute('data-wf-group') === '1' || isComponentRoot(p) ||
+          p.hasAttribute('data-wf-frame') || p.getAttribute('role') === 'dialog' ||
+          /^(page|modal|card)$/.test(role) || /^(MAIN|SECTION|ARTICLE|NAV|ASIDE|FORM)$/.test(String(p.tagName).toUpperCase())) return p;
+        p = p.parentElement;
+      }
+      return document.body;
+    }
+
+    function layerBranch(el, parent){
+      var branch = el;
+      while(branch && branch.parentElement !== parent) branch = branch.parentElement;
+      return branch;
+    }
+
     function reorderLayer(uid, targetUid, place){
+      if(READONLY) return;
       if(isBoxLayerUid(uid) || isBoxLayerUid(targetUid)) return;
       var safeUid = String(uid || '').replace(/"/g, '');
       var safeTarget = String(targetUid || '').replace(/"/g, '');
@@ -4939,32 +5193,35 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         el = document.querySelector('[data-wf-uid="' + safeUid + '"]');
         target = document.querySelector('[data-wf-uid="' + safeTarget + '"]');
       } catch(err) {}
-      if(!el || !target || !el.parentNode || el.parentNode !== target.parentNode){
-        showToast('只能在同一层里调整上下顺序');
+      if(!el || !target || !el.parentElement || isChromeNode(el) || isChromeNode(target)) return;
+      if(el.contains(target) || target.contains(el)){
+        showToast('父容器和内部元素不能互换层级，请选择同级元素或容器');
         return;
       }
-      if(el.contains(target)) return;
+      if(isLayerLocked(el)) return;
+      var common = el.parentElement;
+      while(common && !common.contains(target)) common = common.parentElement;
+      if(!common || !layerOrderScope(el).contains(common) || !layerOrderScope(target).contains(common)){
+        showToast('元素属于不同画框，请调整它们所属的卡片或分组');
+        return;
+      }
+      // Compare branches at their common parent instead of moving nodes out of Flex/Grid.
+      var sourceBranch = layerBranch(el, common), targetBranch = layerBranch(target, common);
+      if(!sourceBranch || !targetBranch || isLayerLocked(sourceBranch)) return;
+      var ordered = orderedLayerChildren(common).filter(function(node){ return node !== sourceBranch; });
+      var index = ordered.indexOf(targetBranch);
+      if(index < 0) return;
+      ordered.splice(index + (place === 'before' ? 1 : 0), 0, sourceBranch);
       pushSnapshot();
-      var parent = el.parentNode;
-      if(place === 'before'){
-        parent.insertBefore(el, target.nextSibling);
-      } else {
-        parent.insertBefore(el, target);
-      }
-      var z = 1;
-      for(var i = 0; i < parent.children.length; i++){
-        var c = parent.children[i];
-        if(isChromeNode(c)) continue;
-        var zi = parseInt(c.style.zIndex, 10);
-        if(zi >= 9000) continue;
-        c.style.zIndex = String(z);
-        z += 1;
-      }
+      applyLayerOrder(ordered);
       scheduleSave();
+      pushSnapshot();
       publishLayers();
+      if(sourceBranch !== el || targetBranch !== target) showToast('已调整所属容器的前后顺序，内部布局保持不变');
     }
 
     function restackSelection(edge){
+      if(READONLY) return;
       var raw = selectedEls && selectedEls.length ? selectedEls.slice() : (selectedEl ? [selectedEl] : []);
       var els = [];
       for(var i = 0; i < raw.length; i++){
@@ -4973,39 +5230,41 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         if(el === document.body || el === document.documentElement) continue;
         els.push(el);
       }
-      if(!els.length) return;
-      var parent = els[0].parentNode;
+      if(!els.length){ showToast('请先选中要调整层级的元素'); return; }
+      var scope = layerOrderScope(els[0]);
       for(var j = 1; j < els.length; j++){
-        if(els[j].parentNode !== parent){
-          showToast('只能在同一层里调整前后顺序');
+        if(layerOrderScope(els[j]) !== scope){
+          showToast('元素属于不同画框，请分别调整或选择它们所属的容器');
           return;
         }
       }
-      els.sort(function(a, b){
-        if(a === b) return 0;
-        var pos = a.compareDocumentPosition(b);
-        return (pos & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1;
-      });
-      pushSnapshot();
-      if(edge === 'front'){
-        for(var f = 0; f < els.length; f++) parent.appendChild(els[f]);
-      } else {
-        for(var b = els.length - 1; b >= 0; b--) parent.insertBefore(els[b], parent.firstChild);
+      // A leaf's z-index cannot escape its ancestor's stacking context. Apply the
+      // same operation along its wrapper path, stopping inside the owning frame.
+      var plans = [];
+      for(var k = 0; k < els.length; k++){
+        var node = els[k];
+        while(node && node !== scope && node.parentElement){
+          var parent = node.parentElement;
+          var plan = plans.find(function(item){ return item.parent === parent; });
+          if(!plan){ plan = { parent:parent, selected:[] }; plans.push(plan); }
+          if(plan.selected.indexOf(node) < 0) plan.selected.push(node);
+          node = parent;
+        }
       }
-      var z = 1;
-      for(var k = 0; k < parent.children.length; k++){
-        var c = parent.children[k];
-        if(isChromeNode(c)) continue;
-        var zi = parseInt(c.style.zIndex, 10);
-        if(zi >= 9000) continue;
-        c.style.zIndex = String(z);
-        z += 1;
+      pushSnapshot();
+      for(var pi = 0; pi < plans.length; pi++){
+        var siblings = orderedLayerChildren(plans[pi].parent);
+        var selected = siblings.filter(function(node){ return plans[pi].selected.indexOf(node) >= 0; });
+        var remaining = siblings.filter(function(node){ return plans[pi].selected.indexOf(node) < 0; });
+        // Avoid introducing a stacking context on a one-child layout wrapper.
+        if(remaining.length) applyLayerOrder(edge === 'front' ? remaining.concat(selected) : selected.concat(remaining));
       }
       scheduleSave();
       pushSnapshot();
       publishLayers();
       if(selectedEls.length > 1) updateMultiTransformBox();
       else if(selectedEl) updateTransformBox(selectedEl);
+      showToast(edge === 'front' ? '已置于所属画框最上层' : '已置于所属画框最下层');
     }
 
     function tidyTransform(src){
@@ -5248,7 +5507,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     }
 
     // 接住 Ctrl+S / Cmd+S，任何位置无条件第一时间拦截浏览器「另存为」；正在打字时先结束打字再立刻导出保存
-    window.addEventListener('keydown', function(e){
+    listenEditor(window, 'keydown', function(e){
       if((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')){
         e.preventDefault();
         e.stopPropagation();
@@ -5270,14 +5529,15 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     }, true);
 
     // 页面关掉/卸载前兜底：把还没发出的内容马上发出去
-    window.addEventListener('beforeunload', function(){
+    listenEditor(window, 'beforeunload', function(){
       if(isDirty || st !== null){
         clearTimeout(st); st = null;
         doExport();
       }
     });
 
-    window.addEventListener('message', function(e){
+    listenEditor(window, 'message', function(e){
+      if(e.source !== parent) return;
       var d = e.data || {};
       if(d.type === 'wf-pan-stop' && e.source === parent){
         panGestureActive = false;
@@ -5444,20 +5704,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             clearTimeout(st); st = null;
             doExport();
           }
-          EDIT = false;
-          READONLY = true;
-          if (typeof deselect === 'function') deselect();
-          if (typeof cleanupStyles === 'function') cleanupStyles();
-          var tb = document.getElementById('wf-transform-box');
-          if (tb && tb.parentNode) tb.parentNode.removeChild(tb);
-          var db = document.getElementById('wf-dim-badge');
-          if (db && db.parentNode) db.parentNode.removeChild(db);
-          var mb = document.getElementById('wf-marquee-box');
-          if (mb && mb.parentNode) mb.parentNode.removeChild(mb);
-          history = [];
-          hIdx = -1;
-          document.body.classList.remove('wf-edit-mode');
-          document.body.style.cursor = '';
+          disposeEditor();
         } catch(err){}
         return;
       }
@@ -5707,32 +5954,24 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           pushSnapshot();
           for(var lti = 0; lti < layoutTargets.length; lti++){
             var layoutEl = layoutTargets[lti];
+            prepareArtworkLayout(layoutEl);
             var navLayoutRect = NAV_EDIT && NAV_EDIT.isPart(layoutEl) ? layoutEl.getBoundingClientRect() : null;
             var navLayoutOrigin = navLayoutRect ? {left:parseFloat(layoutEl.style.left)||0,top:parseFloat(layoutEl.style.top)||0,boxL:navLayoutRect.left+(window.scrollX||0),boxT:navLayoutRect.top+(window.scrollY||0)} : null;
             var cs = window.getComputedStyle ? window.getComputedStyle(layoutEl) : null;
             var pos = layoutEl.style.position || (cs ? cs.position : 'static');
             var isAbsolute = pos === 'absolute';
+            var layoutRect = layoutEl.getBoundingClientRect();
 
             if(d.key === 'x'){
-              if(isAbsolute){
-                layoutEl.style.left = d.val + 'px';
-              } else {
-                var curOffset = layoutEl.offsetLeft || 0;
-                var curStyleL = parseFloat(layoutEl.style.left) || 0;
-                var diff = d.val - curOffset;
-                layoutEl.style.position = 'relative';
-                layoutEl.style.left = Math.round(curStyleL + diff) + 'px';
-              }
+              var curStyleL = parseFloat(layoutEl.style.left || (cs ? cs.left : '')) || 0;
+              var diff = d.val - Math.round(layoutRect.left + (window.scrollX || 0));
+              if(!isAbsolute) layoutEl.style.position = 'relative';
+              layoutEl.style.left = Math.round(curStyleL + diff) + 'px';
             } else if(d.key === 'y'){
-              if(isAbsolute){
-                layoutEl.style.top = d.val + 'px';
-              } else {
-                var curOffset = layoutEl.offsetTop || 0;
-                var curStyleT = parseFloat(layoutEl.style.top) || 0;
-                var diff = d.val - curOffset;
-                layoutEl.style.position = 'relative';
-                layoutEl.style.top = Math.round(curStyleT + diff) + 'px';
-              }
+              var curStyleT = parseFloat(layoutEl.style.top || (cs ? cs.top : '')) || 0;
+              var diff = d.val - Math.round(layoutRect.top + (window.scrollY || 0));
+              if(!isAbsolute) layoutEl.style.position = 'relative';
+              layoutEl.style.top = Math.round(curStyleT + diff) + 'px';
             } else if(d.key === 'width'){
               var targetW = Math.max(1, d.val);
               layoutEl.style.width = targetW + 'px';
@@ -5754,6 +5993,14 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             }
             if(navLayoutOrigin){
               var constrained=NAV_EDIT.constrainBox(layoutEl,parseFloat(layoutEl.style.left)||0,parseFloat(layoutEl.style.top)||0,d.key==='width'?parseFloat(layoutEl.style.width):navLayoutRect.width,d.key==='height'?parseFloat(layoutEl.style.height):navLayoutRect.height,navLayoutOrigin);
+              if(d.key==='width' || d.key==='height'){
+                // Flex centering changes the part's layout origin when its size changes.
+                // Clamp the final size first, then preserve its old page position within the slot.
+                layoutEl.style[d.key]=constrained[d.key]+'px';
+                var resizedNavRect=layoutEl.getBoundingClientRect();
+                var resizedNavOrigin={left:parseFloat(layoutEl.style.left)||0,top:parseFloat(layoutEl.style.top)||0,boxL:resizedNavRect.left+(window.scrollX||0),boxT:resizedNavRect.top+(window.scrollY||0)};
+                constrained=NAV_EDIT.constrainBox(layoutEl,resizedNavOrigin.left+navLayoutRect.left-resizedNavRect.left,resizedNavOrigin.top+navLayoutRect.top-resizedNavRect.top,resizedNavRect.width,resizedNavRect.height,resizedNavOrigin);
+              }
               layoutEl.style.left=constrained.left+'px';layoutEl.style.top=constrained.top+'px';
               if(d.key==='width')layoutEl.style.width=constrained.width+'px';
               if(d.key==='height')layoutEl.style.height=constrained.height+'px';
@@ -6092,8 +6339,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }else if(d.type === 'wf-insert-html'){
         if(d.html){
           pushSnapshot();
-          var tDiv = document.createElement('div');
-          tDiv.innerHTML = d.html.trim();
+          var tDiv = parseEditorHtml(d.html);
           var newChild = tDiv.firstElementChild || tDiv;
 
           var targetX = (typeof d.dropX === 'number' && !isNaN(d.dropX)) ? d.dropX : 20;
@@ -6174,6 +6420,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }else if(d.type === 'wf-reorder-layer'){
         reorderLayer(d.uid, d.targetUid, d.place === 'before' ? 'before' : 'after');
       }else if(d.type === 'wf-restack'){
+        if(Array.isArray(d.uids)){
+          var stackPicked = d.uids.map(function(uid){ return layerDom(uid); }).filter(function(el){ return !!el; });
+          setMultiSelection(stackPicked);
+        }
         restackSelection(d.edge === 'back' ? 'back' : 'front');
       }else if(d.type === 'wf-flip'){
         flipSelection(d.axis === 'y' ? 'y' : 'x');
@@ -6208,8 +6458,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         }
         if(vEl && d.newHtml){
           pushSnapshot();
-          var tDiv = document.createElement('div');
-          tDiv.innerHTML = d.newHtml.trim();
+          var tDiv = parseEditorHtml(d.newHtml);
           var newSvg = tDiv.firstElementChild || tDiv;
           newSvg.style.visibility = '';
           if(d.elementUid && !newSvg.getAttribute('data-wf-uid')){
@@ -6244,8 +6493,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             var sItem = shapes[si];
             var sHtml = typeof sItem === 'string' ? sItem : (sItem && sItem.html ? sItem.html : '');
             if(!sHtml) continue;
-            var tDiv = document.createElement('div');
-            tDiv.innerHTML = sHtml.trim();
+            var tDiv = parseEditorHtml(sHtml);
             var sEl = tDiv.firstElementChild || tDiv;
             sEl.style.visibility = '';
             ensureUid(sEl);
@@ -6268,7 +6516,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
     });
 
-    document.addEventListener('mouseover', function(e){
+    listenEditor(document, 'mouseover', function(e){
       if(!EDIT || document.body.classList.contains('wf-interactive')) return;
       var activeText = document.querySelector('[data-wf-editing-text="true"]');
       if(activeText || resizing || drag) return;
@@ -6279,7 +6527,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       hovered = t;
     }, true);
 
-    document.addEventListener('mouseout', function(e){
+    listenEditor(document, 'mouseout', function(e){
       if(hovered && hovered === e.target){
         outline(hovered, false);
         hovered = null;
@@ -6362,8 +6610,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     window.__wfCustomPickHotspot = pickHotspotEl;
 
     // 双击任意元素深入选中并激活对应编辑（文字打字、图片替换、矢量图形编辑）
-    document.addEventListener('dblclick', function(e){
-      var t = e.target;
+    listenEditor(document, 'dblclick', function(e){
+      var t = resolveArtworkTarget(e.target, e);
       if(!t || t === document.body || t === document.documentElement) return;
       var navPart = NAV_EDIT && NAV_EDIT.part(t);
       if(navPart){
@@ -6429,7 +6677,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         return;
       }
 
-      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
+      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text,[data-wf-id],[data-wf-role]');
       if((!EDIT && !isInserted) || READONLY) return;
 
       if(!EDIT && isInserted){
@@ -6446,7 +6694,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       selectElement(t, true);
 
       // 如果双击的是图片或可铺图的方框/占位框/头像，唤起替换素材
-      var isAssetBox = t.tagName === 'IMG' || !!(t.style && t.style.backgroundImage) || (t.classList && (t.classList.contains('wf-box') || t.classList.contains('wf-image-placeholder') || t.classList.contains('wf-avatar'))) || (t.hasAttribute && t.hasAttribute('data-wf-asset'));
+      // CSS gradients also occupy backgroundImage; only URL backgrounds imply an image asset.
+      var hasBackgroundImage = String(t.style && t.style.backgroundImage || '').toLowerCase().indexOf('url(') !== -1;
+      var isAssetBox = t.tagName === 'IMG' || hasBackgroundImage || (t.classList && (t.classList.contains('wf-box') || t.classList.contains('wf-image-placeholder') || t.classList.contains('wf-avatar'))) || (t.hasAttribute && t.hasAttribute('data-wf-asset'));
       if(isAssetBox){
         if(READONLY) return;
         var prev = document.querySelectorAll('.wf-current-asset-target');
@@ -6467,7 +6717,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     }, true);
 
     // 拦截画布内部元素的原生拖拽，杜绝图片被拖动时生成原生副本
-    document.addEventListener('dragstart', function(e){
+    listenEditor(document, 'dragstart', function(e){
       var isFromPalette = false;
       try {
         isFromPalette = !!(window.parent && window.parent.__wfDraggingComponent);
@@ -6478,7 +6728,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     }, true);
 
     // 接收从原子组件库拖入的 drop 事件，将方框或组件插入页面 HTML 并持久化
-    document.addEventListener('dragover', function(e){
+    listenEditor(document, 'dragover', function(e){
       e.preventDefault();
       if(READONLY){
         if(e.dataTransfer) e.dataTransfer.dropEffect = 'none';
@@ -6487,7 +6737,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     }, true);
 
-    document.addEventListener('drop', function(e){
+    listenEditor(document, 'drop', function(e){
       e.preventDefault();
       e.stopPropagation();
       if(READONLY) return;
@@ -6514,8 +6764,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }catch(err){}
 
       pushSnapshot();
-      var temp = document.createElement('div');
-      temp.innerHTML = html.trim();
+      var temp = parseEditorHtml(html);
       var newEl = temp.firstElementChild || temp;
 
       var targetX = Math.round(Math.max(16, Math.min(320, e.clientX - 20)));
@@ -6717,13 +6966,14 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     }
 
     // 鼠标按下：拖动8点把手缩放、拖动元素位移、Alt/Shift快捷删除、单选元素
-    document.addEventListener('mousedown', function(e){
+    listenEditor(document, 'mousedown', function(e){
       if(e.button === 0){
         try { parent.postMessage({ type: 'wf-frame-focus', pageId: PAGE_ID }, '*'); } catch(err) {}
       }
       if(PROTO_HOTSPOT || document.body.classList.contains('wf-interactive')) return;
       var handle = e.target.closest ? e.target.closest('.wf-handle') : null;
       if(handle && (selectedEl || selectedEls.length > 0)){
+        (selectedEls.length ? selectedEls : [selectedEl]).forEach(prepareArtworkLayout);
         var handleLocked = false;
         var lockCheck = selectedEls.length ? selectedEls : [selectedEl];
         for(var lci = 0; lci < lockCheck.length; lci++){
@@ -6873,7 +7123,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         return;
       }
 
-      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-vector-icon,.wf-brand-logo,.wf-vector-shape,[data-wf-vector],.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text');
+      var isInserted = t.closest && t.closest('.wf-inserted-component,.wf-vector-icon,.wf-brand-logo,.wf-vector-shape,[data-wf-vector],.wf-box,.wf-container,.wf-avatar,.wf-text-block,.wf-btn,.wf-search-box,.wf-shape,.wf-text,[data-wf-id],[data-wf-role]');
       if((!EDIT && !isInserted) || READONLY || PROTO_HOTSPOT) return;
 
       if(!EDIT && isInserted){
@@ -6912,8 +7162,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           var curL = parseFloat(sEl.style.left);
           var curT = parseFloat(sEl.style.top);
           if(isAbsolute){
-            if(isNaN(curL)) curL = rect.left + sX;
-            if(isNaN(curT)) curT = rect.top + sY;
+            var cssPos = getElementCssPos(sEl);
+            if(isNaN(curL)) curL = cssPos.left;
+            if(isNaN(curT)) curT = cssPos.top;
           } else {
             if(isNaN(curL)) curL = 0;
             if(isNaN(curT)) curT = 0;
@@ -6940,7 +7191,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
     }, true);
 
-    document.addEventListener('contextmenu', function(e){
+    listenEditor(document, 'contextmenu', function(e){
       e.preventDefault();
       e.stopPropagation();
       var t = e.target;
@@ -6967,7 +7218,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       } catch(err) {}
     }, true);
 
-    document.addEventListener('mousemove', function(e){
+    function applyEditorPointerMove(e){
       if(resizing){
         var dx = e.clientX - resizing.startX;
         var dy = e.clientY - resizing.startY;
@@ -7308,6 +7559,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           document.body.classList.add('wf-dragging');
           for(var di = 0; di < drag.items.length; di++){
             var it = drag.items[di];
+            prepareArtworkLayout(it.el);
             if(!it.isAbsolute){
               it.el.style.position = 'relative';
             }
@@ -7395,9 +7647,30 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         return;
       }
       updateAltMeasure(e);
+    }
+
+    function flushEditorPointerMove(){
+      if(pointerMoveFrame) cancelAnimationFrame(pointerMoveFrame);
+      pointerMoveFrame = 0;
+      var event = pendingPointerMove;
+      pendingPointerMove = null;
+      if(event && !editorDisposed) applyEditorPointerMove(event);
+    }
+
+    listenEditor(document, 'mousemove', function(e){
+      if(!drag && !resizing && !marquee){ updateAltMeasure(e); return; }
+      pendingPointerMove = e;
+      if(!pointerMoveFrame) pointerMoveFrame = requestAnimationFrame(function(){
+        pointerMoveFrame = 0;
+        var event = pendingPointerMove;
+        pendingPointerMove = null;
+        if(event && !editorDisposed) applyEditorPointerMove(event);
+      });
     }, true);
 
-    document.addEventListener('mouseup', function(){
+    listenEditor(document, 'mouseup', function(){
+      // The final mouse sample must be applied before saving, even between frames.
+      flushEditorPointerMove();
       if(resizing){
         clearSnapGuides();
         var rEl = resizing.el;
@@ -7454,11 +7727,11 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
     }, true);
 
-    window.addEventListener('scroll', function(){
+    listenEditor(window, 'scroll', function(){
       if(selectedEls.length > 1) updateMultiTransformBox();
       else if(selectedEl) updateTransformBox(selectedEl);
     }, true);
-    window.addEventListener('resize', function(){
+    listenEditor(window, 'resize', function(){
       if(selectedEls.length > 1) updateMultiTransformBox();
       else if(selectedEl) updateTransformBox(selectedEl);
     });
@@ -7467,16 +7740,16 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Meta') return;
       parent.postMessage({ type: 'wf-selection-modifiers', shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey }, '*');
     }
-    document.addEventListener('keydown', publishSelectionModifiers, true);
-    document.addEventListener('keyup', publishSelectionModifiers, true);
-    document.addEventListener('keyup', function(e){
+    listenEditor(document, 'keydown', publishSelectionModifiers, true);
+    listenEditor(document, 'keyup', publishSelectionModifiers, true);
+    listenEditor(document, 'keyup', function(e){
       if((e.key === 'Alt' || e.key === 'AltGraph') && altMeasuring){
         altMeasuring = false;
         clearSnapGuides();
       }
     }, true);
 
-    document.addEventListener('keydown', function(e){
+    listenEditor(document, 'keydown', function(e){
       var activeText = document.querySelector('[data-wf-editing-text="true"]');
       var isEditing = !!activeText || (e.target && (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'));
 
@@ -7868,9 +8141,13 @@ let framePanOrigin: { clientX: number; clientY: number; screenX: number; screenY
 function onIframeMessage(e: MessageEvent) {
   // 关键：只处理当前组件 iframe 自己发出的消息。iframe 的 postMessage 会广播给
   // 父窗口所有监听器，若不校验来源，A 页微调保存会污染所有页面的 HTML（全变同一页）。
-  if (e.source !== htmlFrameRef.value?.contentWindow) return
+  if (e.origin !== window.location.origin || e.source !== htmlFrameRef.value?.contentWindow) return
   const d = e.data as { type?: string; page?: string; html?: string; h?: number; src?: string } | null
   if (!d) return
+  if (d.type === 'wf-frame-ready') {
+    if ((d as any).timeOrigin === htmlFrameRef.value?.contentWindow?.performance.timeOrigin) emit('frame-ready')
+    return
+  }
   if (d.type === 'wf-save-flushed') {
     saveFlushes.get(String((d as any).requestId))?.()
     return
@@ -7947,16 +8224,11 @@ function onIframeMessage(e: MessageEvent) {
   } else if (d.type === 'wf-save-preparation-failed') {
     emit('savePreparationFailed', props.page.id)
   } else if (d.type === 'wf-save' && typeof d.html === 'string' && d.html.length > 50) {
-    isInternalSaving = true
-    clearTimeout(saveResetTimer)
     const cleanHtml = withoutBackendFiles(d.html)
     lastInternalSavedHtml = cleanHtml
     // 不把导出结果写回 editSourceHtml。它绑在 iframe 的 srcdoc 上，一改整页就会重新加载，改完元素就会闪一下。
     // 最新内容已经交给外层写进 page.html_content；当前画板继续用内存里的画面。
     emit('saveHtml', { pageId: props.page.id, html: cleanHtml, saveEpoch: typeof (d as any).saveEpoch === 'number' ? (d as any).saveEpoch : undefined })
-    saveResetTimer = setTimeout(() => {
-      isInternalSaving = false
-    }, 1500)
   } else if (d.type === 'wf-shortcut-saved') {
     const pageName = props.page.name || '当前画板'
     ElMessage.success({ message: `已保存「${pageName}」`, grouping: true, duration: 1500 })
@@ -8025,6 +8297,7 @@ function onIframeMessage(e: MessageEvent) {
 }
 onMounted(() => window.addEventListener('message', onIframeMessage))
 onBeforeUnmount(() => {
+  canvasInput?.dispose()
   try {
     flushPendingSave().catch(() => {})
   } catch (e) {}
@@ -8033,13 +8306,14 @@ onUnmounted(() => window.removeEventListener('message', onIframeMessage))
 
 const saveFlushes = new Map<string, () => void>()
 function stopCanvasPan() {
+  canvasInput?.stopPan()
   framePanOrigin = null
   htmlFrameRef.value?.contentWindow?.postMessage({ type: 'wf-pan-stop' }, '*')
 }
 onUnmounted(() => { for (const resolve of saveFlushes.values()) resolve() })
 function flushPendingSave(): Promise<void> {
   const frame = htmlFrameRef.value?.contentWindow
-  if (!frame) return Promise.resolve()
+  if (!frame || !(frame as any).__wfEditorLifecycle?.active) return Promise.resolve()
   return new Promise((resolve, reject) => {
     const requestId = crypto.randomUUID()
     const timeout = setTimeout(() => { saveFlushes.delete(requestId); reject(new Error(`「${props.page.name}」原型尚未就绪，请稍后重试检查`)) }, 3000)
@@ -8342,29 +8616,28 @@ const annItems = computed<AnnItem[]>(() => {
 // ===== 引线：从元素锚点连到面板中对应说明条目的位置（DOM 实测，随滚动更新） =====
 const activeLines = ref<{ id: number; path: string }[]>([])
 
-function clientToStageRatio(): number {
-  if (!rootRef.value) return 1
-  const rect = rootRef.value.getBoundingClientRect()
-  return rect.width && stageW.value ? rect.width / stageW.value : 1
-}
-
 function recomputeLines() {
+  const visibleItems = props.showAnnotations ? annItems.value.filter(ap =>
+    (props.selectedElementId != null && ap.elementId === props.selectedElementId) ||
+    (props.hoveredAnnId != null && ap.id === props.hoveredAnnId) ||
+    (props.hoveredElementId != null && ap.elementId === props.hoveredElementId),
+  ) : []
+  // Most workbench frames have no active annotation line. Do not force layout
+  // for every retained frame just because selection or hydration changed.
+  if (!visibleItems.length) {
+    if (activeLines.value.length) activeLines.value = []
+    return
+  }
   const list: { id: number; path: string }[] = []
   const rootRect = rootRef.value?.getBoundingClientRect()
   if (!rootRect) {
     activeLines.value = list
     return
   }
-  const ratio = clientToStageRatio()
+  const ratio = rootRect.width && stageW.value ? rootRect.width / stageW.value : 1
   const bodyRect = panelBodyRef.value?.getBoundingClientRect()
 
-  for (const ap of annItems.value) {
-    const visible =
-      (props.selectedElementId != null && ap.elementId === props.selectedElementId) ||
-      (props.hoveredAnnId != null && ap.id === props.hoveredAnnId) ||
-      (props.hoveredElementId != null && ap.elementId === props.hoveredElementId)
-    if (!visible) continue
-
+  for (const ap of visibleItems) {
     // 终点：面板展开时指向对应条目（限制在面板可视区内），收起时指向面板头
     let endX = panelX.value
     let endY = 24
@@ -8545,6 +8818,7 @@ function captureSelectionAsComponent(): Promise<{ html?: string; width?: number;
       resolve(null)
     }, 2500)
     function onMsg(ev: MessageEvent) {
+      if (ev.origin !== window.location.origin || ev.source !== htmlFrameRef.value?.contentWindow) return
       const data = ev.data
       if (!data || data.type !== 'wf-component-captured' || data.requestId !== requestId) return
       window.clearTimeout(timer)
@@ -8557,8 +8831,9 @@ function captureSelectionAsComponent(): Promise<{ html?: string; width?: number;
 }
 
 function postToFrame(payload: Record<string, unknown>) {
-  if (!hasLoadedEditorState && !props.readOnly) {
-    hydrateEditorInFrame()
+  if (!props.readOnly) {
+    editorLifecycleVersion++
+    if (!(htmlFrameRef.value?.contentWindow as any)?.__wfEditorLifecycle?.active) hydrateEditorInFrame()
   }
   const uid = (payload.uid as string) || focusedLayerUid.value
   htmlFrameRef.value?.contentWindow?.postMessage(uid ? { ...payload, uid } : payload, '*')

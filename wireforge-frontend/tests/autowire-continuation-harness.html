@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>智能连线分批配置回归</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+import '../src/styles/main.scss'
+import http from '../src/api/http'
+import PrototypeView from '../src/views/PrototypeView.vue'
+
+// Every request is handled in memory: this fixture cannot edit a user project.
+const screen = label => `<!doctype html><html><body style="margin:0;background:#f4f7fb;font:16px sans-serif"><header style="padding:30px">${label}</header><button data-wf-element-id="20" style="margin:20px">打开背包</button><button data-wf-element-id="21">查看收集</button></body></html>`
+const page = (id, name) => ({ id, name, background_image:'', canvas_width:375, canvas_height:812, canvas_x:(id-1)*440, canvas_y:100, html_content:screen(name), analyzed:1, elements:[], annotations:[] })
+const model = { project:{id:901,name:'智能连线分批配置隔离测试'},pages:[page(1,'家园'),page(2,'背包'),page(3,'收集')] }
+const item = (id, label, elementId, patch={}) => ({id,category:'uncertain',pageId:1,pageName:'家园',elementId,elementLabel:label,interactionId:elementId+100,trigger:'click',action:'navigate',targetPageId:null,targetPageName:'',source:'ai',reason:'请确认跳转目标',evidenceRefs:[],applicable:false,selectedByDefault:false,stableKey:`1:${elementId}`,decisionFingerprint:id,navigation:null,targetSelection:{basis:'suggestion',candidateTargets:[{id:2,name:'背包'},{id:3,name:'收集'}]},...patch})
+let items = [item('jump','打开背包',20),item('retained','查看收集',21),...[30,31,32].map(id=>item(`remove-${id}`,`旧线 ${id}`,id,{category:'remove',targetPageId:2,targetPageName:'背包',applicable:true,targetSelection:null}))]
+model.pages[0].elements = items.map(i=>({id:i.elementId,type:'button',label:i.elementLabel,x:20,y:100+(i.elementId-20)*30,width:150,height:36}))
+const state = window.autowireTest = {previews:[],applies:[],renderRetries:0,htmlWrites:0,failRefreshes:0,failApplies:0,nextRenderStatus:'done',statusAfterRefresh:'failed'}
+const applications = new Map()
+let previewId = ''
+http.defaults.adapter = async config => {
+  const url = config.url || ''
+  const body = typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+  let data = {}, message = '', code = 0
+  if (url.includes('/auth/me')) data={authenticated:true,userId:'fixture',userName:'回归测试',systemAdmin:true,projectRole:'admin'}
+  else if (url.endsWith('/prototype')) data=model
+  else if (url.endsWith('/edit-statuses')) data={}
+  else if (url.endsWith('/edit-lock')) data={editing:true,conflict:false}
+  else if (url.endsWith('/html')) state.htmlWrites++
+  else if (url.endsWith('/autowire/preview')) {
+    state.previews.push(body || {})
+    if (body?.rulesOnly && state.failRefreshes > 0) {state.failRefreshes--;code=1;message='模拟剩余方案刷新失败'}
+    else {previewId=`preview-${state.previews.length}`;data={previewId,projectId:901,expiresAt:Date.now()+600000,items:structuredClone(items),exclusions:[],warnings:[],protectedCount:0,navigationDiagnostics:[]}}
+  } else if (url.endsWith('/autowire/apply')) {
+    state.applies.push(body)
+    if (state.failApplies > 0) {state.failApplies--;code=1;message='模拟保存响应失败'}
+    else if (body.previewId !== previewId) {code=1;message='禁止提交过期方案'}
+    else {
+      const chosen=items.filter(i=>body.selectedIds.includes(i.id))
+      const applicationId=`batch-${state.applies.length}`
+      data={applicationId,added:0,completed:chosen.filter(i=>i.category!=='remove').length,removed:chosen.filter(i=>i.category==='remove').length,excluded:0,renderStatus:state.nextRenderStatus,renderError:null}
+      applications.set(applicationId,data)
+      items=items.filter(i=>!body.selectedIds.includes(i.id))
+    }
+  } else if (url.endsWith('/retry-render')) {
+    state.renderRetries++
+    const applicationId=url.split('/').at(-2)
+    data={...applications.get(applicationId),renderStatus:'done',renderError:null}
+    applications.set(applicationId,data)
+  } else if (url.includes('/autowire/applications/')) {
+    const applicationId=url.split('/').at(-1)
+    data={...applications.get(applicationId),renderStatus:state.statusAfterRefresh,renderError:state.statusAfterRefresh==='failed'?'模拟预览更新失败':null}
+    applications.set(applicationId,data)
+  } else if ((config.method || 'get').toLowerCase()==='get') data=[]
+  return {data:{code,data,message},config,status:200,statusText:'OK',headers:{}}
+}
+const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/:id/prototype',component:PrototypeView}]})
+await router.push('/projects/901/prototype')
+await router.isReady()
+const { RouterView } = await import('vue-router')
+createApp(RouterView).use(createPinia()).use(router).use(ElementPlus).mount('#app')
+</script></body></html>

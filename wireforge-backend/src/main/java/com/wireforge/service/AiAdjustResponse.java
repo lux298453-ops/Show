@@ -17,4 +17,6 @@ public class AiAdjustResponse {
     private String summary;
     private List<String> diffList;
     private String modifiedHtml;
+    private boolean changed;
+    private List<AiGeneratedImage> generatedImages;
 }

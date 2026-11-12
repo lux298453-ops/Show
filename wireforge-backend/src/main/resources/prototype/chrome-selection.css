@@ -1,0 +1,2 @@
+/* Keep the selected foreground and surface together, including legacy saved pages. */
+body [data-wf-shared-chrome=navigation] [data-wf-chrome-part=item][aria-current=page]{background:var(--wf-chrome-active-bg,transparent)!important;border-radius:var(--wf-chrome-active-radius,10px)!important;color:var(--wf-chrome-active)!important}

@@ -101,6 +101,13 @@ public class ProjectController {
         return Result.ok(projectService.rebuildAppMapAndRender(id));
     }
 
+    /** Reuse project chrome on existing AI pages without regenerating their content. */
+    @PostMapping("/{id}/normalize-chrome")
+    public Result<Integer> normalizeChrome(@PathVariable Long id) {
+        projectService.getProject(id);
+        return Result.ok(analyzeService.normalizeProjectChrome(id));
+    }
+
     /** 仅跑交互验证（无头浏览器逐页点击所有交互元素），返回失败清单 */
     @PostMapping("/{id}/verify")
     public Result<List<com.wireforge.ai.HtmlRenderer.CheckResult>> verify(@PathVariable Long id) {
@@ -190,7 +197,7 @@ public class ProjectController {
             HttpServletRequest request) {
         String clientId = body.getOrDefault("clientId", "");
         AuthUser currentUser = authService != null ? authService.getCurrentUser(request) : null;
-        projectService.updatePageHtml(pageId, body.get("html"), clientId, currentUser);
+        projectService.updatePageHtml(id, pageId, body.get("html"), clientId, body.get("expectedHtml"), currentUser);
         return Result.ok(null);
     }
 
@@ -205,10 +212,10 @@ public class ProjectController {
             throw new IllegalArgumentException("调整指令不能为空");
         }
         String contextHtml = body.get("contextHtml");
-        return Result.ok(aiAdjustService.adjustPage(id, pageId, instruction, contextHtml));
+        return Result.ok(aiAdjustService.adjustPage(id, pageId, instruction, contextHtml, body.get("conversationContext"), body.get("requestId")));
     }
 
-    /** 全屏演示 AI 单选元素精准微调（Figma AI / Cursor 级）：Token 骤降 95%，秒级响应且零误伤 */
+    /** 全屏演示 AI 单元素调整。 */
     @PostMapping("/{id}/pages/{pageId}/ai-adjust-element")
     public Result<com.wireforge.service.AiElementAdjustResponse> aiAdjustElement(
             @PathVariable Long id,

@@ -44,7 +44,11 @@ public record AutowirePlan(String previewId, long projectId, long expiresAt, Lis
     public record NavigationDiagnostic(long pageId, String pageName, String label, String status, String reason) {}
     public record NavigationResolution(String stableKey, long targetPageId) {}
     public record PreviewRequest(String previousPreviewId, List<NavigationResolution> navigationResolutions,
-                                 List<NavigationResolution> targetResolutions) {
+                                 List<NavigationResolution> targetResolutions, boolean rulesOnly) {
+        public PreviewRequest(String previousPreviewId, List<NavigationResolution> navigationResolutions,
+                              List<NavigationResolution> targetResolutions) {
+            this(previousPreviewId, navigationResolutions, targetResolutions, false);
+        }
         public PreviewRequest(String previousPreviewId, List<NavigationResolution> navigationResolutions) {
             this(previousPreviewId, navigationResolutions, List.of());
         }

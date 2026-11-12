@@ -1,58 +1,46 @@
 <template>
   <div
-    class="pure-preview-container relative w-full h-full overflow-hidden select-none bg-[#090d16] text-slate-100 flex flex-col items-center justify-center font-sans"
+    class="pure-preview-container relative w-full h-full overflow-hidden select-none flex flex-col items-center justify-center font-sans"
+    :class="{ 'has-ai-drawer': aiDrawerOpen }"
     @click="onBackgroundClick"
   >
-    <!-- ===== Ambient Studio Lighting Background (Figma Presentation Style) ===== -->
-    <div class="absolute inset-0 pointer-events-none overflow-hidden">
-      <!-- Deep subtle radial spotlight -->
-      <div
-        class="absolute -top-1/4 left-1/2 -translate-x-1/2 w-[1100px] h-[800px] rounded-full bg-gradient-to-b from-slate-800/25 via-emerald-950/10 to-transparent blur-3xl"
-      ></div>
-      <div
-        class="absolute -bottom-1/3 left-1/2 -translate-x-1/2 w-[900px] h-[600px] rounded-full bg-gradient-to-t from-cyan-950/15 via-slate-900/10 to-transparent blur-3xl"
-      ></div>
-      <!-- Subtle Presentation Watermark / Ambient Grid (Ultra Faint) -->
-      <div
-        class="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]"
-      ></div>
-    </div>
-
     <!-- ===== Top Floating Action Island (轻量浮动操作栏) ===== -->
     <header
-      class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-slate-900/85 backdrop-blur-2xl border border-white/12 shadow-[0_12px_45px_rgba(0,0,0,0.65)] text-white text-xs font-medium transition-all duration-300 hover:border-white/20"
-      :class="chromeVisible ? 'opacity-100' : 'opacity-0 -translate-y-3 pointer-events-none'"
+      class="preview-toolbar fixed top-4 left-1/2 -translate-x-1/2 z-50 flex w-max max-w-[calc(100vw-32px)] items-center gap-2.5 px-4 py-2 rounded-2xl border preview-surface text-xs font-medium whitespace-nowrap transition-all duration-300"
+      :class="chromeVisible || aiDrawerOpen ? 'opacity-100' : 'opacity-0 -translate-y-3 pointer-events-none'"
       @click.stop
     >
       <!-- Left: Project Name & Badge -->
       <div class="flex items-center gap-2 pr-1">
-        <div class="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+        <div class="preview-brand w-6 h-6 rounded-lg flex items-center justify-center">
           <Layers class="w-3.5 h-3.5" />
         </div>
         <div class="flex flex-col">
-          <span class="font-bold text-xs tracking-tight text-white max-w-[150px] truncate" :title="proto?.project.name">
+          <span class="font-bold text-xs tracking-tight preview-text max-w-[150px] truncate" :title="proto?.project.name">
             {{ proto?.project.name || 'WireForge 原型' }}
           </span>
-          <span class="text-[9px] text-slate-300 font-normal leading-none">纯净全屏演示</span>
+          <span class="text-[9px] preview-muted font-normal leading-none">纯净全屏演示</span>
         </div>
       </div>
 
-      <div class="h-4 w-[1px] bg-white/15 mx-0.5"></div>
+      <div class="h-4 w-[1px] preview-divider mx-0.5"></div>
 
       <!-- Center: Page Selector Dropdown with Segmented Control -->
       <div ref="pageDropdownRef" class="relative" @click.stop>
         <!-- Single entry pill trigger button -->
         <button
           type="button"
-          class="wf-pill px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 hover:border-white/25 text-white flex items-center justify-between gap-2 min-w-[170px] max-w-[210px] cursor-pointer shadow-xs transition-all select-none"
+          class="wf-pill px-3 py-1.5 rounded-xl preview-control flex items-center justify-between gap-2 min-w-[170px] max-w-[210px] cursor-pointer transition-all select-none"
           title="切换画板"
+          :aria-expanded="pageDropdownOpen"
+          aria-controls="preview-page-menu"
           @click="pageDropdownOpen = !pageDropdownOpen"
         >
-          <span class="truncate font-semibold text-xs text-white">
+          <span class="truncate font-semibold text-xs preview-text">
             {{ currentPageIndex >= 0 ? `${currentPageIndex + 1}. ${currentPage?.name}` : '选择画板' }}
           </span>
           <ChevronDown
-            class="w-3.5 h-3.5 text-slate-300 transition-transform duration-200 shrink-0"
+            class="w-3.5 h-3.5 preview-muted transition-transform duration-200 shrink-0"
             :class="{ 'rotate-180': pageDropdownOpen }"
           />
         </button>
@@ -61,60 +49,63 @@
         <Transition name="dropdown-fade">
           <div
             v-if="pageDropdownOpen"
-            class="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-72 rounded-2xl bg-slate-900/95 backdrop-blur-2xl border border-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.85)] p-2.5 flex flex-col gap-2 z-50 select-none text-white text-xs"
+            id="preview-page-menu"
+            class="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-72 rounded-2xl preview-surface border shadow-lg p-2.5 flex flex-col gap-2 z-50 select-none preview-text text-xs"
           >
             <!-- Segmented Control Pills -->
-            <div class="bg-black/50 border border-white/10 rounded-xl p-1 flex gap-1">
+            <div class="preview-field border rounded-xl p-1 flex gap-1">
               <button
                 type="button"
                 class="flex-1 py-1 px-2 rounded-lg text-center font-semibold text-[11px] transition-all duration-150 cursor-pointer"
-                :class="activeSegmentTab === 'main' ? 'bg-[#0D99FF]/20 text-[#38bdf8] border border-[#0D99FF]/40 shadow-xs font-bold' : 'text-slate-400 hover:text-white border border-transparent'"
+                :class="activeSegmentTab === 'main' ? 'preview-selected preview-accent border border-transparent shadow-xs font-bold' : 'preview-muted  border border-transparent'"
                 @click="activeSegmentTab = 'main'"
               >
-                主流程 ({{ mainFlowPages.length }})
+                主页面 ({{ mainFlowItems.length }})
               </button>
               <button
                 type="button"
                 class="flex-1 py-1 px-2 rounded-lg text-center font-semibold text-[11px] transition-all duration-150 cursor-pointer"
-                :class="activeSegmentTab === 'all' ? 'bg-[#0D99FF]/20 text-[#38bdf8] border border-[#0D99FF]/40 shadow-xs font-bold' : 'text-slate-400 hover:text-white border border-transparent'"
+                :class="activeSegmentTab === 'all' ? 'preview-selected preview-accent border border-transparent shadow-xs font-bold' : 'preview-muted  border border-transparent'"
                 @click="activeSegmentTab = 'all'"
               >
                 全部画板 ({{ pages.length }})
               </button>
             </div>
 
-            <!-- View A: Main Flow (Default: 4 Tabs of Bottom Navigation) -->
+            <!-- Main entries follow the actual bottom navigation, including unresolved destinations. -->
             <div v-if="activeSegmentTab === 'main'" class="space-y-1 max-h-[190px] overflow-y-auto custom-scrollbar pr-0.5">
               <div
-                v-for="(p, idx) in mainFlowPages"
-                :key="p.id"
+                v-for="(item, idx) in mainFlowItems"
+                :key="item.key"
                 class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors"
-                :class="isPageActive(p.id) ? 'bg-white/15 text-[#38bdf8] font-bold' : 'hover:bg-white/10 text-slate-200'"
-                @click="selectPageFromDropdown(p.id)"
+                :class="item.page && isPageActive(item.page.id) ? 'preview-selected preview-accent font-bold' : item.page ? 'preview-hover preview-muted' : 'preview-muted opacity-60 cursor-default'"
+                :aria-disabled="!item.page"
+                @click="item.page && selectPageFromDropdown(item.page.id)"
               >
-                <span class="truncate">{{ idx + 1 }}. {{ p.name }}</span>
-                <Check v-if="isPageActive(p.id)" class="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+                <span class="truncate">{{ idx + 1 }}. {{ item.page?.name || item.label }}</span>
+                <Check v-if="item.page && isPageActive(item.page.id)" class="w-3.5 h-3.5 preview-accent shrink-0" />
+                <span v-else-if="!item.page" class="text-[10px] shrink-0 ml-2">未关联画板</span>
               </div>
-              <div v-if="mainFlowPages.length === 0" class="py-3 text-center text-slate-400 text-xs">
-                暂无主流程页面
+              <div v-if="mainFlowItems.length === 0" class="py-3 text-center preview-muted text-xs">
+                暂无主导航页面
               </div>
             </div>
 
             <!-- View B: All Artboards (Inspection View) -->
             <div v-else class="space-y-2">
               <div class="relative">
-                <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Search class="w-3.5 h-3.5 preview-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   v-model="searchQuery"
                   type="text"
                   placeholder="搜索画板名称、简拼..."
-                  class="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-400 outline-none focus:border-[#0D99FF] transition-colors"
+                  class="w-full preview-field border rounded-xl pl-8 pr-7 py-1.5 text-xs preview-text  outline-none focus:border-[#0D99FF] transition-colors"
                   @click.stop
                 />
                 <button
                   v-if="searchQuery"
                   type="button"
-                  class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded cursor-pointer"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 preview-muted  p-0.5 rounded cursor-pointer"
                   @click.stop="searchQuery = ''"
                 >
                   <X class="w-3 h-3" />
@@ -126,13 +117,13 @@
                   v-for="(p, idx) in filteredAllPages"
                   :key="p.id"
                   class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors"
-                  :class="p.id === currentPageId ? 'bg-white/15 text-[#38bdf8] font-bold' : 'hover:bg-white/10 text-slate-200'"
+                  :class="p.id === currentPageId ? 'preview-selected preview-accent font-bold' : 'preview-hover preview-muted'"
                   @click="selectPageFromDropdown(p.id)"
                 >
                   <span class="truncate">{{ idx + 1 }}. {{ p.name }}</span>
-                  <Check v-if="p.id === currentPageId" class="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+                  <Check v-if="p.id === currentPageId" class="w-3.5 h-3.5 preview-accent shrink-0" />
                 </div>
-                <div v-if="filteredAllPages.length === 0" class="py-4 text-center text-slate-400 text-xs">
+                <div v-if="filteredAllPages.length === 0" class="py-4 text-center preview-muted text-xs">
                   未找到匹配画板
                 </div>
               </div>
@@ -141,7 +132,7 @@
         </Transition>
       </div>
 
-      <div class="h-4 w-[1px] bg-white/15 mx-0.5"></div>
+      <div class="h-4 w-[1px] preview-divider mx-0.5"></div>
 
       <!-- Feature Toggles & Actions -->
       <div class="flex items-center gap-1.5">
@@ -149,51 +140,51 @@
         <button
           class="wf-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer"
           :class="showDeviceFrame 
-            ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]' 
-            : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-slate-200'"
+            ? 'preview-control is-active'
+            : 'preview-control'"
           title="手机画板默认套外壳。网页画板按自己的宽高显示，也可手动套上外壳 (快捷键 D)"
           @click="showDeviceFrame = !showDeviceFrame"
         >
           <Smartphone class="w-3.5 h-3.5" />
-          <span class="hidden sm:inline">手机外壳</span>
+          <span class="preview-action-label hidden sm:inline">手机外壳</span>
         </button>
 
         <!-- AI 调整按钮 -->
         <button
           class="wf-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer"
           :class="aiDrawerOpen 
-            ? 'bg-[#0D99FF]/20 border-[#0D99FF]/60 text-[#38bdf8] shadow-[0_0_15px_rgba(13,153,255,0.3)]' 
-            : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white'"
+            ? 'preview-control is-active'
+            : 'preview-control'"
           title="打开右侧对话框，使用 AI 调整当前画板"
           @click="aiDrawerOpen = !aiDrawerOpen"
         >
           <Sliders class="w-3.5 h-3.5" />
-          <span class="hidden sm:inline">AI 调整</span>
+          <span class="preview-action-label hidden sm:inline">AI 调整</span>
         </button>
 
         <!-- ↺ 重置原型 -->
         <button
-          class="wf-pill inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all cursor-pointer"
+          class="wf-pill inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl preview-control  transition-all cursor-pointer"
           title="回到初始第一页并重置历史跳转堆栈 (快捷键 R)"
           @click="resetPrototype"
         >
           <RotateCcw class="w-3.5 h-3.5" />
-          <span class="hidden sm:inline">重置</span>
+          <span class="preview-action-label hidden sm:inline">重置</span>
         </button>
 
         <!-- 🔗 复制分享链接 -->
         <button
-          class="wf-pill inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all cursor-pointer"
+          class="wf-pill inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl preview-control  transition-all cursor-pointer"
           title="复制当前页面独立演示链接到剪贴板"
           @click="copyShareLink"
         >
           <Link class="w-3.5 h-3.5" />
-          <span class="hidden sm:inline">复制链接</span>
+          <span class="preview-action-label hidden sm:inline">复制链接</span>
         </button>
 
         <!-- ✕ 退出全屏 / 返回画板 -->
         <button
-          class="wf-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold shadow-sm transition-all cursor-pointer"
+          class="wf-pill inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl preview-control font-semibold shadow-sm transition-all cursor-pointer"
           title="退出全屏并返回原型画板 (Esc)"
           @click="exitPreview"
         >
@@ -206,8 +197,7 @@
     <!-- ===== Main Viewport Stage Container ===== -->
     <main
       ref="viewportContainerRef"
-      class="preview-scroll flex-1 w-full min-h-0 transition-[margin-right] duration-300 ease-in-out"
-      :style="aiDrawerOpen ? { marginRight: '420px' } : {}"
+      class="preview-scroll flex-1 w-full min-h-0 transition-[width,margin-right] duration-300 ease-in-out"
       @click="onViewportAreaClick"
     >
       <!-- Click Ripple Effect Layer -->
@@ -225,7 +215,7 @@
       <div class="preview-center">
         <!-- ===== High-Precision iPhone 16 Pro Chassis ===== -->
         <div
-          class="phone-chassis relative transition-all duration-300 select-none"
+          class="phone-chassis relative select-none"
           :class="[
             showDeviceFrame
               ? 'p-[14px] bg-[#1a1f2c] rounded-[56px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_0_3px_#272e3f,0_0_0_4px_rgba(255,255,255,0.06),0_25px_80px_-15px_rgba(0,0,0,0.9),0_0_50px_rgba(6,182,212,0.1)]'
@@ -250,7 +240,7 @@
           <!-- ===== Screen Glass Viewport ===== -->
           <div
             ref="phoneScreenRef"
-            class="phone-screen relative bg-black overflow-hidden flex flex-col transition-all duration-300"
+            class="phone-screen relative bg-black overflow-hidden flex flex-col"
             :class="[
               showDeviceFrame ? 'rounded-[44px]' : 'rounded-lg'
             ]"
@@ -273,31 +263,22 @@
             <div
               class="relative flex-1 w-full overflow-hidden bg-white"
             >
-              <transition :name="pageTransitionName">
                 <div
-                  :key="currentPageId ?? 0"
-                  class="page-transition-wrapper absolute inset-0 w-full h-full overflow-x-hidden overflow-y-auto custom-scrollbar"
+                  class="page-transition-wrapper absolute inset-0 w-full h-full overflow-hidden"
                 >
-                  <PageCanvas
+                  <PreviewPageStack
                     v-if="displayCurrentPage"
-                    :key="`${currentPageId ?? 0}_v${draftVersion}`"
                     ref="pageCanvasRef"
                     :page="displayCurrentPage"
                     :all-pages="pages"
-                    :show-wireframe="true"
-                    :show-design="false"
-                    :show-annotations="false"
-                    :edit-mode="false"
-                    :interactive="true"
-                    :box-w="0"
-                    :gap="0"
+                    :transition="transitionDirection"
+                    @display-page="onPreviewPageDisplayed"
                     @navigate="handleNavigate"
                     @back="handleBack"
                     @element-click="handleElementClick"
                     @miss-click="onScreenMissClick"
                   />
                 </div>
-              </transition>
             </div>
 
             <!-- ===== Figma AI / Cursor Inspector Overlay (单元素选中与高亮视口层) ===== -->
@@ -486,7 +467,6 @@
       :selected-element="selectedElement"
       @close="aiDrawerOpen = false"
       @clear-selected-element="clearSelectedElement"
-      @patch-element-success="handlePatchElementSuccess"
       @preview-draft="handlePreviewDraft"
       @revert-draft="handleRevertDraft"
       @start-compare="handleStartCompare"
@@ -499,7 +479,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import {
   Layers,
   Smartphone,
@@ -514,10 +494,15 @@ import {
 } from 'lucide-vue-next'
 import { projectApi } from '../api/project'
 import type { Element, Page, Prototype } from '../types'
-import PageCanvas from '../components/PageCanvas.vue'
+import PreviewPageStack from '../components/PreviewPageStack.vue'
+import { isTabNavigation } from '../utils/previewTabs'
+import { mainNavigation } from '../utils/mainNavigation'
+import { previewEntryPage } from '../utils/previewEntry'
 import AiAdjustDrawer from '../components/AiAdjustDrawer.vue'
+import { captureAiElement, type AiElementTarget, isTextEditingTarget } from '../utils/aiAdjustment'
 import { findInteractionByDomUids, hitInteractionElement, findElementAt, resolveNavigateElement } from '../utils/interactionHit'
 import { useProjectTitle } from '../utils/pageTitle'
+import { isPrototypeFrameMessage } from '../utils/prototypeSecurity'
 
 const route = useRoute()
 const router = useRouter()
@@ -528,9 +513,10 @@ useProjectTitle(() => proto.value?.project.name)
 const pages = computed<Page[]>(() => proto.value?.pages || [])
 
 const currentPageId = ref<number | null>(null)
+const presentedPage = ref<Page | null>(null)
 const currentPage = computed<Page | null>(() => {
   if (!pages.value.length) return null
-  return pages.value.find((p) => p.id === currentPageId.value) || pages.value[0] || null
+  return pages.value.find((p) => p.id === currentPageId.value) || defaultPreviewPage.value || null
 })
 
 const currentPageIndex = computed(() => {
@@ -566,7 +552,10 @@ const hasUnsavedDraft = computed(() => {
 const draftVersion = ref(0)
 
 function handlePreviewDraft(pageId: number, draftHtml: string) {
-  draftHtmlMap.value[pageId] = draftHtml
+  const page = pages.value.find(item => item.id === pageId)
+  if (!page) return
+  if (draftHtml === page.html_content) delete draftHtmlMap.value[pageId]
+  else draftHtmlMap.value[pageId] = draftHtml
   draftVersion.value++
 }
 
@@ -593,11 +582,7 @@ function handleEndCompare() {
 }
 
 // ===== Figma AI / Cursor 单元素微调模式核心状态与交互逻辑 =====
-interface SelectedElement {
-  id: string
-  tag: string
-  label: string
-  html: string
+interface SelectedElement extends AiElementTarget {
   rect: { left: number; top: number; width: number; height: number }
   domNode?: HTMLElement
 }
@@ -743,114 +728,28 @@ function handleIframeClick(e: MouseEvent) {
   const target = e.target as HTMLElement | null
   if (!target || target === currentFrameDoc?.body || target === currentFrameDoc?.documentElement) return
 
-  let selectId = target.getAttribute('data-wf-select-id') || target.getAttribute('data-wf-element-id') || target.id
-  if (!selectId) {
-    selectId = 'wf-elem-' + Math.random().toString(36).substring(2, 9)
-    target.setAttribute('data-wf-select-id', selectId)
+  const html = currentPage.value ? draftHtmlMap.value[currentPage.value.id] ?? currentPage.value.html_content ?? '' : ''
+  const selection = captureAiElement(html, target)
+  if (!selection) {
+    showToast('此元素由预览运行时提供，请选择原型中的文字、图片或卡片')
+    return
   }
-
-  const tag = target.tagName.toLowerCase()
-  const label = extractLabel(target)
-  const html = target.outerHTML
   const box = getTargetBoundingBox(target)
 
   if (box) {
     selectedElement.value = {
-      id: selectId,
-      tag,
-      label,
-      html,
+      ...selection,
       rect: box,
       domNode: target,
     }
     hoveredBox.value = null
-    showToast(`已选定 <${tag}> ${label}`)
+    showToast(`已选定 <${selection.tag}> ${selection.label}`)
   }
 }
 
 function clearSelectedElement() {
   selectedElement.value = null
   hoveredBox.value = null
-}
-
-function getCleanPageHtml(doc: Document): string {
-  // 导出/保存草稿前必须剥离临时注入的跨屏检查样式，严防样式污染持久化
-  const styleEl = doc.getElementById('wf-inspector-style')
-  if (styleEl) {
-    styleEl.remove()
-  }
-  let html = doc.documentElement.outerHTML
-  html = html.replace(/<style\s+id=["']wf-inspector-style["'].*?<\/style>/gis, '')
-
-  // 若当前抽屉仍在打开状态，重新挂回临时样式以保持单元素微调的十字准星指针
-  if (aiDrawerOpen.value && doc.head) {
-    const reStyle = doc.createElement('style')
-    reStyle.id = 'wf-inspector-style'
-    reStyle.textContent = `* { cursor: crosshair !important; }`
-    doc.head.appendChild(reStyle)
-  }
-  return html
-}
-
-function handlePatchElementSuccess(payload: {
-  action: 'REPLACE' | 'DELETE'
-  elementId: string
-  summary: string
-  originalSnippet: string
-  modifiedSnippet: string
-  onApplied?: (newCleanHtml: string) => void
-}) {
-  const frame = pageCanvasRef.value?.htmlFrameRef as HTMLIFrameElement | null
-  if (!frame || !frame.contentDocument) return
-  const doc = frame.contentDocument
-
-  let targetEl: HTMLElement | null = null
-  if (selectedElement.value?.domNode && doc.contains(selectedElement.value.domNode)) {
-    targetEl = selectedElement.value.domNode
-  }
-  if (!targetEl && payload.elementId) {
-    targetEl = doc.querySelector(`[data-wf-select-id="${payload.elementId}"]`) as HTMLElement | null
-  }
-  if (!targetEl && payload.elementId) {
-    targetEl = doc.querySelector(`[data-wf-element-id="${payload.elementId}"]`) as HTMLElement | null
-  }
-  if (!targetEl && payload.elementId) {
-    targetEl = doc.getElementById(payload.elementId)
-  }
-
-  if (targetEl) {
-    if (payload.action === 'DELETE') {
-      targetEl.remove()
-      selectedElement.value = null
-      hoveredBox.value = null
-    } else if (payload.action === 'REPLACE') {
-      const template = doc.createElement('template')
-      template.innerHTML = payload.modifiedSnippet.trim()
-      const newNode = template.content.firstElementChild as HTMLElement | null
-      if (newNode) {
-        newNode.setAttribute('data-wf-select-id', payload.elementId)
-        targetEl.replaceWith(newNode)
-        const box = getTargetBoundingBox(newNode)
-        if (box) {
-          selectedElement.value = {
-            id: payload.elementId,
-            tag: newNode.tagName.toLowerCase(),
-            label: extractLabel(newNode),
-            html: newNode.outerHTML,
-            rect: box,
-            domNode: newNode,
-          }
-        }
-      }
-    }
-
-    if (currentPage.value) {
-      const cleanHtml = getCleanPageHtml(doc)
-      draftHtmlMap.value[currentPage.value.id] = cleanHtml
-      payload.onApplied?.(cleanHtml)
-    }
-    showToast(`元素微调已生效 (${payload.summary})`)
-  }
 }
 
 watch(aiDrawerOpen, (open) => {
@@ -882,198 +781,9 @@ const activeSegmentTab = ref<'main' | 'all'>('main')
 const searchQuery = ref('')
 const pageDropdownRef = ref<HTMLElement | null>(null)
 
-// 智能分析原型画板底栏 4 个 Tab 对应的原型页
-function detectBottomNavPages(pagesList: Page[]): Page[] {
-  if (!pagesList || !pagesList.length) return []
-  const pagesById = new Map<number, Page>(pagesList.map((p) => [p.id, p]))
-
-  const slotVotes = new Map<number, Map<number, number>>()
-  const slotLabels = new Map<number, Map<string, number>>()
-
-  for (const p of pagesList) {
-    const h = p.canvas_height || 812
-    const w = p.canvas_width || 375
-    const bottomThreshold = h - 110
-    const bottomEls = (p.elements || []).filter((e) => e.y >= bottomThreshold && e.height <= 65)
-
-    if (
-      bottomEls.length < 3 &&
-      !bottomEls.some((e) => e.label && (e.label.includes('底部') || e.label.includes('导航')))
-    ) {
-      continue
-    }
-
-    const navItems = bottomEls.filter(
-      (e) =>
-        e.type === 'icon' ||
-        e.type === 'button' ||
-        (e.interaction && e.interaction.action === 'navigate') ||
-        (e.label && ['家园', '商城', '收集', '我的', '首页', '发现', '消息', '设置'].some((k) => e.label.includes(k)))
-    )
-
-    for (const it of navItems) {
-      const cx = it.x + it.width / 2
-      const normX = Math.max(0, Math.min(0.999, cx / w))
-      // 默认将底栏按屏幕横向分为 4 个槽位
-      const slot = Math.floor(normX * 4)
-
-      if (!slotVotes.has(slot)) slotVotes.set(slot, new Map())
-      if (!slotLabels.has(slot)) slotLabels.set(slot, new Map())
-
-      const votes = slotVotes.get(slot)!
-      const labels = slotLabels.get(slot)!
-
-      const lbl = (it.label || '').trim()
-      if (lbl) {
-        labels.set(lbl, (labels.get(lbl) || 0) + 1)
-      }
-
-      if (it.interaction && it.interaction.action === 'navigate' && it.interaction.target_page_id) {
-        const tgt = it.interaction.target_page_id
-        votes.set(tgt, (votes.get(tgt) || 0) + 2)
-      } else if (it.type === 'icon' && !it.interaction) {
-        // 自指/当前激活项
-        votes.set(p.id, (votes.get(p.id) || 0) + 1)
-      }
-    }
-  }
-
-  const result: Page[] = []
-  const usedIds = new Set<number>()
-
-  for (let slot = 0; slot < 4; slot++) {
-    const votes = slotVotes.get(slot)
-    const labels = slotLabels.get(slot)
-    let bestPageId: number | null = null
-    let maxVote = -1
-
-    let topLabel = ''
-    if (labels) {
-      let maxLblCount = -1
-      for (const [lbl, c] of labels.entries()) {
-        if (c > maxLblCount) {
-          maxLblCount = c
-          topLabel = lbl
-        }
-      }
-    }
-
-    if (votes) {
-      for (const [pid, count] of votes.entries()) {
-        if (count > maxVote && pagesById.has(pid) && !usedIds.has(pid)) {
-          maxVote = count
-          bestPageId = pid
-        }
-      }
-    }
-
-    // 语义修正：如果存在高频文字标签，且选出的 bestPageId 名称不包含该标签，优先用包含该标签的主画板替换
-    if (topLabel) {
-      const curPage = bestPageId ? pagesById.get(bestPageId) : null
-      if (!curPage || !curPage.name.includes(topLabel)) {
-        const semanticMatch = pagesList.find(
-          (p) => !usedIds.has(p.id) && (p.name.includes(topLabel) || topLabel.includes(p.name))
-        )
-        if (semanticMatch) {
-          bestPageId = semanticMatch.id
-        }
-      }
-    }
-
-    if (bestPageId && pagesById.has(bestPageId)) {
-      usedIds.add(bestPageId)
-      result.push(pagesById.get(bestPageId)!)
-    }
-  }
-
-  return result
-}
-
-// 视图 A：主流程页面（严格映射底栏 4 个 Tab 对应原型图，支持 appMap 与智能底栏识别）
-const mainFlowPages = computed<Page[]>(() => {
-  if (!pages.value.length) return []
-
-  // 1. 尝试从 proto.value.project.appMap 解析
-  let appMapObj: any = null
-  const rawMap = proto.value?.project?.appMap
-  if (rawMap) {
-    if (typeof rawMap === 'string') {
-      try {
-        appMapObj = JSON.parse(rawMap)
-      } catch (err) {
-        console.warn('[PurePreview] Failed to parse project.appMap', err)
-      }
-    } else if (typeof rawMap === 'object') {
-      appMapObj = rawMap
-    }
-  }
-
-  let appMapList: Page[] = []
-  const tabBar = appMapObj?.tab_bar
-  if (Array.isArray(tabBar?.items) && tabBar.items.length > 0) {
-    const list: Page[] = []
-    const visited = new Set<number>()
-    for (const item of tabBar.items) {
-      if (typeof item?.target === 'number' && !visited.has(item.target)) {
-        let p = pages.value.find((pg) => pg.id === item.target)
-        // 语义修正：如果 target 关联画板名称与 label 严重不符（例如 label 为"家园"，但 target 指向了"扭蛋抽奖页"），
-        // 自动优先在项目中匹配包含该 label 的主画板（如"宠物家园首页"），避免历史脏配置错指子页
-        const label = (item.label || '').trim()
-        if (label && p && !p.name.includes(label)) {
-          const semanticMatch = pages.value.find(
-            (pg) => !visited.has(pg.id) && pg.name.includes(label)
-          )
-          if (semanticMatch) {
-            p = semanticMatch
-          }
-        }
-        if (p) {
-          list.push(p)
-          visited.add(p.id)
-        }
-      }
-    }
-    if (list.length >= 2) appMapList = list
-  }
-
-  if (appMapList.length === 0 && Array.isArray(tabBar?.pages) && tabBar.pages.length > 0) {
-    const list: Page[] = []
-    const visited = new Set<number>()
-    for (const pid of tabBar.pages) {
-      if (typeof pid === 'number' && !visited.has(pid)) {
-        const p = pages.value.find((pg) => pg.id === pid)
-        if (p) {
-          list.push(p)
-          visited.add(p.id)
-        }
-      }
-    }
-    if (list.length >= 2) appMapList = list
-  }
-
-  // 2. 智能底栏分析：自动从画板底层元素提取导航栏各 Tab 对应的原型图
-  const detected = detectBottomNavPages(pages.value)
-
-  // 核心决策：优先采用更完整的 4 个底栏 Tab 集合（appMap 经常因为部分页面未连线而残缺只有 2 项）
-  if (detected.length >= 4) {
-    return detected
-  }
-  if (appMapList.length >= 4) {
-    return appMapList
-  }
-  if (detected.length >= appMapList.length && detected.length >= 2) {
-    return detected
-  }
-  if (appMapList.length >= 2) {
-    return appMapList
-  }
-  if (detected.length >= 2) {
-    return detected
-  }
-
-  // 3. 终极兜底策略：未配置 tab_bar 且未识别到底栏时取前 4 个画板
-  return pages.value.slice(0, Math.min(4, pages.value.length))
-})
+// 主页面数量与顺序由实际导航决定，不按固定槽位或画板总数推测。
+const mainFlowItems = computed(() => mainNavigation(pages.value, proto.value?.project?.appMap))
+const defaultPreviewPage = computed(() => previewEntryPage(pages.value, mainFlowItems.value))
 
 // 判断下拉列表中某项是否处于激活态（包含同 Tab 子状态关联）
 function isPageActive(pageId: number): boolean {
@@ -1138,7 +848,7 @@ const filteredAllPages = computed<Page[]>(() => {
 })
 
 function selectPageFromDropdown(pageId: number) {
-  navigateTo(pageId)
+  navigateTo(pageId, mainFlowItems.value.some(item => item.page?.id === pageId))
   pageDropdownOpen.value = false
   searchQuery.value = ''
 }
@@ -1170,15 +880,17 @@ const showDeviceFrame = computed({
   },
 })
 
-const screenWidth = computed(() => (showDeviceFrame.value ? 375 : (currentPage.value?.canvas_width || 375)))
-const screenHeight = computed(() => currentPage.value?.canvas_height || 812)
+const screenWidth = computed(() => (showDeviceFrame.value ? 375 : ((presentedPage.value || currentPage.value)?.canvas_width || 375)))
+const screenHeight = computed(() => (presentedPage.value || currentPage.value)?.canvas_height || 812)
+
+function onPreviewPageDisplayed(page: Page) {
+  presentedPage.value = page
+  if (aiDrawerOpen.value) nextTick(attachInspectorToIframe)
+}
 
 // 历史导航栈与原生 Push 转场
 const historyStack = ref<number[]>([])
-const transitionDirection = ref<'forward' | 'backward'>('forward')
-const pageTransitionName = computed(() =>
-  transitionDirection.value === 'forward' ? 'push-forward' : 'push-backward',
-)
+const transitionDirection = ref<'forward' | 'backward' | 'tab'>('forward')
 
 // 手机壳全视口自适应等比缩放
 const viewportContainerRef = ref<HTMLElement | null>(null)
@@ -1239,7 +951,7 @@ function onScreenMissClick(pos?: { x: number; y: number; uids?: string[] }) {
   if (!pos || !currentPage.value) return
   const hit = resolveNavigateElement(currentPage.value, pos.x, pos.y, pos.uids)
   const targetId = hit?.interaction?.target_page_id
-  if (targetId) navigateTo(targetId)
+  if (targetId) navigateTo(targetId, isTabNavigation(currentPage.value, pos.uids, hit?.id))
 }
 
 function onScreenClick(e: MouseEvent) {
@@ -1267,12 +979,12 @@ function onBackgroundClick() {
 
 
 // 页面导航与转场
-function navigateTo(targetPageId: number) {
+function navigateTo(targetPageId: number, tab = false) {
   if (targetPageId === currentPageId.value) return
-  if (currentPageId.value != null) {
+  if (!tab && currentPageId.value != null) {
     historyStack.value.push(currentPageId.value)
   }
-  transitionDirection.value = 'forward'
+  transitionDirection.value = tab ? 'tab' : 'forward'
   currentPageId.value = targetPageId
   activeModal.value = null
   nextTick(updatePhoneScale)
@@ -1283,9 +995,7 @@ function handleNavigate(pageName: string, uids?: string[], pos?: { x?: number; y
   const byUid = findInteractionByDomUids(currentPage.value, uids)
   const uidTarget = byUid?.interaction?.target_page_id
   if (uidTarget) {
-    navigateTo(uidTarget)
-    const named = pages.value.find((p) => p.id === uidTarget)
-    if (named) showToast(`前往: ${named.name}`)
+    navigateTo(uidTarget, isTabNavigation(currentPage.value, uids, byUid?.id))
     return
   }
 
@@ -1294,9 +1004,7 @@ function handleNavigate(pageName: string, uids?: string[], pos?: { x?: number; y
     const hit = hitInteractionElement(currentPage.value, pos.x, pos.y)
     const hitTarget = hit?.interaction?.target_page_id
     if (hitTarget) {
-      navigateTo(hitTarget)
-      const named = pages.value.find((p) => p.id === hitTarget)
-      if (named) showToast(`前往: ${named.name}`)
+      navigateTo(hitTarget, isTabNavigation(currentPage.value, uids, hit?.id))
       return
     }
 
@@ -1331,8 +1039,7 @@ function handleNavigate(pageName: string, uids?: string[], pos?: { x?: number; y
     (p) => p.name.toLowerCase().includes(clean) || clean.includes(p.name.toLowerCase()),
   )
   if (target) {
-    navigateTo(target.id)
-    showToast(`前往: ${target.name}`)
+    navigateTo(target.id, isTabNavigation(currentPage.value, uids))
   }
 }
 
@@ -1346,9 +1053,9 @@ function handleBack() {
     transitionDirection.value = 'backward'
     currentPageId.value = prevId
     nextTick(updatePhoneScale)
-  } else if (pages.value.length > 0 && currentPageId.value !== pages.value[0].id) {
+  } else if (defaultPreviewPage.value && currentPageId.value !== defaultPreviewPage.value.id) {
     transitionDirection.value = 'backward'
-    currentPageId.value = pages.value[0].id
+    currentPageId.value = defaultPreviewPage.value.id
     nextTick(updatePhoneScale)
   } else {
     showToast('已是首页')
@@ -1362,9 +1069,10 @@ function onSelectPageChange(pageId: number) {
 function resetPrototype() {
   historyStack.value = []
   transitionDirection.value = 'backward'
-  if (pages.value.length > 0) {
-    currentPageId.value = pages.value[0].id
-  }
+  currentPageId.value = defaultPreviewPage.value?.id ?? null
+  activeSegmentTab.value = mainFlowItems.value.length ? 'main' : 'all'
+  pageDropdownOpen.value = false
+  searchQuery.value = ''
   activeModal.value = null
   nextTick(updatePhoneScale)
   showToast('原型已重置至首页')
@@ -1389,16 +1097,6 @@ function copyShareLink() {
 }
 
 function exitPreview() {
-  cleanupInspector()
-  const frame = pageCanvasRef.value?.htmlFrameRef as HTMLIFrameElement | null
-  if (frame?.contentDocument) {
-    const s = frame.contentDocument.getElementById('wf-inspector-style')
-    if (s) s.remove()
-  }
-  if (hasUnsavedDraft.value) {
-    const ok = window.confirm('当前画板有尚未保存的 AI 调整草稿，退出后将丢弃未保存的修改。是否确认退出？')
-    if (!ok) return
-  }
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {})
   }
@@ -1416,8 +1114,8 @@ function handleElementClick(el: Element) {
 
   if (ix.action === 'back' || ix.action === 'close') {
     handleBack()
-  } else if (ix.action === 'navigate' && ix.target_page_id) {
-    navigateTo(ix.target_page_id)
+  } else if (['navigate', 'popup', 'modal'].includes(ix.action) && ix.target_page_id) {
+    navigateTo(ix.target_page_id, isTabNavigation(currentPage.value, undefined, el.id))
   } else if (ix.action === 'modal') {
     const params = ix.params || ''
     const isSheet =
@@ -1442,8 +1140,7 @@ function handleElementClick(el: Element) {
 
 // 快捷键支持
 function onGlobalKeyDown(e: KeyboardEvent) {
-  const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase()
-  const isInputFocused = targetTag === 'input' || targetTag === 'textarea'
+  const isInputFocused = isTextEditingTarget(e.target)
 
   if (e.key === 'Escape') {
     if (pageDropdownOpen.value) {
@@ -1470,17 +1167,28 @@ function onGlobalKeyDown(e: KeyboardEvent) {
   }
 }
 
+function confirmLeave() {
+  return !hasUnsavedDraft.value || window.confirm('还有未应用的 AI 调整。本地已保留草稿，确认离开演示？')
+}
+onBeforeRouteLeave(() => confirmLeave())
+function onBeforeUnload(event: BeforeUnloadEvent) {
+  if (!hasUnsavedDraft.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
 // 加载项目数据
 async function loadData() {
   try {
     const data = await projectApi.prototype(id)
     proto.value = data
     const queryPage = route.query.page ? Number(route.query.page) : null
-    if (queryPage && data.pages.some((p) => p.id === queryPage)) {
-      currentPageId.value = queryPage
-    } else if (data.pages.length > 0) {
-      currentPageId.value = data.pages[0].id
-    }
+    const startPage = previewEntryPage(data.pages, mainFlowItems.value, {
+      requestedPageId: queryPage,
+      mainOnly: route.query.entry === 'main',
+    })
+    currentPageId.value = startPage?.id ?? null
+    activeSegmentTab.value = mainFlowItems.value.some(item => item.page?.id === startPage?.id) ? 'main' : 'all'
     nextTick(updatePhoneScale)
   } catch (e: any) {
     showToast(`加载失败: ${e.message || '网络错误'}`)
@@ -1488,6 +1196,7 @@ async function loadData() {
 }
 
 function onPreviewWheelMessage(ev: MessageEvent) {
+  if (!isPrototypeFrameMessage(ev)) return
   if (ev.data?.type === 'wf-preview-page-click') {
     chromeVisible.value = false
     return
@@ -1500,6 +1209,7 @@ function onPreviewWheelMessage(ev: MessageEvent) {
 }
 
 onMounted(() => {
+  window.addEventListener('beforeunload', onBeforeUnload)
   window.addEventListener('resize', updatePhoneScale)
   window.addEventListener('keydown', onGlobalKeyDown)
   window.addEventListener('message', onPreviewWheelMessage)
@@ -1510,6 +1220,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   cleanupInspector()
   if (toastTimer) clearTimeout(toastTimer)
+  window.removeEventListener('beforeunload', onBeforeUnload)
   window.removeEventListener('resize', updatePhoneScale)
   window.removeEventListener('keydown', onGlobalKeyDown)
   window.removeEventListener('message', onPreviewWheelMessage)
@@ -1518,6 +1229,40 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.pure-preview-container {
+  --preview-drawer-width: 420px;
+  background: var(--wf-bg, #f6f8fb);
+  color: var(--wf-text-main, #1e293b);
+}
+.preview-surface { background: var(--wf-surface); border-color: var(--wf-border); color: var(--wf-text-main); box-shadow: 0 4px 20px rgb(0 0 0 / 6%); }
+.preview-text { color: var(--wf-text-main); }
+.preview-muted { color: var(--wf-text-muted); }
+.preview-accent, .preview-brand { color: var(--wf-primary); }
+.preview-brand, .preview-selected { background: color-mix(in srgb, var(--wf-primary) 10%, var(--wf-surface)); }
+.preview-divider { background: var(--wf-border); }
+.preview-control { border: 1px solid var(--wf-border); background: var(--wf-surface); color: var(--wf-text-main); box-shadow: none; }
+.preview-control:hover, .preview-hover:hover { background: var(--wf-bg); }
+.preview-control.is-active { border-color: color-mix(in srgb, var(--wf-primary) 40%, var(--wf-border)); color: var(--wf-primary); background: color-mix(in srgb, var(--wf-primary) 10%, var(--wf-surface)); }
+.preview-field { background: var(--wf-bg); border-color: var(--wf-border); color: var(--wf-text-main); }
+.preview-field::placeholder { color: var(--wf-text-muted); }
+.phone-chassis { box-shadow: 0 12px 40px rgb(0 0 0 / 16%); }
+.has-ai-drawer .preview-scroll {
+  width: calc(100% - var(--preview-drawer-width));
+  margin-right: var(--preview-drawer-width);
+}
+.has-ai-drawer > .preview-toolbar {
+  left: calc((100% - var(--preview-drawer-width)) / 2);
+  max-width: calc(100% - var(--preview-drawer-width) - 32px);
+  flex-wrap: wrap;
+  justify-content: center;
+  overflow: visible;
+}
+.has-ai-drawer > .preview-toolbar > * { flex-shrink: 0; }
+.has-ai-drawer .preview-action-label { display: none; }
+@media (max-width: 760px) {
+  .has-ai-drawer .preview-scroll { width: 100%; margin-right: 0; }
+  .has-ai-drawer > .preview-toolbar { left: 50%; max-width: calc(100vw - 32px); }
+}
 .preview-scroll {
   overflow: auto;
   height: 100%;

@@ -24,8 +24,17 @@ public class AiAdjustService {
     private final PageMapper pageMapper;
     private final AiClient aiClient;
     private final ObjectMapper objectMapper;
+    private final AiAdjustmentArtworkService adjustmentArtwork;
 
     public AiAdjustResponse adjustPage(Long projectId, Long pageId, String instruction, String contextHtml) {
+        return adjustPage(projectId, pageId, instruction, contextHtml, null);
+    }
+
+    public AiAdjustResponse adjustPage(Long projectId, Long pageId, String instruction, String contextHtml, String conversationContext) {
+        return adjustPage(projectId, pageId, instruction, contextHtml, conversationContext, null);
+    }
+
+    public AiAdjustResponse adjustPage(Long projectId, Long pageId, String instruction, String contextHtml, String conversationContext, String requestId) {
         // 1. 严格按画板 ID 检索，并校验项目归属，杜绝跨画板与跨项目误改
         Page page = pageMapper.selectById(pageId);
         if (page == null || !page.getProjectId().equals(projectId) || (page.getIsDeleted() != null && page.getIsDeleted() == 1)) {
@@ -46,15 +55,19 @@ public class AiAdjustService {
                    - 严格禁止修改任何与用户指令无关的 DOM 节点！
                    - 除用户指令明确要求变动的元素外，页面上其余所有节点的属性（如 data-nav、data-wf-element-id）、样式类名、坐标位置、文本、图标必须 100% 逐字符保持原样。
                    - 严禁擅自“优化”周围元素的间距、排版、文字或色彩。
-                2. 【彻底删除与避免重复（Clean Deletion）】：
-                   - 若用户指令包含“删除”、“去掉”、“移除”、“隐藏”或“把 A 换成 B”：
-                     必须在 modified_html 中将目标元素整个 DOM 节点彻底移除（含容器标签、子标签、文字和图标），绝不可留下空标签或幽灵节点。
-                   - 严禁“旧元素未删除又新增一个新元素”！如遇替换指令，必须在原位置彻底删除旧元素并放入新元素，严禁两者共存导致元素数量凭空增加。
+                2. 【编辑标识与修改范围】：
+                   - id、data-wf-id、data-wf-element-id、data-wf-uid、data-wf-select-id 是编辑与连线的稳定标识。
+                     所有保留元素（包括本次调整目标）的这些属性必须保留原值，不能省略、重命名、互换或分配给别的节点。
+                   - 移动、改样式、替换图标或背景时，优先修改原节点的样式、src 或内部视觉内容；保持目标节点及已有子元素标识，不要删除后另建。
+                   - 仅用户明确要求删除的目标才可移除整个 DOM 节点，不能因为出现“替换”“重新生成”就删除整个区域。
+                     隐藏使用 hidden 或样式控制，保留节点；替换素材不等于删除控件。
+                   - 严禁保留旧元素又叠加一个新元素。调整位置不应复制或重建页面、图层和交互节点。
+                   - 只能引用已有真实素材地址；新位图通过 image_tasks 请求服务端生成，不编造图片 URL。
                 3. 【精准定位（Anchor Targeting）】：
                    - 画板 HTML 内部元素通常带有 data-wf-element-id、语义类名（如 .wf-btn, .wf-entry, .wf-card）或明确的文本内容。
                    - 请先在当前 HTML 中精准识别出用户所指的具体元素节点，仅对该目标节点执行单点修改或删除，不可波及周围相邻元素。
                 4. 【保持完整运行结构】：
-                   - 保持 HTML 基础结构完整，以 <!DOCTYPE html> 开头，以 </html> 结尾。
+                   - 优先返回局部 edits；仅使用完整 HTML 模式时，以 <!DOCTYPE html> 开头，以 </html> 结尾，保持全部结构。
                    - 严格输出标准 JSON 格式，绝不要使用 Markdown 代码块包裹（不要输出 ```json ... ```），也不要输出任何多余的解释文字。
                 
                 JSON 结构必须严格如下：
@@ -65,9 +78,11 @@ public class AiAdjustService {
                     "[修改] 将主按钮背景色调整为暖橙色渐变",
                     "[新增] 在主按钮上方新增限时倒计时卡片"
                   ],
-                  "modified_html": "<!DOCTYPE html>...完整的修改后完整 HTML 代码..."
+                  "edits": [],
+                  "image_tasks": []
                 }
                 """;
+        systemPrompt += AiAdjustmentEdits.prompt() + adjustmentArtwork.prompt(projectId, instruction);
 
         String userPrompt = String.format("""
                 【目标画板信息】
@@ -78,7 +93,7 @@ public class AiAdjustService {
                 %s
 
                 【特别执行要求】
-                1. 若指令要求删除或替换某些元素：必须从 DOM 树中彻底剥离旧节点，严禁新旧重复叠加！
+                1. 移动或替换视觉内容时，保留原节点及稳定标识；只有明确要求删除目标时才移除节点，严禁新旧重复叠加。
                 2. 与指令无关的其余所有节点必须 100%% 保持原样，不得擅自改动。
 
                 【当前页面完整 HTML 代码】
@@ -93,76 +108,50 @@ public class AiAdjustService {
 
         log.info("开始对画板 [{} (id={})] 执行 AI 原型微调，指令: {}", page.getName(), pageId, instruction);
 
+        userPrompt += "\n【最近对话（需求参考，当前指令优先）】\n" + bounded(conversationContext, 6000);
+        userPrompt += adjustmentArtwork.targetContext(currentHtml, false, instruction);
         String rawResponse = aiClient.generateHtmlText(systemPrompt, userPrompt);
         if (rawResponse == null || rawResponse.isBlank()) {
             throw new IllegalStateException("AI 服务未能返回有效响应，请稍后重试");
         }
 
-        return parseAiResponse(page, rawResponse, currentHtml);
+        return parseAiResponse(page, rawResponse, currentHtml, instruction, requestId);
     }
 
-    private AiAdjustResponse parseAiResponse(Page page, String rawResponse, String fallbackHtml) {
-        String clean = rawResponse.trim();
-        // 兼容处理模型可能带有的代码块标记
-        if (clean.startsWith("```json")) {
-            clean = clean.substring(7);
-        } else if (clean.startsWith("```")) {
-            clean = clean.substring(3);
+    private AiAdjustResponse parseAiResponse(Page page, String raw, String original, String instruction, String requestId) {
+        String clean = stripFence(raw);
+        String summary;
+        String modified;
+        List<String> differences = new ArrayList<>();
+        JsonNode imageTasks = null;
+        if (clean.matches("(?is)^(?:<!doctype[^>]*>\\s*)?<html\\b.*")) {
+            modified = clean;
+            summary = "已生成调整方案";
+        } else {
+            JsonNode root = parseObject(clean);
+            modified = text(root, "modified_html");
+            if (root.has("edits")) {
+                if (!modified.isBlank()) throw new IllegalStateException("AI 同时返回局部修改和整页替换，已保留原画板，请重试");
+                modified = AiAdjustmentEdits.apply(original, root.get("edits"), instruction, false);
+            }
+            if (modified.isBlank()) throw new IllegalStateException("AI 未返回有效修改方案，未修改画板，请重试");
+            summary = text(root, "summary");
+            if (root.path("diff_list").isArray()) root.path("diff_list").forEach(item -> differences.add(item.asText()));
+            imageTasks = root.path("image_tasks");
         }
-        if (clean.endsWith("```")) {
-            clean = clean.substring(0, clean.length() - 3);
-        }
-        clean = clean.trim();
-
-        try {
-            JsonNode root = objectMapper.readTree(clean);
-            String summary = root.hasNonNull("summary") ? root.get("summary").asText() : "已完成原型调整";
-            List<String> diffList = new ArrayList<>();
-            if (root.has("diff_list") && root.get("diff_list").isArray()) {
-                for (JsonNode item : root.get("diff_list")) {
-                    diffList.add(item.asText());
-                }
-            }
-            if (diffList.isEmpty()) {
-                diffList.add("已针对当前画板更新了图层与样式属性");
-            }
-            String modifiedHtml = root.hasNonNull("modified_html") ? root.get("modified_html").asText() : "";
-            if (modifiedHtml.isBlank()) {
-                log.warn("AI 返回的 modified_html 为空，降级保留当前 HTML");
-                modifiedHtml = fallbackHtml;
-            }
-
-            return AiAdjustResponse.builder()
-                    .pageId(page.getId())
-                    .pageName(page.getName())
-                    .summary(summary)
-                    .diffList(diffList)
-                    .modifiedHtml(modifiedHtml)
-                    .build();
-        } catch (Exception e) {
-            log.error("解析 AI 调整 JSON 失败，原始响应片段: {}", clean.substring(0, Math.min(200, clean.length())), e);
-            // 兜底容错：如果 JSON 解析失败，尝试直接从中截取 <!DOCTYPE html> 或返回错误
-            if (clean.contains("<!DOCTYPE html>") || clean.contains("<html")) {
-                int htmlStart = clean.indexOf("<!DOCTYPE html>");
-                if (htmlStart < 0) htmlStart = clean.indexOf("<html");
-                String extractedHtml = clean.substring(htmlStart);
-                return AiAdjustResponse.builder()
-                        .pageId(page.getId())
-                        .pageName(page.getName())
-                        .summary("已生成调整后的原型代码")
-                        .diffList(List.of("已更新页面样式与布局结构"))
-                        .modifiedHtml(extractedHtml)
-                        .build();
-            }
-            throw new IllegalStateException("AI 返回的数据格式无法解析，请重试指令");
-        }
+        modified = AiAdjustmentContract.restorePageIdentifiers(original, modified);
+        AiAdjustmentContract.validatePage(original, modified, instruction);
+        var result = adjustmentArtwork.apply(page.getProjectId(), page.getId(), requestId, original, instruction, modified, false, imageTasks);
+        modified = result.html();
+        boolean changed = AiAdjustmentContract.validatePage(original, modified, instruction);
+        for (AiGeneratedImage image : result.images()) differences.add("[图片] 已生成「" + image.name() + "」");
+        return AiAdjustResponse.builder().pageId(page.getId()).pageName(page.getName())
+                .summary(changed ? (summary.isBlank() ? "已生成调整方案" : summary) : "当前页面无需修改")
+                .diffList(changed ? differences : List.of()).modifiedHtml(changed ? modified : original).changed(changed)
+                .generatedImages(result.images()).build();
     }
 
-    /**
-     * Figma AI / Cursor 级单选元素秒级精准微调：
-     * 仅传输目标单个元素的 outerHTML 与用户指令，大模型仅返回该元素的替换代码或删除指令。
-     * Token 消耗仅 500 左右，耗时缩短至 2~3 秒，100% 物理级杜绝误伤其他无关元素。
-     */
+    /** Single-element changes return only the selected subtree. Layout context is read-only. */
     public AiElementAdjustResponse adjustElement(Long projectId, Long pageId, AiElementAdjustRequest req) {
         Page page = pageMapper.selectById(pageId);
         if (page == null || !page.getProjectId().equals(projectId) || (page.getIsDeleted() != null && page.getIsDeleted() == 1)) {
@@ -179,10 +168,13 @@ public class AiAdjustService {
                 你的任务是根据用户的指令对提供的单个 HTML 元素片段进行精准、极致的局部调整。
                 严格执行以下规则：
                 1. 【判定操作类型】：
-                   - 若用户指令要求“删除”、“去掉”、“移除”、“隐藏”该元素：action 设定为 "DELETE"，modified_snippet 留空字符串 ""。
-                   - 若用户要求修改样式、颜色、文案、尺寸、图标或重新排版：action 设定为 "REPLACE"，modified_snippet 输出修改后的该元素完整外层标签（outerHTML）。
+                   - 若无需修改：action 为 "NO_CHANGE"，省略 edits 和 modified_snippet，summary 说明无需修改。
+                   - 若用户指令明确要求“删除”、“去掉”、“移除”该元素：action 设定为 "DELETE"，modified_snippet 留空字符串 ""。
+                   - 若用户要求修改样式、颜色、文案、尺寸或图片：action 设定为 "REPLACE"，优先用 edits 描述要改的属性。
+                   - 只有复杂结构变化才返回 modified_snippet，输出修改后的该元素完整外层标签（outerHTML），不与 edits 同时返回。
                 2. 【保持核心规范】：
-                   - 若为 REPLACE，必须保留原元素的必要定位样式（如 position、left、top、width、height 等）、data-wf-* 属性与基础语义结构。
+                   - 若为 REPLACE，必须保留原元素和保留子元素的 id、data-wf-id、data-wf-element-id、data-wf-uid、data-wf-select-id 原值。
+                   - 保留原元素必要的定位样式（如 position、left、top、width、height 等），只修改用户要求变化的布局或样式。
                    - 严格针对用户要求变动属性，不要随意删改未被要求的内部结构。
                 3. 【严格输出标准 JSON】：
                    - 严禁 Markdown 代码块包裹（不要输出 ```json ... ```），也不要输出任何多余解释。
@@ -190,9 +182,11 @@ public class AiAdjustService {
                 {
                   "action": "REPLACE",
                   "summary": "已将按钮背景改为暖橙色渐变并加粗字号",
-                  "modified_snippet": "<div class=\\"...\\">...</div>"
+                  "edits": [],
+                  "image_tasks": []
                 }
                 """;
+        systemPrompt += AiAdjustmentEdits.prompt() + adjustmentArtwork.prompt(projectId, req.getInstruction());
 
         String userPrompt = String.format("""
                 【所属画板】：%s
@@ -214,43 +208,79 @@ public class AiAdjustService {
         log.info("开始对画板 [{} (id={})] 选中元素 [{} (id={})] 执行单点微调，指令: {}",
                 page.getName(), pageId, req.getElementLabel(), req.getElementId(), req.getInstruction());
 
+        userPrompt += "\n【最近对话（只读参考）】\n" + bounded(req.getConversationContext(), 6000)
+                + "\n【父布局与样式（只读参考，只返回目标元素）】\n" + bounded(req.getLayoutContext(), 14000);
+        userPrompt += adjustmentArtwork.targetContext(elementHtml, true, req.getInstruction());
         String raw = aiClient.generateHtmlText(systemPrompt, userPrompt);
         if (raw == null || raw.isBlank()) {
             throw new IllegalStateException("AI 服务未能返回有效响应，请重试");
         }
 
-        return parseElementResponse(req.getElementId(), raw, elementHtml);
+        return parseElementResponse(projectId, pageId, req, raw, elementHtml);
     }
 
-    private AiElementAdjustResponse parseElementResponse(String elementId, String raw, String fallbackHtml) {
-        String clean = raw.trim();
-        if (clean.startsWith("```json")) clean = clean.substring(7);
-        else if (clean.startsWith("```")) clean = clean.substring(3);
-        if (clean.endsWith("```")) clean = clean.substring(0, clean.length() - 3);
-        clean = clean.trim();
-
-        try {
-            JsonNode root = objectMapper.readTree(clean);
-            String action = root.hasNonNull("action") ? root.get("action").asText("REPLACE").toUpperCase() : "REPLACE";
-            String summary = root.hasNonNull("summary") ? root.get("summary").asText("已完成元素微调") : "已完成元素微调";
-            String snippet = root.hasNonNull("modified_snippet") ? root.get("modified_snippet").asText("") : "";
-            if ("REPLACE".equals(action) && snippet.isBlank()) {
-                snippet = fallbackHtml;
+    private AiElementAdjustResponse parseElementResponse(Long projectId, Long pageId, AiElementAdjustRequest req, String raw, String original) {
+        String elementId = req.getElementId(), instruction = req.getInstruction();
+        JsonNode root = parseObject(stripFence(raw));
+        String action = text(root, "action").toUpperCase(java.util.Locale.ROOT);
+        String snippet = text(root, "modified_snippet");
+        String summary = text(root, "summary");
+        if (root.has("edits")) {
+            if (!snippet.isBlank()) throw new IllegalStateException("AI 同时返回局部修改和片段替换，已保留原画板，请重试");
+            if (action.isBlank()) action = "REPLACE";
+            if (!"REPLACE".equals(action) && (!root.path("edits").isArray() || !root.path("edits").isEmpty())) {
+                throw new IllegalStateException("AI 返回互相冲突的元素操作，已保留原画板，请重试");
             }
-            return AiElementAdjustResponse.builder()
-                    .action(action)
-                    .elementId(elementId)
-                    .summary(summary)
-                    .modifiedSnippet(snippet)
-                    .build();
-        } catch (Exception e) {
-            log.error("解析元素微调 JSON 失败: {}", clean, e);
-            return AiElementAdjustResponse.builder()
-                    .action("REPLACE")
-                    .elementId(elementId)
-                    .summary("已生成修改后的元素")
-                    .modifiedSnippet(clean)
-                    .build();
+            if ("REPLACE".equals(action)) snippet = AiAdjustmentEdits.apply(original, root.get("edits"), instruction, true);
         }
+        if (!List.of("REPLACE", "DELETE", "NO_CHANGE").contains(action)) {
+            throw new IllegalStateException("AI 返回了无效的元素操作，未修改画板");
+        }
+        boolean changed = false;
+        List<AiGeneratedImage> images = List.of();
+        if (!"REPLACE".equals(action) && (AiAdjustmentArtworkService.wantsImages(instruction) || root.path("image_tasks").size() > 0)) {
+            throw new IllegalStateException("图片调整必须返回保留原节点的替换方案，原画板已保留");
+        }
+        if ("DELETE".equals(action)) {
+            if (instruction == null || !instruction.matches("(?is).*(删除|移除|去掉|删掉|delete|remove).*")) {
+                throw new IllegalStateException("AI 尝试删除未要求删除的元素，未修改画板");
+            }
+            changed = true;
+            snippet = "";
+        } else if ("REPLACE".equals(action)) {
+            if (snippet.isBlank()) throw new IllegalStateException("AI 未返回 modified_snippet，未修改画板");
+            snippet = AiAdjustmentContract.restoreElementIdentifiers(original, snippet);
+            AiAdjustmentContract.validateElement(original, snippet, instruction);
+            var result = adjustmentArtwork.apply(projectId, pageId, req.getRequestId(), original, instruction, snippet, true, root.path("image_tasks"));
+            snippet = result.html();
+            images = result.images();
+            changed = AiAdjustmentContract.validateElement(original, snippet, instruction);
+        }
+        return AiElementAdjustResponse.builder().elementId(elementId).action(changed ? action : "NO_CHANGE")
+                .summary(changed ? (summary.isBlank() ? "已生成元素调整方案" : summary) : "当前元素无需修改")
+                .modifiedSnippet(changed ? snippet : original).changed(changed).generatedImages(images).build();
+    }
+
+    private JsonNode parseObject(String raw) {
+        try {
+            JsonNode root = objectMapper.readTree(raw);
+            if (root != null && root.isObject()) return root;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+            // Never install an unparsed model response as executable element HTML.
+        }
+        throw new IllegalStateException("AI 返回的数据格式无效，未修改画板，请重试");
+    }
+
+    private static String text(JsonNode root, String field) {
+        JsonNode value = root.get(field);
+        return value != null && value.isTextual() ? value.asText() : "";
+    }
+
+    private static String stripFence(String raw) {
+        return raw.trim().replaceFirst("^```(?:json|html)?\\s*", "").replaceFirst("\\s*```$", "").trim();
+    }
+
+    private static String bounded(String value, int limit) {
+        return value == null ? "" : value.substring(0, Math.min(value.length(), limit));
     }
 }

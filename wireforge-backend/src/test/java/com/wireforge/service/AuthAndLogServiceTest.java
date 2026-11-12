@@ -2,7 +2,10 @@ package com.wireforge.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.wireforge.common.Result;
+import com.wireforge.config.AuthSessionCacheConfig;
 import com.wireforge.controller.LogController;
 import com.wireforge.controller.WorkspaceLogController;
 import com.wireforge.entity.AppUser;
@@ -20,10 +23,18 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -36,7 +47,7 @@ class AuthAndLogServiceTest {
     private ProjectMemberMapper projectMemberMapper;
     private OperationLogMapper operationLogMapper;
     private AuthSessionMapper authSessionMapper;
-    private final Map<String, AuthSession> sessionTable = new HashMap<>();
+    private final Map<String, AuthSession> sessionTable = new ConcurrentHashMap<>();
     private AppUserMapper appUserMapper;
     private final Map<String, AppUser> userTable = new HashMap<>();
     private AuthService authService;
@@ -86,7 +97,11 @@ class AuthAndLogServiceTest {
     }
 
     private AuthService newAuthService() {
-        AuthService service = new AuthService(projectMemberMapper, logService, authSessionMapper, appUserMapper);
+        return newAuthService(new AuthSessionCacheConfig().authSessionCache(10_000));
+    }
+
+    private AuthService newAuthService(Cache<String, AuthSession> cache) {
+        AuthService service = new AuthService(projectMemberMapper, logService, authSessionMapper, appUserMapper, cache);
         ReflectionTestUtils.setField(service, "adminIds", ADMIN_OPEN_ID);
         ReflectionTestUtils.setField(service, "mockLoginEnabled", true);
         return service;
@@ -94,6 +109,10 @@ class AuthAndLogServiceTest {
 
     private MockHttpServletRequest requestAs(String userId, String userName) {
         String token = (String) authService.mockLogin(Map.of("userId", userId, "userName", userName)).get("token");
+        return requestWithToken(token);
+    }
+
+    private MockHttpServletRequest requestWithToken(String token) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("Authorization", "Bearer " + token);
         return request;
@@ -168,6 +187,120 @@ class AuthAndLogServiceTest {
         MockHttpServletRequest again = new MockHttpServletRequest();
         again.addHeader("Authorization", request.getHeader("Authorization"));
         assertNull(authService.getCurrentUser(again));
+    }
+
+    @Test
+    void testSessionLifetimeRemainsSevenDays() {
+        String token = (String) authService.mockLogin(Map.of("userId", "u_ttl")).get("token");
+        AuthSession saved = sessionTable.get(token);
+        assertEquals(Duration.ofDays(7), Duration.between(saved.getCreatedAt(), saved.getExpiresAt()));
+    }
+
+    @Test
+    void testCapacityEvictionReloadsValidSessionWithoutRevokingLogin() {
+        Cache<String, AuthSession> cache = new AuthSessionCacheConfig().authSessionCache(2);
+        authService = newAuthService(cache);
+        List<String> tokens = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            tokens.add((String) authService.mockLogin(Map.of("userId", "user-" + i)).get("token"));
+        }
+        cache.cleanUp();
+        assertEquals(2, cache.estimatedSize());
+        assertEquals(8, sessionTable.size(), "容量淘汰不能删除持久化的有效会话");
+        String evicted = tokens.stream().filter(token -> !cache.asMap().containsKey(token)).findFirst().orElseThrow();
+        assertEquals(sessionTable.get(evicted).getUserId(),
+                authService.getCurrentUser(requestWithToken(evicted)).getUserId());
+        verify(authSessionMapper).selectById(evicted);
+        verify(authSessionMapper, never()).deleteById(anyString());
+    }
+
+    @Test
+    void testUnknownTokensAreNotCached() {
+        Cache<String, AuthSession> cache = new AuthSessionCacheConfig().authSessionCache(10);
+        authService = newAuthService(cache);
+        assertNull(authService.getCurrentUser(requestWithToken("unknown")));
+        assertNull(authService.getCurrentUser(requestWithToken("unknown")));
+        assertEquals(0, cache.estimatedSize());
+        verify(authSessionMapper, times(2)).selectById("unknown");
+    }
+
+    @Test
+    void testBusinessExpiryCheckRejectsStaleCachedSession() {
+        Cache<String, AuthSession> cache = Caffeine.newBuilder().build();
+        authService = newAuthService(cache);
+        AuthSession expired = AuthSession.builder().token("cached-expired").userId("old-user")
+                .expiresAt(LocalDateTime.now().minusSeconds(1)).build();
+        cache.put(expired.getToken(), expired);
+        sessionTable.put(expired.getToken(), expired);
+        assertNull(authService.getCurrentUser(requestWithToken(expired.getToken())));
+        assertNull(cache.getIfPresent(expired.getToken()));
+        assertFalse(sessionTable.containsKey(expired.getToken()));
+    }
+
+    @Test
+    void testConcurrentCacheMissLoadsDatabaseOnce() throws Exception {
+        AuthSession saved = AuthSession.builder().token("concurrent").userId("concurrent-user")
+                .expiresAt(LocalDateTime.now().plusDays(1)).build();
+        sessionTable.put(saved.getToken(), saved);
+        ExecutorService workers = Executors.newFixedThreadPool(8);
+        CountDownLatch ready = new CountDownLatch(8);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<AuthUser>> results = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                results.add(workers.submit(() -> {
+                    ready.countDown();
+                    assertTrue(start.await(5, TimeUnit.SECONDS));
+                    return authService.getCurrentUser(requestWithToken(saved.getToken()));
+                }));
+            }
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            for (Future<AuthUser> result : results) {
+                assertEquals("concurrent-user", result.get(5, TimeUnit.SECONDS).getUserId());
+            }
+            verify(authSessionMapper, times(1)).selectById(saved.getToken());
+        } finally {
+            start.countDown();
+            workers.shutdownNow();
+        }
+    }
+
+    @Test
+    void testLogoutInvalidatesConcurrentDatabaseReload() throws Exception {
+        String token = "logout-during-reload";
+        sessionTable.put(token, AuthSession.builder().token(token).userId("u_logout_race")
+                .expiresAt(LocalDateTime.now().plusDays(1)).build());
+        CountDownLatch readStarted = new CountDownLatch(1);
+        CountDownLatch returnRead = new CountDownLatch(1);
+        CountDownLatch rowDeleted = new CountDownLatch(1);
+        when(authSessionMapper.selectById(token)).thenAnswer(inv -> {
+            AuthSession snapshot = sessionTable.get(token);
+            readStarted.countDown();
+            assertTrue(returnRead.await(5, TimeUnit.SECONDS));
+            return snapshot;
+        });
+        doAnswer(inv -> {
+            AuthSession removed = sessionTable.remove(token);
+            rowDeleted.countDown();
+            return removed == null ? 0 : 1;
+        }).when(authSessionMapper).deleteById(token);
+
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            Future<AuthUser> lookup = workers.submit(() -> authService.getCurrentUser(requestWithToken(token)));
+            assertTrue(readStarted.await(5, TimeUnit.SECONDS));
+            Future<?> logout = workers.submit(() -> authService.logout(requestWithToken(token)));
+            assertTrue(rowDeleted.await(5, TimeUnit.SECONDS));
+            returnRead.countDown();
+            lookup.get(5, TimeUnit.SECONDS);
+            logout.get(5, TimeUnit.SECONDS);
+            assertFalse(sessionTable.containsKey(token));
+            assertNull(authService.getCurrentUser(requestWithToken(token)), "退出完成后不能被并发回源重新登录");
+        } finally {
+            returnRead.countDown();
+            workers.shutdownNow();
+        }
     }
 
     @Test

@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AI adjustment regression fixture</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h } from 'vue'
+import { createRouter, createMemoryHistory, RouterView } from 'vue-router'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import '../src/styles/main.scss'
+import PurePreviewView from '../src/views/PurePreviewView.vue'
+import { projectApi } from '../src/api/project'
+
+// Entirely local fixture: real preview components, mock AI/save calls, no project mutations.
+const html = name => `<!doctype html><html><head><style>body{margin:0;font:15px system-ui;background:#f2f5fc;color:#243047}header{padding:20px;background:white}main{padding:24px}button{background:#0d99ff;color:white;border:0;padding:12px 22px;border-radius:10px}img{width:120px}h1{font-size:24px}p{line-height:1.8}</style></head><body><header>WireForge 本地验证</header><main><h1 id="title">${name}</h1><p id="description">验证主题、切页、局部调整和撤回。</p><button id="primary" data-nav="${name==='家园'?'收集':'家园'}">切换栏目</button><p>所有调整只保留在当前测试窗口。</p></main></body></html>`
+const pages = ['家园','收集'].map((name,index)=>({id:index+1,name,background_image:'',canvas_width:375,canvas_height:667,analyzed:1,html_content:html(name),elements:[],annotations:[]}))
+const requests=[],saves=[]
+projectApi.prototype=async()=>({project:{id:700001,name:'演示与 AI 调整验证'},pages})
+function pending(...args){return new Promise((resolve,reject)=>requests.push({args,resolve,reject}))}
+projectApi.aiAdjust=pending
+projectApi.aiAdjustElement=pending
+projectApi.saveHtml=async(...args)=>{saves.push(args);pages.find(p=>p.id===args[1]).html_content=args[2]}
+window.adjustFixture={requests,saves,pages,
+  resolve(){const r=requests.at(-1),body=r.args[2];r.resolve(body.elementId?{elementId:body.elementId,action:'DELETE',changed:true,summary:'已删除选中元素',modifiedSnippet:''}:{pageId:r.args[1],changed:true,summary:'已调整标题',diffList:['修改标题'],modifiedHtml:body.contextHtml.replace('</h1>',' · 已调整</h1>')})},
+  resolveImage(){
+    const r=requests.at(-1),body=r.args[2]
+    const svg='<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900"><defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#bce4fc"/><stop offset="1" stop-color="#f7e6cd"/></linearGradient></defs><rect width="600" height="900" fill="url(#sky)"/><circle cx="460" cy="150" r="65" fill="#ffdc9f"/><path d="M0 480Q180 240 370 470T600 430V900H0" fill="#83ac9b"/><path d="M0 650Q170 420 340 610T600 580V900H0" fill="#527e73"/></svg>'
+    const url='data:image/svg+xml,'+encodeURIComponent(svg)
+    const generatedImages=[{name:'森林营地背景',url,kind:'background'}]
+    if(body.elementId) {
+      const doc=new DOMParser().parseFromString(body.elementHtml,'text/html'),node=doc.body.firstElementChild
+      node.style.backgroundImage=`url("${url}")`;node.style.backgroundSize='cover'
+      r.resolve({elementId:body.elementId,action:'REPLACE',changed:true,summary:'已更换图片',modifiedSnippet:node.outerHTML,generatedImages})
+    } else {
+      const doc=new DOMParser().parseFromString(body.contextHtml,'text/html')
+      doc.body.style.backgroundImage=`url("${url}")`;doc.body.style.backgroundSize='cover'
+      doc.getElementById('title').textContent+=' · 新背景'
+      r.resolve({pageId:r.args[1],changed:true,summary:'已生成森林营地背景并调整标题',diffList:['[图片] 森林营地背景','[修改] 页面标题'],modifiedHtml:'<!doctype html>'+doc.documentElement.outerHTML,generatedImages})
+    }
+  },
+  theme(dark){document.documentElement.classList.toggle('dark',dark)},
+}
+const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/:id/preview',component:PurePreviewView}]})
+await router.push('/projects/700001/preview')
+createApp({render:()=>h(RouterView)}).use(router).use(ElementPlus).mount('#app')
+</script></body></html>

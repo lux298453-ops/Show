@@ -18,7 +18,7 @@ import java.util.Map;
 
 /**
  * 所有接口的权限都在这里按「什么请求 → 要什么身份」查表决定。
- * 查看类请求默认对所有人开放；项目内的修改默认要编辑者；未列出的其它修改要登录。
+ * 项目内容允许免登录查看；修改仍按登录身份和项目角色校验，成员及审计接口单独保护。
  */
 @Component
 @RequiredArgsConstructor
@@ -32,7 +32,13 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
     private static final List<Rule> RULES = List.of(
             new Rule("*", "/api/auth/**", Need.OPEN),
-            new Rule("*", "/api/projects/{id}/sync-elfship-interactions", Need.OPEN),
+            new Rule("POST", "/api/projects/{id}/sync-elfship-interactions", Need.EDITOR),
+            // <img> and CSS resources cannot attach the application's Bearer header.
+            // Asset metadata is separate from public project viewing.
+            new Rule("GET", "/api/assets/list", Need.LOGIN),
+            new Rule("GET", "/api/assets/categories", Need.LOGIN),
+            new Rule("GET", "/api/assets/random/**", Need.LOGIN),
+            new Rule("GET", "/api/assets/**", Need.OPEN),
             new Rule("GET", "/api/logs/**", Need.SYSTEM_ADMIN),
             new Rule("GET", "/api/projects/{id}/logs", Need.PROJECT_ADMIN),
             new Rule("POST", "/api/projects/{id}/logs", Need.LOGIN),
@@ -89,13 +95,20 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
     static Need requirement(String method, String path) {
         if ("OPTIONS".equalsIgnoreCase(method)) return Need.OPEN;
+        // HEAD must have the same protection as GET, including administrator-only routes.
+        if ("HEAD".equalsIgnoreCase(method)) method = "GET";
         for (Rule rule : RULES) {
             if (("*".equals(rule.method()) || rule.method().equalsIgnoreCase(method))
                     && MATCHER.match(rule.pattern(), path)) {
                 return rule.need();
             }
         }
-        if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) return Need.OPEN;
+        // Anonymous project viewing is an intentional product feature. Apply this
+        // after explicit rules so member details and audit logs remain protected.
+        if ("GET".equalsIgnoreCase(method)
+                && ("/api/projects".equals(path) || MATCHER.match(PROJECT_SCOPE, path)
+                || MATCHER.match("/api/projects/{id}", path))) return Need.OPEN;
+        if ("GET".equalsIgnoreCase(method)) return Need.LOGIN;
         if (MATCHER.match(PROJECT_SCOPE, path) || MATCHER.match("/api/projects/{id}", path)) return Need.EDITOR;
         return Need.LOGIN;
     }

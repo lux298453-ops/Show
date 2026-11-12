@@ -3,6 +3,7 @@ package com.wireforge.service;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wireforge.common.SvgAssetValidator;
 import com.wireforge.entity.StoredAsset;
 import com.wireforge.mapper.StoredAssetMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -256,6 +257,9 @@ public class AssetService {
         String fileName = safeUploadName(originalFilename);
         String ext = getFileExtension(fileName);
         String contentType = detectContentType(ext);
+        if (SvgAssetValidator.isSvg(fileName, contentType)) {
+            SvgAssetValidator.validate(bytes);
+        }
 
         // 生成规范的全局唯一 assetId：u-{timestamp}-{salt}-{slug}
         String baseName = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
@@ -410,24 +414,34 @@ public class AssetService {
 
         // 1. 用户上传素材：优先从 TiDB 数据库中读取 MEDIUMBLOB 二进制流
         if (assetId.startsWith("u-")) {
+            StoredAsset storedAsset = null;
             try {
-                StoredAsset storedAsset = storedAssetMapper.selectOne(
+                storedAsset = storedAssetMapper.selectOne(
                         Wrappers.<StoredAsset>lambdaQuery().eq(StoredAsset::getAssetId, assetId)
                 );
-                if (storedAsset != null && storedAsset.getData() != null && storedAsset.getData().length > 0) {
-                    return new NamedByteArrayResource(
-                            storedAsset.getData(),
-                            storedAsset.getFileName(),
-                            storedAsset.getContentType()
-                    );
-                }
             } catch (Exception e) {
                 log.warn("[素材库] 从数据库读取素材 {} 异常: {}", assetId, e.getMessage());
+            }
+            // Validation errors must not be swallowed as a database miss and fall back to an unsafe disk copy.
+            if (storedAsset != null && storedAsset.getData() != null && storedAsset.getData().length > 0) {
+                if (SvgAssetValidator.isSvg(storedAsset.getFileName(), storedAsset.getContentType())) {
+                    SvgAssetValidator.validate(storedAsset.getData());
+                }
+                return new NamedByteArrayResource(storedAsset.getData(), storedAsset.getFileName(), storedAsset.getContentType());
             }
 
             // 2. 数据库未命中时回退到本地文件系统（兼容历史遗留文件）
             Path userPath = findUserAssetPath(assetId);
             if (userPath != null && Files.exists(userPath)) {
+                if (SvgAssetValidator.isSvg(userPath.getFileName().toString(), null)) {
+                    try (InputStream in = Files.newInputStream(userPath)) {
+                        byte[] bytes = in.readNBytes(SvgAssetValidator.MAX_BYTES + 1);
+                        SvgAssetValidator.validate(bytes);
+                        return new NamedByteArrayResource(bytes, userPath.getFileName().toString(), "image/svg+xml");
+                    } catch (IOException e) {
+                        throw new IllegalStateException("素材读取失败", e);
+                    }
+                }
                 return new org.springframework.core.io.FileSystemResource(userPath);
             }
         }

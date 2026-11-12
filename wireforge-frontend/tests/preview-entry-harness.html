@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><title>全屏演示入口回归</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import { createRouter, createMemoryHistory, RouterView } from 'vue-router'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import '../src/styles/main.scss'
+import PrototypeView from '../src/views/PrototypeView.vue'
+import PurePreviewView from '../src/views/PurePreviewView.vue'
+import http from '../src/api/http'
+
+const main = [[20,'家园'],[30,'养成'],[40,'商城'],[50,'精灵'],[60,'我的']]
+const html = (id,name,navigation) => `<!doctype html><html><head><style>body{margin:0;background:#f4f7fb;font:16px system-ui;color:#1e293b}h1{padding:32px;font-size:24px}main{padding:20px}button{padding:14px;border:0;border-radius:10px;background:#e0edff;color:#1357a5}nav{display:flex;justify-content:space-around;position:fixed;bottom:0;width:100%;padding:10px 0;background:white}nav button{padding:10px 12px;background:none}nav [aria-current=page]{background:#e0edff}</style></head><body><h1>${name}</h1><main><button data-nav="道具详情">查看详情</button></main>${navigation?`<nav data-wf-chrome="bottom-navigation">${main.map(([target,label])=>`<button data-nav-item="1" data-nav="${label}" aria-current="${id===target?'page':'false'}">${label}</button>`).join('')}</nav>`:''}</body></html>`
+const page = (id,name,navigation=false) => ({id,name,background_image:'',canvas_width:375,canvas_height:812,canvas_x:id*25,canvas_y:100,html_content:html(id,name,navigation),elements:[],annotations:[],analyzed:1})
+// Secondary artboards deliberately precede all five main pages.
+const pages=[page(1,'道具详情'),page(2,'背包弹窗'),page(40,'商城',true),page(20,'家园',true),page(60,'我的',true),page(30,'养成',true),page(50,'精灵',true)]
+const model={project:{id:902,name:'全屏演示入口隔离测试'},pages}
+const writes=[]
+http.defaults.adapter=async config=>{
+  const path=config.url||''
+  let data={}
+  if(path.endsWith('/prototype'))data=structuredClone(model)
+  else if(path.includes('/auth/me'))data={authenticated:true,userId:'fixture',userName:'回归测试',systemAdmin:true,projectRole:'admin'}
+  else if(path.endsWith('/edit-lock'))data={editing:true,conflict:false}
+  else if(path.endsWith('/edit-statuses'))data={}
+  else if(path.endsWith('/html'))writes.push(path)
+  else if((config.method||'get').toLowerCase()==='get')data=[]
+  return{data:{code:0,data},config,status:200,statusText:'OK',headers:{}}
+}
+const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/:id/prototype',component:PrototypeView},{path:'/projects/:id/preview',name:'PurePreview',component:PurePreviewView}]})
+const query=new URLSearchParams(location.search)
+const screen=query.get('screen')||'prototype'
+query.delete('screen')
+if(screen==='prototype'&&!query.has('page'))query.set('page','1')
+await router.push(`/projects/902/${screen}?${query}`)
+await router.isReady()
+window.previewEntryFixture={router,model,writes}
+createApp(RouterView).use(createPinia()).use(router).use(ElementPlus).mount('#app')
+</script></body></html>

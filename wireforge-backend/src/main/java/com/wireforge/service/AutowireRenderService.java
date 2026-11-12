@@ -147,6 +147,36 @@ public class AutowireRenderService {
         }
     }
 
+    /** Rebind after analysis/App Map maintenance without replacing saved markup or layout. */
+    public void refreshProjectBindings(long projectId) {
+        List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId)
+                .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
+        if (pages.isEmpty()) return;
+        List<Element> elements = elementMapper.selectList(Wrappers.<Element>lambdaQuery()
+                .in(Element::getPageId, pages.stream().map(Page::getId).toList()));
+        if (elements.isEmpty()) return;
+        List<Interaction> lines = interactionMapper.selectList(Wrappers.<Interaction>lambdaQuery()
+                .in(Interaction::getElementId, elements.stream().map(Element::getId).toList()));
+        Set<Long> linked = new HashSet<>(); lines.forEach(i -> linked.add(i.getElementId()));
+        try {
+            String appMap = jdbc.queryForObject("SELECT COALESCE(app_map,'') FROM project WHERE id=?", String.class, projectId);
+            var payload = json.createObjectNode();
+            if (appMap != null && !appMap.isBlank()) payload.set("map", json.readTree(appMap));
+            payload.set("pageNames", json.valueToTree(pages.stream().collect(java.util.stream.Collectors.toMap(p -> String.valueOf(p.getId()), Page::getName))));
+            for (Page page : pages) {
+                Page current = pageMapper.selectById(page.getId());
+                if (current == null || current.getHtmlContent() == null || current.getHtmlContent().isBlank()) continue;
+                Set<Long> refreshedIds = new HashSet<>(linked);
+                var prior = Pattern.compile("(?s)<script id=\"wf-autowire-bindings\" type=\"application/json\">(.*?)</script>").matcher(current.getHtmlContent());
+                if (prior.find()) for (Binding b : json.readValue(prior.group(1), new TypeReference<List<Binding>>() {})) refreshedIds.add(b.elementId());
+                List<Element> anchors = elements.stream().filter(e -> e.getPageId().equals(page.getId()) && refreshedIds.contains(e.getId())).toList();
+                patchPage(current, bindings(anchors, lines, pages), json.writeValueAsString(payload));
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("交互绑定刷新失败，已保留原页面布局: " + e.getMessage(), e);
+        }
+    }
+
     private void patchPage(Page page, List<Binding> additions, String map) throws Exception {
         if (page.getHtmlContent() == null || page.getHtmlContent().isBlank()) throw new IllegalStateException("画板没有可更新的 HTML，请先生成页面预览");
         String old = page.getHtmlContent();

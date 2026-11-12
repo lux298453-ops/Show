@@ -84,19 +84,11 @@
         :style="{ height: `${screenHeight}px` }"
       >
         <div class="absolute inset-0 overflow-hidden bg-white">
-          <PageCanvas
+          <PreviewPageStack
             v-if="currentPage"
-            :key="currentPage.id"
             :page="currentPage"
             :all-pages="pages"
-            frame-type="prototype"
-            :show-wireframe="true"
-            :show-design="false"
-            :show-annotations="false"
-            :edit-mode="false"
-            :interactive="true"
-            :box-w="0"
-            :gap="0"
+            :transition="transitionDirection"
             @navigate="onCanvasNavigate"
             @back="goBack"
             @miss-click="onHotspotClick"
@@ -130,7 +122,8 @@ import {
 } from 'lucide-vue-next'
 import type { Element, Page } from '../types'
 import { findInteractionByDomUids, hitInteractionElement, findElementAt, resolveNavigateElement } from '../utils/interactionHit'
-import PageCanvas from './PageCanvas.vue'
+import PreviewPageStack from './PreviewPageStack.vue'
+import { isTabNavigation } from '../utils/previewTabs'
 
 const props = defineProps<{
   visible: boolean
@@ -207,6 +200,7 @@ function stopDrag() {
 // 页面路由与跳转栈
 const activePageId = ref<number | null>(props.initialPageId || props.pages[0]?.id || null)
 const historyStack = ref<number[]>([])
+const transitionDirection = ref<'forward' | 'backward' | 'tab'>('forward')
 
 watch(
   () => props.initialPageId,
@@ -215,9 +209,10 @@ watch(
   },
 )
 
-function navigateTo(pageId: number) {
+function navigateTo(pageId: number, tab = false) {
   if (!pageId || pageId === activePageId.value) return
-  if (activePageId.value != null) historyStack.value.push(activePageId.value)
+  if (!tab && activePageId.value != null) historyStack.value.push(activePageId.value)
+  transitionDirection.value = tab ? 'tab' : 'forward'
   activePageId.value = pageId
   emit('navigate-page', pageId)
 }
@@ -227,7 +222,7 @@ function onCanvasNavigate(pageName: string, uids?: string[], pos?: { x?: number;
   const byUid = findInteractionByDomUids(currentPage.value, uids)
   const uidTarget = byUid?.interaction?.target_page_id
   if (uidTarget) {
-    navigateTo(uidTarget)
+    navigateTo(uidTarget, isTabNavigation(currentPage.value, uids, byUid?.id))
     return
   }
 
@@ -236,7 +231,7 @@ function onCanvasNavigate(pageName: string, uids?: string[], pos?: { x?: number;
     const hit = hitInteractionElement(currentPage.value, pos.x, pos.y)
     const hitTarget = hit?.interaction?.target_page_id
     if (hitTarget) {
-      navigateTo(hitTarget)
+      navigateTo(hitTarget, isTabNavigation(currentPage.value, uids, hit?.id))
       return
     }
 
@@ -269,13 +264,14 @@ function onCanvasNavigate(pageName: string, uids?: string[], pos?: { x?: number;
   ) || props.pages.find(
     (p) => p.name.toLowerCase().includes(clean) || clean.includes(p.name.toLowerCase()),
   )
-  if (target) navigateTo(target.id)
+  if (target) navigateTo(target.id, isTabNavigation(currentPage.value, uids))
 }
 
 function onHotspotClick(pos?: { x: number; y: number; uids?: string[] }) {
   if (!pos) return
-  const targetId = resolveNavigateElement(currentPage.value, pos.x, pos.y, pos.uids)?.interaction?.target_page_id
-  if (targetId) navigateTo(targetId)
+  const hit = resolveNavigateElement(currentPage.value, pos.x, pos.y, pos.uids)
+  const targetId = hit?.interaction?.target_page_id
+  if (targetId) navigateTo(targetId, isTabNavigation(currentPage.value, pos.uids, hit?.id))
 }
 
 function onElementClick(el: Element) {
@@ -286,13 +282,14 @@ function onElementClick(el: Element) {
     return
   }
   if (targetId) {
-    navigateTo(targetId)
+    navigateTo(targetId, isTabNavigation(currentPage.value, undefined, el.id))
   }
 }
 
 function goBack() {
   if (!historyStack.value.length) return
   const prevId = historyStack.value.pop()!
+  transitionDirection.value = 'backward'
   activePageId.value = prevId
   emit('navigate-page', prevId)
 }

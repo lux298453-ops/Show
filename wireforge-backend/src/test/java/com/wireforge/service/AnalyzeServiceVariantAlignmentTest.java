@@ -16,7 +16,7 @@ import static org.mockito.Mockito.*;
 class AnalyzeServiceVariantAlignmentTest {
     private final PageMapper pages=mock(PageMapper.class);
     private final ElementMapper elements=mock(ElementMapper.class);
-    private final AnalyzeService service=new AnalyzeService(null,null,pages,elements,null,null,new ObjectMapper(),null,null,null,null,null,null);
+    private final AnalyzeService service=new AnalyzeService(null,null,pages,elements,null,null,new ObjectMapper(),null,null,null,null,null,null,null);
 
     private static Page page(long id,String name,String hash){
         Page p=new Page();p.setId(id);p.setName(name);p.setImageHash(hash);p.setCanvasWidth(375);p.setCanvasHeight(833);return p;

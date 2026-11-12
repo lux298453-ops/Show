@@ -3,6 +3,7 @@ package com.wireforge.service;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
 import com.wireforge.entity.AppUser;
 import com.wireforge.entity.AuthSession;
 import com.wireforge.entity.ProjectMember;
@@ -26,7 +27,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -50,6 +50,7 @@ public class AuthService {
     private final LogService logService;
     private final AuthSessionMapper authSessionMapper;
     private final AppUserMapper appUserMapper;
+    private final Cache<String, AuthSession> sessionCache;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -70,8 +71,6 @@ public class AuthService {
 
     @Value("${wireforge.auth.mock-login:false}")
     private boolean mockLoginEnabled;
-
-    private final Map<String, AuthSession> sessionCache = new ConcurrentHashMap<>();
 
     private String tenantToken;
     private long tenantTokenExpiresAt;
@@ -437,11 +436,7 @@ public class AuthService {
         AuthUser user = null;
         String token = readToken(request);
         if (token != null) {
-            AuthSession session = sessionCache.get(token);
-            if (session == null) {
-                session = authSessionMapper.selectById(token);
-                if (session != null) sessionCache.put(token, session);
-            }
+            AuthSession session = sessionCache.get(token, authSessionMapper::selectById);
             if (session != null && session.getExpiresAt() != null && session.getExpiresAt().isAfter(LocalDateTime.now())) {
                 user = AuthUser.builder()
                         .userId(session.getUserId())
@@ -451,7 +446,7 @@ public class AuthService {
                         .unionId(session.getUnionId())
                         .build();
             } else if (session != null) {
-                sessionCache.remove(token);
+                sessionCache.invalidate(token);
                 authSessionMapper.deleteById(token);
             }
         }
@@ -462,8 +457,9 @@ public class AuthService {
     public void logout(HttpServletRequest request) {
         String token = request != null ? readToken(request) : null;
         if (token == null) return;
-        sessionCache.remove(token);
+        // 先撤销数据库凭证，再等待并发回源完成并失效缓存。
         authSessionMapper.deleteById(token);
+        sessionCache.invalidate(token);
     }
 
     /** 系统管理员：飞书用户编号在配置名单里 */

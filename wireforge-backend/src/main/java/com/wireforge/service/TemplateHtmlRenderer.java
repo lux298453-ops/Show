@@ -3201,6 +3201,12 @@ public class TemplateHtmlRenderer {
                         || label(e).matches(".*(商品|图鉴|卡片).*" ) && all.stream().anyMatch(p -> p!=e && kind(p).matches("text|badge") && inside(frame(e),frame(p),6))
                         || hasPriceAndPurchase(e,all))
                 .sorted(Comparator.comparingDouble(e -> frame(e).w*frame(e).h)).toList();
+        // 识别可能把兑换奖品命名为“商品卡片”；兑换操作及同组卡片优先决定模板。
+        List<Element> redemptionSeeds=hosts.stream().filter(host -> all.stream().anyMatch(e -> {
+            Frame h=frame(host),b=frame(e);
+            return kind(e).equals("button") && label(e).contains("兑换") && b.cx()>=h.x && b.cx()<=h.right()
+                    && b.y>=h.bottom()-8 && b.y<=h.bottom()+48;
+        })).toList();
         Map<Element,List<Element>> members = new java.util.IdentityHashMap<>();
         for (Element host : hosts) members.put(host,new ArrayList<>());
         for (Element e : all) {
@@ -3222,7 +3228,12 @@ public class TemplateHtmlRenderer {
             if (parts.isEmpty()) continue;
             Frame h=frame(host);
             double bottom=parts.stream().mapToDouble(e -> frame(e).bottom()+8).max().orElse(h.bottom());
-            boolean merchandise=label(host).contains("商品") || parts.stream().anyMatch(e -> label(e).matches(".*(券后价|¥|￥).*"));
+            boolean redemption=redemptionSeeds.stream().anyMatch(seed -> {
+                Frame s=frame(seed);
+                return Math.abs(h.h/s.h-1)<=.25 && (Math.abs(h.w/s.w-1)<=.2
+                        || h.w<s.w*.65 && Math.abs(h.y-s.y)<=12 && h.x>s.right());
+            });
+            boolean merchandise=!redemption && (label(host).contains("商品") || parts.stream().anyMatch(e -> label(e).matches(".*(券后价|¥|￥).*")));
             double height=Math.max(h.h,bottom-h.y);
             if (!merchandise) {
                 double nextTop=hosts.stream().mapToDouble(e -> frame(e).y).filter(y -> y>h.y+25).min().orElse(Double.MAX_VALUE);
@@ -3397,6 +3408,15 @@ public class TemplateHtmlRenderer {
                 cards.set(index,new ContentCard(card.host,card.parts,card.frame,true,slots));
                 used.add(card.host);
             }
+        }
+        // 右侧露出的窄条沿用完整卡片的内部尺寸，由外框裁切，不能把图片压成微型方框。
+        for(ContentCard card:List.copyOf(cards)) {
+            Frame box=frame(card.host);
+            if(!card.illustrated || box.w>=48)continue;
+            ContentCard peer=cards.stream().filter(c -> c.illustrated && c.slots!=null && frame(c.host).w>=48
+                    && Math.abs(frame(c.host).y-box.y)<=12 && box.x>frame(c.host).right())
+                    .min(Comparator.comparingDouble(c -> Math.abs(box.x-frame(c.host).right()))).orElse(null);
+            if(peer!=null)cards.set(cards.indexOf(card),new ContentCard(card.host,card.parts,card.frame,true,peer.slots));
         }
     }
 
@@ -4967,7 +4987,7 @@ public class TemplateHtmlRenderer {
                 <!DOCTYPE html>
                 <html lang="zh-CN"><head><meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
-                <meta name="wf-template-revision" content="2026-11-02-modal-background-10">
+                <meta name="wf-template-revision" content="2026-11-02-redemption-cards-11">
                 <title>%s</title>
                 <style>
                   * { box-sizing: border-box; }

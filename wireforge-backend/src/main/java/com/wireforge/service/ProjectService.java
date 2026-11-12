@@ -120,16 +120,13 @@ public class ProjectService {
         int n = 0;
         for (Page p : pages) {
             try {
-                String html = analyzeService.renderTemplateHtml(p);
-                pageMapper.update(null,
-                        Wrappers.<Page>lambdaUpdate()
-                                .eq(Page::getId, p.getId())
-                                .set(Page::getHtmlContent, html));
+                analyzeService.preserveOrRenderHtml(p);
                 n++;
             } catch (Exception e) {
                 log.warn("页面 [{}] 重渲染失败", p.getName(), e);
             }
         }
+        autowireRenderService.refreshProjectBindings(projectId);
         List<com.wireforge.ai.HtmlRenderer.CheckResult> failures =
                 verifyEnabled ? verifyProject(projectId) : List.of();
         log.info("项目 {} App Map 重建完成：appMap={}，重渲染 {} 页，验证失败 {} 项",
@@ -351,7 +348,7 @@ public class ProjectService {
         return project;
     }
 
-    /** 找出目录中尚未被任何项目引用的图片（递归扫描分组子目录；assets/ 目录视为素材，跳过） */
+    /** 找出目录中尚未被任何项目引用的图片（素材及内部缓存目录不属于设计稿） */
     private List<Page> listNewImages(Path dir) {
         List<Page> allPages = pageMapper.selectList(
                 Wrappers.<Page>lambdaQuery()
@@ -381,28 +378,32 @@ public class ProjectService {
         return fresh;
     }
 
-    /** 递归收集设计稿图片：排除任何层级的 assets/ 素材目录，按相对路径排序保证顺序稳定 */
+    /** 递归收集设计稿图片：素材和点号开头的内部目录整棵跳过，按路径排序保证顺序稳定。 */
     private List<Path> collectDesignImages(Path dir) {
         List<Path> result = new ArrayList<>();
         if (!Files.isDirectory(dir)) return result;
-        try (var walk = Files.walk(dir, 3)) {
-            walk.filter(p -> !p.equals(dir))
-                    .filter(p -> {
-                        for (Path part : p) {
-                            if ("assets".equalsIgnoreCase(part.toString())) return false;
+        try {
+            Files.walkFileTree(dir, java.util.EnumSet.noneOf(java.nio.file.FileVisitOption.class), 3,
+                    new java.nio.file.SimpleFileVisitor<>() {
+                        @Override public java.nio.file.FileVisitResult preVisitDirectory(Path folder, java.nio.file.attribute.BasicFileAttributes attrs) {
+                            if (!folder.equals(dir)) {
+                                String name = folder.getFileName().toString();
+                                if ("assets".equalsIgnoreCase(name) || name.startsWith("."))
+                                    return java.nio.file.FileVisitResult.SKIP_SUBTREE;
+                            }
+                            return java.nio.file.FileVisitResult.CONTINUE;
                         }
-                        return true;
-                    })
-                    .filter(Files::isRegularFile)
-                    .filter(p -> {
-                        String n = p.getFileName().toString().toLowerCase();
-                        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".webp");
-                    })
-                    .sorted(Comparator.comparing(p -> p.toAbsolutePath().normalize().toString()))
-                    .forEach(result::add);
+                        @Override public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                            String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                            if (Files.isRegularFile(file) && (name.endsWith(".png") || name.endsWith(".jpg")
+                                    || name.endsWith(".jpeg") || name.endsWith(".webp"))) result.add(file);
+                            return java.nio.file.FileVisitResult.CONTINUE;
+                        }
+                    });
         } catch (IOException e) {
             throw new IllegalStateException("扫描设计稿目录失败: " + e.getMessage(), e);
         }
+        result.sort(Comparator.comparing(p -> p.toAbsolutePath().normalize().toString()));
         return result;
     }
 
@@ -417,7 +418,7 @@ public class ProjectService {
         return sb.toString();
     }
 
-    /** 为项目创建新图片对应的页面（复用建页逻辑；递归分组子目录，跳过 assets/ 素材目录） */
+    /** 为项目创建新图片对应的页面（递归分组子目录，跳过素材与内部缓存目录） */
     private List<Page> createPagesForNewImages(Long projectId) {
         Path dir = Paths.get(designsDir);
         if (!Files.isDirectory(dir)) {
@@ -766,20 +767,18 @@ public class ProjectService {
                     log.warn("阶段二增量语义智能连线异常（不影响基础连线）: {}", e.getMessage());
                 }
 
-                updateProgress(projectId, p -> p.setStep("正在构建 App Map 与重渲染页面..."));
+                updateProgress(projectId, p -> p.setStep("正在构建 App Map 与更新交互绑定..."));
                 appMapService.buildAppMap(projectId);
                 for (Page p : allPages) {
-                    if (p.getAnalyzed() == null || p.getAnalyzed() != 1) continue;
+                    Page current = pageMapper.selectById(p.getId());
+                    if (current == null || current.getAnalyzed() == null || current.getAnalyzed() != 1) continue;
                     try {
-                        String html = analyzeService.renderTemplateHtml(p);
-                        pageMapper.update(null,
-                                Wrappers.<Page>lambdaUpdate()
-                                        .eq(Page::getId, p.getId())
-                                        .set(Page::getHtmlContent, html));
+                        analyzeService.preserveOrRenderHtml(current);
                     } catch (Exception e) {
                         log.warn("页面 [{}] 补链后重渲染失败: {}", p.getName(), e.getMessage());
                     }
                 }
+                autowireRenderService.refreshProjectBindings(projectId);
 
                 if (pagesToAnalyze.size() > 1) {
                     updateProgress(projectId, p -> p.setStep("正在验证全项目线稿连通性..."));
@@ -1142,11 +1141,24 @@ public class ProjectService {
     }
 
     public void updatePageHtml(Long pageId, String html, String clientId, AuthUser currentUser) {
+        savePageHtml(null, pageId, html, clientId, null);
+    }
+
+    /** Optional compare-and-set baseline protects AI drafts without changing legacy editor saves. */
+    public void updatePageHtml(Long projectId, Long pageId, String html, String clientId, String expectedHtml, AuthUser currentUser) {
+        if (expectedHtml != null && (clientId == null || clientId.isBlank())) {
+            throw new IllegalArgumentException("版本校验保存必须提供编辑会话标识");
+        }
+        savePageHtml(projectId, pageId, html, clientId, expectedHtml);
+    }
+
+    private void savePageHtml(Long projectId, Long pageId, String html, String clientId, String expectedHtml) {
         if (html == null || html.isBlank()) {
             throw new IllegalArgumentException("HTML 内容不能为空");
         }
         Page page = pageMapper.selectById(pageId);
-        if (page == null) {
+        if (page == null || (projectId != null && !projectId.equals(page.getProjectId()))
+                || Integer.valueOf(1).equals(page.getIsDeleted())) {
             throw new IllegalArgumentException("页面不存在: " + pageId);
         }
         // 页面级独占锁保护：如果该页面当前被其他人独占编辑且未超时，拒绝保存
@@ -1160,6 +1172,24 @@ public class ProjectService {
         }
         // 彻底剥离可能残留的前端全屏微调检查器临时样式，避免污染画板持久化内容
         html = html.replaceAll("(?s)<style\\s+id=[\"']wf-inspector-style[\"'].*?</style>", "");
+        if (expectedHtml != null) {
+            // A retry after a lost acknowledgement is safe when this exact version is already saved.
+            if (Objects.equals(html, page.getHtmlContent())) return;
+            if (!Objects.equals(expectedHtml, page.getHtmlContent())) {
+                throw new IllegalStateException("画板已在其他窗口更新，请刷新并基于最新版本调整");
+            }
+            // MySQL's default collation can ignore case; binary comparison also catches case-only edits.
+            int updated = pageMapper.update(null, Wrappers.<Page>lambdaUpdate()
+                    .eq(Page::getId, pageId).eq(Page::getProjectId, projectId)
+                    .apply("BINARY html_content = BINARY {0}", expectedHtml).set(Page::getHtmlContent, html));
+            if (updated == 0) {
+                Page latest = pageMapper.selectById(pageId);
+                if (latest == null || !Objects.equals(html, latest.getHtmlContent())) {
+                    throw new IllegalStateException("画板已更新，本次保存未覆盖新内容，请刷新后重试");
+                }
+            }
+            return;
+        }
         page.setHtmlContent(html);
         pageMapper.updateById(page);
     }
@@ -1251,12 +1281,12 @@ public class ProjectService {
     private static final java.util.concurrent.ConcurrentHashMap<Long, EditSession> PAGE_EDIT_SESSIONS =
             new java.util.concurrent.ConcurrentHashMap<>();
 
-    @lombok.Data
+    @lombok.Getter
     @lombok.AllArgsConstructor
     public static class EditSession {
-        private String clientId;
-        private String userName;
-        private long lastHeartbeat;
+        private final String clientId;
+        private final String userName;
+        private final long lastHeartbeat;
     }
 
     /**
@@ -1264,33 +1294,31 @@ public class ProjectService {
      * 只要距离上次心跳不超过 10 秒，且 clientId 不同，即视为冲突（其他人正在编辑）。
      */
     public Map<String, Object> lockPageEditing(Long pageId, String clientId, String userName, boolean active) {
+        if (pageId == null || clientId == null || clientId.isBlank()) {
+            throw new IllegalArgumentException("页面和编辑会话标识不能为空");
+        }
         long now = System.currentTimeMillis();
         // 清理超过 12 秒的过期会话
         PAGE_EDIT_SESSIONS.entrySet().removeIf(entry -> now - entry.getValue().getLastHeartbeat() > 12000);
 
         Map<String, Object> result = new LinkedHashMap<>();
         if (!active) {
-            EditSession existing = PAGE_EDIT_SESSIONS.get(pageId);
-            if (existing != null && existing.getClientId().equals(clientId)) {
-                PAGE_EDIT_SESSIONS.remove(pageId);
-            }
+            PAGE_EDIT_SESSIONS.computeIfPresent(pageId, (id, existing) ->
+                    existing.getClientId().equals(clientId) ? null : existing);
             result.put("editing", false);
             result.put("conflict", false);
             return result;
         }
 
-        EditSession current = PAGE_EDIT_SESSIONS.get(pageId);
-        if (current != null && !current.getClientId().equals(clientId) && (now - current.getLastHeartbeat() < 12000)) {
-            result.put("editing", true);
-            result.put("conflict", true);
-            result.put("editor", current.getUserName() != null ? current.getUserName() : "其他成员");
-            return result;
-        }
-
-        // 无冲突，更新/持有锁
-        PAGE_EDIT_SESSIONS.put(pageId, new EditSession(clientId, userName, now));
+        EditSession session = PAGE_EDIT_SESSIONS.compute(pageId, (id, current) -> {
+            if (current != null && !current.getClientId().equals(clientId)
+                    && now - current.getLastHeartbeat() < 12000) return current;
+            return new EditSession(clientId, userName, now);
+        });
+        boolean conflict = !session.getClientId().equals(clientId);
         result.put("editing", true);
-        result.put("conflict", false);
+        result.put("conflict", conflict);
+        if (conflict) result.put("editor", session.getUserName() != null ? session.getUserName() : "其他成员");
         return result;
     }
 
