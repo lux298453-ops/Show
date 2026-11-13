@@ -65,7 +65,10 @@ Thumbs.db
 # Sensitive credentials & asset inventory (DO NOT PUSH)
 .env
 wireforge-backend/config/
-designs/.wireforge-artwork/
+# Keep project 182 and 184 artworks for production deployment
+designs/.wireforge-artwork/*
+!designs/.wireforge-artwork/182/
+!designs/.wireforge-artwork/184/
 doc/*账号*
 doc/*资产*
 *账号与资产*
