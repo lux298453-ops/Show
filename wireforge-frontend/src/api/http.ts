@@ -12,7 +12,11 @@ function finishRequest(config: SaveConfig | undefined, error?: string) {
 const DEFAULT_PROD_URL = typeof window !== 'undefined' && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')
   ? 'https://show-1-n269.onrender.com'
   : ''
-const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_PROD_URL).replace(/\/+$/, '')
+let configuredUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_PROD_URL || '').trim().replace(/\/+$/, '')
+if (configuredUrl.endsWith('/api')) {
+  configuredUrl = configuredUrl.substring(0, configuredUrl.length - 4).replace(/\/+$/, '')
+}
+const rawBaseUrl = configuredUrl
 const baseURL = rawBaseUrl ? `${rawBaseUrl}/api` : '/api'
 
 /** 不经过 axios 的请求也要用这个拼地址，前后端分开部署时才会发到后端域名 */
