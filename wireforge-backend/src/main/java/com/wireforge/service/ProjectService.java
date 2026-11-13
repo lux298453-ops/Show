@@ -152,9 +152,15 @@ public class ProjectService {
 
     @Transactional
     public Project createProject(String name, String description, AuthUser user, String ip) {
+        return createProject(name, description, null, user, ip);
+    }
+
+    @Transactional
+    public Project createProject(String name, String description, String designFolder, AuthUser user, String ip) {
         Project project = new Project();
         project.setName(name == null || name.isBlank() ? "未命名项目" : name.trim());
         project.setDescription(description);
+        project.setDesignFolder(DesignDirectory.normalize(designsDir, designFolder));
         project.setCreatedAt(LocalDateTime.now());
         projectMapper.insert(project);
         if (user != null && projectMemberMapper != null) {
@@ -194,20 +200,47 @@ public class ProjectService {
         }
 
         Project before = getProject(id);
+        boolean updateFolder = body.containsKey("designFolder");
+        String folder = updateFolder && !Objects.equals(before.getDesignFolder(), body.get("designFolder"))
+                ? DesignDirectory.normalize(designsDir, body.get("designFolder")) : before.getDesignFolder();
         var update = Wrappers.<Project>lambdaUpdate()
                 .eq(Project::getId, id)
                 .set(Project::getName, name);
         if (updateDescription) update.set(Project::getDescription, description);
+        if (updateFolder) update.set(Project::getDesignFolder, folder);
         int updated = projectMapper.update(null, update);
         Project saved = getProject(id);
         // 数据库可能将重复保存计为 0 行；仅在结果确实相同时视为成功。
         if (updated == 0 && (!Objects.equals(saved.getName(), name)
-                || (updateDescription && !Objects.equals(saved.getDescription(), description)))) {
+                || (updateDescription && !Objects.equals(saved.getDescription(), description))
+                || (updateFolder && !Objects.equals(saved.getDesignFolder(), folder)))) {
             throw new IllegalStateException("项目资料未保存，请重试");
         }
         String change = describeProjectChange(before, saved, updateDescription);
+        if (updateFolder && !Objects.equals(before.getDesignFolder(), saved.getDesignFolder())) {
+            String folderChange = "修改了设计稿文件夹：" + (saved.getDesignFolder() == null ? "未选择" : saved.getDesignFolder());
+            change = change == null ? folderChange : change + "，" + folderChange;
+        }
         if (change != null) {
             recordProjectOp(id, user, ip, "PROJECT_UPDATE", change, saved.getName());
+        }
+        return saved;
+    }
+
+    public List<String> listDesignFolders() {
+        return DesignDirectory.list(designsDir);
+    }
+
+    @Transactional
+    public Project setDesignFolder(Long id, String designFolder, AuthUser user, String ip) {
+        Project before = getProject(id);
+        String folder = DesignDirectory.normalize(designsDir, designFolder);
+        projectMapper.update(null, Wrappers.<Project>lambdaUpdate().eq(Project::getId, id)
+                .set(Project::getDesignFolder, folder));
+        Project saved = getProject(id);
+        if (!Objects.equals(saved.getDesignFolder(), folder)) throw new IllegalStateException("设计稿文件夹未保存，请重试");
+        if (!Objects.equals(before.getDesignFolder(), folder)) {
+            recordProjectOp(id, user, ip, "PROJECT_UPDATE", "修改了设计稿文件夹：" + (folder == null ? "未选择" : folder), saved.getName());
         }
         return saved;
     }
@@ -296,86 +329,24 @@ public class ProjectService {
      */
     @Transactional
     public List<Page> scanDesigns(Long projectId) {
-        getProject(projectId);
-        List<Page> created = createPagesForNewImages(projectId);
-        return created;
+        return createPagesForNewImages(getProject(projectId));
     }
 
-    /**
-     * 启动自动生成：把目录中未被任何项目引用的新设计稿追加到最近的项目并分析；
-     * 没有任何项目时才新建"自动原型"项目。只分析新增页面，已有页面不受影响。
-     */
+    /** 自动扫描仅处理已绑定目录的项目，遵循与手动扫描相同的项目范围。 */
     public Project autoGenerate() {
-        Path dir = Paths.get(designsDir);
-        if (!Files.isDirectory(dir)) {
-            log.warn("设计稿目录不存在，跳过自动生成: {}", designsDir);
-            return null;
+        Project updated = null;
+        for (Project project : listProjects()) {
+            if (project.getDesignFolder() == null || project.getDesignFolder().isBlank()) continue;
+            try {
+                List<Page> fresh = createPagesForNewImages(project);
+                if (fresh.isEmpty()) continue;
+                analyzePages(project.getId(), fresh);
+                updated = project;
+            } catch (Exception e) {
+                log.error("项目 [{}] 自动扫描或分析失败: {}", project.getName(), e.getMessage(), e);
+            }
         }
-
-        List<Page> fresh = listNewImages(dir);
-        if (fresh.isEmpty()) {
-            log.info("设计稿目录无新增图片，跳过自动生成");
-            return null;
-        }
-
-        Project project = projectMapper.selectList(
-                        Wrappers.<Project>lambdaQuery().orderByDesc(Project::getCreatedAt).last("LIMIT 1"))
-                .stream().findFirst().orElse(null);
-        if (project == null) {
-            project = new Project();
-            project.setName("自动原型 " + LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm")));
-            project.setDescription("启动时自动扫描 " + designsDir + " 生成");
-            project.setCreatedAt(LocalDateTime.now());
-            projectMapper.insert(project);
-            log.info("自动创建项目: {} ({} 张设计稿)", project.getName(), fresh.size());
-        } else {
-            log.info("检测到 {} 张新设计稿，追加到项目 [{}] (id={})", fresh.size(), project.getName(), project.getId());
-        }
-
-        int sortBase = pageMapper.selectCount(
-                Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, project.getId())).intValue();
-        for (Page page : fresh) {
-            page.setProjectId(project.getId());
-            page.setSortOrder(sortBase + page.getSortOrder());
-            pageMapper.insert(page);
-        }
-
-        try {
-            analyzePages(project.getId(), fresh);
-        } catch (Exception e) {
-            log.error("自动分析失败: {}", e.getMessage(), e);
-        }
-        return project;
-    }
-
-    /** 找出目录中尚未被任何项目引用的图片（素材及内部缓存目录不属于设计稿） */
-    private List<Page> listNewImages(Path dir) {
-        List<Page> allPages = pageMapper.selectList(
-                Wrappers.<Page>lambdaQuery()
-                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
-        java.util.Set<String> used = allPages.stream()
-                .filter(p -> p.getBackgroundImage() != null && !p.getBackgroundImage().isBlank())
-                .map(p -> p.getBackgroundImage().replace('\\', '/').toLowerCase())
-                .collect(Collectors.toSet());
-
-        List<Page> fresh = new ArrayList<>();
-        int sortOrder = 0;
-        List<Path> images = collectDesignImages(dir);
-        for (Path image : images) {
-            String abs = image.toAbsolutePath().normalize().toString();
-            String norm = abs.replace('\\', '/').toLowerCase();
-            if (used.contains(norm)) continue;
-            Page page = new Page();
-            page.setName(pageNameFor(image, dir));
-            page.setBackgroundImage(abs);
-            applyCanvasSize(page, image);
-            page.setSortOrder(sortOrder++);
-            page.setAnalyzed(0);
-            page.setIsDeleted(0);
-            page.setCreatedAt(LocalDateTime.now());
-            fresh.add(page);
-        }
-        return fresh;
+        return updated;
     }
 
     /** 递归收集设计稿图片：素材和点号开头的内部目录整棵跳过，按路径排序保证顺序稳定。 */
@@ -383,9 +354,15 @@ public class ProjectService {
         List<Path> result = new ArrayList<>();
         if (!Files.isDirectory(dir)) return result;
         try {
+            Path realDir = dir.toRealPath();
             Files.walkFileTree(dir, java.util.EnumSet.noneOf(java.nio.file.FileVisitOption.class), 3,
                     new java.nio.file.SimpleFileVisitor<>() {
                         @Override public java.nio.file.FileVisitResult preVisitDirectory(Path folder, java.nio.file.attribute.BasicFileAttributes attrs) {
+                            try {
+                                if (!folder.toRealPath().startsWith(realDir)) return java.nio.file.FileVisitResult.SKIP_SUBTREE;
+                            } catch (IOException e) {
+                                throw new IllegalStateException("读取设计稿文件夹失败", e);
+                            }
                             if (!folder.equals(dir)) {
                                 String name = folder.getFileName().toString();
                                 if ("assets".equalsIgnoreCase(name) || name.startsWith("."))
@@ -395,7 +372,7 @@ public class ProjectService {
                         }
                         @Override public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
                             String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
-                            if (Files.isRegularFile(file) && (name.endsWith(".png") || name.endsWith(".jpg")
+                            if (attrs.isRegularFile() && (name.endsWith(".png") || name.endsWith(".jpg")
                                     || name.endsWith(".jpeg") || name.endsWith(".webp"))) result.add(file);
                             return java.nio.file.FileVisitResult.CONTINUE;
                         }
@@ -419,11 +396,9 @@ public class ProjectService {
     }
 
     /** 为项目创建新图片对应的页面（递归分组子目录，跳过素材与内部缓存目录） */
-    private List<Page> createPagesForNewImages(Long projectId) {
-        Path dir = Paths.get(designsDir);
-        if (!Files.isDirectory(dir)) {
-            throw new IllegalStateException("设计稿目录不存在: " + designsDir);
-        }
+    private List<Page> createPagesForNewImages(Project project) {
+        Long projectId = project.getId();
+        Path dir = DesignDirectory.resolve(designsDir, project.getDesignFolder());
 
         List<Page> existing = pageMapper.selectList(
                 Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId));
@@ -1872,6 +1847,24 @@ public class ProjectService {
         String normalized = absolutePath.replace('\\', '/');
         int idx = normalized.lastIndexOf('/');
         String filename = idx >= 0 ? normalized.substring(idx + 1) : normalized;
+
+        // 智能兼容：如果数据库只存了纯文件名或旧路径，在 designs 目录下递归查找到真实物理路径
+        try {
+            Path designs = Paths.get(designsDir).toAbsolutePath().normalize();
+            if (java.nio.file.Files.isDirectory(designs)) {
+                try (java.util.stream.Stream<Path> stream = java.nio.file.Files.walk(designs)) {
+                    java.util.Optional<Path> found = stream
+                            .filter(p -> java.nio.file.Files.isRegularFile(p) && p.getFileName().toString().equalsIgnoreCase(filename))
+                            .findFirst();
+                    if (found.isPresent()) {
+                        String rel = designs.relativize(found.get()).toString().replace('\\', '/');
+                        return "/files/" + rel;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
         return "/files/" + filename;
     }
 }
