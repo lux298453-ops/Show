@@ -14,6 +14,8 @@ public class Project {
     private Long id;
     private String name;
     private String description;
+    /** 相对于设计稿根目录的扫描目录；null=尚未选择，.=明确选择根目录。 */
+    private String designFolder;
     private String coverImage;
     /** App Map：全局共享组件定义（底部 Tab 栏等）JSON，由 AppMapService 确定性构建 */
     private String appMap;

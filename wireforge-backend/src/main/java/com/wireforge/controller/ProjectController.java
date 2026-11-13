@@ -40,7 +40,7 @@ public class ProjectController {
     /** 新建项目，创建人自动成为该项目的管理员 */
     @PostMapping
     public Result<Project> create(@RequestBody Map<String, String> body, HttpServletRequest request) {
-        return Result.ok(projectService.createProject(body.get("name"), body.get("description"),
+        return Result.ok(projectService.createProject(body.get("name"), body.get("description"), body.get("designFolder"),
                 authService.getCurrentUser(request), com.wireforge.service.LogService.resolveIp(request)));
     }
 
@@ -63,7 +63,15 @@ public class ProjectController {
         return Result.ok(projectService.getProject(id));
     }
 
-    /** 扫描设计稿目录，为项目新建页面 */
+    /** 仅更新项目后续扫描使用的文件夹。 */
+    @PutMapping("/{id}/design-folder")
+    public Result<Project> setDesignFolder(@PathVariable Long id, @RequestBody Map<String, String> body,
+                                          HttpServletRequest request) {
+        return Result.ok(projectService.setDesignFolder(id, body.get("designFolder"),
+                authService.getCurrentUser(request), com.wireforge.service.LogService.resolveIp(request)));
+    }
+
+    /** 扫描项目绑定的设计稿目录，为项目新建页面。 */
     @PostMapping("/{id}/scan")
     public Result<List<Page>> scan(@PathVariable Long id) {
         return Result.ok(projectService.scanDesigns(id));

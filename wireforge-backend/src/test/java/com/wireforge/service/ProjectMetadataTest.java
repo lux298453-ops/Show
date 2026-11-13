@@ -10,6 +10,11 @@ import com.wireforge.mapper.*;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
@@ -21,6 +26,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class ProjectMetadataTest {
+    @TempDir Path directory;
     private final ProjectMapper projects = mock(ProjectMapper.class);
     private final PageMapper pages = mock(PageMapper.class);
     private final ElementMapper elements = mock(ElementMapper.class);
@@ -77,6 +83,28 @@ class ProjectMetadataTest {
         service.updateProject(159L, Map.of("name", "修改后的项目"));
         assertFalse(capturedUpdate().getSqlSet().contains("description"));
         assertEquals("修改后的说明", saved.getDescription());
+        verifyNoSideEffects();
+    }
+
+    @Test
+    void savesSelectedFolderAlongsideMetadataWithoutChangingArtboards() throws Exception {
+        Files.createDirectories(directory.resolve("OPPO"));
+        ReflectionTestUtils.setField(service, "designsDir", directory.toString());
+        Project before = new Project(); before.setId(159L); before.setName(saved.getName());
+        saved.setDesignFolder("OPPO");
+        when(projects.selectById(159L)).thenReturn(before, saved);
+        assertSame(saved, service.updateProject(159L, Map.of("name", saved.getName(), "designFolder", "OPPO")));
+        assertTrue(capturedUpdate().getSqlSet().contains("design_folder="));
+        assertEquals("/files/95.png", saved.getCoverImage());
+        verifyNoSideEffects();
+    }
+
+    @Test
+    void omittedFolderKeepsExistingBinding() {
+        saved.setDesignFolder("OPPO");
+        service.updateProject(159L, Map.of("name", saved.getName()));
+        assertFalse(capturedUpdate().getSqlSet().contains("design_folder"));
+        assertEquals("OPPO", saved.getDesignFolder());
         verifyNoSideEffects();
     }
 

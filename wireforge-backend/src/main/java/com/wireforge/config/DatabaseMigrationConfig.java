@@ -47,6 +47,7 @@ public class DatabaseMigrationConfig {
 
             // 项目表扩展字段
             addColumnIfNotExists(stmt, "project", "app_map", "TEXT COMMENT 'App Map 全局定义'");
+            addColumnIfNotExists(stmt, "project", "design_folder", "VARCHAR(500) COMMENT '项目设计稿相对目录'");
 
             // 标注说明表扩展字段（彻底解决 sort_order 缺失问题）
             addColumnIfNotExists(stmt, "annotation", "box_x", "DOUBLE COMMENT '标注框X'");

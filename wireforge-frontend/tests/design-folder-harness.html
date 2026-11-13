@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Project folder regression</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h } from 'vue'
+import { createRouter, createMemoryHistory, RouterView } from 'vue-router'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+import '../src/styles/main.scss'
+import http from '../src/api/http'
+import { currentUser } from '../src/services/auth'
+import ProjectList from '../src/views/ProjectList.vue'
+import ProjectDetail from '../src/views/ProjectDetail.vue'
+
+// Mount real views; all API operations are isolated in memory.
+const calls = []
+const projects = [{ id: 900001, name: '旧项目（尚未选文件夹）', description: '', designFolder: null }]
+const pages = new Map()
+let failFolders = false
+function respond(method, path, body) {
+  if (path === '/design-folders' && method === 'get') {
+    if (failFolders) throw new Error('文件夹加载失败，请重试')
+    return ['.', 'OPPO设计稿', 'OPPO设计稿/家园', '荣耀设计稿']
+  }
+  if (path === '/projects' && method === 'get') return structuredClone(projects)
+  if (path === '/projects' && method === 'post') {
+    const project = { id: 900001 + projects.length, ...body }
+    projects.push(project)
+    return structuredClone(project)
+  }
+  if (path === '/auth/feishu/config') return { feishuEnabled: false }
+  if (path === '/auth/me') return { authenticated: true, userId: 'folder-fixture', userName: '测试用户', systemAdmin: false, projectRole: 'admin' }
+  const match = path.match(/^\/projects\/(\d+)(.*)$/)
+  if (!match) throw new Error('Unexpected fixture request: ' + method + ' ' + path)
+  const id = Number(match[1]), project = projects.find(p => p.id === id), suffix = match[2]
+  if (!project) throw new Error('Unknown fixture project')
+  if (suffix === '/prototype' && method === 'get') return { project: structuredClone(project), pages: pages.get(id) || [] }
+  if (suffix === '/analysis-status') return { projectId: id, analyzing: false, finished: true, current: 0, total: 0, okCount: 0, failCount: 0 }
+  if (suffix === '/design-folder' && method === 'put') { project.designFolder = body.designFolder; return structuredClone(project) }
+  if (!suffix && method === 'put') { Object.assign(project, body); return structuredClone(project) }
+  if (suffix === '/scan' && method === 'post') {
+    if (!project.designFolder) throw new Error('Unbound project must not scan')
+    const existing = pages.get(id) || []
+    const name = project.designFolder + '/首页'
+    if (existing.some(page => page.name === name)) return []
+    const imported = [{ id: id * 10 + existing.length, name, elements: [], annotations: [], analyzed: 0, html_content: '' }]
+    pages.set(id, [...existing, ...imported])
+    return structuredClone(imported)
+  }
+  throw new Error('Unexpected fixture request: ' + method + ' ' + path)
+}
+http.defaults.adapter = async config => {
+  const method = (config.method || 'get').toLowerCase()
+  const url = new URL(config.url, 'http://fixture.test')
+  const path = url.pathname.replace(/^\/api(?=\/)/, '')
+  const body = typeof config.data === 'string' ? JSON.parse(config.data) : config.data || {}
+  calls.push({ method, path, body })
+  return { data: { code: 0, data: respond(method, path, body) }, status: 200, statusText: 'OK', headers: {}, config }
+}
+currentUser.value = { id: 'folder-fixture', name: '测试用户', avatar: '' }
+window.folderTest = { calls, projects, pages, setFolderFailure: value => { failFolders = value } }
+const router = createRouter({ history: createMemoryHistory(), routes: [
+  { path: '/', component: ProjectList },
+  { path: '/projects', component: ProjectList },
+  { path: '/projects/:id', component: ProjectDetail },
+] })
+await router.push('/')
+window.folderTest.router = router
+createApp({ render: () => h(RouterView, { key: router.currentRoute.value.fullPath }) }).use(router).use(ElementPlus).mount('#app')
+</script></body></html>

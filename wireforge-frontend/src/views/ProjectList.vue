@@ -141,7 +141,11 @@
 
     <ProjectMetadataDialog v-model="metadataVisible" :project="editingProject" @saved="updateProjectMetadata" />
     <el-dialog v-model="dialogVisible" :title="t('newProject')" width="min(460px, calc(100vw - 32px))" align-center>
-      <div class="project-form"><label><div>{{ t('projectName') }} <span>*</span></div><el-input v-model="form.name" :placeholder="t('projectNamePlaceholder')" size="large" clearable /></label><label>{{ t('projectDesc') }}<el-input v-model="form.description" type="textarea" :rows="3" :placeholder="t('projectDescPlaceholder')" /></label></div>
+      <div class="project-form">
+        <label><div>{{ t('projectName') }} <span>*</span></div><el-input v-model="form.name" :disabled="creating" :placeholder="t('projectNamePlaceholder')" size="large" clearable /></label>
+        <label>{{ t('projectDesc') }}<el-input v-model="form.description" :disabled="creating" type="textarea" :rows="3" :placeholder="t('projectDescPlaceholder')" /></label>
+        <DesignFolderPicker v-if="dialogVisible" v-model="form.designFolder" :disabled="creating" />
+      </div>
       <template #footer><div class="dialog-actions"><button class="home-button" @click="dialogVisible = false">{{ t('cancel') }}</button><button class="home-button primary" :disabled="creating" @click="create"><span v-if="creating" class="loading-spinner small"></span>{{ creating ? t('creating') : t('create') }}</button></div></template>
     </el-dialog>
 
@@ -161,6 +165,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, FolderPlus, LayoutGrid, List, Trash2, Search, ChevronRight, Layers, MoreHorizontal, ArrowUpRight, AlertCircle, RotateCw, Pencil, User, ChevronDown, LogOut, RefreshCw, ScrollText, Copy } from 'lucide-vue-next'
 import NavbarControls from '../components/NavbarControls.vue'
 import ProjectMetadataDialog from '../components/ProjectMetadataDialog.vue'
+import DesignFolderPicker from '../components/DesignFolderPicker.vue'
 import FeishuLoginModal from '../components/FeishuLoginModal.vue'
 import AuditLogDrawer from '../components/AuditLogDrawer.vue'
 import { currentUser, isSystemAdmin, logout, type AuthUser } from '../services/auth'
@@ -190,7 +195,7 @@ const dialogVisible = ref(false)
 const metadataVisible = ref(false)
 const editingProject = ref<ProjectItem | null>(null)
 const creating = ref(false)
-const form = reactive({ name: '', description: '' })
+const form = reactive({ name: '', description: '', designFolder: '' })
 const searchQuery = ref('')
 const viewMode = ref<'grid' | 'list'>('grid')
 let loadGeneration = 0
@@ -290,9 +295,10 @@ async function create() {
   if (!form.name.trim()) { ElMessage.warning(copy.value.required); return }
   creating.value = true
   try {
-    const project = await projectApi.create(form.name, form.description)
+    const project = await projectApi.create(form.name, form.description, form.designFolder)
     ElMessage.success(t('projectCreated'))
     dialogVisible.value = false
+    Object.assign(form, { name: '', description: '', designFolder: '' })
     router.push(`/projects/${project.id}`)
   } catch (e) { ElMessage.error((e as Error)?.message || copy.value.createFailed) }
   finally { creating.value = false }
@@ -303,7 +309,7 @@ function handleProjectCommand(command: string, p: ProjectItem) {
 }
 function updateProjectMetadata(saved: Project) {
   const p = projects.value.find(p => p.id === saved.id)
-  if (p) { p.name = saved.name; p.description = saved.description }
+  if (p) { p.name = saved.name; p.description = saved.description; p.designFolder = saved.designFolder }
 }
 async function remove(p: Project) {
   try {

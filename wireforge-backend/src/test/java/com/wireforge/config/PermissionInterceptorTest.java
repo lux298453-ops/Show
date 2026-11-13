@@ -67,6 +67,8 @@ class PermissionInterceptorTest {
     @Test
     void requirementTable() {
         assertEquals(OPEN, PermissionInterceptor.requirement("GET", "/api/projects"));
+        assertEquals(LOGIN, PermissionInterceptor.requirement("GET", "/api/design-folders"));
+        assertEquals(EDITOR, PermissionInterceptor.requirement("PUT", "/api/projects/7/design-folder"));
         assertEquals(OPEN, PermissionInterceptor.requirement("GET", "/api/projects/7"));
         assertEquals(OPEN, PermissionInterceptor.requirement("GET", "/api/projects/7/prototype"));
         assertEquals(OPEN, PermissionInterceptor.requirement("HEAD", "/api/projects/7/prototype"));

@@ -44,8 +44,10 @@ export interface AiElementAdjustResponse {
 
 export const projectApi = {
   list: () => http.get<any, Project[]>('/projects'),
-  create: (name: string, description?: string) => http.post<any, Project>('/projects', { name, description }),
-  update: (id: number, body: { name: string; description: string }) => http.put<any, Project>(`/projects/${id}`, body),
+  create: (name: string, description?: string, designFolder?: string) => http.post<any, Project>('/projects', { name, description, designFolder }),
+  update: (id: number, body: { name: string; description: string; designFolder?: string }) => http.put<any, Project>(`/projects/${id}`, body),
+  designFolders: (signal?: AbortSignal) => http.get<any, string[]>('/design-folders', { signal }),
+  setDesignFolder: (id: number, designFolder: string) => http.put<any, Project>(`/projects/${id}/design-folder`, { designFolder }),
   remove: (id: number) => http.delete<any, void>(`/projects/${id}`),
   get: (id: number) => http.get<any, Project>(`/projects/${id}`),
   scan: (id: number) => http.post<any, unknown[]>(`/projects/${id}/scan`),

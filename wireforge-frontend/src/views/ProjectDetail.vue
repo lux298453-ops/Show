@@ -56,6 +56,18 @@
             <RefreshCw class="w-3.5 h-3.5 text-slate-500 dark:text-slate-300" :class="{ 'animate-spin': scanning }" />
             <span class="hidden sm:inline">{{ scanning ? t('scanning') : t('scanDesigns') }}</span>
           </button>
+          <button
+            v-if="project?.designFolder"
+            type="button"
+            class="wf-tap inline-flex items-center gap-1.5 px-2.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-[#383838] rounded-md transition-colors disabled:opacity-50 cursor-pointer"
+            :disabled="scanning || loading || !!loadError"
+            :title="t('designFolderChange')"
+            :aria-label="t('designFolderChange')"
+            @click="designFolderVisible = true"
+          >
+            <Folder class="w-3.5 h-3.5" />
+            <span class="hidden sm:inline">{{ t('designFolderChange') }}</span>
+          </button>
 
           <!-- Secondary/AI: AI Analyze Wireframe -->
           <button
@@ -103,6 +115,10 @@
             >
               清除筛选
             </button>
+          </div>
+          <div v-else-if="project?.designFolder" class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 py-1 min-w-0" :title="project.designFolder">
+            <Folder class="w-3.5 h-3.5 shrink-0" />
+            <span class="truncate">{{ t('designFolder') }}：{{ project.designFolder === '.' ? t('designFolderRoot') : project.designFolder }}</span>
           </div>
         </div>
 
@@ -381,6 +397,7 @@
       </div>
     </main>
     <ProjectMetadataDialog v-model="metadataVisible" :project="project" @saved="updateProjectMetadata" />
+    <ProjectDesignFolderDialog v-model="designFolderVisible" :project="project" @saved="onDesignFolderSelected" />
   </div>
 </template>
 
@@ -407,6 +424,7 @@ import { apiUrl, getFileUrl, withBackendFiles } from '../api/http'
 import NavbarControls from '../components/NavbarControls.vue'
 import AiGenerationGlow from '../components/AiGenerationGlow.vue'
 import ProjectMetadataDialog from '../components/ProjectMetadataDialog.vue'
+import ProjectDesignFolderDialog from '../components/ProjectDesignFolderDialog.vue'
 import { t } from '../utils/i18n'
 import { useProjectTitle } from '../utils/pageTitle'
 import type { Page, Project } from '../types'
@@ -430,8 +448,14 @@ interface PageCard {
 const project = ref<Project | null>(null)
 useProjectTitle(() => project.value?.name)
 const metadataVisible = ref(false)
+const designFolderVisible = ref(false)
 function updateProjectMetadata(saved: Project) {
-  if (project.value?.id === saved.id) { project.value.name = saved.name; project.value.description = saved.description }
+  if (project.value?.id === saved.id) { project.value.name = saved.name; project.value.description = saved.description; project.value.designFolder = saved.designFolder }
+}
+
+async function onDesignFolderSelected(saved: Project) {
+  updateProjectMetadata(saved)
+  await scan()
 }
 const pages = ref<PageCard[]>([])
 const loading = ref(true)
@@ -547,10 +571,12 @@ async function load(silent = false) {
 
 async function scan() {
   if (scanning.value || loading.value || loadError.value) return
+  if (!project.value?.designFolder) { designFolderVisible.value = true; return }
   scanning.value = true
   try {
     const created = await projectApi.scan(id)
-    ElMessage.success(created.length > 0 ? t('scanCompleted', { n: created.length }) : t('scanNoNewDesigns'))
+    if (created.length > 0) ElMessage.success(t('scanCompleted', { n: created.length }))
+    else ElMessage.info(t('scanNoNewDesignsHint'))
     await load()
   } catch (e: any) {
     ElMessage.error(e.message || t('scanFailed'))

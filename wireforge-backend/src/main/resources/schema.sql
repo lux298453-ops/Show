@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS `project` (
   `id`          BIGINT AUTO_INCREMENT PRIMARY KEY,
   `name`        VARCHAR(255) NOT NULL,
   `description` TEXT,
+  `design_folder` VARCHAR(500) COMMENT '项目设计稿相对目录',
   `cover_image` VARCHAR(500),
   `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;

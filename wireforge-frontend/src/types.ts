@@ -2,6 +2,7 @@ export interface Project {
   id: number
   name: string
   description?: string
+  designFolder?: string | null
   coverImage?: string
   appMap?: string | null
   createdAt?: string

@@ -17,6 +17,7 @@
       <el-input id="project-metadata-name" ref="nameInput" v-model="name" maxlength="255" :disabled="saving" :placeholder="t('projectNamePlaceholder')" />
       <label for="project-metadata-description">{{ t('projectDesc') }}</label>
       <el-input id="project-metadata-description" v-model="description" type="textarea" :rows="4" :disabled="saving" :placeholder="t('projectDescPlaceholder')" />
+      <DesignFolderPicker v-if="modelValue" v-model="designFolder" :disabled="saving" class="metadata-folder" />
       <p v-if="error" class="metadata-error" role="alert">{{ error }}</p>
     </form>
     <template #footer>
@@ -33,6 +34,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { projectApi } from '../api/project'
 import { t } from '../utils/i18n'
+import DesignFolderPicker from './DesignFolderPicker.vue'
 import type { Project } from '../types'
 
 const props = defineProps<{ modelValue: boolean; project: Project | null }>()
@@ -42,6 +44,7 @@ const nameInput = ref<{ focus: () => void } | null>(null)
 const editingId = ref<number | null>(null)
 const name = ref('')
 const description = ref('')
+const designFolder = ref('')
 const saving = ref(false)
 const error = ref('')
 
@@ -50,6 +53,7 @@ watch(() => [props.modelValue, props.project?.id] as const, ([open]) => {
   editingId.value = props.project?.id ?? null
   name.value = props.project?.name || ''
   description.value = props.project?.description || ''
+  designFolder.value = props.project?.designFolder || ''
   error.value = ''
 }, { immediate: true })
 
@@ -60,7 +64,7 @@ async function save() {
   saving.value = true
   error.value = ''
   try {
-    const project = await projectApi.update(editingId.value, { name: name.value.trim(), description: description.value.trim() })
+    const project = await projectApi.update(editingId.value, { name: name.value.trim(), description: description.value.trim(), designFolder: designFolder.value })
     emit('saved', project)
     emit('update:modelValue', false)
     ElMessage.success(t('projectInfoSaved'))
@@ -78,4 +82,5 @@ async function save() {
 .metadata-error { margin: 2px 0 0; font-size: 13px; line-height: 1.6; }
 .metadata-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .metadata-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.metadata-folder { margin-top: 10px; }
 </style>

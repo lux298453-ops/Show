@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS `project` (
   `name`        VARCHAR(255) NOT NULL COMMENT '项目名称',
   `description` TEXT COMMENT '项目描述',
   `cover_image` VARCHAR(500) COMMENT '项目封面图URL',
+  `design_folder` VARCHAR(500) COMMENT '项目设计稿相对目录',
   `app_map`     TEXT COMMENT 'App Map：全局共享组件定义（底部Tab栏、全局模态等）JSON',
   `created_at`  DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='原型项目表';
