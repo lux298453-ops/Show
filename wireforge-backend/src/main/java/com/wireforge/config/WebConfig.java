@@ -50,6 +50,8 @@ public class WebConfig implements WebMvcConfigurer {
         if (!uri.endsWith("/")) {
             uri += "/";
         }
-        registry.addResourceHandler("/files/**").addResourceLocations(uri);
+        registry.addResourceHandler("/files/**")
+                .addResourceLocations(uri)
+                .setCacheControl(org.springframework.http.CacheControl.maxAge(30, java.util.concurrent.TimeUnit.DAYS).cachePublic());
     }
 }

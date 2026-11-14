@@ -54,7 +54,7 @@ public class AssetController {
         String contentType = resolveContentType(assetId, resource);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, contentType)
-                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=604800")
                 .body(resource);
     }
 

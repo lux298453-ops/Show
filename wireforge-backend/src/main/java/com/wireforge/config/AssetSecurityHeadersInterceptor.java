@@ -15,7 +15,7 @@ public final class AssetSecurityHeadersInterceptor implements HandlerInterceptor
         response.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
         response.setHeader("X-Content-Type-Options", "nosniff");
         response.setHeader("Referrer-Policy", "no-referrer");
-        response.setHeader("Cache-Control", "no-store");
+        // 允许各接口独立设置 Cache-Control（如角色立绘与切图使用强缓存），杜绝全链路 no-store 导致重复慢速下载
         return true;
     }
 }
