@@ -101,49 +101,51 @@ public class ProjectArtworkService {
     @PostConstruct
     public void syncDiskArtworksToDatabase() {
         if (artworkAssetMapper == null || !Files.isDirectory(root)) return;
-        try (var projectDirs = Files.list(root)) {
-            for (Path projDir : projectDirs.filter(Files::isDirectory).toList()) {
-                String dirName = projDir.getFileName().toString();
-                if (!dirName.matches("\\d+")) continue;
-                long projectId = Long.parseLong(dirName);
-                try (var jsonFiles = Files.list(projDir)) {
-                    for (Path jsonFile : jsonFiles.filter(p -> p.getFileName().toString().matches("[a-f0-9]{64}\\.json")).toList()) {
-                        String fileName = jsonFile.getFileName().toString();
-                        String digest = fileName.substring(0, 64);
-                        Path pngFile = projDir.resolve(digest + ".png");
-                        if (!Files.isRegularFile(pngFile)) continue;
-                        try {
-                            Long count = artworkAssetMapper.selectCount(
-                                    Wrappers.<ArtworkAsset>lambdaQuery()
-                                            .eq(ArtworkAsset::getProjectId, projectId)
-                                            .eq(ArtworkAsset::getDigest, digest));
-                            if (count == null || count == 0) {
-                                String metaStr = Files.readString(jsonFile);
-                                Artwork item = json.readValue(metaStr, Artwork.class);
-                                byte[] bytes = Files.readAllBytes(pngFile);
-                                ArtworkAsset asset = ArtworkAsset.builder()
-                                        .projectId(projectId)
-                                        .digest(digest)
-                                        .artworkKey(item.key())
-                                        .name(item.name())
-                                        .prompt(item.prompt())
-                                        .kind(item.kind())
-                                        .imageData(bytes)
-                                        .jsonData(metaStr)
-                                        .createdAt(LocalDateTime.now())
-                                        .build();
-                                artworkAssetMapper.insert(asset);
-                                log.info("[角色素材同步] 项目 {} 素材 {} 首次同步持久化至数据库", projectId, item.key());
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try (var projectDirs = Files.list(root)) {
+                for (Path projDir : projectDirs.filter(Files::isDirectory).toList()) {
+                    String dirName = projDir.getFileName().toString();
+                    if (!dirName.matches("\\d+")) continue;
+                    long projectId = Long.parseLong(dirName);
+                    try (var jsonFiles = Files.list(projDir)) {
+                        for (Path jsonFile : jsonFiles.filter(p -> p.getFileName().toString().matches("[a-f0-9]{64}\\.json")).toList()) {
+                            String fileName = jsonFile.getFileName().toString();
+                            String digest = fileName.substring(0, 64);
+                            Path pngFile = projDir.resolve(digest + ".png");
+                            if (!Files.isRegularFile(pngFile)) continue;
+                            try {
+                                Long count = artworkAssetMapper.selectCount(
+                                        Wrappers.<ArtworkAsset>lambdaQuery()
+                                                .eq(ArtworkAsset::getProjectId, projectId)
+                                                .eq(ArtworkAsset::getDigest, digest));
+                                if (count == null || count == 0) {
+                                    String metaStr = Files.readString(jsonFile);
+                                    Artwork item = json.readValue(metaStr, Artwork.class);
+                                    byte[] bytes = Files.readAllBytes(pngFile);
+                                    ArtworkAsset asset = ArtworkAsset.builder()
+                                            .projectId(projectId)
+                                            .digest(digest)
+                                            .artworkKey(item.key())
+                                            .name(item.name())
+                                            .prompt(item.prompt())
+                                            .kind(item.kind())
+                                            .imageData(bytes)
+                                            .jsonData(metaStr)
+                                            .createdAt(LocalDateTime.now())
+                                            .build();
+                                    artworkAssetMapper.insert(asset);
+                                    log.info("[角色素材同步] 项目 {} 素材 {} 首次同步持久化至数据库", projectId, item.key());
+                                }
+                            } catch (Exception ex) {
+                                log.warn("[角色素材同步] 同步素材文件失败 ({}): {}", fileName, ex.getMessage());
                             }
-                        } catch (Exception ex) {
-                            log.warn("[角色素材同步] 同步素材文件失败 ({}): {}", fileName, ex.getMessage());
                         }
                     }
                 }
+            } catch (Exception e) {
+                log.warn("[角色素材同步] 启动自动同步扫描异常: {}", e.getMessage());
             }
-        } catch (Exception e) {
-            log.warn("[角色素材同步] 启动自动同步扫描异常: {}", e.getMessage());
-        }
+        });
     }
 
     public List<Artwork> assets(long projectId) {
@@ -163,26 +165,16 @@ public class ProjectArtworkService {
         }
 
         // Supplement from TiDB database for any artwork wiped from ephemeral container disk
+        // 关键优化：严禁加载 MEDIUMBLOB 二进制图片数据，仅投影轻量级元数据字段，杜绝堆内存 OOM
         if (artworkAssetMapper != null) {
             try {
                 List<ArtworkAsset> dbAssets = artworkAssetMapper.selectList(
-                        Wrappers.<ArtworkAsset>lambdaQuery().eq(ArtworkAsset::getProjectId, projectId));
+                        Wrappers.<ArtworkAsset>lambdaQuery()
+                                .select(ArtworkAsset::getDigest, ArtworkAsset::getArtworkKey, ArtworkAsset::getName, ArtworkAsset::getPrompt, ArtworkAsset::getKind)
+                                .eq(ArtworkAsset::getProjectId, projectId));
                 for (ArtworkAsset a : dbAssets) {
                     if (!map.containsKey(a.getDigest())) {
                         map.put(a.getDigest(), new Artwork(a.getArtworkKey(), a.getName(), a.getPrompt(), url(projectId, a.getDigest()), a.getKind()));
-                        try {
-                            if (!Files.isDirectory(folder)) Files.createDirectories(folder);
-                            Path pngPath = folder.resolve(a.getDigest() + ".png");
-                            if (!Files.isRegularFile(pngPath) && a.getImageData() != null) {
-                                Files.write(pngPath, a.getImageData());
-                            }
-                            Path jsonPath = folder.resolve(a.getDigest() + ".json");
-                            if (!Files.isRegularFile(jsonPath) && a.getJsonData() != null) {
-                                Files.writeString(jsonPath, a.getJsonData());
-                            }
-                        } catch (Exception ex) {
-                            log.debug("[角色素材] 预热磁盘缓存忽略: {}", ex.getMessage());
-                        }
                     }
                 }
             } catch (Exception e) {

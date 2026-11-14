@@ -13,4 +13,4 @@ COPY designs /app/designs
 EXPOSE 8090
 ENV PORT=8090
 ENV DESIGNS_DIR=/app/designs
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]

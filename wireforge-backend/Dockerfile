@@ -12,4 +12,4 @@ COPY --from=build /app/target/wireforge-backend-*.jar app.jar
 RUN mkdir -p /app/designs
 EXPOSE 8090
 ENV PORT=8090
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
