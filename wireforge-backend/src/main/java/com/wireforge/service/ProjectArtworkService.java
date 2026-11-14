@@ -1,10 +1,16 @@
 package com.wireforge.service;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wireforge.entity.ArtworkAsset;
+import com.wireforge.mapper.ArtworkAssetMapper;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.DataNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
@@ -21,10 +27,15 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Optional image generation after HTML validation. Artwork is cached per project, outside page transactions. */
+/**
+ * Optional image generation after HTML validation.
+ * Artwork is cached locally on disk and permanently persisted into TiDB Cloud (artwork_asset),
+ * ensuring zero image loss even when cloud containers (e.g. Render) restart or sleep.
+ */
 @Slf4j
 @Service
 public class ProjectArtworkService {
@@ -34,6 +45,7 @@ public class ProjectArtworkService {
     private final boolean enabled;
     private final int timeoutSeconds, maxPerPage;
     private final Map<Long, Object> locks = new ConcurrentHashMap<>();
+    private final ArtworkAssetMapper artworkAssetMapper;
 
     public record Artwork(String key, String name, String prompt, String url, String kind) {
         public Artwork(String key, String name, String prompt, String url) { this(key, name, prompt, url, "character"); }
@@ -72,27 +84,106 @@ public class ProjectArtworkService {
             @Value("${wireforge.ai.artwork.model:gpt-image-2}") String model,
             @Value("${wireforge.ai.artwork.enabled:false}") boolean enabled,
             @Value("${wireforge.ai.artwork.timeout-seconds:180}") int timeoutSeconds,
-            @Value("${wireforge.ai.artwork.max-per-page:12}") int maxPerPage) {
+            @Value("${wireforge.ai.artwork.max-per-page:12}") int maxPerPage,
+            @Autowired(required = false) ArtworkAssetMapper artworkAssetMapper) {
         this.root = Path.of(designsDir).toAbsolutePath().normalize().resolve(".wireforge-artwork");
         this.baseUrl = baseUrl.replaceAll("/+$", ""); this.apiKey = apiKey.trim(); this.model = model;
         this.enabled = enabled; this.timeoutSeconds = Math.max(10, timeoutSeconds); this.maxPerPage = Math.max(0, Math.min(12, maxPerPage));
+        this.artworkAssetMapper = artworkAssetMapper;
+    }
+
+    @PostConstruct
+    public void syncDiskArtworksToDatabase() {
+        if (artworkAssetMapper == null || !Files.isDirectory(root)) return;
+        try (var projectDirs = Files.list(root)) {
+            for (Path projDir : projectDirs.filter(Files::isDirectory).toList()) {
+                String dirName = projDir.getFileName().toString();
+                if (!dirName.matches("\\d+")) continue;
+                long projectId = Long.parseLong(dirName);
+                try (var jsonFiles = Files.list(projDir)) {
+                    for (Path jsonFile : jsonFiles.filter(p -> p.getFileName().toString().matches("[a-f0-9]{64}\\.json")).toList()) {
+                        String fileName = jsonFile.getFileName().toString();
+                        String digest = fileName.substring(0, 64);
+                        Path pngFile = projDir.resolve(digest + ".png");
+                        if (!Files.isRegularFile(pngFile)) continue;
+                        try {
+                            Long count = artworkAssetMapper.selectCount(
+                                    Wrappers.<ArtworkAsset>lambdaQuery()
+                                            .eq(ArtworkAsset::getProjectId, projectId)
+                                            .eq(ArtworkAsset::getDigest, digest));
+                            if (count == null || count == 0) {
+                                String metaStr = Files.readString(jsonFile);
+                                Artwork item = json.readValue(metaStr, Artwork.class);
+                                byte[] bytes = Files.readAllBytes(pngFile);
+                                ArtworkAsset asset = ArtworkAsset.builder()
+                                        .projectId(projectId)
+                                        .digest(digest)
+                                        .artworkKey(item.key())
+                                        .name(item.name())
+                                        .prompt(item.prompt())
+                                        .kind(item.kind())
+                                        .imageData(bytes)
+                                        .jsonData(metaStr)
+                                        .createdAt(LocalDateTime.now())
+                                        .build();
+                                artworkAssetMapper.insert(asset);
+                                log.info("[角色素材同步] 项目 {} 素材 {} 首次同步持久化至数据库", projectId, item.key());
+                            }
+                        } catch (Exception ex) {
+                            log.warn("[角色素材同步] 同步素材文件失败 ({}): {}", fileName, ex.getMessage());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[角色素材同步] 启动自动同步扫描异常: {}", e.getMessage());
+        }
     }
 
     public List<Artwork> assets(long projectId) {
         Path folder = folder(projectId);
-        if (!Files.isDirectory(folder)) return List.of();
-        try (var files = Files.list(folder)) {
-            List<Artwork> result = new ArrayList<>();
-            for (Path file : files.filter(p -> p.getFileName().toString().matches("[a-f0-9]{64}\\.json")).sorted().toList()) {
-                try {
-                    Artwork item = json.readValue(Files.readString(file), Artwork.class);
-                    String digest = digest(item.key());
-                    if (file.getFileName().toString().equals(digest + ".json") && Files.isRegularFile(folder.resolve(digest + ".png")))
-                        result.add(new Artwork(item.key(), item.name(), item.prompt(), url(projectId, digest), item.kind()));
-                } catch (Exception e) { log.warn("[角色素材] 忽略损坏的项目素材索引: {}", file.getFileName()); }
+        Map<String, Artwork> map = new LinkedHashMap<>();
+        if (Files.isDirectory(folder)) {
+            try (var files = Files.list(folder)) {
+                for (Path file : files.filter(p -> p.getFileName().toString().matches("[a-f0-9]{64}\\.json")).sorted().toList()) {
+                    try {
+                        Artwork item = json.readValue(Files.readString(file), Artwork.class);
+                        String digest = digest(item.key());
+                        if (file.getFileName().toString().equals(digest + ".json") && Files.isRegularFile(folder.resolve(digest + ".png")))
+                            map.put(digest, new Artwork(item.key(), item.name(), item.prompt(), url(projectId, digest), item.kind()));
+                    } catch (Exception e) { log.warn("[角色素材] 忽略损坏的项目素材索引: {}", file.getFileName()); }
+                }
+            } catch (Exception e) { log.warn("[角色素材] 项目 {} 读取素材索引失败", projectId); }
+        }
+
+        // Supplement from TiDB database for any artwork wiped from ephemeral container disk
+        if (artworkAssetMapper != null) {
+            try {
+                List<ArtworkAsset> dbAssets = artworkAssetMapper.selectList(
+                        Wrappers.<ArtworkAsset>lambdaQuery().eq(ArtworkAsset::getProjectId, projectId));
+                for (ArtworkAsset a : dbAssets) {
+                    if (!map.containsKey(a.getDigest())) {
+                        map.put(a.getDigest(), new Artwork(a.getArtworkKey(), a.getName(), a.getPrompt(), url(projectId, a.getDigest()), a.getKind()));
+                        try {
+                            if (!Files.isDirectory(folder)) Files.createDirectories(folder);
+                            Path pngPath = folder.resolve(a.getDigest() + ".png");
+                            if (!Files.isRegularFile(pngPath) && a.getImageData() != null) {
+                                Files.write(pngPath, a.getImageData());
+                            }
+                            Path jsonPath = folder.resolve(a.getDigest() + ".json");
+                            if (!Files.isRegularFile(jsonPath) && a.getJsonData() != null) {
+                                Files.writeString(jsonPath, a.getJsonData());
+                            }
+                        } catch (Exception ex) {
+                            log.debug("[角色素材] 预热磁盘缓存忽略: {}", ex.getMessage());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[角色素材] 数据库拉取项目素材失败: {}", e.getMessage());
             }
-            return result;
-        } catch (Exception e) { log.warn("[角色素材] 项目 {} 读取素材索引失败", projectId); return List.of(); }
+        }
+        return new ArrayList<>(map.values());
     }
 
     public String prompt(long projectId) {
@@ -201,19 +292,85 @@ public class ProjectArtworkService {
             Files.move(temporary, folder.resolve(digest + ".png"), StandardCopyOption.REPLACE_EXISTING);
         } finally { Files.deleteIfExists(temporary); }
         Artwork artwork = new Artwork(key, name.isBlank() ? key : name, description, url(projectId, digest), kind);
+        String metadataStr = json.writeValueAsString(artwork);
         Path metadata = Files.createTempFile(folder, digest, ".tmp");
         try {
-            Files.writeString(metadata, json.writeValueAsString(artwork));
+            Files.writeString(metadata, metadataStr);
             Files.move(metadata, folder.resolve(digest + ".json"), StandardCopyOption.REPLACE_EXISTING);
         } finally { Files.deleteIfExists(metadata); }
-        log.info("[角色素材] 项目 {} 保存角色 {}，同项目后续页面复用", projectId, key);
+
+        // Persist to TiDB database as permanent master storage
+        persistToDatabase(projectId, digest, key, artwork.name(), description, kind, bytes, metadataStr);
+        log.info("[角色素材] 项目 {} 保存角色 {}，已持久化至本地与数据库", projectId, key);
         return artwork;
+    }
+
+    private void persistToDatabase(long projectId, String digest, String artworkKey, String name, String prompt, String kind, byte[] bytes, String metadataStr) {
+        if (artworkAssetMapper == null) return;
+        try {
+            ArtworkAsset existing = artworkAssetMapper.selectOne(
+                    Wrappers.<ArtworkAsset>lambdaQuery()
+                            .eq(ArtworkAsset::getProjectId, projectId)
+                            .eq(ArtworkAsset::getDigest, digest));
+            if (existing == null) {
+                ArtworkAsset asset = ArtworkAsset.builder()
+                        .projectId(projectId)
+                        .digest(digest)
+                        .artworkKey(artworkKey)
+                        .name(name)
+                        .prompt(prompt)
+                        .kind(kind)
+                        .imageData(bytes)
+                        .jsonData(metadataStr)
+                        .createdAt(LocalDateTime.now())
+                        .build();
+                artworkAssetMapper.insert(asset);
+            } else {
+                existing.setImageData(bytes);
+                existing.setJsonData(metadataStr);
+                existing.setName(name);
+                existing.setPrompt(prompt);
+                existing.setKind(kind);
+                artworkAssetMapper.updateById(existing);
+            }
+        } catch (Exception e) {
+            log.warn("[角色素材] 写入数据库持久化失败 (项目 {}, digest {}): {}", projectId, digest, e.getMessage());
+        }
     }
 
     public Resource image(long projectId, String digest) {
         if (!digest.matches("[a-f0-9]{64}")) throw new IllegalArgumentException("无效素材标识");
-        return new FileSystemResource(folder(projectId).resolve(digest + ".png"));
+        Path localPng = folder(projectId).resolve(digest + ".png");
+        if (Files.isRegularFile(localPng)) {
+            return new FileSystemResource(localPng);
+        }
+        // Fallback to TiDB database if Render container local disk was wiped
+        if (artworkAssetMapper != null) {
+            try {
+                ArtworkAsset asset = artworkAssetMapper.selectOne(
+                        Wrappers.<ArtworkAsset>lambdaQuery()
+                                .eq(ArtworkAsset::getProjectId, projectId)
+                                .eq(ArtworkAsset::getDigest, digest));
+                if (asset != null && asset.getImageData() != null && asset.getImageData().length > 0) {
+                    try {
+                        Path folder = folder(projectId);
+                        if (!Files.isDirectory(folder)) Files.createDirectories(folder);
+                        Files.write(localPng, asset.getImageData());
+                        if (asset.getJsonData() != null && !asset.getJsonData().isBlank()) {
+                            Files.writeString(folder.resolve(digest + ".json"), asset.getJsonData());
+                        }
+                    } catch (Exception ex) {
+                        log.warn("[角色素材] 缓存回写磁盘失败: {}", ex.getMessage());
+                    }
+                    return new ByteArrayResource(asset.getImageData());
+                }
+            } catch (Exception e) {
+                log.warn("[角色素材] 数据库读取图片失败 (项目 {}, digest {}): {}", projectId, digest, e.getMessage());
+            }
+        }
+        return new FileSystemResource(localPng);
     }
+
     private Path folder(long projectId) { if (projectId <= 0) throw new IllegalArgumentException("无效项目"); return root.resolve(Long.toString(projectId)); }
     private static String url(long projectId, String digest) { return "/api/assets/artwork/" + projectId + "/" + digest + ".png"; }
     private static String key(String value) {

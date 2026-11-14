@@ -135,6 +135,23 @@ public class DatabaseMigrationConfig {
                     " `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP," +
                     " INDEX `idx_cat_created` (`category`, `created_at`)" +
                     ") ENGINE = InnoDB DEFAULT CHARSET = utf8mb4");
+
+            // AI 生成角色与背景素材持久化表（防止 Render 容器休眠重建导致生成图片丢失）
+            executeTableCreation(stmt, "artwork_asset",
+                    "CREATE TABLE IF NOT EXISTS `artwork_asset` (" +
+                    " `id` BIGINT AUTO_INCREMENT PRIMARY KEY," +
+                    " `project_id` BIGINT NOT NULL," +
+                    " `digest` VARCHAR(64) NOT NULL COMMENT '图片 SHA-256 哈希'," +
+                    " `artwork_key` VARCHAR(255) NOT NULL COMMENT '角色素材标识 key'," +
+                    " `name` VARCHAR(255) COMMENT '素材名称'," +
+                    " `prompt` TEXT COMMENT '生图 prompt'," +
+                    " `kind` VARCHAR(32) DEFAULT 'character' COMMENT '素材类型'," +
+                    " `image_data` MEDIUMBLOB NOT NULL COMMENT 'PNG 二进制图片数据'," +
+                    " `json_data` TEXT COMMENT '完整 JSON 索引元数据'," +
+                    " `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP," +
+                    " UNIQUE KEY `uk_proj_digest` (`project_id`, `digest`)," +
+                    " INDEX `idx_proj_key` (`project_id`, `artwork_key`)" +
+                    ") ENGINE = InnoDB DEFAULT CHARSET = utf8mb4");
             // 从历史操作记录里补上已知的人；名字里带 % 的是旧版本没解码的脏数据
             try {
                 int known = stmt.executeUpdate(
