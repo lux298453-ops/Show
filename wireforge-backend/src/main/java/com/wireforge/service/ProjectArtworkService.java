@@ -78,6 +78,12 @@ public class ProjectArtworkService {
         }
     }
 
+    public ProjectArtworkService(String designsDir, String baseUrl, String apiKey, String model,
+            boolean enabled, int timeoutSeconds, int maxPerPage) {
+        this(designsDir, baseUrl, apiKey, model, enabled, timeoutSeconds, maxPerPage, null);
+    }
+
+    @Autowired
     public ProjectArtworkService(@Value("${wireforge.designs-dir}") String designsDir,
             @Value("${wireforge.ai.artwork.base-url:${wireforge.ai.base-url}}") String baseUrl,
             @Value("${wireforge.ai.artwork.api-key:${wireforge.ai.api-key}}") String apiKey,
