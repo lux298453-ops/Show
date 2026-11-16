@@ -7,9 +7,12 @@ COPY src ./src
 RUN mvn clean package -DskipTests
 
 FROM eclipse-temurin:17-jre-alpine
+RUN adduser -u 1000 -D user && \
+    mkdir -p /app/designs && \
+    chown -R user:user /app
+USER user
 WORKDIR /app
-COPY --from=build /app/target/wireforge-backend-*.jar app.jar
-RUN mkdir -p /app/designs
-EXPOSE 8090
-ENV PORT=8090
+COPY --from=build --chown=user:user /app/target/wireforge-backend-*.jar app.jar
+EXPOSE 7860
+ENV PORT=7860
 ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]

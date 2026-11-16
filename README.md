@@ -1,3 +1,9 @@
+---
+title: Wireforge Backend
+sdk: docker
+app_port: 7860
+---
+
 # Show (WireForge - AI 交互原型平台)
 
 WireForge 是一款面向视觉设计稿的 AI 原型生成与交互演练平台，支持整页高保真渲染、画布交互跳转、移动端真机模拟器预览等能力。
