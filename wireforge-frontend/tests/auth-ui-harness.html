@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Feishu login UI regression</title></head>
+<body><div id="app"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import { createRouter, createMemoryHistory, RouterView } from 'vue-router'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+import '../src/styles/main.scss'
+
+// Both storage objects and all API traffic are isolated to this tab.
+const memoryStorage = () => {
+  const values = new Map()
+  return {
+    get length() { return values.size }, key: index => [...values.keys()][index] ?? null,
+    getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)),
+    removeItem: key => values.delete(key), clear: () => values.clear(),
+  }
+}
+Object.defineProperty(window, 'localStorage', { value: memoryStorage() })
+Object.defineProperty(window, 'sessionStorage', { value: memoryStorage() })
+const calls = [], copied = [], events = [], navigations = []
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => copied.push(value) } })
+const state = { config: 'ready', callback: 'hold', role: 'editor', systemAdmin: false, loggedIn: false }
+const user = { id: 'ou_AuthFixture', feishuOpenId: 'ou_AuthFixture', name: '李浩城', avatar: '' }
+const project = { id: 900001, name: '登录样式验证', description: '', createdAt: '2026-11-14T10:00:00' }
+let configRelease, callbackRelease
+const nativeFetch = window.fetch.bind(window)
+const reply = (data, status = 200, message = '') => new Response(JSON.stringify({ code: status === 200 ? 0 : status, data, message }), { status, headers: { 'content-type': 'application/json' } })
+const waitForRelease = (kind, signal) => new Promise((resolve, reject) => {
+  if (kind === 'config') configRelease = resolve
+  else callbackRelease = resolve
+  signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+})
+window.fetch = async (input, options = {}) => {
+  const url = new URL(input instanceof Request ? input.url : String(input), location.href)
+  const method = (options.method || (input instanceof Request ? input.method : 'GET')).toUpperCase()
+  if (!url.pathname.startsWith('/api/')) {
+    if (method !== 'GET') throw new Error('Fixture blocks network writes')
+    return nativeFetch(input, options)
+  }
+  calls.push({ path: url.pathname, method })
+  if (url.pathname === '/api/auth/feishu/config') {
+    if (state.config === 'hold') await waitForRelease('config', options.signal)
+    if (state.config === 'error') throw new Error('Simulated connection failure')
+    return reply({ feishuEnabled: state.config !== 'disabled', authUrl: state.config === 'disabled' ? '' : location.href.split('#')[0] + '#fixture-feishu-authorize' })
+  }
+  if (url.pathname === '/api/auth/feishu/callback') {
+    if (state.callback === 'hold') await waitForRelease('callback', options.signal)
+    if (state.callback === 'error') return reply(null, 400, '模拟：飞书授权码已经失效')
+    state.loggedIn = true
+    return reply({ token: 'auth-fixture-token', user })
+  }
+  throw new Error(`Unexpected fixture fetch: ${method} ${url.pathname}`)
+}
+
+const { default: http } = await import('../src/api/http')
+http.defaults.adapter = async config => {
+  const path = new URL(config.url || '', location.origin).pathname
+  const method = (config.method || 'get').toUpperCase()
+  calls.push({ path, method })
+  let data
+  if (path === '/auth/me') data = { authenticated: state.loggedIn, ...user, userId: user.id, userName: user.name, systemAdmin: state.systemAdmin, projectRole: state.role }
+  else if (path === '/auth/logout') { state.loggedIn = false; data = null }
+  else if (method !== 'GET') throw new Error(`Fixture blocks API write: ${method} ${path}`)
+  else if (path === '/projects') data = [project]
+  else if (path === '/projects/900001') data = project
+  else if (path === '/projects/900001/prototype') data = { project, pages: [] }
+  else if (path.endsWith('/analysis-status')) data = { analyzing: false, finished: true, current: 0, total: 0, okCount: 0, failCount: 0 }
+  else if (path.endsWith('/edit-statuses')) data = {}
+  else if (path.endsWith('/comments') || path.endsWith('/components') || path.endsWith('/logs')) data = []
+  else throw new Error(`Unexpected fixture API: ${method} ${path}`)
+  return { status: 200, statusText: 'OK', headers: {}, config, data: { code: 0, data } }
+}
+const auth = await import('../src/services/auth')
+const { default: FeishuLoginModal } = await import('../src/components/FeishuLoginModal.vue')
+const { default: CommentPanel } = await import('../src/components/CommentPanel.vue')
+const standaloneLogin = ref(false)
+const commentFixture = { render: () => h('main', { style: 'display:flex;justify-content:flex-end;height:100vh' }, [
+  h(CommentPanel, { comments: [], onOpenAuthModal: () => { events.push('comment-login'); standaloneLogin.value = true } }),
+]) }
+const router = createRouter({ history: createMemoryHistory(), routes: [
+  { path: '/', component: () => import('../src/views/ProjectList.vue') },
+  { path: '/projects/:id/prototype', component: () => import('../src/views/PrototypeView.vue') },
+  { path: '/auth/callback', component: () => import('../src/views/AuthCallbackView.vue') },
+  { path: '/comment-fixture', component: commentFixture },
+] })
+router.afterEach(to => navigations.push(to.fullPath))
+const options = new URLSearchParams(location.search)
+document.documentElement.classList.toggle('dark', options.get('theme') === 'dark')
+await router.push(options.get('view') === 'comment' ? '/comment-fixture' : '/')
+await router.isReady()
+window.authUiTest = {
+  state, calls, copied, events, navigations, router, auth, user,
+  navigate: path => router.push(path),
+  openLogin: () => { standaloneLogin.value = true },
+  releaseConfig: () => configRelease?.(), releaseCallback: () => callbackRelease?.(),
+  setUser: async (role = 'editor', systemAdmin = false) => {
+    state.role = role; state.systemAdmin = systemAdmin; state.loggedIn = true
+    await auth.completeLogin('auth-fixture-token', user)
+    await auth.loadProjectRole(900001)
+  },
+  setGuest: async () => { await auth.logout(); auth.clearProjectRole() },
+}
+createApp({ render: () => h('div', { style: 'height:100%' }, [
+  h(RouterView),
+  h(FeishuLoginModal, { modelValue: standaloneLogin.value, 'onUpdate:modelValue': value => { standaloneLogin.value = value } }),
+]) }).use(router).use(ElementPlus).mount('#app')
+</script>
+</body></html>

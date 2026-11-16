@@ -1,0 +1,104 @@
+.wf-auth {
+  --wf-auth-blue: #0b7ed4;
+  --wf-auth-blue-hover: #0969b3;
+  --wf-auth-on-blue: #ffffff;
+  --wf-auth-blue-soft: #edf7ff;
+  --wf-auth-danger: #c52d40;
+  --wf-auth-success: #087d5c;
+  color: var(--wf-text-main);
+}
+
+.dark .wf-auth {
+  --wf-auth-blue: #53b5ff;
+  --wf-auth-blue-hover: #7bc6ff;
+  --wf-auth-on-blue: #092539;
+  --wf-auth-blue-soft: #17364c;
+  --wf-auth-danger: #ff94a1;
+  --wf-auth-success: #75d7b5;
+}
+
+.wf-auth-brand {
+  color: var(--wf-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.15px;
+}
+
+.wf-auth-hint {
+  color: var(--wf-text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.wf-auth-primary,
+.wf-auth-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 15px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.wf-auth-primary {
+  background: var(--wf-auth-blue);
+  color: var(--wf-auth-on-blue);
+}
+
+.wf-auth-primary:hover:not(:disabled) {
+  background: var(--wf-auth-blue-hover);
+}
+
+.wf-auth-secondary {
+  border-color: var(--wf-border);
+  background: var(--wf-surface);
+  color: var(--wf-text-main);
+}
+
+.wf-auth-secondary:hover:not(:disabled) {
+  background: var(--wf-bg);
+}
+
+.wf-auth-primary:disabled,
+.wf-auth-secondary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.wf-auth-link {
+  padding: 6px 0;
+  background: transparent;
+  color: var(--wf-text-muted);
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.wf-auth-link:hover {
+  color: var(--wf-auth-blue);
+}
+
+.wf-auth :where(button, summary):focus-visible {
+  outline: 2px solid var(--wf-auth-blue);
+  outline-offset: 3px;
+}
+
+.wf-auth-spinner {
+  animation: wf-auth-spin 0.9s linear infinite;
+}
+
+@keyframes wf-auth-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-auth-spinner { animation-duration: 2s; }
+}

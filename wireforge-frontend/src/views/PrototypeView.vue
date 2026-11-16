@@ -97,99 +97,14 @@
 
         <div class="h-4 w-[1px] bg-slate-200 dark:bg-[#383838]"></div>
 
-        <!-- 【未登录状态：简洁展示未登录与飞书登录入口】 -->
-        <button
-          v-if="!currentUser"
-          type="button"
-          class="wf-tap inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white/90 dark:bg-[#333333] hover:bg-slate-50 dark:hover:bg-[#3d3d3d] border border-slate-200/90 dark:border-[#444] rounded-xl shadow-2xs transition-all cursor-pointer"
-          title="当前未登录，点击进行飞书登录"
-          @click="isFeishuModalOpen = true"
-        >
-          <User class="w-3.5 h-3.5 text-slate-400" />
-          <span>未登录</span>
-          <span class="text-[#3370FF] dark:text-[#4B8CFF] font-semibold ml-0.5">飞书登录</span>
-        </button>
-
-        <!-- 【已登录状态：用户身份胶囊】 -->
-        <el-dropdown v-if="currentUser" trigger="click" @command="handleUserMenuCommand">
-          <div
-            class="wf-tap inline-flex items-center gap-2 px-2.5 py-1 text-xs bg-slate-50 dark:bg-[#333333] hover:bg-slate-100 dark:hover:bg-[#3d3d3d] border border-slate-200/90 dark:border-[#444] rounded-full shadow-2xs transition-all cursor-pointer select-none"
-            :title="projectRole ? `当前登录：${currentUser.name}（在本项目：${roleLabel(projectRole)}）` : `当前登录：${currentUser.name}`"
-          >
-            <!-- 飞书头像 -->
-            <div class="relative shrink-0 flex items-center justify-center">
-              <img
-                v-if="currentUser.avatar"
-                :src="currentUser.avatar"
-                :alt="currentUser.name"
-                class="w-5 h-5 rounded-full object-cover border border-white dark:border-[#555]"
-                @error="onTopAvatarError"
-              />
-              <div
-                v-else
-                class="w-5 h-5 rounded-full bg-[#3370FF] text-white text-[9px] font-bold flex items-center justify-center font-mono"
-              >
-                {{ currentUser.name.slice(0, 1).toUpperCase() }}
-              </div>
-            </div>
-
-            <!-- 用户姓名与角色徽章 -->
-            <span class="font-bold text-xs text-slate-800 dark:text-slate-100 max-w-[80px] truncate">
-              {{ currentUser.name }}
-            </span>
-            <span
-              v-if="projectRole"
-              class="text-[10px] font-bold px-1.5 py-0.2 rounded-full leading-tight shrink-0"
-              :class="getRoleBadgeClass(projectRole)"
-            >
-              {{ roleLabel(projectRole) }}
-            </span>
-
-            <ChevronDown class="w-3 h-3 text-slate-400 -ml-0.5" />
-          </div>
-
-          <template #dropdown>
-            <el-dropdown-menu class="user-profile-menu min-w-[180px]">
-              <div class="px-3 py-2 border-b border-slate-100 dark:border-[#333] mb-1">
-                <div class="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>{{ currentUser.name }}</span>
-                  <span v-if="isSystemAdmin" class="text-[10px] text-amber-600 dark:text-amber-400">系统管理员</span>
-                </div>
-                <div class="text-[10px] text-slate-400 mt-0.5 truncate">在本项目：{{ projectRole ? roleLabel(projectRole) : '读取中…' }}</div>
-              </div>
-              <el-dropdown-item v-if="isAdmin" command="open-members">
-                <div class="flex items-center gap-2 py-0.5 text-blue-700 dark:text-blue-400">
-                  <Users class="w-3.5 h-3.5" />
-                  <span>成员与权限管理</span>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item v-if="isAdmin" command="open-audit-log">
-                <div class="flex items-center gap-2 py-0.5 text-amber-700 dark:text-amber-400">
-                  <ScrollText class="w-3.5 h-3.5" />
-                  <span>操作审计日志</span>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="copy-open-id">
-                <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
-                  <Copy class="w-3.5 h-3.5" />
-                  <span>复制我的飞书编号</span>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="switch-account">
-                <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
-                  <RefreshCw class="w-3.5 h-3.5" />
-                  <span>切换飞书账号</span>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="logout" divided>
-                <div class="flex items-center gap-2 py-0.5 text-rose-600">
-                  <LogOut class="w-3.5 h-3.5" />
-                  <span>退出登录</span>
-                </div>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <AccountMenu
+          :user="currentUser"
+          :role-description="accountRoleDescription"
+          :can-manage-members="isAdmin"
+          :can-view-audit="isAdmin"
+          @login="isFeishuModalOpen = true"
+          @command="handleUserMenuCommand"
+        />
       </div>
     </header>
 
@@ -2586,19 +2501,14 @@ import {
   ChevronRight,
   ChevronDown,
   Pencil,
-  Users,
   AlertTriangle,
   Lock,
   Component,
   Zap,
   Trash2,
   ListTree,
-  ScrollText,
   QrCode,
-  LogOut,
   User,
-  RefreshCw,
-  Copy,
   Puzzle,
   Search,
 } from 'lucide-vue-next'
@@ -2627,6 +2537,7 @@ import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
 import CommentPin from '../components/CommentPin.vue'
 import CommentPanel from '../components/CommentPanel.vue'
 import FeishuLoginModal from '../components/FeishuLoginModal.vue'
+import AccountMenu from '../components/AccountMenu.vue'
 import AuditLogDrawer from '../components/AuditLogDrawer.vue'
 import ProjectMemberDialog from '../components/ProjectMemberDialog.vue'
 import FigmaPluginModal from '../components/FigmaPluginModal.vue'
@@ -2652,6 +2563,10 @@ import { canvasShortcut, canvasWheelIntent, type CanvasPoint, type CanvasWheel, 
 const isFeishuModalOpen = ref(false)
 const isAuditLogOpen = ref(false)
 const isMemberDialogOpen = ref(false)
+const accountRoleDescription = computed(() => {
+  const project = projectRole.value ? `本项目 · ${roleLabel(projectRole.value)}` : '正在读取项目权限'
+  return isSystemAdmin.value ? `系统管理员 / ${project}` : project
+})
 
 function onLoginSuccess(user: AuthUser) {
   ElMessage.success(`已切换登录身份：${user.name}`)
@@ -2682,24 +2597,9 @@ async function copyMyFeishuId() {
   }
 }
 
-function getRoleBadgeClass(role?: string | null) {
-  if (role === 'admin') {
-    return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60'
-  }
-  if (role === 'editor') {
-    return 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-700/60'
-  }
-  return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-600'
-}
-
 watch(() => currentUser.value?.id, (now, before) => {
   if (now !== before) loadProjectRole(id)
 })
-
-function onTopAvatarError(e: Event) {
-  const img = e.target as HTMLImageElement
-  if (img) img.style.display = 'none'
-}
 
 const activeDrawTool = ref<ActiveToolType>('select')
 const toolNames: Record<string, string> = {

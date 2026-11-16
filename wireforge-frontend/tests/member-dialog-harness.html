@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Member dialog regression</title></head><body><div id="app"></div>
+<script type="module">
+import { createApp, h, ref } from 'vue'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+import '../src/styles/main.scss'
+
+// Isolate credentials, clipboard, and every API request to this test tab.
+const stored = new Map([['wf_token', 'member-fixture-token']])
+Object.defineProperty(window, 'localStorage', { value: {
+  get length() { return stored.size }, key: index => [...stored.keys()][index] ?? null,
+  getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, String(value)),
+  removeItem: key => stored.delete(key), clear: () => stored.clear(),
+} })
+const calls = [], copied = []
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { copied.push(value) } } })
+let rejectRoleUpdate = false
+let nextId = 4
+const member = (id, userId, userName) => ({ id, projectId: 900001, userId, userName, userAvatar: '', role: 'admin', createdAt: '' })
+const members = [member(1, 'ou_Self', '李浩城'), member(2, 'ou_Kang', '苟康'), member(3, 'ou_Long', '屈晓龙')]
+function reply(data, status = 200, message = '') {
+  return new Response(JSON.stringify({ code: status === 200 ? 0 : status, data, message }), { status, headers: { 'content-type': 'application/json' } })
+}
+const nativeFetch = window.fetch.bind(window)
+window.fetch = async (input, options = {}) => {
+  const url = new URL(input instanceof Request ? input.url : String(input), location.href)
+  const method = (options.method || (input instanceof Request ? input.method : 'GET')).toUpperCase()
+  if (!url.pathname.startsWith('/api/')) {
+    if (method !== 'GET') throw new Error('Fixture blocks network writes')
+    return nativeFetch(input, options)
+  }
+  const body = typeof options.body === 'string' ? JSON.parse(options.body) : {}
+  calls.push({ method, path: url.pathname, body })
+  if (url.pathname === '/api/projects/900001/members/lookup') {
+    const userId = url.searchParams.get('userId')
+    const found = members.find(value => value.userId === userId)
+    return reply({ userId, found: !!found || userId === 'ou_NewMember', userName: found?.userName || (userId === 'ou_NewMember' ? '新同事' : null) })
+  }
+  if (url.pathname === '/api/projects/900001/members' && method === 'GET') return reply(members)
+  if (url.pathname === '/api/projects/900001/members' && method === 'POST') {
+    const existing = members.find(value => value.userId === body.userId)
+    if (existing) { existing.role = body.role; return reply(existing) }
+    const created = { ...member(nextId++, body.userId, body.userName), role: body.role }
+    members.push(created)
+    return reply(created)
+  }
+  const role = url.pathname.match(/^\/api\/projects\/900001\/members\/([^/]+)\/role$/)
+  if (role && method === 'PUT') {
+    if (rejectRoleUpdate) return reply(null, 500, '模拟权限保存失败')
+    const existing = members.find(value => value.userId === role[1])
+    if (!existing) return reply(null, 404, '成员不存在')
+    existing.role = body.role
+    return reply(null)
+  }
+  const remove = url.pathname.match(/^\/api\/projects\/900001\/members\/([^/]+)$/)
+  if (remove && method === 'DELETE') {
+    const index = members.findIndex(value => value.userId === remove[1])
+    if (index >= 0) members.splice(index, 1)
+    return reply(null)
+  }
+  if (url.pathname === '/api/projects/900001/logs' && method === 'POST') return reply(null)
+  throw new Error(`Unexpected fixture API: ${method} ${url.pathname}`)
+}
+const { currentUser } = await import('../src/services/auth')
+const { default: ProjectMemberDialog } = await import('../src/components/ProjectMemberDialog.vue')
+currentUser.value = { id: 'ou_Self', name: '李浩城', avatar: '', feishuOpenId: 'ou_Self' }
+const open = ref(true), updates = ref(0)
+document.documentElement.classList.toggle('dark', new URLSearchParams(location.search).get('theme') === 'dark')
+window.memberDialogTest = { calls, members, copied, open, updates, setRoleFailure: value => { rejectRoleUpdate = value } }
+createApp({ render: () => h('main', { style: 'padding:24px' }, [
+  h('button', { onClick: () => { open.value = true } }, '打开成员管理'),
+  h('button', { style: 'margin-left:24px', onClick: () => document.documentElement.classList.toggle('dark') }, '切换主题'),
+  h(ProjectMemberDialog, { modelValue: open.value, projectId: 900001, 'onUpdate:modelValue': value => { open.value = value }, onMemberUpdated: () => { updates.value++ } }),
+]) }).use(ElementPlus).mount('#app')
+</script></body></html>

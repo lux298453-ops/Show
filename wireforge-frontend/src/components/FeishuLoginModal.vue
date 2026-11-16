@@ -1,165 +1,146 @@
 <template>
   <el-dialog
     v-model="visible"
-    title=""
+    :title="title"
     width="400px"
     :show-close="false"
+    align-center
     append-to-body
     destroy-on-close
-    class="feishu-auth-dialog"
+    class="feishu-auth-dialog wf-auth"
   >
-    <div class="relative overflow-hidden rounded-2xl bg-white dark:bg-[#222222] text-slate-800 dark:text-slate-100 select-none">
-      <!-- Absolute Top-Right Close Button -->
-      <button
-        type="button"
-        class="absolute top-3.5 right-3.5 z-10 p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#333] rounded-lg transition-colors cursor-pointer"
-        title="关闭窗口"
-        @click="close"
-      >
-        <X class="w-4 h-4" />
+    <div class="wf-login-body" :aria-busy="fetching || redirecting">
+      <button type="button" class="wf-login-close" aria-label="关闭登录窗口" @click="visible = false">
+        <X :size="16" aria-hidden="true" />
       </button>
-
-      <!-- Modal Header with Feishu Brand Logo -->
-      <div class="px-6 pt-5 pb-4 border-b border-slate-100 dark:border-[#333333] flex items-center pr-12">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#00D6B9] to-[#3370FF] p-1.5 flex items-center justify-center shadow-xs shrink-0">
-            <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5 text-white">
-              <path
-                d="M3.5 14.5L12 3L20.5 14.5L12 21L3.5 14.5Z"
-                fill="currentColor"
-                fill-opacity="0.9"
-              />
-              <path
-                d="M12 3L20.5 14.5L12 11L3.5 14.5L12 3Z"
-                fill="white"
-                fill-opacity="0.95"
-              />
-            </svg>
-          </div>
-          <div>
-            <h2 class="text-sm font-bold tracking-tight text-slate-900 dark:text-white">飞书账号登录</h2>
-            <p class="text-xs text-slate-400 mt-0.5">即刻开启团队协同与评审</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Main Login Body -->
-      <div class="p-6 flex flex-col items-center">
-        <!-- Direct Jump Button to Official Feishu OAuth -->
-        <button
-          type="button"
-          :disabled="fetching"
-          class="w-full py-3 px-5 bg-[#3370FF] hover:bg-[#2860E1] text-white rounded-xl text-sm font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99] disabled:opacity-60"
-          @click="handleJumpOAuth"
-        >
-          <span v-if="fetching">正在获取飞书授权地址...</span>
-          <span v-else>使用飞书登录</span>
-          <ArrowRight v-if="!fetching" class="w-4 h-4" />
-        </button>
-
-
-      </div>
+      <div class="wf-auth-brand">WireForge</div>
+      <h2>{{ title }}</h2>
+      <p class="wf-auth-hint">{{ currentUser ? `当前账号：${currentUser.name}` : '登录后按项目权限编辑与评论' }}</p>
+      <button type="button" class="wf-auth-primary wf-login-main" :disabled="fetching || redirecting" @click="handleLogin">
+        <LoaderCircle v-if="fetching || redirecting" :size="16" class="wf-auth-spinner" aria-hidden="true" />
+        <span>{{ buttonLabel }}</span>
+        <ArrowUpRight v-if="!fetching && !redirecting && authUrl" :size="16" aria-hidden="true" />
+      </button>
+      <p v-if="configMessage" class="wf-login-message" :role="configError ? 'alert' : 'status'">{{ configMessage }}</p>
+      <button type="button" class="wf-auth-link wf-login-browse" @click="visible = false">
+        {{ currentUser ? '取消，保留当前账号' : '暂不登录，继续查看' }}
+      </button>
     </div>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
-import { X, ArrowRight } from 'lucide-vue-next'
-import { ElMessage } from 'element-plus'
-import type { AuthUser } from '../services/auth'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ArrowUpRight, LoaderCircle, X } from 'lucide-vue-next'
+import { currentUser, type AuthUser } from '../services/auth'
 import { apiUrl } from '../api/http'
 
-const props = defineProps<{
-  modelValue: boolean
-}>()
-
+const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
   (e: 'loginSuccess', user: AuthUser): void
 }>()
 
-const visible = ref(props.modelValue)
-watch(
-  () => props.modelValue,
-  (v) => {
-    visible.value = v
-    if (v) {
-      loadFeishuConfig()
-    }
-  }
-)
-watch(visible, (v) => {
-  emit('update:modelValue', v)
-})
-
-const feishuConfig = ref<{ feishuEnabled: boolean; authUrl?: string }>({ feishuEnabled: false })
+const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
+const title = computed(() => currentUser.value ? '切换飞书账号' : '飞书登录')
+const authUrl = ref('')
 const fetching = ref(false)
+const redirecting = ref(false)
+const configMessage = ref('')
+const configError = ref(false)
+const buttonLabel = computed(() => {
+  if (fetching.value) return '正在连接飞书…'
+  if (redirecting.value) return '正在前往飞书…'
+  if (configMessage.value) return '重试连接'
+  return currentUser.value ? '继续前往飞书' : '使用飞书登录'
+})
+let configRequest: AbortController | null = null
 
-async function loadFeishuConfig(): Promise<string> {
-  if (fetching.value) return feishuConfig.value.authUrl || ''
+async function loadFeishuConfig() {
+  configRequest?.abort()
+  const request = new AbortController()
+  configRequest = request
   fetching.value = true
+  authUrl.value = ''
+  configMessage.value = ''
+  configError.value = false
   try {
     const callbackUri = window.location.origin + '/auth/callback'
-    const res = await fetch(apiUrl(`/auth/feishu/config?redirectUri=${encodeURIComponent(callbackUri)}`))
-    if (res.ok) {
-      const data = await res.json()
-      if (data && data.data) {
-        feishuConfig.value = data.data
-        return data.data.authUrl || ''
-      }
+    const res = await fetch(apiUrl(`/auth/feishu/config?redirectUri=${encodeURIComponent(callbackUri)}`), { signal: request.signal })
+    const data = await res.json()
+    if (!res.ok || data?.code !== 0 || !data.data) throw new Error('Unavailable login configuration')
+    if (request.signal.aborted) return
+    if (data.data.feishuEnabled && data.data.authUrl) {
+      authUrl.value = data.data.authUrl
+    } else {
+      configMessage.value = '飞书登录暂未启用，请联系管理员。'
     }
-  } catch (err) {
-    console.warn('[FeishuLoginModal] Failed to load config:', err)
+  } catch {
+    if (request.signal.aborted) return
+    configError.value = true
+    configMessage.value = '暂时无法连接飞书，请重试。'
   } finally {
-    fetching.value = false
+    if (configRequest === request) {
+      configRequest = null
+      fetching.value = false
+    }
   }
-  return feishuConfig.value.authUrl || ''
 }
 
-onMounted(() => {
-  loadFeishuConfig()
-})
-
-function close() {
-  visible.value = false
+function handleLogin() {
+  if (fetching.value || redirecting.value) return
+  if (!authUrl.value) {
+    void loadFeishuConfig()
+    return
+  }
+  redirecting.value = true
+  try {
+    sessionStorage.setItem('wf_return_url', window.location.pathname + window.location.search + window.location.hash)
+  } catch {}
+  window.location.href = authUrl.value
 }
 
-async function handleJumpOAuth() {
-  let authUrl = feishuConfig.value.authUrl
-  if (!authUrl) {
-    authUrl = await loadFeishuConfig()
-  }
-  if (authUrl) {
-    try {
-      sessionStorage.setItem('wf_return_url', window.location.pathname + window.location.search)
-    } catch {}
-    window.location.href = authUrl
+watch(() => props.modelValue, open => {
+  if (open) {
+    redirecting.value = false
+    void loadFeishuConfig()
   } else {
-    ElMessage.warning('飞书登录未配置或授权地址不可用')
+    configRequest?.abort()
   }
-}
+}, { immediate: true })
+onBeforeUnmount(() => configRequest?.abort())
 </script>
 
 <style>
 .feishu-auth-dialog.el-dialog {
+  max-width: calc(100vw - 32px);
   padding: 0 !important;
-  border-radius: 1rem !important;
-  overflow: hidden !important;
-  background: white !important;
-  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1) !important;
+  border: 1px solid var(--wf-border);
+  border-radius: 14px !important;
+  background: var(--wf-surface) !important;
+  box-shadow: 0 12px 44px rgb(15 23 42 / 10%) !important;
 }
-.dark .feishu-auth-dialog.el-dialog {
-  background: #222222 !important;
+.feishu-auth-dialog .el-dialog__header { display: none; }
+.feishu-auth-dialog .el-dialog__body { padding: 0 !important; }
+.feishu-auth-dialog .wf-login-body { position: relative; padding: 34px 28px 24px; text-align: center; }
+.feishu-auth-dialog .wf-login-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  padding: 6px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--wf-text-muted);
+  cursor: pointer;
 }
-.feishu-auth-dialog .el-dialog__header {
-  display: none !important;
-  height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border: none !important;
-}
-.feishu-auth-dialog .el-dialog__body {
-  padding: 0 !important;
+.feishu-auth-dialog .wf-login-close:hover { background: var(--wf-bg); color: var(--wf-text-main); }
+.feishu-auth-dialog h2 { margin: 19px 0 7px; font-size: 20px; font-weight: 600; line-height: 28px; letter-spacing: -0.3px; }
+.feishu-auth-dialog .wf-login-main { width: 100%; margin-top: 24px; min-height: 40px; }
+.feishu-auth-dialog .wf-login-browse { margin-top: 13px; }
+.feishu-auth-dialog .wf-login-message { margin-top: 12px; color: var(--wf-text-muted); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.feishu-auth-dialog .wf-login-message[role="alert"] { color: var(--wf-auth-danger); }
+@media (max-width: 420px) {
+  .feishu-auth-dialog .wf-login-body { padding: 32px 20px 21px; }
 }
 </style>

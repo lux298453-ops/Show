@@ -20,50 +20,25 @@
       </button>
     </div>
 
-    <!-- 用户飞书实名身份条 -->
-    <div class="px-3.5 py-2.5 bg-slate-50 dark:bg-[#252525] border-b border-slate-100 dark:border-[#333] flex items-center justify-between text-xs">
-      <div v-if="authUser" class="flex items-center gap-2 min-w-0 flex-1">
-        <div class="relative shrink-0">
-          <img
-            v-if="authUser.avatar"
-            :src="authUser.avatar"
-            :alt="userName"
-            class="w-6 h-6 rounded-full object-cover border border-slate-200 dark:border-slate-700 shadow-2xs"
-            @error="onAvatarError($event)"
-          />
-          <div
-            v-else
-            class="w-6 h-6 rounded-full text-white font-bold text-[10px] flex items-center justify-center shrink-0 shadow-sm"
-            :class="getAvatarBg(userName)"
-          >
-            {{ userName.slice(0, 1).toUpperCase() }}
-          </div>
+    <div class="wf-comment-identity wf-auth">
+      <template v-if="authUser">
+        <AccountAvatar :name="userName" :src="authUser.avatar" />
+        <div class="wf-comment-account">
+          <strong :title="userName">{{ userName }}</strong>
+          <span v-if="projectRole">{{ roleLabel(projectRole) }}</span>
         </div>
-
-        <div class="flex items-center gap-1.5 min-w-0 truncate">
-          <strong class="text-slate-800 dark:text-slate-100 text-xs font-semibold truncate">{{ userName }}</strong>
-          <span
-            v-if="projectRole"
-            class="text-[9px] font-bold px-1.5 py-0.2 rounded-full shrink-0"
-            :class="getRoleBadgeClass(projectRole)"
-          >
-            {{ roleLabel(projectRole) }}
-          </span>
-        </div>
+      </template>
+      <div v-else class="wf-comment-visitor">
+        <User :size="15" aria-hidden="true" />
+        <span>未登录 · 可查看评论</span>
       </div>
-
-      <div v-else class="flex items-center gap-1.5 min-w-0 flex-1 text-slate-500 dark:text-slate-400">
-        <User class="w-3.5 h-3.5 text-slate-400 shrink-0" />
-        <span class="text-xs">未登录（只读预览）</span>
-      </div>
-
       <button
         type="button"
-        class="text-[11px] text-[#3370FF] hover:text-[#2860E1] dark:text-blue-400 font-semibold px-2 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors cursor-pointer shrink-0 ml-1"
-        :title="authUser ? '切换飞书账号' : '立即登录飞书'"
+        class="wf-auth-link"
+        :title="authUser ? '切换飞书账号' : '飞书登录'"
         @click="emit('openAuthModal')"
       >
-        {{ authUser ? '切换' : '登录' }}
+        {{ authUser ? '切换账号' : '飞书登录' }}
       </button>
     </div>
 
@@ -206,7 +181,8 @@
 import { ref, computed } from 'vue'
 import { X, Trash2, MessageSquare, User } from 'lucide-vue-next'
 import type { CommentThread } from '../types'
-import { currentUser as authUser, projectRole, roleLabel, type UserRole } from '../services/auth'
+import { currentUser as authUser, projectRole, roleLabel } from '../services/auth'
+import AccountAvatar from './AccountAvatar.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -302,19 +278,6 @@ function getAvatarBg(name?: string) {
   return colorPalette[hash]
 }
 
-function getRoleBadgeClass(role?: UserRole) {
-  switch (role) {
-    case 'admin':
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
-    case 'editor':
-      return 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400'
-    case 'viewer':
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
-    default:
-      return 'bg-slate-100 text-slate-600'
-  }
-}
-
 function onAvatarError(e: Event) {
   const target = e.target as HTMLImageElement
   if (target) {
@@ -324,6 +287,21 @@ function onAvatarError(e: Event) {
 </script>
 
 <style scoped>
+.wf-comment-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--wf-border);
+}
+.wf-comment-account { display: flex; flex: 1; align-items: baseline; flex-wrap: wrap; gap: 2px 7px; min-width: 0; }
+.wf-comment-account strong { overflow: hidden; max-width: 100%; color: var(--wf-text-main); font-size: 12px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.wf-comment-account span { color: var(--wf-text-muted); font-size: 11px; }
+.wf-comment-visitor { display: flex; flex: 1; align-items: center; gap: 6px; color: var(--wf-text-muted); font-size: 12px; }
+.wf-comment-visitor svg { flex: 0 0 auto; }
+.wf-comment-identity > .wf-auth-link { flex: 0 0 auto; margin-left: auto; color: var(--wf-auth-blue); }
+.wf-comment-identity > .wf-auth-link:hover { color: var(--wf-auth-blue-hover); }
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }

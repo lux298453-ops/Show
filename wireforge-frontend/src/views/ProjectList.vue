@@ -14,77 +14,13 @@
           </button>
           <NavbarControls />
 
-          <!-- 【未登录状态：飞书登录按钮】 -->
-          <button
-            v-if="!currentUser"
-            type="button"
-            class="home-login-btn"
-            title="点击进行飞书登录"
-            @click="isFeishuModalOpen = true"
-          >
-            <User :size="15" />
-            <span>飞书登录</span>
-          </button>
-
-          <!-- 【已登录状态：用户身份胶囊】 -->
-          <el-dropdown v-else trigger="click" @command="handleUserMenuCommand">
-            <div
-              class="home-user-capsule"
-              :title="`当前登录：${currentUser.name}${isSystemAdmin ? '（系统管理员）' : ''}`"
-            >
-              <div class="user-avatar-wrap">
-                <img
-                  v-if="currentUser.avatar"
-                  :src="currentUser.avatar"
-                  :alt="currentUser.name"
-                  class="user-avatar-img"
-                  @error="onAvatarError"
-                />
-                <div v-else class="user-avatar-text">
-                  {{ currentUser.name.slice(0, 1).toUpperCase() }}
-                </div>
-              </div>
-              <span class="user-name">{{ currentUser.name }}</span>
-              <span v-if="isSystemAdmin" class="role-badge bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60">系统管理员</span>
-              <ChevronDown :size="13" class="chevron-icon" />
-            </div>
-
-            <template #dropdown>
-              <el-dropdown-menu class="user-profile-menu min-w-[180px]">
-                <div class="px-3 py-2 border-b border-slate-100 dark:border-[#333] mb-1">
-                  <div class="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <span>{{ currentUser.name }}</span>
-                    <span v-if="isSystemAdmin" class="text-[10px] text-amber-600 dark:text-amber-400">系统管理员</span>
-                  </div>
-                  <div class="text-[10px] text-slate-400 mt-0.5 truncate">各项目里的权限进入项目后显示</div>
-                </div>
-                <el-dropdown-item v-if="isSystemAdmin" command="open-audit">
-                  <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
-                    <ScrollText :size="14" />
-                    <span>操作日志</span>
-                  </div>
-                </el-dropdown-item>
-                <el-dropdown-item command="copy-open-id">
-                  <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
-                    <Copy :size="14" />
-                    <span>复制我的飞书编号</span>
-                  </div>
-                </el-dropdown-item>
-                <el-dropdown-item command="switch-account">
-                  <div class="flex items-center gap-2 py-0.5 text-slate-700 dark:text-slate-200">
-                    <RefreshCw :size="14" />
-                    <span>切换飞书账号</span>
-                  </div>
-                </el-dropdown-item>
-                <el-dropdown-item command="logout" divided>
-                  <div class="flex items-center gap-2 py-0.5 text-rose-600">
-                    <LogOut :size="14" />
-                    <span>退出登录</span>
-                  </div>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <AccountMenu
+            :user="currentUser"
+            :role-description="isSystemAdmin ? '系统管理员' : '飞书账号'"
+            :can-view-audit="isSystemAdmin"
+            @login="isFeishuModalOpen = true"
+            @command="handleUserMenuCommand"
+          />
         </div>
       </div>
     </header>
@@ -162,11 +98,12 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, FolderPlus, LayoutGrid, List, Trash2, Search, ChevronRight, Layers, MoreHorizontal, ArrowUpRight, AlertCircle, RotateCw, Pencil, User, ChevronDown, LogOut, RefreshCw, ScrollText, Copy } from 'lucide-vue-next'
+import { Plus, FolderPlus, LayoutGrid, List, Trash2, Search, ChevronRight, Layers, MoreHorizontal, ArrowUpRight, AlertCircle, RotateCw, Pencil } from 'lucide-vue-next'
 import NavbarControls from '../components/NavbarControls.vue'
 import ProjectMetadataDialog from '../components/ProjectMetadataDialog.vue'
 import DesignFolderPicker from '../components/DesignFolderPicker.vue'
 import FeishuLoginModal from '../components/FeishuLoginModal.vue'
+import AccountMenu from '../components/AccountMenu.vue'
 import AuditLogDrawer from '../components/AuditLogDrawer.vue'
 import { currentUser, isSystemAdmin, logout, type AuthUser } from '../services/auth'
 import { t, currentLang } from '../utils/i18n'
@@ -225,7 +162,7 @@ function onLoginSuccess(user: AuthUser) {
 }
 
 function handleUserMenuCommand(command: string) {
-  if (command === 'open-audit') {
+  if (command === 'open-audit-log') {
     auditOpen.value = true
   } else if (command === 'copy-open-id') {
     copyMyFeishuId()
@@ -245,11 +182,6 @@ async function copyMyFeishuId() {
   } catch {
     ElMessage.info(`你的飞书编号：${openId}`)
   }
-}
-
-function onAvatarError(e: Event) {
-  const img = e.target as HTMLImageElement
-  if (img) img.style.display = 'none'
 }
 
 async function loadStats(p: ProjectItem, generation = loadGeneration) {
@@ -339,17 +271,6 @@ h1 { font-size: 28px; font-weight: 650; letter-spacing: -.025em; margin: 0; line
 .library-toolbar, .toolbar-right { display: flex; align-items: center; gap: 16px; }.library-toolbar { justify-content: space-between; margin-bottom: 24px; }.sort-label { color: var(--home-muted); font-size: 12px; }
 .project-search { display: flex; align-items: center; gap: 9px; width: 300px; max-width: 100%; border: 1px solid var(--home-line); border-radius: 6px; background: var(--home-surface); padding: 9px 12px; color: var(--home-muted); }.project-search:focus-within { border-color: var(--home-blue); }.project-search input { min-width: 0; width: 100%; background: transparent; color: var(--home-text); outline: none; font-size: 14px; }.project-search input::placeholder { color: var(--home-muted); }
 .home-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border: 1px solid var(--home-line, #e5e8ed); border-radius: 6px; background: var(--home-surface, var(--el-bg-color, #fff)); color: var(--home-text, var(--el-text-color-primary, #17202e)); font-size: 14px; font-weight: 550; cursor: pointer; transition: all .15s ease; }.home-button:hover { background: var(--home-soft); }.home-button.primary { background: #096dd9; color: #fff; border-color: #096dd9; }.home-button.primary:hover { background: #075cb7; }.home-button:disabled { opacity: .45; cursor: not-allowed; }
-.home-login-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--home-line, #e5e8ed); border-radius: 6px; background: var(--home-surface, #fff); color: #3370ff; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s ease; }
-.home-login-btn:hover { background: var(--home-soft, #f0f2f5); border-color: #3370ff; }
-:global(.dark) .home-login-btn { color: #4b8cff; }
-.home-user-capsule { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 6px; border: 1px solid var(--home-line, #e5e8ed); border-radius: 9999px; background: var(--home-surface, #fff); cursor: pointer; transition: all .15s ease; user-select: none; }
-.home-user-capsule:hover { background: var(--home-soft, #f0f2f5); }
-.user-avatar-wrap { width: 24px; height: 24px; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #3370ff; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
-.user-avatar-img { width: 100%; height: 100%; object-fit: cover; }
-.user-avatar-text { font-family: monospace; }
-.user-name { font-size: 13px; font-weight: 600; color: var(--home-text, #17202e); max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.role-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9999px; line-height: 1.3; }
-.chevron-icon { color: var(--home-muted, #667085); margin-left: -2px; }
 .project-collection.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }.project-card { min-width: 0; border: 1px solid var(--home-line); border-radius: 10px; background: var(--home-surface); transition: border-color .15s; }.project-card:hover { border-color: #a8b8cb; }
 .project-cover { display: flex; align-items: center; justify-content: center; aspect-ratio: 16/10; background: var(--home-soft); border-bottom: 1px solid var(--home-line); border-radius: 9px 9px 0 0; overflow: hidden; padding: 16px; text-decoration: none; }.project-cover img { max-width: 100%; width: 100%; height: 100%; object-fit: contain; border-radius: 2px; }.cover-placeholder { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--home-muted); font-size: 12px; }
 .project-content { padding: 18px 20px 0; }.project-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.project-title-row h2 { min-width: 0; font-size: 16px; font-weight: 600; margin: 0; }.project-title-row h2 a { color: var(--home-text); text-decoration: none; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }.project-title-row h2 a:hover { color: var(--home-blue); }.more-button { display: flex; padding: 5px; border-radius: 5px; color: var(--home-muted); cursor: pointer; }.more-button:hover { background: var(--home-soft); }.menu-icon { margin-right: 8px; }
