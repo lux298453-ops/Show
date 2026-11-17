@@ -10,7 +10,7 @@ function finishRequest(config: SaveConfig | undefined, error?: string) {
 }
 
 const DEFAULT_PROD_URL = typeof window !== 'undefined' && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')
-  ? 'https://luxandocean-wireforge-backend.hf.space'
+  ? 'https://show-zduq.onrender.com'
   : ''
 let configuredUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_PROD_URL || '').trim().replace(/\/+$/, '')
 if (configuredUrl.endsWith('/api')) {
