@@ -50,7 +50,8 @@ class AiAdjustmentSaveTest {
             assertThrows(IllegalStateException.class, () -> service.updatePageHtml(7L, 71001L, "changed", "ai", "original", null));
         } finally { service.lockPageEditing(71001L, "other", "Other editor", false); }
         service.updatePageHtml(71001L, "legacy changed", "editor", null);
-        verify(pages).updateById(page); assertEquals("legacy changed", page.getHtmlContent());
+        verify(pages).update(isNull(), argThat(wrapper -> wrapper.getSqlSegment().contains("BINARY html_content")));
+        verify(pages, never()).updateById(any());
     }
 
     @Test void retryAfterLostAcknowledgementDoesNotReportAFalseConflict() {

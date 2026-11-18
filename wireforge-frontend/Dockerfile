@@ -12,7 +12,9 @@ RUN npm install
 COPY wireforge-frontend/ .
 # Share the exact control assets packaged into backend-generated HTML.
 COPY wireforge-backend/src/main/resources/prototype/controls.* /app/wireforge-backend/src/main/resources/prototype/
-RUN npm run build
+# The bundled Nginx proxies /api locally. Override only for a deliberate split deployment.
+ARG VITE_API_BASE_URL=""
+RUN VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run build
 
 # ==========================================
 # 生产运行阶段 (Nginx Alpine)

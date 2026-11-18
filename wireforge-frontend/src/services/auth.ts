@@ -45,6 +45,23 @@ const systemAdmin = ref(false)
 /** 当前打开项目里我的角色；null 表示还没问到服务器，此期间按只读处理 */
 const projectRoleState = ref<{ projectId: number; role: UserRole } | null>(null)
 let roleRequestSeq = 0
+let sessionVersion = 0
+let activeProjectId: number | null = null
+
+function sessionSnapshot() {
+  return { version: sessionVersion, token: localStorage.getItem(TOKEN_KEY) }
+}
+
+function isCurrentSession(session: ReturnType<typeof sessionSnapshot>) {
+  return session.version === sessionVersion && session.token === localStorage.getItem(TOKEN_KEY)
+}
+
+function invalidateSession() {
+  sessionVersion++
+  systemAdmin.value = false
+  roleRequestSeq++
+  projectRoleState.value = null
+}
 
 function storeUser(user: AuthUser | null) {
   currentUser.value = user ? { ...user } : null
@@ -62,11 +79,11 @@ function storeUser(user: AuthUser | null) {
 }
 
 function clearLogin() {
+  invalidateSession()
   try {
     localStorage.removeItem(TOKEN_KEY)
   } catch {}
   storeUser(null)
-  systemAdmin.value = false
 }
 
 function isRole(value: unknown): value is UserRole {
@@ -75,8 +92,7 @@ function isRole(value: unknown): value is UserRole {
 
 function applyMe(me: any) {
   if (!me?.authenticated) {
-    if (currentUser.value || localStorage.getItem(TOKEN_KEY)) clearLogin()
-    systemAdmin.value = false
+    clearLogin()
     return
   }
   const user = toAuthUser(me)
@@ -86,69 +102,98 @@ function applyMe(me: any) {
 
 /** 飞书回调拿到凭证后调用：存凭证，再向服务器确认身份 */
 export async function completeLogin(token: string, user: unknown): Promise<AuthUser | null> {
+  const projectId = activeProjectId
+  invalidateSession()
+  const roleSeq = roleRequestSeq
   try {
     localStorage.setItem(TOKEN_KEY, token)
   } catch {}
   storeUser(toAuthUser(user))
+  const session = sessionSnapshot()
   await refreshSession()
-  return currentUser.value
+  if (!isCurrentSession(session)) return null
+  // Renewing a login for the same user does not trigger the view's user-ID watcher.
+  if (projectId != null && currentUser.value && roleSeq === roleRequestSeq) await loadProjectRole(projectId)
+  return isCurrentSession(session) ? currentUser.value : null
 }
 
 /** 另一个窗口完成了登录（同源共享 localStorage），重新读取并确认 */
 export async function syncLoginFromStorage(): Promise<AuthUser | null> {
+  const projectId = activeProjectId
+  invalidateSession()
+  const roleSeq = roleRequestSeq
   storeUser(loadSavedUser())
+  const session = sessionSnapshot()
   await refreshSession()
-  return currentUser.value
+  if (!isCurrentSession(session)) return null
+  if (projectId != null && currentUser.value && roleSeq === roleRequestSeq) await loadProjectRole(projectId)
+  return isCurrentSession(session) ? currentUser.value : null
 }
 
 /** 向服务器确认凭证是否有效、我是不是系统管理员。网络不通时保留本地状态。 */
 export async function refreshSession(): Promise<void> {
-  if (!localStorage.getItem(TOKEN_KEY)) {
-    if (currentUser.value) storeUser(null)
-    systemAdmin.value = false
+  const session = sessionSnapshot()
+  if (!session.token) {
+    clearLogin()
     return
   }
   try {
-    applyMe(await http.get<any, any>('/auth/me'))
+    const me = await http.get<any, any>('/auth/me', { headers: { Authorization: `Bearer ${session.token}` } })
+    if (isCurrentSession(session)) applyMe(me)
   } catch (err) {
-    console.warn('[Auth] Failed to verify session', err)
+    if (isCurrentSession(session)) console.warn('[Auth] Failed to verify session', err)
   }
 }
 
 /** 问服务器我在这个项目里的角色。拿到回答之前 isEditor 为 false，画布保持锁定。 */
 export async function loadProjectRole(projectId: number): Promise<UserRole> {
+  activeProjectId = projectId
   const seq = ++roleRequestSeq
+  const session = sessionSnapshot()
   projectRoleState.value = null
   let role: UserRole = 'viewer'
+  if (!session.token) {
+    clearLogin()
+    projectRoleState.value = { projectId, role }
+    return role
+  }
   try {
-    const me = await http.get<any, any>('/auth/me', { params: { projectId } })
-    if (seq !== roleRequestSeq) return role
+    const me = await http.get<any, any>('/auth/me', { params: { projectId }, headers: { Authorization: `Bearer ${session.token}` } })
+    if (seq !== roleRequestSeq || !isCurrentSession(session)) return role
+    if (!me?.authenticated) {
+      clearLogin()
+      projectRoleState.value = { projectId, role }
+      return role
+    }
     applyMe(me)
     if (isRole(me?.projectRole)) role = me.projectRole
   } catch (err) {
-    console.warn('[Auth] Failed to load project role', err)
+    if (seq === roleRequestSeq && isCurrentSession(session)) console.warn('[Auth] Failed to load project role', err)
   }
-  if (seq === roleRequestSeq) projectRoleState.value = { projectId, role }
+  if (seq === roleRequestSeq && isCurrentSession(session)) projectRoleState.value = { projectId, role }
   return role
 }
 
 export function clearProjectRole() {
   roleRequestSeq++
+  activeProjectId = null
   projectRoleState.value = null
 }
 
 export async function loginWithFeishu(code: string): Promise<AuthUser> {
+  const session = sessionSnapshot()
   const result = await http.post<any, any>('/auth/feishu/callback', { code: code.trim() })
+  if (!isCurrentSession(session)) throw new Error('登录状态已变化，请重新登录')
   const user = result?.token ? await completeLogin(result.token, result.user) : null
   if (!user) throw new Error('飞书登录失败')
   return user
 }
 
 export async function logout() {
-  if (localStorage.getItem(TOKEN_KEY)) {
-    await http.post('/auth/logout').catch(() => {})
-  }
+  const token = localStorage.getItem(TOKEN_KEY)
+  // Invalidate in-flight identity/role responses before waiting for server revocation.
   clearLogin()
+  if (token) await http.post('/auth/logout', null, { headers: { Authorization: `Bearer ${token}` } }).catch(() => {})
 }
 
 export const isAuthenticated = computed(() => !!currentUser.value)

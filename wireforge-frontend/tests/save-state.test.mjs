@@ -209,3 +209,67 @@ test('same-resource writes are sent in order while another page can save indepen
   assert.deepEqual(started, ['first', 'another page', 'second'])
   assert.equal(useSaveState('713').status.value, 'saved')
 })
+
+test('a slow save stays serialized after 15 seconds instead of releasing a newer snapshot', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pending = []
+  let serverHtml = ''
+  http.defaults.adapter = cfg => new Promise(resolve => {
+    const { html } = JSON.parse(cfg.data)
+    pending.push({ html, complete() {
+      serverHtml = html
+      resolve({ data: { code: 0, data: null }, status: 200, statusText: 'OK', headers: {}, config: cfg })
+    } })
+  })
+  const first = http.put('/projects/714/pages/1/html', { html: 'older' })
+  const second = http.put('/projects/714/pages/1/html', { html: 'newer' })
+  await new Promise(resolve => setImmediate(resolve))
+  t.mock.timers.tick(16000)
+  await new Promise(resolve => setImmediate(resolve))
+  const startedWhileSlow = pending.map(item => item.html)
+  const statusWhileSlow = useSaveState('714').status.value
+  pending[0].complete()
+  await first
+  await new Promise(resolve => setImmediate(resolve))
+  pending[1].complete(); await second
+  assert.deepEqual(startedWhileSlow, ['older'])
+  assert.equal(statusWhileSlow, 'saving')
+  assert.equal(serverHtml, 'newer')
+  assert.equal(useSaveState('714').status.value, 'saved')
+})
+
+test('a failed save releases its queue and a newer save can finish', async () => {
+  let failFirst
+  const started = []
+  http.defaults.adapter = cfg => {
+    const { html } = JSON.parse(cfg.data); started.push(html)
+    if (html === 'first') return new Promise((resolve, reject) => { failFirst = () => reject(Object.assign(new Error('Network Error'), { config: cfg })) })
+    return Promise.resolve({ data: { code: 0, data: null }, status: 200, statusText: 'OK', headers: {}, config: cfg })
+  }
+  const first = assert.rejects(http.put('/projects/715/pages/1/html', { html: 'first' }))
+  const second = http.put('/projects/715/pages/1/html', { html: 'latest' })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(started, ['first'])
+  failFirst(); await Promise.all([first, second])
+  assert.deepEqual(started, ['first', 'latest'])
+  assert.equal(useSaveState('715').status.value, 'saved')
+})
+
+test('cancelling a queued save does not send it or block later edits', async () => {
+  let releaseFirst
+  const started = []
+  http.defaults.adapter = async cfg => {
+    const { html } = JSON.parse(cfg.data); started.push(html)
+    if (html === 'first') await new Promise(resolve => { releaseFirst = resolve })
+    return { data: { code: 0, data: null }, status: 200, statusText: 'OK', headers: {}, config: cfg }
+  }
+  const controller = new AbortController()
+  const first = http.put('/projects/716/pages/1/html', { html: 'first' })
+  const cancelled = assert.rejects(http.put('/projects/716/pages/1/html', { html: 'cancelled' }, { signal: controller.signal }))
+  const latest = http.put('/projects/716/pages/1/html', { html: 'latest' })
+  await new Promise(resolve => setImmediate(resolve))
+  controller.abort(); assert.deepEqual(started, ['first'])
+  releaseFirst(); await Promise.all([first, cancelled, latest])
+  assert.deepEqual(started, ['first', 'latest'])
+  assert.equal(useSaveState('716').status.value, 'saved')
+})

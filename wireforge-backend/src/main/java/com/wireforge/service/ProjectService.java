@@ -1119,7 +1119,7 @@ public class ProjectService {
         savePageHtml(null, pageId, html, clientId, null);
     }
 
-    /** Optional compare-and-set baseline protects AI drafts without changing legacy editor saves. */
+    /** AI drafts can supply an explicit baseline; manual saves guard the row loaded before the write. */
     public void updatePageHtml(Long projectId, Long pageId, String html, String clientId, String expectedHtml, AuthUser currentUser) {
         if (expectedHtml != null && (clientId == null || clientId.isBlank())) {
             throw new IllegalArgumentException("版本校验保存必须提供编辑会话标识");
@@ -1147,26 +1147,29 @@ public class ProjectService {
         }
         // 彻底剥离可能残留的前端全屏微调检查器临时样式，避免污染画板持久化内容
         html = html.replaceAll("(?s)<style\\s+id=[\"']wf-inspector-style[\"'].*?</style>", "");
-        if (expectedHtml != null) {
-            // A retry after a lost acknowledgement is safe when this exact version is already saved.
-            if (Objects.equals(html, page.getHtmlContent())) return;
-            if (!Objects.equals(expectedHtml, page.getHtmlContent())) {
-                throw new IllegalStateException("画板已在其他窗口更新，请刷新并基于最新版本调整");
-            }
-            // MySQL's default collation can ignore case; binary comparison also catches case-only edits.
-            int updated = pageMapper.update(null, Wrappers.<Page>lambdaUpdate()
-                    .eq(Page::getId, pageId).eq(Page::getProjectId, projectId)
-                    .apply("BINARY html_content = BINARY {0}", expectedHtml).set(Page::getHtmlContent, html));
-            if (updated == 0) {
-                Page latest = pageMapper.selectById(pageId);
-                if (latest == null || !Objects.equals(html, latest.getHtmlContent())) {
-                    throw new IllegalStateException("画板已更新，本次保存未覆盖新内容，请刷新后重试");
-                }
-            }
-            return;
+        // A retry after a lost acknowledgement is safe when this version is already saved.
+        if (Objects.equals(html, page.getHtmlContent())) return;
+        if (expectedHtml != null && !Objects.equals(expectedHtml, page.getHtmlContent())) {
+            throw new IllegalStateException("画板已在其他窗口更新，请刷新并基于最新版本调整");
         }
-        page.setHtmlContent(html);
-        pageMapper.updateById(page);
+        // Only write HTML. Even legacy saves must not overwrite position/size read before a concurrent edit.
+        var update = Wrappers.<Page>lambdaUpdate()
+                .eq(Page::getId, pageId).eq(Page::getProjectId, page.getProjectId())
+                .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0));
+        if (page.getHtmlContent() == null) {
+            update.isNull(Page::getHtmlContent);
+        } else {
+            // MySQL's default collation can ignore case; compare the loaded baseline byte-for-byte.
+            update.apply("BINARY html_content = BINARY {0}", page.getHtmlContent());
+        }
+        int updated = pageMapper.update(null, update.set(Page::getHtmlContent, html));
+        if (updated == 0) {
+            Page latest = pageMapper.selectById(pageId);
+            if (latest == null || !Objects.equals(page.getProjectId(), latest.getProjectId())
+                    || Integer.valueOf(1).equals(latest.getIsDeleted()) || !Objects.equals(html, latest.getHtmlContent())) {
+                throw new IllegalStateException("画板已更新，本次保存未覆盖新内容，请刷新后重试");
+            }
+        }
     }
 
     /**
@@ -1175,16 +1178,23 @@ public class ProjectService {
     public Map<String, Object> updatePagePosition(Long projectId, Long pageId, Map<String, Object> body) {
         getProject(projectId);
         Page page = pageMapper.selectById(pageId);
-        if (page == null || !projectId.equals(page.getProjectId())) {
+        if (page == null || !projectId.equals(page.getProjectId()) || Integer.valueOf(1).equals(page.getIsDeleted())) {
             throw new IllegalStateException("页面不属于该项目: " + pageId);
         }
+        var update = Wrappers.<Page>lambdaUpdate()
+                .eq(Page::getId, pageId).eq(Page::getProjectId, projectId)
+                .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0));
         if (body.containsKey("canvasX")) {
             page.setCanvasX(toDouble(body.get("canvasX")));
+            update.set(Page::getCanvasX, page.getCanvasX());
         }
         if (body.containsKey("canvasY")) {
             page.setCanvasY(toDouble(body.get("canvasY")));
+            update.set(Page::getCanvasY, page.getCanvasY());
         }
-        pageMapper.updateById(page);
+        if (body.containsKey("canvasX") || body.containsKey("canvasY")) {
+            pageMapper.update(null, update);
+        }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", page.getId());
@@ -1200,7 +1210,7 @@ public class ProjectService {
     public Map<String, Object> updatePageSize(Long projectId, Long pageId, Map<String, Object> body) {
         getProject(projectId);
         Page page = pageMapper.selectById(pageId);
-        if (page == null || !projectId.equals(page.getProjectId())) {
+        if (page == null || !projectId.equals(page.getProjectId()) || Integer.valueOf(1).equals(page.getIsDeleted())) {
             throw new IllegalStateException("页面不属于该项目: " + pageId);
         }
         Integer width = toInt(body.get("width"));
@@ -1213,7 +1223,10 @@ public class ProjectService {
         }
         page.setCanvasWidth(width);
         page.setCanvasHeight(height);
-        pageMapper.updateById(page);
+        pageMapper.update(null, Wrappers.<Page>lambdaUpdate()
+                .eq(Page::getId, pageId).eq(Page::getProjectId, projectId)
+                .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
+                .set(Page::getCanvasWidth, width).set(Page::getCanvasHeight, height));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", page.getId());

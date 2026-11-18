@@ -9,10 +9,8 @@ function finishRequest(config: SaveConfig | undefined, error?: string) {
   config?.wfReleaseSave?.()
 }
 
-const DEFAULT_PROD_URL = typeof window !== 'undefined' && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')
-  ? 'https://show-zduq.onrender.com'
-  : ''
-let configuredUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_PROD_URL || '').trim().replace(/\/+$/, '')
+// Same-origin works for localhost, LAN and the bundled Nginx proxy. Split deployments set this explicitly.
+let configuredUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
 if (configuredUrl.endsWith('/api')) {
   configuredUrl = configuredUrl.substring(0, configuredUrl.length - 4).replace(/\/+$/, '')
 }
@@ -56,7 +54,7 @@ const http = axios.create({
 
 http.interceptors.request.use(async (config: SaveConfig) => {
   const token = localStorage.getItem('wf_token')
-  if (token) {
+  if (token && !config.headers.has('Authorization')) {
     config.headers.set('Authorization', `Bearer ${token}`)
   }
 
@@ -69,13 +67,9 @@ http.interceptors.request.use(async (config: SaveConfig) => {
     let release!: () => void
     const current = new Promise<void>(resolve => { release = resolve })
     saveQueues.set(key, current)
-    // 增加 15 秒并发队列防死锁安全熔断：若网络挂起或前序请求未释放，自动唤醒后续写入
-    const queueSafetyTimer = setTimeout(() => {
-      release()
-      if (saveQueues.get(key) === current) saveQueues.delete(key)
-    }, 15000)
+    // Release only when the request settles. A timer must not send a newer snapshot
+    // while the older write is still running; Axios already bounds the network wait.
     config.wfReleaseSave = () => {
-      clearTimeout(queueSafetyTimer)
       release()
       if (saveQueues.get(key) === current) saveQueues.delete(key)
     }
