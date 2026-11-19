@@ -14,7 +14,7 @@ const result = await build({
   define: { 'import.meta.env.VITE_API_BASE_URL': '""' },
 })
 await writeFile(output, result.outputFiles[0].contents)
-const { http, useSaveState, beginSave, finishSave, discardSaveState, markLocalEdit, waitForSaved } = createRequire(import.meta.url)(output)
+const { http, useSaveState, beginSave, beginPendingSave, finishSave, discardSaveState, markLocalEdit, waitForSaved } = createRequire(import.meta.url)(output)
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
 // HTTP requests read the browser's login token before reaching the mock adapter.
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } })
@@ -28,6 +28,26 @@ after(async () => {
 function config(scope, route, data, method = 'put') {
   return { url: `/projects/${scope}/${route}`, method, data, headers: {} }
 }
+
+test('queued relation edits protect leaving the page before their HTTP requests start', async () => {
+  const state = useSaveState('801'), finish = beginPendingSave('801')
+  assert.equal(state.hasUnsavedChanges.value, true)
+  let ready = false
+  const waiting = waitForSaved('801', { quietMs: 0, timeoutMs: 1000 }).then(() => { ready = true })
+  await new Promise(resolve => setTimeout(resolve, 10)); assert.equal(ready, false)
+  finish(); await waiting; assert.equal(state.hasUnsavedChanges.value, false)
+})
+
+test('a relation batch failure is superseded only for the elements actually saved later', () => {
+  const state = useSaveState('802'), batch = changes => config('802', 'interactions/batch', { changes }, 'post')
+  const first = beginSave(batch([{ elementId: 10, remove: true }, { elementId: 11, remove: true }]), async () => {})
+  assert.equal(first.retryable, false)
+  finishSave(first, 'offline')
+  const second = beginSave(batch([{ elementId: 10, remove: false }]), async () => {})
+  finishSave(second); assert.equal(state.status.value, 'error', 'element 11 is still unconfirmed')
+  const third = beginSave(batch([{ elementId: 11, remove: true }]), async () => {})
+  finishSave(third); assert.equal(state.status.value, 'saved')
+})
 
 test('preview waits for local edits and pending saves before continuing', async () => {
   markLocalEdit('740',1)

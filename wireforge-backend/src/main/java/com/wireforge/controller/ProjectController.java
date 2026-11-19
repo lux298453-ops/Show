@@ -13,6 +13,7 @@ import com.wireforge.service.ProjectService;
 import com.wireforge.model.ProjectAnalysisStatus;
 import com.wireforge.model.AutowirePlan;
 import com.wireforge.model.AuthUser;
+import com.wireforge.model.InteractionMutation;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -306,6 +307,12 @@ public class ProjectController {
             @PathVariable Long id,
             @RequestBody Map<String, Object> body) {
         return Result.ok(projectService.saveInteraction(id, body));
+    }
+
+    @PostMapping("/{id}/interactions/batch")
+    public Result<List<InteractionMutation.State>> mutateInteractions(
+            @PathVariable Long id, @RequestBody InteractionMutation.Request body) {
+        return Result.ok(projectService.mutateInteractions(id, body));
     }
 
     /**

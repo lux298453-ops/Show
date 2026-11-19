@@ -54,6 +54,13 @@ function activeFailures(state: ScopeState): SaveTicket[] {
   return [...state.failures.values()].filter(ticket => remainingFields(ticket).length > 0)
 }
 
+/** Include optimistic edits waiting in a local FIFO in save/leave-page protection. */
+export function beginPendingSave(scope: string): () => void {
+  const state = stateFor(scope), generation = state.generation, id = ++sequence
+  state.pending.add(id)
+  return () => { if (state.generation === generation) state.pending.delete(id) }
+}
+
 /** Observe editing writes only. Generation, deletion, imports and edit-lock heartbeats
  * are excluded: they must never be replayed by the save-status control. */
 export function beginSave(config: InternalAxiosRequestConfig, replay: Replay): SaveTicket | undefined {
@@ -67,19 +74,22 @@ export function beginSave(config: InternalAxiosRequestConfig, replay: Replay): S
     /^annotations\/\d+$/.test(route)
   )
   const manualWrite = method === 'post' && (
-    route === 'interactions' || /^pages\/\d+\/elements$/.test(route)
+    route === 'interactions' || route === 'interactions/batch' || /^pages\/\d+\/elements$/.test(route)
   )
   if (!retryable && !manualWrite) return
   const data = parseData(config.data)
   const isAnnotation = /^annotations\/\d+$/.test(route)
   // Annotation PUTs are partial updates. Track each field so that a later write
   // to one field cannot hide a failure for an unrelated field.
-  const fields = isAnnotation && data && typeof data === 'object' && !Array.isArray(data)
+  const isInteractionBatch = route === 'interactions/batch' && manualWrite
+  const fields = isInteractionBatch
+    ? ((data as { changes?: { elementId: number }[] })?.changes || []).map(change => String(change.elementId))
+    : isAnnotation && data && typeof data === 'object' && !Array.isArray(data)
     ? Object.keys(data as Record<string, unknown>)
     : ['$value']
   const ticketId = ++sequence
   let resource = `${method}:${url}`
-  if (manualWrite && data && typeof data === 'object') {
+  if (manualWrite && !isInteractionBatch && data && typeof data === 'object') {
     const body = data as Record<string, unknown>
     // Independent element creations must not supersede each other's failures.
     // An interaction edit identifies the same logical item by elementId.

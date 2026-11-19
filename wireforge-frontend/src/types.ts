@@ -17,6 +17,30 @@ export interface Interaction {
   source?: string | null
 }
 
+export interface InteractionChange {
+  pageId: number
+  elementId: number
+  remove?: boolean
+  targetPageId?: number | null
+  triggerType?: string
+  actionType?: string
+  params?: string | null
+}
+
+export interface InteractionState {
+  pageId: number
+  elementId: number
+  interaction: {
+    id: number
+    elementId: number
+    triggerType: string
+    actionType: string
+    targetPageId?: number | null
+    params?: string | null
+    source?: string | null
+  }
+}
+
 export interface Element {
   id: number
   type: string

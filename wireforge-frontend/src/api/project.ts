@@ -1,5 +1,5 @@
 import http from './http'
-import type { Project, Prototype, Page, Annotation, CommentThread, CommentReply } from '../types'
+import type { Project, Prototype, Page, Annotation, CommentThread, CommentReply, InteractionChange, InteractionState } from '../types'
 import type { AutowirePlan, AutowireApplyRequest, AutowireApplyResult, AutowirePreviewRequest } from '../types/autowire'
 
 export interface AnalysisStatus {
@@ -154,6 +154,9 @@ export const projectApi = {
   /** 删除交互连线 */
   deleteInteraction: (id: number, interactionId: number) =>
     http.delete<any, void>(`/projects/${id}/interactions/${interactionId}`),
+  /** Relation-only changes, committed together; never replaces a page document. */
+  mutateInteractions: (id: number, changes: InteractionChange[]) =>
+    http.post<any, InteractionState[]>(`/projects/${id}/interactions/batch`, { changes }),
   /** 为页面注册新增元素 */
   createElement: (id: number, pageId: number, body: Record<string, any>) =>
     http.post<any, any>(`/projects/${id}/pages/${pageId}/elements`, body),

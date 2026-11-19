@@ -12,9 +12,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -76,22 +73,20 @@ public class AutowireRenderService {
 
     /** Called inside the manual-edit transaction; the scheduler runs it only after commit. */
     public void enqueueManual(long projectId, Element element, List<Interaction> oldLines) {
+        enqueueManual(projectId, List.of(element), oldLines);
+    }
+
+    /** One durable job per gesture, including a multi-selection delete or restore. */
+    public void enqueueManual(long projectId, List<Element> elements, List<Interaction> oldLines) {
+        if (elements.isEmpty()) return;
         List<Page> pages = pageMapper.selectList(Wrappers.<Page>lambdaQuery().eq(Page::getProjectId, projectId).and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         String jobId = UUID.randomUUID().toString();
         try {
             jdbc.update("INSERT INTO autowire_render_job(id,project_id,page_ids,bindings_json,status) VALUES(?,?,?,?, 'pending')",
-                    jobId, projectId, json.writeValueAsString(List.of(element.getPageId())), json.writeValueAsString(bindings(List.of(element), oldLines, pages)));
+                    jobId, projectId, json.writeValueAsString(elements.stream().map(Element::getPageId).distinct().toList()), json.writeValueAsString(bindings(elements, oldLines, pages)));
         } catch (Exception ex) { throw new IllegalStateException("交互预览任务保存失败", ex); }
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    TransactionTemplate postCommit = new TransactionTemplate(transactionManager);
-                    postCommit.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-                    try { postCommit.executeWithoutResult(s -> process(jobId)); }
-                    catch (Exception ex) { log.warn("Manual interaction preview job {} remains recoverable: {}", jobId, ex.getMessage()); }
-                }
-            });
-        }
+        // Do not process in afterCommit: that callback still blocks the HTTP thread.
+        // The scheduler can see this job only once the enclosing transaction commits.
     }
 
     public synchronized void process(String id) {
@@ -327,7 +322,7 @@ public class AutowireRenderService {
           if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{once:true});else apply();
         })();</script>
         """;
-    @Scheduled(fixedDelay = 10000, initialDelay = 15000)
+    @Scheduled(fixedDelay = 1000, initialDelay = 2000)
     public void resumePending() {
         jdbc.update("UPDATE autowire_render_job SET status='pending' WHERE status='running' AND updated_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE)");
         // Pending jobs are recoverable after a crash. Failed jobs wait for an explicit retry.

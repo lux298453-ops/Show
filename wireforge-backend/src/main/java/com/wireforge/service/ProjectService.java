@@ -18,6 +18,7 @@ import com.wireforge.mapper.InteractionMapper;
 import com.wireforge.mapper.PageMapper;
 import com.wireforge.mapper.ProjectMapper;
 import com.wireforge.model.AuthUser;
+import com.wireforge.model.InteractionMutation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -1477,6 +1478,72 @@ public class ProjectService {
         interactionAutowireService.clearManualExclusions(projectId, element, interaction);
         autowireRenderService.enqueueManual(projectId, element, existingList);
         return interaction;
+    }
+
+    /** Atomically edit only the selected relations; return a small authoritative delta. */
+    @Transactional
+    public List<InteractionMutation.State> mutateInteractions(Long projectId, InteractionMutation.Request request) {
+        getProject(projectId);
+        projectMapper.selectOne(Wrappers.<Project>lambdaQuery().eq(Project::getId, projectId).last("FOR UPDATE"));
+        List<InteractionMutation.Change> changes = request == null ? null : request.changes();
+        if (changes == null || changes.isEmpty() || changes.size() > 500) {
+            throw new IllegalArgumentException("请选择 1 至 500 条交互连线");
+        }
+        Map<Long, Element> changed = new LinkedHashMap<>();
+        // Validate the entire gesture before writing anything, including project ownership.
+        for (var change : changes) {
+            if (change == null || change.elementId() == null || change.pageId() == null
+                    || changed.containsKey(change.elementId())) throw new IllegalArgumentException("交互元素为空或重复");
+            Element element = elementMapper.selectById(change.elementId());
+            Page page = element == null ? null : pageMapper.selectById(element.getPageId());
+            if (page == null || !projectId.equals(page.getProjectId()) || !page.getId().equals(change.pageId())
+                    || Integer.valueOf(1).equals(page.getIsDeleted())) throw new IllegalArgumentException("交互元素不属于当前项目或页面已删除");
+            if (!change.remove() && change.targetPageId() != null) {
+                Page target = pageMapper.selectById(change.targetPageId());
+                if (target == null || !projectId.equals(target.getProjectId()) || Integer.valueOf(1).equals(target.getIsDeleted()))
+                    throw new IllegalArgumentException("交互目标不属于当前项目或页面已删除");
+            }
+            changed.put(element.getId(), element);
+        }
+        List<Interaction> oldLines = interactionMapper.selectList(Wrappers.<Interaction>lambdaQuery()
+                .in(Interaction::getElementId, changed.keySet()).orderByAsc(Interaction::getId));
+        List<InteractionMutation.State> result = new ArrayList<>();
+        for (var change : changes) {
+            Element element = changed.get(change.elementId());
+            List<Interaction> prior = oldLines.stream().filter(line -> element.getId().equals(line.getElementId())).toList();
+            Interaction primary = prior.stream().filter(line -> "user".equals(line.getSource())).findFirst()
+                    .orElse(prior.isEmpty() ? null : prior.get(0));
+            Interaction saved = new Interaction();
+            saved.setId(primary == null ? null : primary.getId());
+            saved.setElementId(element.getId());
+            saved.setTriggerType(change.triggerType() == null || change.triggerType().isBlank() ? "click" : change.triggerType());
+            saved.setActionType(change.remove() ? "none" : (change.actionType() == null ? "navigate" : change.actionType()));
+            saved.setTargetPageId(change.remove() ? null : change.targetPageId());
+            saved.setParams(change.params() != null ? change.params() : primary == null ? null : primary.getParams());
+            saved.setSource("user");
+            if (change.remove()) {
+                for (String relation : prior.stream().filter(AutowirePlanner::automatic)
+                        .map(old -> AutowirePlanner.relationKey(old.getTriggerType(), old.getActionType(), old.getTargetPageId())).distinct().toList()) {
+                    interactionAutowireService.remember(projectId, element, "relation",
+                            relation, "用户在画布删除自动关系", "canvas_delete");
+                }
+            }
+            if (saved.getId() == null) interactionMapper.insert(saved);
+            else {
+                // Explicit SET is required: updateById skips nulls and would retain a deleted target.
+                interactionMapper.update(null, Wrappers.<Interaction>lambdaUpdate().eq(Interaction::getId, saved.getId())
+                        .set(Interaction::getTargetPageId, saved.getTargetPageId()).set(Interaction::getActionType, saved.getActionType())
+                        .set(Interaction::getTriggerType, saved.getTriggerType()).set(Interaction::getParams, saved.getParams())
+                        .set(Interaction::getSource, saved.getSource()));
+            }
+            for (Interaction old : prior) if (!old.getId().equals(saved.getId())) interactionMapper.deleteById(old.getId());
+            // A durable disabled binding prevents old generated data-nav/modal attributes from
+            // reviving the deleted line in a newly opened preview before the render job runs.
+            if (!change.remove()) interactionAutowireService.clearManualExclusions(projectId, element, saved);
+            result.add(new InteractionMutation.State(element.getPageId(), element.getId(), saved));
+        }
+        autowireRenderService.enqueueManual(projectId, new ArrayList<>(changed.values()), oldLines);
+        return result;
     }
 
     /**

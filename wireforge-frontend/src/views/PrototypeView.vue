@@ -1011,19 +1011,29 @@
               style="position: absolute; inset: 0; overflow: hidden;"
             >
               <defs>
-                <!-- 激活态高亮箭头 (Figma 天蓝开放式轻灵小箭头) -->
+                <!-- 选中、悬停、普通状态使用对应的箭头颜色。 -->
                 <marker
                   id="figma-arrow-active"
                   viewBox="0 0 10 10"
                   refX="7"
                   refY="5"
-                  markerWidth="7"
-                  markerHeight="7"
+                  markerWidth="6"
+                  markerHeight="6"
                   orient="auto"
                 >
                   <path d="M 1.5 1.5 L 6.5 5 L 1.5 8.5" fill="none" stroke="#0D99FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </marker>
-                <!-- 常规状态箭头 (Figma 天蓝轻灵小箭头) -->
+                <marker
+                  id="figma-arrow-hover"
+                  viewBox="0 0 10 10"
+                  refX="7"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto"
+                >
+                  <path d="M 1.5 1.5 L 6.5 5 L 1.5 8.5" fill="none" stroke="#60A5FA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </marker>
                 <marker
                   id="figma-arrow-normal"
                   viewBox="0 0 10 10"
@@ -1033,7 +1043,7 @@
                   markerHeight="6"
                   orient="auto"
                 >
-                  <path d="M 1.5 1.5 L 6.5 5 L 1.5 8.5" fill="none" stroke="#0D99FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M 1.5 1.5 L 6.5 5 L 1.5 8.5" fill="none" stroke="#94A3B8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
                 </marker>
                 <!-- 实时拖拽拉线箭头 -->
                 <marker
@@ -1050,42 +1060,37 @@
               </defs>
 
               <g ref="connectionWorldRef" class="connection-world">
-              <g v-for="conn in renderedConnections" :key="conn.id" class="figma-conn-item">
-                <!-- 外发光辅线 -->
+              <g v-for="conn in renderedConnections" :key="conn.id" class="figma-conn-item"
+                :data-connection-id="conn.id" :class="connectionClasses(conn)"
+                @mouseenter="hoveredConnId = conn.id" @mouseleave="clearHoveredConnection(conn.id)">
+                <!-- 实色描边让悬停和选中线在交叉处可辨认。 -->
                 <path
                   :d="conn.path"
                   fill="none"
-                  :stroke="isConnActive(conn) ? 'rgba(13, 153, 255, 0.45)' : 'rgba(13, 153, 255, 0.18)'"
-                  :stroke-width="isConnActive(conn) ? 5 : 3"
                   stroke-linecap="round"
-                  class="pointer-events-none"
+                  class="figma-conn-outline pointer-events-none"
                 />
                 <path
                   :d="conn.path"
                   fill="none"
-                  stroke="#0D99FF"
-                  :stroke-width="isConnActive(conn) ? 2.2 : 1.6"
                   stroke-linecap="round"
-                  :marker-end="isConnActive(conn) ? 'url(#figma-arrow-active)' : 'url(#figma-arrow-normal)'"
-                  class="pointer-events-none"
+                  :marker-end="selectedConnIds.has(conn.id) ? 'url(#figma-arrow-active)' : hoveredConnId === conn.id ? 'url(#figma-arrow-hover)' : 'url(#figma-arrow-normal)'"
+                  class="figma-conn-stroke pointer-events-none"
                 />
                 <circle
                   :cx="conn.x1"
                   :cy="conn.y1"
-                  :r="isConnActive(conn) ? 5.5 : 4.5"
-                  fill="#ffffff"
-                  stroke="#0D99FF"
-                  :stroke-width="isConnActive(conn) ? 2.2 : 1.6"
-                  class="pointer-events-none"
+                  :r="selectedConnIds.has(conn.id) ? 6 : hoveredConnId === conn.id ? 5.5 : 4.5"
+                  class="figma-conn-start pointer-events-none"
                 />
                 <circle
                   :cx="conn.x1"
                   :cy="conn.y1"
-                  :r="isConnActive(conn) ? 2.4 : 1.8"
-                  fill="#0D99FF"
+                  :r="selectedConnIds.has(conn.id) ? 2.8 : 1.8"
+                  fill="currentColor"
                   class="pointer-events-none"
                 />
-                <!-- 宽热区放在最上层，点蓝线或线旁都能选中 -->
+                <!-- 保持原有点击热区和多选行为。 -->
                 <path
                   :d="conn.path"
                   fill="none"
@@ -1136,18 +1141,17 @@
             <div
               v-for="conn in renderedConnections"
               :key="'badge-' + conn.id"
-              class="figma-conn-badge group pointer-events-auto absolute flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium shadow-md transition-all select-none cursor-pointer"
-              :class="selectedConnIds.has(conn.id)
-                ? 'bg-[#0D99FF] text-white shadow-lg shadow-blue-500/35 ring-2 ring-white scale-105 z-[55]'
-                : 'bg-white/95 dark:bg-[#1e1e1e]/95 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-white/10 hover:border-[#0D99FF] hover:shadow-lg hover:scale-102 z-[48]'"
+              class="figma-conn-badge group pointer-events-auto absolute flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium shadow-sm transition-colors select-none cursor-pointer bg-white/95 dark:bg-[#1e1e1e]/95 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-white/10"
+              :data-connection-id="conn.id" :class="connectionClasses(conn)"
               :style="{
                 left: `${conn.midX}px`,
                 top: `${conn.midY}px`,
                 transform: 'translate(-50%, -50%)',
               }"
+              @mouseenter="hoveredConnId = conn.id" @mouseleave="clearHoveredConnection(conn.id)"
               @click.stop="selectConnection(conn, $event)"
             >
-              <Zap class="w-3.5 h-3.5 text-[#0D99FF] dark:text-[#38bdf8]" />
+              <Zap class="figma-conn-icon w-3.5 h-3.5" />
               <span class="max-w-[130px] truncate text-[11px] font-semibold" :title="`${conn.label} ➔ ${conn.toPageName}`">
                 {{ conn.label }} ➔ {{ conn.toPageName }}
               </span>
@@ -2518,7 +2522,8 @@ import AnnotationCreateDialog from '../components/AnnotationCreateDialog.vue'
 import type { AutowirePlan, AutowireDecisions, AutowireApplyRequest, AutowireApplyResult, AutowirePreviewRequest } from '../types/autowire'
 import { getFileUrl, withBackendFiles } from '../api/http'
 import { useProjectTitle } from '../utils/pageTitle'
-import type { Annotation, Element, Interaction, Page, Prototype, CommentThread, CommentReply } from '../types'
+import type { Annotation, Element, Interaction, InteractionChange, Page, Prototype, CommentThread, CommentReply } from '../types'
+import { createInteractionMutations } from '../utils/interactionMutations'
 import PageCanvas from '../components/PageCanvas.vue'
 import PreviewPageStack from '../components/PreviewPageStack.vue'
 import { isTabNavigation } from '../utils/previewTabs'
@@ -2530,7 +2535,7 @@ import FigmaBottomToolbar, { type ActiveToolType } from '../components/FigmaBott
 import NavbarControls from '../components/NavbarControls.vue'
 import AiGenerationGlow from '../components/AiGenerationGlow.vue'
 import { t } from '../utils/i18n'
-import { clearLocalEdit, discardSaveState, markLocalEdit, useSaveState, waitForSaved } from '../utils/saveState'
+import { beginPendingSave, clearLocalEdit, discardSaveState, markLocalEdit, useSaveState, waitForSaved } from '../utils/saveState'
 import LayerTree from '../components/LayerTree.vue'
 import DesignInspector from '../components/DesignInspector.vue'
 import FigmaFloatingPreview from '../components/FigmaFloatingPreview.vue'
@@ -3003,6 +3008,12 @@ onBeforeRouteLeave(async () => {
 const proto = ref<Prototype | null>(null)
 useProjectTitle(() => proto.value?.project.name)
 const pages = computed(() => proto.value?.pages || [])
+const interactionMutations = createInteractionMutations({
+  pages: () => pages.value,
+  save: changes => projectApi.mutateInteractions(id, changes),
+  beginPending: () => beginPendingSave(String(id)),
+})
+onBeforeUnmount(() => interactionMutations.dispose())
 
 // ===== 左侧边栏画板缩略图生命周期与微缩实时渲染 =====
 const sidebarThumbObservers = new Map<HTMLElement, ResizeObserver>()
@@ -4260,6 +4271,7 @@ export interface InteractionHistoryItem {
   pageId: number
   targetPageId?: number | null
   prevTargetPageId?: number | null
+  previousInteraction?: Interaction
   triggerType: string
   actionType: string
   params?: string
@@ -4269,6 +4281,7 @@ export interface InteractionHistoryItem {
   prevToPageName?: string
   items?: InteractionHistoryItem[]
   timestamp?: number
+  invalid?: boolean
 }
 
 const interactionUndoStack = ref<InteractionHistoryItem[]>([])
@@ -4277,10 +4290,12 @@ const interactionRedoStack = ref<InteractionHistoryItem[]>([])
 /**
  * 产生任何新的写操作时，清空所有 Redo 栈（对齐 Figma 历史分支管理规则：新操作截断所有历史重做，杜绝跨操作类型串扰）
  */
+let redoBranchVersion = 0
 function clearAllRedoStacks() {
   pageDeletionRedoStack.value = []
   interactionRedoStack.value = []
   pageEditRedoStack.value = []
+  return ++redoBranchVersion
 }
 
 async function undoPageDeletion(): Promise<boolean> {
@@ -6000,7 +6015,6 @@ async function deleteSelectedConnections() {
   } else if (targets.length > 1) {
     await removeConnections(targets)
   }
-  selectedConnIds.value = new Set()
 }
 
 const isSpacePressed = ref(false)
@@ -6259,6 +6273,9 @@ const connections = computed<ConnectionItem[]>(() => {
 
 // 框选或点选的连线。可以同时选中多条，再一起删除。
 const selectedConnIds = ref<Set<string>>(new Set())
+const hoveredConnId = ref<string | null>(null)
+
+watch(workbenchMode, () => { hoveredConnId.value = null })
 
 function selectConnIds(ids: string[]) {
   selectedConnIds.value = new Set(ids)
@@ -6286,9 +6303,18 @@ const visibleConnections = computed<ConnectionItem[]>(() => {
 // stay mounted so a fast pan cannot reveal a not-yet-rendered curve. The SVG
 // viewport clips painting; idle culling reduces DOM without per-event Vue work.
 const renderedConnections = computed(() => {
-  if (visibleConnections.value.length <= 120) return visibleConnections.value
-  return visibleConnections.value.filter(conn => connectionInViewport(conn.bounds, conn.midX, conn.midY,
-    view.value, viewportWidth.value, viewportHeight.value))
+  const lines = visibleConnections.value.length <= 120 ? visibleConnections.value
+    : visibleConnections.value.filter(conn => connectionInViewport(conn.bounds, conn.midX, conn.midY,
+      view.value, viewportWidth.value, viewportHeight.value))
+  if (!selectedConnIds.value.size && !hoveredConnId.value) return lines
+  // SVG paints in DOM order. Raise highlighted lines without changing paths or business data.
+  const normal: ConnectionItem[] = [], hovered: ConnectionItem[] = [], selected: ConnectionItem[] = []
+  for (const conn of lines) {
+    if (selectedConnIds.value.has(conn.id)) selected.push(conn)
+    else if (hoveredConnId.value === conn.id) hovered.push(conn)
+    else normal.push(conn)
+  }
+  return [...normal, ...hovered, ...selected]
 })
 
 function getPageName(pageId?: number | null): string {
@@ -6310,146 +6336,60 @@ watch(
   }
 )
 
-async function undoInteraction(): Promise<boolean> {
-  if (interactionUndoStack.value.length === 0) return false
-  const item = interactionUndoStack.value.pop()!
-  item.timestamp = Date.now()
-  interactionRedoStack.value.push(item)
-
-  try {
-    if (item.type === 'delete') {
-      await projectApi.saveInteraction(id, {
-        elementId: item.elementId,
-        pageId: item.pageId,
-        targetPageId: item.targetPageId,
-        triggerType: item.triggerType,
-        actionType: item.actionType,
-        params: item.params,
-      })
-      restoreStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId, item.elementId)
-      await loadData()
-      workbenchMode.value = 'interactive'
-      activeInteractionPageId.value = item.pageId
-      selectedNodeId.value = item.pageId
-      selectConnIds([`conn-${item.elementId}-${item.targetPageId}`])
-      ElMessage.success(`已撤销删除：已恢复「${item.label} ➔ ${item.toPageName || '目标画板'}」连线`)
-      return true
-    } else if (item.type === 'delete-many' && item.items?.length) {
-      for (const one of item.items) {
-        await projectApi.saveInteraction(id, {
-          elementId: one.elementId,
-          pageId: one.pageId,
-          targetPageId: one.targetPageId,
-          triggerType: one.triggerType,
-          actionType: one.actionType,
-          params: one.params,
-        })
-        restoreStampedNav(one.params, one.pageId, one.toPageName, one.targetPageId, one.elementId)
-      }
-      await loadData()
-      workbenchMode.value = 'interactive'
-      if (item.items[0]?.pageId) {
-        activeInteractionPageId.value = item.items[0].pageId
-        selectedNodeId.value = item.items[0].pageId
-      }
-      selectConnIds(item.items.map((one) => `conn-${one.elementId}-${one.targetPageId}`))
-      ElMessage.success(`已恢复 ${item.items.length} 条连线`)
-      return true
-    } else if (item.type === 'connect') {
-      if (item.prevTargetPageId) {
-        await projectApi.saveInteraction(id, {
-          elementId: item.elementId,
-          pageId: item.pageId,
-          targetPageId: item.prevTargetPageId,
-          triggerType: item.triggerType,
-          actionType: item.actionType,
-          params: item.params,
-        })
-        restoreStampedNav(item.params, item.pageId, item.prevToPageName, item.prevTargetPageId, item.elementId)
-        await loadData()
-        workbenchMode.value = 'interactive'
-        activeInteractionPageId.value = item.pageId
-        selectedNodeId.value = item.pageId
-        selectConnIds([`conn-${item.elementId}-${item.prevTargetPageId}`])
-        ElMessage.success(`已撤销连线：已恢复为「${item.label} ➔ ${item.prevToPageName || '原目标画板'}」`)
-      } else {
-        clearStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId, item.elementId)
-        await projectApi.saveInteraction(id, {
-          elementId: item.elementId,
-          pageId: item.pageId,
-          targetPageId: null,
-        })
-        selectedConnIds.value = new Set()
-        await loadData()
-        ElMessage.success(`已撤销新建连线`)
-      }
-      return true
+function interactionHistoryChanges(item: InteractionHistoryItem, undo: boolean): InteractionChange[] {
+  const items = item.type === 'delete-many' ? item.items || [] : [item]
+  return items.map(one => {
+    if (!one.elementId) throw new Error('交互元素已变化，请重新选择')
+    const previous = item.type === 'connect' && undo ? one.previousInteraction : undefined
+    const remove = item.type === 'connect' ? undo && !previous && !one.prevTargetPageId : !undo
+    return {
+      pageId: one.pageId, elementId: one.elementId, remove,
+      targetPageId: previous?.target_page_id ?? (item.type === 'connect' && undo ? one.prevTargetPageId : one.targetPageId),
+      triggerType: previous?.trigger || one.triggerType, actionType: previous?.action || one.actionType,
+      params: previous?.params ?? one.params,
     }
+  })
+}
+
+function removeInteractionHistory(stack: InteractionHistoryItem[], item: InteractionHistoryItem) {
+  const index = stack.indexOf(item)
+  if (index >= 0) stack.splice(index, 1)
+}
+
+async function moveInteractionHistory(undo: boolean): Promise<boolean> {
+  if (isViewer.value) return false
+  const from = undo ? interactionUndoStack.value : interactionRedoStack.value
+  const to = undo ? interactionRedoStack.value : interactionUndoStack.value
+  const item = from.pop()
+  if (!item || item.invalid) return false
+  item.timestamp = Date.now()
+  to.push(item)
+  try {
+    const changes = interactionHistoryChanges(item, undo)
+    const saving = interactionMutations.apply(changes)
+    selectedConnIds.value = new Set(changes.filter(change => !change.remove && change.targetPageId)
+      .map(change => `conn-${change.elementId}-${change.targetPageId}`))
+    const current = await saving
+    if (current && !item.invalid) ElMessage.success(undo ? '已撤销交互操作' : '已重做交互操作')
+    return true
   } catch (err: any) {
-    interactionRedoStack.value.pop()
-    interactionUndoStack.value.push(item)
-    ElMessage.error(err?.message || '撤销连线失败')
+    // Do not pop an unrelated record when a later undo/redo already moved this one.
+    if (!item.invalid && to.includes(item)) {
+      removeInteractionHistory(to, item)
+      from.push(item)
+    }
+    ElMessage.error(err?.message || (undo ? '撤销交互失败' : '重做交互失败'))
+    return false
   }
-  return false
+}
+
+async function undoInteraction(): Promise<boolean> {
+  return moveInteractionHistory(true)
 }
 
 async function redoInteraction(): Promise<boolean> {
-  if (interactionRedoStack.value.length === 0) return false
-  const item = interactionRedoStack.value.pop()!
-  item.timestamp = Date.now()
-  interactionUndoStack.value.push(item)
-
-  try {
-    if (item.type === 'delete') {
-      clearStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId, item.elementId)
-      await projectApi.saveInteraction(id, {
-        elementId: item.elementId,
-        pageId: item.pageId,
-        targetPageId: null,
-      })
-      selectedConnIds.value = new Set()
-      await loadData()
-      ElMessage.info(`已重做删除：连线已再次删除`)
-      return true
-    } else if (item.type === 'delete-many' && item.items?.length) {
-      for (const one of item.items) {
-        clearStampedNav(one.params, one.pageId, one.toPageName, one.targetPageId, one.elementId)
-        await projectApi.saveInteraction(id, {
-          elementId: one.elementId,
-          pageId: one.pageId,
-          targetPageId: null,
-        })
-      }
-      selectedConnIds.value = new Set()
-      await loadData()
-      ElMessage.info(`已再次删除 ${item.items.length} 条连线`)
-      return true
-    } else if (item.type === 'connect') {
-      await projectApi.saveInteraction(id, {
-        elementId: item.elementId,
-        pageId: item.pageId,
-        targetPageId: item.targetPageId,
-        triggerType: item.triggerType,
-        actionType: item.actionType,
-        params: item.params,
-      })
-      restoreStampedNav(item.params, item.pageId, item.toPageName, item.targetPageId, item.elementId)
-      await loadData()
-      workbenchMode.value = 'interactive'
-      activeInteractionPageId.value = item.pageId
-      selectedNodeId.value = item.pageId
-      selectConnIds([`conn-${item.elementId}-${item.targetPageId}`])
-      ElMessage.success(`已重做连线：「${item.label} ➔ ${item.toPageName || '目标画板'}」`)
-      return true
-    }
-  } catch (err: any) {
-    interactionUndoStack.value.pop()
-    interactionRedoStack.value.push(item)
-    ElMessage.error(err?.message || '重做连线失败')
-  }
-  return false
+  return moveInteractionHistory(false)
 }
-
 function selectConnection(conn: ConnectionItem, event?: MouseEvent) {
   if (event?.shiftKey) {
     const next = new Set(selectedConnIds.value)
@@ -6471,13 +6411,18 @@ function selectConnection(conn: ConnectionItem, event?: MouseEvent) {
   })
 }
 
-function isConnActive(conn: ConnectionItem): boolean {
-  if (selectedConnIds.value.has(conn.id)) return true
-  if (selectedConnIds.value.size > 0) return false
-  if (selectedElementId.value && conn.elementId === selectedElementId.value) return true
-  const activePid = activeInteractionPageId.value || selectedNodeId.value || focusPageId.value
-  if (activePid && (conn.fromId === activePid || conn.toId === activePid)) return true
-  return false
+function connectionClasses(conn: ConnectionItem) {
+  const selected = selectedConnIds.value.has(conn.id)
+  const hovered = hoveredConnId.value === conn.id
+  return {
+    'is-selected': selected,
+    'is-hovered': hovered && !selected,
+    'is-muted': selectedConnIds.value.size > 0 && !selected && !hovered,
+  }
+}
+
+function clearHoveredConnection(connId: string) {
+  if (hoveredConnId.value === connId) hoveredConnId.value = null
 }
 
 function onInteractiveElementClick(b: any, el: Element) {
@@ -6685,12 +6630,15 @@ function startConnectionDrag(event: MouseEvent, anchor: AnchorItem) {
       })
 
       const prevConn = connections.value.find((c) => c.elementId === elementId)
+      const previousInteraction = pages.value.find(page => page.id === savedAnchor.pageId)?.elements
+        .find(el => el.id === elementId)?.interaction
       interactionUndoStack.value.push({
         type: 'connect',
         elementId: savedAnchor.elementId,
         pageId: savedAnchor.pageId,
         targetPageId: targetId,
         prevTargetPageId: prevConn?.toId || null,
+        previousInteraction: previousInteraction ? { ...previousInteraction } : undefined,
         triggerType: 'click',
         actionType: 'navigate',
         params: linkParams,
@@ -6812,68 +6760,8 @@ async function confirmCreateInteraction() {
   }
 }
 
-async function removeConnection(conn: any) {
-  if (isViewer.value) {
-    ElMessage.warning('只读评审模式下画板已锁定保护，无法删除交互连线')
-    return
-  }
-  try {
-    clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId, conn.elementId)
-    // 记录历史供 Ctrl+Z 撤销恢复
-    interactionUndoStack.value.push({
-      type: 'delete',
-      elementId: conn.elementId,
-      pageId: conn.fromId,
-      targetPageId: conn.toId,
-      triggerType: conn.trigger || 'click',
-      actionType: conn.action || 'navigate',
-      params: conn.params || JSON.stringify({ animation: 'push' }),
-      label: conn.label || '组件',
-      fromPageName: conn.fromPageName || '源页面',
-      toPageName: conn.toPageName || '目标页面',
-      timestamp: Date.now(),
-    })
-    clearAllRedoStacks()
-
-    if (conn.interactionId) {
-      await projectApi.deleteInteraction(id, conn.interactionId)
-    } else {
-      await projectApi.saveInteraction(id, {
-        elementId: conn.elementId,
-        pageId: conn.fromId,
-        targetPageId: null,
-      })
-    }
-    const sourcePage = pages.value.find((p) => p.id === conn.fromId || p.id === conn.fromPageId)
-    if (sourcePage) {
-      for (const el of sourcePage.elements) {
-        if (el.id === conn.elementId) {
-          if (el.interaction?.id && el.interaction.id !== conn.interactionId) {
-            await projectApi.deleteInteraction(id, el.interaction.id).catch(() => {})
-          }
-          delete el.interaction
-        }
-      }
-    }
-    selectedConnIds.value = new Set()
-
-    recordAuditLog({
-      projectId: id,
-      userId: currentUser.value?.id || 'unknown',
-      userName: currentUser.value?.name || '匿名',
-      userAvatar: currentUser.value?.avatar,
-      actionType: 'connection_change',
-      changeType: 'delete',
-      actionLabel: '删除交互连线',
-      pageName: conn.fromPageName,
-      details: `删除了「${conn.label || '组件'}」到「${conn.toPageName || '目标页面'}」的交互连线`,
-    })
-
-    await loadData()
-    ElMessage.success('交互连线已删除 (按 Ctrl+Z 可随时撤销恢复)')
-  } catch (err: any) {
-    ElMessage.error(err?.message || '删除交互失败')
-  }
+async function removeConnection(conn: ConnectionItem) {
+  return removeConnections([conn])
 }
 
 async function removeConnections(conns: ConnectionItem[]) {
@@ -6881,75 +6769,55 @@ async function removeConnections(conns: ConnectionItem[]) {
     ElMessage.warning('只读评审模式下画板已锁定保护，无法删除交互连线')
     return
   }
-  if (!conns.length) return
-  const snapshots: InteractionHistoryItem[] = conns.map((conn) => ({
-    type: 'delete',
-    elementId: conn.elementId,
-    pageId: conn.fromId,
-    targetPageId: conn.toId,
-    triggerType: conn.trigger || 'click',
-    actionType: conn.action || 'navigate',
-    params: conn.params || JSON.stringify({ animation: 'push' }),
-    label: conn.label || '组件',
-    fromPageName: conn.fromPageName || '源页面',
-    toPageName: conn.toPageName || '目标页面',
-    timestamp: Date.now(),
-  }))
-  interactionUndoStack.value.push({
-    type: 'delete-many',
-    pageId: snapshots[0].pageId,
-    triggerType: 'click',
-    actionType: 'navigate',
-    label: `${conns.length} 条连线`,
-    fromPageName: '',
-    items: snapshots,
-    timestamp: Date.now(),
-  })
-  clearAllRedoStacks()
-  try {
-    for (const conn of conns) {
-      clearStampedNav(conn.params, conn.fromId, conn.toPageName, conn.toId, conn.elementId)
-      if (conn.interactionId) {
-        await projectApi.deleteInteraction(id, conn.interactionId)
-      } else if (conn.elementId) {
-        await projectApi.saveInteraction(id, {
-          elementId: conn.elementId,
-          pageId: conn.fromId,
-          targetPageId: null,
-        })
-      }
-      const sourcePage = pages.value.find((p) => p.id === conn.fromId)
-      if (sourcePage) {
-        for (const el of sourcePage.elements) {
-          if (el.id === conn.elementId) {
-            if (el.interaction?.id && el.interaction.id !== conn.interactionId) {
-              await projectApi.deleteInteraction(id, el.interaction.id).catch(() => {})
-            }
-            delete el.interaction
-          }
-        }
-      }
+  // Ignore repeated clicks on an already removed line, including stale badge handlers.
+  const unique = new Map<number, ConnectionItem>()
+  for (const conn of conns) {
+    const el = pages.value.find(page => page.id === conn.fromId)?.elements.find(el => el.id === conn.elementId)
+    if (el?.interaction?.target_page_id === conn.toId && !unique.has(el.id)) unique.set(el.id, conn)
+  }
+  const targets = [...unique.values()]
+  if (!targets.length) return
+  const snapshots: InteractionHistoryItem[] = targets.map(conn => {
+    const interaction = pages.value.find(page => page.id === conn.fromId)!.elements.find(el => el.id === conn.elementId)!.interaction!
+    return {
+      type: 'delete', elementId: conn.elementId, pageId: conn.fromId, targetPageId: conn.toId,
+      triggerType: interaction.trigger || 'click', actionType: interaction.action || 'navigate',
+      params: interaction.params ?? undefined, label: conn.label || '组件',
+      fromPageName: conn.fromPageName, toPageName: conn.toPageName, timestamp: Date.now(),
     }
-    selectedConnIds.value = new Set()
-
+  })
+  interactionUndoStack.value.push(snapshots.length === 1 ? snapshots[0] : {
+    type: 'delete-many', pageId: snapshots[0].pageId, triggerType: 'click', actionType: 'navigate',
+    label: `${snapshots.length} 条连线`, fromPageName: '', items: snapshots, timestamp: Date.now(),
+  })
+  const record = interactionUndoStack.value[interactionUndoStack.value.length - 1]
+  const previousRedo = { interactions: [...interactionRedoStack.value], pages: [...pageDeletionRedoStack.value], edits: [...pageEditRedoStack.value] }
+  const branch = clearAllRedoStacks()
+  try {
+    const saving = interactionMutations.apply(interactionHistoryChanges(record, false))
+    const removedIds = new Set(targets.map(conn => conn.id))
+    selectedConnIds.value = new Set([...selectedConnIds.value].filter(key => !removedIds.has(key)))
+    const current = await saving
     recordAuditLog({
-      projectId: id,
-      userId: currentUser.value?.id || 'unknown',
-      userName: currentUser.value?.name || '匿名',
-      userAvatar: currentUser.value?.avatar,
-      actionType: 'connection_change',
-      changeType: 'delete',
-      actionLabel: '批量删除连线',
-      details: `批量删除了 ${conns.length} 条交互连线`,
+      projectId: id, userId: currentUser.value?.id || 'unknown', userName: currentUser.value?.name || '匿名',
+      userAvatar: currentUser.value?.avatar, actionType: 'connection_change', changeType: 'delete',
+      actionLabel: targets.length === 1 ? '删除交互连线' : '批量删除连线', pageName: targets.length === 1 ? targets[0].fromPageName : undefined,
+      details: targets.length === 1 ? `删除了「${targets[0].label}」到「${targets[0].toPageName}」的交互连线` : `批量删除了 ${targets.length} 条交互连线`,
     })
-
-    await loadData()
-    ElMessage.success(`已删除 ${conns.length} 条连线 (按 Ctrl+Z 可一起恢复)`)
+    if (current) ElMessage.success(targets.length === 1 ? '连线已删除，可按 Ctrl+Z 撤销' : `已删除 ${targets.length} 条连线，可按 Ctrl+Z 撤销`)
   } catch (err: any) {
-    ElMessage.error(err?.message || '删除交互失败')
+    const restoreRedo = branch === redoBranchVersion && interactionUndoStack.value[interactionUndoStack.value.length - 1] === record && !interactionRedoStack.value.length
+    record.invalid = true
+    removeInteractionHistory(interactionUndoStack.value, record)
+    removeInteractionHistory(interactionRedoStack.value, record)
+    if (restoreRedo) {
+      interactionRedoStack.value = previousRedo.interactions
+      pageDeletionRedoStack.value = previousRedo.pages
+      pageEditRedoStack.value = previousRedo.edits
+    }
+    ElMessage.error(`删除未成功确认，已恢复对应连线：${err?.message || '请重试'}`)
   }
 }
-
 let suppressBlockClick = false
 
 function onBlockDragStart(e: MouseEvent, b: CanvasBlock) {
@@ -9684,7 +9552,7 @@ function showToast(msg: string) {
 }
 
 const totalElements = computed(() => pages.value.reduce((s, p) => s + p.elements.length, 0))
-const totalInteractions = computed(() => pages.value.reduce((s, p) => s + p.elements.filter((e) => e.interaction).length, 0))
+const totalInteractions = computed(() => pages.value.reduce((s, p) => s + p.elements.filter((e) => e.interaction && e.interaction.action !== 'none').length, 0))
 const totalAnnotations = computed(() => pages.value.reduce((s, p) => s + p.annotations.length, 0))
 
 const activeEditingPageId = computed<number | null>(() => {
@@ -10579,6 +10447,52 @@ onUnmounted(() => {
 }
 
 .connection-world { transform-origin: 0 0; }
+.canvas-connections { --wf-conn-outline: #ffffff; }
+:global(.dark .canvas-connections) { --wf-conn-outline: #1e1e1e; }
+.figma-conn-item {
+  color: #94a3b8;
+  --wf-conn-width: 1.5;
+}
+.figma-conn-item.is-hovered {
+  color: #60a5fa;
+  --wf-conn-width: 2.2;
+}
+.figma-conn-item.is-selected {
+  color: #0d99ff;
+  --wf-conn-width: 3;
+}
+.figma-conn-item.is-muted { opacity: 0.3; }
+.figma-conn-stroke, .figma-conn-start {
+  stroke: currentColor;
+  stroke-width: var(--wf-conn-width);
+}
+.figma-conn-start { fill: var(--wf-conn-outline); }
+.figma-conn-outline {
+  stroke: var(--wf-conn-outline);
+  stroke-width: 7;
+  opacity: 0;
+}
+.figma-conn-item.is-hovered .figma-conn-outline {
+  stroke-width: 5;
+  opacity: 0.8;
+}
+.figma-conn-item.is-selected .figma-conn-outline { opacity: 1; }
+.figma-conn-badge { z-index: 48; }
+.figma-conn-icon { color: #94a3b8; }
+.figma-conn-badge.is-muted { opacity: 0.4; }
+.figma-conn-badge.is-hovered {
+  border-color: #60a5fa;
+  z-index: 54;
+}
+.figma-conn-badge.is-hovered .figma-conn-icon { color: #60a5fa; }
+.figma-conn-badge.is-selected {
+  background: #0d99ff;
+  border-color: #0d99ff;
+  color: #ffffff;
+  box-shadow: 0 0 0 2px var(--wf-conn-outline), 0 2px 6px rgb(13 153 255 / 0.18);
+  z-index: 55;
+}
+.figma-conn-badge.is-selected .figma-conn-icon { color: inherit; }
 .canvas-content.is-animating ~ .canvas-connections .connection-world {
   transition: transform 0.45s cubic-bezier(0.25, 0.8, 0.35, 1);
 }
