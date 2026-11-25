@@ -12,7 +12,7 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/** Freezes project chrome while leaving page content and local interaction owners intact. */
+/** Shares chrome geometry and icons while preserving each page's authored palette and interactions. */
 public final class ProjectChrome {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String META = "wf-project-chrome";
@@ -43,12 +43,18 @@ public final class ProjectChrome {
         String contract = "\n【项目共享状态栏与底部主导航】\n状态栏根节点标记 data-wf-chrome=\"status\"；"
                 + "底部主导航标记 data-wf-chrome=\"bottom-navigation\"，各项保留本页自己的元素ID、跳转及选中状态。"
                 + "状态栏的背景跟随本页顶部背景或渐变，深浅文字适配本页；禁止复制参考页的灰色背景条。"
+                + "底部导航的底色、文字色、选中色和透明度遵循本页原稿；完整保留渐变或半透明图层，不能把背景叠加后的截图颜色当作导航固有底色。"
+                + "原稿导航配色相同才保持相同；不能因同项目就强制沿用参考页配色。"
                 + "页头返回条和本页筛选标签不是底部主导航。弹窗或详情页原稿没有这两块时不要补造。\n";
         if (references.isEmpty()) return contract;
         Snapshot snapshot = snapshot(page, references, null);
-        return contract + "以下是已固定的项目公共组件规范，严格复用高度、底栏颜色、字号、图标与顺序；状态栏背景与文字深浅以本页为准；"
-                + "不得按本页重新设计。选中项的前景色、底色和圆角成套复用，禁止只保留白字却丢掉底色。"
-                + "本页激活项标记 aria-current=\"page\"，不得复制其他页面的数据库ID。\n" + encode(snapshot) + "\n";
+        Theme theme = snapshot.theme();
+        return contract + "以下为项目共享的几何规范，严格复用高度、间距、字号、图标尺寸、选中区域圆角，以及同一导航分组的图标与顺序。"
+                + "选中项的文字色与底色按本页原稿成套保留，不能只保留白字而丢掉底色。"
+                + "本页激活项标记 aria-current=\"page\"，不得复制其他页面的数据库ID。\n"
+                + encode(Map.of("geometry", Map.of("statusHeight", theme.statusHeight(), "navHeight", theme.navHeight(),
+                    "navFont", theme.navFont(), "iconSize", 22, "activeRadius", theme.activeRadius()),
+                    "families", snapshot.families())) + "\n";
     }
 
     public String apply(Page page, List<Page> pages, String html) {
@@ -64,18 +70,21 @@ public final class ProjectChrome {
             List<Element> items = items(bar);
             List<Icon> icons = snapshot.families().get(family(items));
             if (icons == null || icons.size() != items.size()) continue;
-            Element active = items.stream().filter(item -> page.getName() != null && page.getName().equals(item.attr("data-nav")))
+            PageReferences references = new PageReferences(pages);
+            Element active = items.stream().filter(item -> {
+                        Page target = references.byId(item.attr("data-nav-page-id"));
+                        if (target == null) target = references.resolve(item.attr("data-nav"));
+                        return target != null && Objects.equals(page.getId(), target.getId());
+                    })
                     .findFirst().orElseGet(() -> items.stream().filter(ProjectChrome::selected).findFirst().orElse(null));
+            normalizeNavigationPalette(bar, items);
             bar.attr("data-wf-shared-chrome", "navigation").attr("data-wf-navigation", "bar");
             for (int i = 0; i < items.size(); i++) normalizeItem(items.get(i), icons.get(i), page, i, items.get(i) == active);
             anchorToViewport(bar);
         }
         doc.select("meta[name=" + META + "],style[data-wf-chrome-style],[data-wf-chrome-layout-runtime],style[data-wf-chrome-layout-style]").remove();
         doc.head().appendElement("meta").attr("name", META).attr("content", encode(snapshot));
-        String variables = ":root{--wf-chrome-status-bg:" + theme.statusBackground() + ";--wf-chrome-status-ink:" + theme.statusInk()
-                + ";--wf-chrome-nav-bg:" + theme.navBackground() + ";--wf-chrome-nav-ink:" + theme.navInk()
-                + ";--wf-chrome-active:" + theme.activeInk() + ";--wf-chrome-border:" + theme.border()
-                + ";--wf-chrome-active-bg:" + theme.activeBackground() + ";--wf-chrome-active-radius:" + theme.activeRadius() + "px"
+        String variables = ":root{--wf-chrome-active-radius:" + theme.activeRadius() + "px"
                 + ";--wf-chrome-status-height:" + theme.statusHeight() + "px;--wf-chrome-nav-height:" + theme.navHeight()
                 + "px;--wf-chrome-nav-font:" + theme.navFont() + "px;--wf-chrome-viewport-height:"
                 + (page.getCanvasHeight() == null ? 812 : page.getCanvasHeight()) + "px;}\n";
@@ -94,7 +103,7 @@ public final class ProjectChrome {
             if (meta == null) continue;
             try {
                 Snapshot saved = JSON.readValue(meta.attr("content"), Snapshot.class);
-                if (saved.version() < 1 || saved.version() > 3 || !Objects.equals(saved.projectId(), page.getProjectId())) continue;
+                if (saved.version() < 1 || saved.version() > 4 || !Objects.equals(saved.projectId(), page.getProjectId())) continue;
                 if (theme == null) theme = saved.theme();
                 saved.families().forEach(families::putIfAbsent);
             } catch (Exception ignored) { /* Older or edited metadata is not a project contract. */ }
@@ -120,7 +129,7 @@ public final class ProjectChrome {
         }
         theme = new Theme("transparent", "#20212b", theme.navBackground(), theme.navInk(), activeInk,
                 theme.border(), theme.statusHeight(), theme.navHeight(), theme.navFont(), theme.time(), selection.background(), selection.radius());
-        return new Snapshot(3, page.getProjectId(), theme, families);
+        return new Snapshot(4, page.getProjectId(), theme, families);
     }
 
     private static List<Page> references(Page page, List<Page> pages) {
@@ -152,32 +161,75 @@ public final class ProjectChrome {
 
     private record Selection(String background, int radius) {}
 
+    /** Leave the bar's background to native CSS, including gradients, alpha and scoped variables. */
+    private static void normalizeNavigationPalette(Element bar, List<Element> items) {
+        Element active = items.stream().filter(ProjectChrome::selected).findFirst().orElse(null);
+        Element normal = items.stream().filter(item -> !selected(item)).findFirst().orElse(bar);
+        String ink = ink(normal, ink(bar, "#8b8b96"));
+        String activeInk = "#ff8c27";
+        Selection selection = selection(active);
+        if (active != null) {
+            String original = active.attr("class");
+            try {
+                SELECTED_CLASSES.forEach(active::addClass);
+                activeInk = ink(active, ink(bar, activeInk));
+            } finally {
+                if (original.isEmpty()) active.removeAttr("class"); else active.attr("class", original);
+            }
+        }
+        String background = resolveVariables(bar, declaration(bar, "background"));
+        if (!visiblePaint(background)) background = pageBackground(bar);
+        // Keep intentionally muted palettes; only recover selections that are essentially invisible.
+        if ((selection == null || !visiblePaint(selection.background())) && indistinguishable(activeInk, background, 1.05))
+            activeInk = darkBackground(background) ? "#a8c7fa" : "#365ac7";
+        String style = bar.attr("style").replaceAll("(?i)(?:^|;)\\s*--wf-local-(?:nav-ink|nav-border|active-ink|active-bg)\\s*:[^;]*", "");
+        bar.attr("style", style.replaceAll(";+\\s*$", "")
+                + ";--wf-local-nav-ink:" + ink + ";--wf-local-nav-border:" + colour(bar, "border-top", "transparent")
+                + ";--wf-local-active-ink:" + activeInk + ";--wf-local-active-bg:"
+                + (selection == null ? "transparent" : selection.background()) + ";");
+        bar.attr("data-wf-chrome-palette", "local");
+    }
+
+    private static String ink(Element node, String fallback) {
+        String value = declaration(node, "color").replace("!important", "").trim();
+        return value.isBlank() ? fallback : value;
+    }
+
     /** Read the original active rule even when an older normalization removed its class. */
     private static Selection selection(Document doc) {
         if (doc == null) return null;
         for (Element nav : navRoots(doc)) {
             Element active = items(nav).stream().filter(ProjectChrome::selected).findFirst().orElse(null);
             if (active == null) continue;
-            String original = active.attr("class");
-            try {
-                SELECTED_CLASSES.forEach(active::addClass);
-                String background = resolveVariables(active, declaration(active, "background")).replace("!important", "").trim();
-                boolean decoration = !visiblePaint(background);
-                if (decoration) background = resolveVariables(active, declaration(active, "background", true)).replace("!important", "").trim();
-                if (!visiblePaint(background)) background = "transparent";
-                String radius = declaration(active, "border-radius", decoration);
-                var number = Pattern.compile("^(\\d+)(?:\\.\\d+)?px").matcher(radius);
-                return new Selection(background, number.find() ? Math.min(32, Integer.parseInt(number.group(1))) : 0);
-            } finally {
-                if (original.isEmpty()) active.removeAttr("class"); else active.attr("class", original);
-            }
+            return selection(active);
         }
         return null;
     }
 
+    private static Selection selection(Element active) {
+        if (active == null) return null;
+        String original = active.attr("class");
+        try {
+            SELECTED_CLASSES.forEach(active::addClass);
+            String background = declaration(active, "background").replace("!important", "").trim();
+            boolean decoration = !visiblePaint(background);
+            if (decoration) background = declaration(active, "background", true).replace("!important", "").trim();
+            if (!visiblePaint(background)) background = "transparent";
+            String radius = declaration(active, "border-radius", decoration);
+            var number = Pattern.compile("^(\\d+)(?:\\.\\d+)?px").matcher(radius);
+            return new Selection(background, number.find() ? Math.min(32, Integer.parseInt(number.group(1))) : 0);
+        } finally {
+            if (original.isEmpty()) active.removeAttr("class"); else active.attr("class", original);
+        }
+    }
+
     private static boolean indistinguishable(String foreground, String background) {
+        return indistinguishable(foreground, background, 1.5);
+    }
+
+    private static boolean indistinguishable(String foreground, String background, double minimumContrast) {
         double a = luminance(foreground), b = luminance(background);
-        return a >= 0 && b >= 0 && (Math.max(a, b) + .05) / (Math.min(a, b) + .05) < 1.5;
+        return a >= 0 && b >= 0 && (Math.max(a, b) + .05) / (Math.min(a, b) + .05) < minimumContrast;
     }
 
     private static double luminance(String paint) {
@@ -408,7 +460,7 @@ public final class ProjectChrome {
         return match.find() ? Math.max(min, Math.min(max, Integer.parseInt(match.group(1)))) : fallback;
     }
     private static Document parse(String html) { Document doc = Jsoup.parse(html); doc.outputSettings().prettyPrint(false); return doc; }
-    private static String encode(Snapshot snapshot) { try { return JSON.writeValueAsString(snapshot); } catch (Exception e) { throw new IllegalStateException(e); } }
+    private static String encode(Object value) { try { return JSON.writeValueAsString(value); } catch (Exception e) { throw new IllegalStateException(e); } }
     private static String resource(String name) {
         try (var in = ProjectChrome.class.getResourceAsStream(name)) {
             if (in == null) throw new IllegalStateException("缺少公共组件样式");

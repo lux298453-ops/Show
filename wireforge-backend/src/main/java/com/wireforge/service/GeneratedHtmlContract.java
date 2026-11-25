@@ -41,7 +41,7 @@ public final class GeneratedHtmlContract {
             throw new IllegalArgumentException("生成页面没有静态可见内容");
         }
         Set<Long> sourceIds = sources.stream().map(Element::getId).collect(Collectors.toSet());
-        Set<String> pageNames = pages.stream().map(Page::getName).collect(Collectors.toSet());
+        PageReferences references = new PageReferences(pages);
         Set<Long> bound = new HashSet<>();
         Set<String> uids = new HashSet<>();
         for (org.jsoup.nodes.Element node : doc.getAllElements()) {
@@ -52,7 +52,12 @@ public final class GeneratedHtmlContract {
             }
             if (node.hasAttr("style")) validateCss(node.attr("style"), allowedAssets);
             if (node.normalName().equals("style")) validateCss(node.data(), allowedAssets);
-            if (node.hasAttr("data-nav") && !pageNames.contains(node.attr("data-nav"))) node.removeAttr("data-nav");
+            if (node.hasAttr("data-nav") || node.hasAttr("data-nav-page-id")) {
+                Page target = references.byId(node.attr("data-nav-page-id"));
+                if (target == null) target = references.resolve(node.attr("data-nav"));
+                if (target == null) node.removeAttr("data-nav").removeAttr("data-nav-page-id");
+                else node.attr("data-nav", target.getName()).attr("data-nav-page-id", String.valueOf(target.getId()));
+            }
             if (node.hasAttr("href") && !node.attr("href").startsWith("#")) node.removeAttr("href");
             if (node.hasAttr("xlink:href") && !node.attr("xlink:href").startsWith("#")) node.removeAttr("xlink:href");
             if (node.hasAttr("srcset")) node.removeAttr("srcset");
@@ -97,6 +102,8 @@ public final class GeneratedHtmlContract {
             modal.addClass("wf-modal").attr("role", "dialog").attr("aria-modal", "true");
         }
         doc.head().appendElement("meta").attr("name", "wf-renderer").attr("content", "ai-static-v1");
+        doc.select("meta[name=wf-page-type]").remove();
+        doc.head().appendElement("meta").attr("name", "wf-page-type").attr("content", PageTypes.normalize(page.getPageType()));
         doc.head().appendElement("style").attr("data-wf-prototype-style", "true").appendChild(new DataNode("""
                 [hidden]{display:none!important}
                 [data-wf-asset-missing]{display:flex;align-items:center;justify-content:center;min-height:80px;border-radius:14px;background:var(--primary-subtle,#eeeaf9);color:var(--text-sub,#64748b)}

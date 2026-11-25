@@ -32,7 +32,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** Uses the real MVC configuration so /files resources cannot bypass the asset response policy. */
+/** Uses the real MVC configuration: security isolation must preserve each handler's cache policy. */
 class AssetSecurityHeadersTest {
     @TempDir Path designs;
     private AnnotationConfigWebApplicationContext context;
@@ -86,7 +86,7 @@ class AssetSecurityHeadersTest {
             mvc.perform(request).andExpect(status().isOk())
                     .andExpect(header().string("Content-Security-Policy", AssetSecurityHeadersInterceptor.CONTENT_SECURITY_POLICY))
                     .andExpect(header().string("X-Content-Type-Options", "nosniff"))
-                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(header().string("Cache-Control", "public, max-age=604800"))
                     .andExpect(content().contentType("image/svg+xml"));
         }
         mvc.perform(get("/api/assets/u-safe")).andExpect(content().bytes(svg));
@@ -97,11 +97,13 @@ class AssetSecurityHeadersTest {
             mvc.perform(request).andExpect(status().isOk())
                     .andExpect(header().string("Content-Security-Policy", AssetSecurityHeadersInterceptor.CONTENT_SECURITY_POLICY))
                     .andExpect(header().string("X-Content-Type-Options", "nosniff"))
-                    .andExpect(header().string("Cache-Control", "no-store"));
+                    .andExpect(header().string("Cache-Control", "max-age=2592000, public"));
         }
         mvc.perform(get("/files/assets/legacy.SVG").header("Range", "bytes=0-15"))
                 .andExpect(status().isPartialContent())
-                .andExpect(header().string("Content-Security-Policy", AssetSecurityHeadersInterceptor.CONTENT_SECURITY_POLICY));
+                .andExpect(header().string("Content-Security-Policy", AssetSecurityHeadersInterceptor.CONTENT_SECURITY_POLICY))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Cache-Control", "max-age=2592000, public"));
     }
 
     @Test void unsafeStoredAssetsAreNotReturnedAndUploadsStillRequireLogin() throws Exception {

@@ -35,10 +35,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -391,7 +393,7 @@ public class ProjectService {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < rel.getNameCount(); i++) {
             if (i > 0) sb.append('/');
-            sb.append(fileNameWithoutExt(rel.getName(i).toString()));
+            sb.append(i == rel.getNameCount() - 1 ? fileNameWithoutExt(rel.getName(i).toString()) : rel.getName(i).toString());
         }
         return sb.toString();
     }
@@ -440,6 +442,10 @@ public class ProjectService {
             Page page = new Page();
             page.setProjectId(projectId);
             page.setName(pageNameFor(image, dir));
+            page.setSourceName(page.getName());
+            page.setNameSource("scan");
+            page.setPageType(PageTypes.UNKNOWN);
+            PageReferences.remember(page, page.getSourceName(), image.getFileName().toString());
             page.setBackgroundImage(abs);
             applyCanvasSize(page, image);
             page.setSortOrder(sortOrder++);
@@ -648,6 +654,9 @@ public class ProjectService {
             p.setAnalyzing(true);
             p.setTotal(pagesToAnalyze.size());
             p.setCurrent(0);
+            p.setOkCount(0);
+            p.setFallbackCount(0);
+            p.setFailCount(0);
             p.setFinished(false);
             p.setLastError(null);
         });
@@ -663,12 +672,15 @@ public class ProjectService {
             // 分析前的页面名快照：AI 的交互 target 引用原始名，页面改名后靠它补链
             Map<String, Long> originalNameToId = new HashMap<>();
             for (Page p : allPages) {
-                originalNameToId.put(p.getName(), p.getId());
+                if (allPages.stream().filter(other -> PageReferences.normalize(other.getName()).equals(PageReferences.normalize(p.getName()))).count() == 1)
+                    originalNameToId.put(p.getName(), p.getId());
             }
 
             List<Map<String, Object>> results = new ArrayList<>();
+            Set<Long> failedPageIds = new HashSet<>();
             int pageIndex = 0;
             int okCount = 0;
+            int fallbackCount = 0;
             int failCount = 0;
             int consecutiveFailCount = 0;
             String fatalError = null;
@@ -685,37 +697,45 @@ public class ProjectService {
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("page_id", page.getId());
                 item.put("page_name", page.getName());
+                String generationError = null;
                 try {
-                    int count = analyzeService.analyzePage(page, pageNames);
-                    item.put("status", "ok");
-                    item.put("elements", count);
-                    okCount++;
-                    consecutiveFailCount = 0;
-                    final int currentOk = okCount;
-                    updateProgress(projectId, p -> p.setOkCount(currentOk));
+                    var result = analyzeService.analyzePage(page, pageNames);
+                    item.put("elements", result.elementCount());
+                    generationError = result.generationError();
+                    if (generationError == null) {
+                        item.put("status", "ok");
+                        consecutiveFailCount = 0;
+                        int currentOk = ++okCount;
+                        updateProgress(projectId, p -> p.setOkCount(currentOk));
+                    } else {
+                        item.put("status", "fallback");
+                        int currentFallback = ++fallbackCount;
+                        updateProgress(projectId, p -> p.setFallbackCount(currentFallback));
+                    }
                 } catch (Exception e) {
                     log.error("页面 [{}] 分析失败: {}", page.getName(), e.getMessage());
                     item.put("status", "error");
                     String errText = e.getMessage() != null ? e.getMessage() : "模型解析异常";
                     item.put("error", errText);
-                    failCount++;
-                    consecutiveFailCount++;
-                    final int currentFail = failCount;
+                    generationError = errText;
+                    failedPageIds.add(page.getId());
+                    int currentFail = ++failCount;
                     updateProgress(projectId, p -> {
                         p.setFailCount(currentFail);
                         p.setLastError(errText);
                     });
-
-                    // 快速熔断：如果上游大模型接口发生 502/网关超时/网络拒绝，且连续 2 页失败，立即安全中止后续排队，避免无效死等
-                    if (errText.contains("502") || errText.contains("Bad Gateway") || errText.contains("ConnectException") || errText.contains("Connection refused")) {
-                        if (consecutiveFailCount >= 2 || pagesToAnalyze.size() == 1) {
-                            fatalError = "AI 服务上游网关异常 (502 Bad Gateway)，已安全终止后续分析";
-                            log.error("触发快速熔断中断分析: {}", fatalError);
-                            break;
-                        }
-                    }
                 }
                 results.add(item);
+                if (generationError != null) {
+                    consecutiveFailCount++;
+                    if (consecutiveFailCount >= 2 && pageIndex < pagesToAnalyze.size()
+                            && (generationError.contains("502") || generationError.contains("Bad Gateway")
+                            || generationError.contains("ConnectException") || generationError.contains("Connection refused"))) {
+                        fatalError = "AI 服务上游网关异常，已停止生成剩余页面";
+                        log.error(fatalError);
+                        break;
+                    }
+                }
             }
 
             if (fatalError != null) {
@@ -746,6 +766,7 @@ public class ProjectService {
                 updateProgress(projectId, p -> p.setStep("正在构建 App Map 与更新交互绑定..."));
                 appMapService.buildAppMap(projectId);
                 for (Page p : allPages) {
+                    if (failedPageIds.contains(p.getId())) continue;
                     Page current = pageMapper.selectById(p.getId());
                     if (current == null || current.getAnalyzed() == null || current.getAnalyzed() != 1) continue;
                     try {
@@ -760,6 +781,9 @@ public class ProjectService {
                     updateProgress(projectId, p -> p.setStep("正在验证全项目线稿连通性..."));
                     verifyProject(projectId);
                 }
+            } else if (fallbackCount > 0) {
+                analyzeService.resolvePendingTargets(projectId, originalNameToId);
+                autowireRenderService.refreshProjectBindings(projectId);
             }
             return results;
         } catch (Exception e) {
@@ -775,10 +799,12 @@ public class ProjectService {
                 p.setAnalyzing(false);
                 p.setFinished(true);
                 p.setUpdateTime(System.currentTimeMillis());
-                if (p.getLastError() != null && p.getOkCount() == 0) {
+                if (p.getLastError() != null && p.getOkCount() == 0 && p.getFallbackCount() == 0) {
                     p.setStep("分析异常中断: " + p.getLastError());
                 } else {
-                    p.setStep("分析完成: 成功 " + p.getOkCount() + " 页" + (p.getFailCount() > 0 ? "，失败 " + p.getFailCount() + " 页" : ""));
+                    p.setStep("分析完成，成功 " + p.getOkCount() + " 页"
+                            + (p.getFallbackCount() > 0 ? "，暂用基础原型 " + p.getFallbackCount() + " 页" : "")
+                            + (p.getFailCount() > 0 ? "，失败 " + p.getFailCount() + " 页" : ""));
                 }
             });
         }
@@ -859,9 +885,7 @@ public class ProjectService {
                                             List<Element> elements,
                                             Map<Long, List<Interaction>> interactionsByElement,
                                             List<Annotation> annotations) {
-        Map<String, Object> vo = new LinkedHashMap<>();
-        vo.put("id", page.getId());
-        vo.put("name", page.getName());
+        Map<String, Object> vo = new LinkedHashMap<>(PageMetadataService.view(page));
         vo.put("background_image", toFileUrl(page.getBackgroundImage()));
         vo.put("canvas_width", page.getCanvasWidth());
         vo.put("canvas_height", page.getCanvasHeight());
@@ -1658,6 +1682,11 @@ public class ProjectService {
         String defaultName = "画板 " + (pageCount + 1);
         String name = body.get("name") != null ? body.get("name").toString().trim() : defaultName;
         page.setName(name.isEmpty() ? defaultName : name);
+        page.setNameSource("user");
+        String pageType = body.containsKey("pageType") ? Objects.toString(body.get("pageType"), "") : PageTypes.PAGE;
+        if (!PageTypes.valid(pageType)) throw new IllegalArgumentException("不支持的页面类型");
+        page.setPageType(pageType);
+        page.setPageTypeSource(PageTypes.UNKNOWN.equals(pageType) ? "ai" : "user");
 
         Number width = body.get("width") instanceof Number n ? n : 375;
         Number height = body.get("height") instanceof Number n ? n : 812;

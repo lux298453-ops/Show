@@ -2,6 +2,7 @@
 import css from '../../../wireforge-backend/src/main/resources/prototype/controls.css?raw'
 import runtime from '../../../wireforge-backend/src/main/resources/prototype/controls.js?raw'
 import prototypeRuntime from '../../../wireforge-backend/src/main/resources/prototype/runtime.js?raw'
+import chromeCss from '../../../wireforge-backend/src/main/resources/prototype/chrome.css?raw'
 import chromeSelectionCss from '../../../wireforge-backend/src/main/resources/prototype/chrome-selection.css?raw'
 import chromeSelectionRuntime from '../../../wireforge-backend/src/main/resources/prototype/chrome-selection.js?raw'
 import chromeLayoutCss from '../../../wireforge-backend/src/main/resources/prototype/chrome-layout.css?raw'
@@ -30,6 +31,11 @@ export function installPrototypeRuntime(doc: Document): void {
   doc.querySelectorAll('style[data-wf-chrome-selection-style],style[data-wf-chrome-layout-style]').forEach(node => node.remove())
   const sharedChrome = doc.querySelector('[data-wf-shared-chrome=navigation]')
   if (sharedChrome) {
+    // Replace owned legacy rules so their forced background cannot override the page's original CSS.
+    doc.querySelectorAll('style[data-wf-chrome-style]').forEach(node => {
+      const variables = node.textContent?.match(/:root\s*\{[^{}]*\}/g)?.join('\n') || ''
+      node.textContent = variables + '\n' + chromeCss
+    })
     const style = doc.createElement('style')
     style.setAttribute('data-wf-chrome-selection-style', 'true')
     style.textContent = chromeSelectionCss

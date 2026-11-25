@@ -31,7 +31,8 @@
       else if (parent !== window) parent.postMessage({ type: 'wf-back' }, '*');
       else feedback('已返回');
     } else if (target.hasAttribute('data-nav')) {
-      if (parent !== window) parent.postMessage({ type: 'wf-nav', page: target.getAttribute('data-nav') }, '*');
+      if (parent !== window) parent.postMessage({ type: 'wf-nav', page: target.getAttribute('data-nav-page-id')
+        ? 'wf-page-id:' + target.getAttribute('data-nav-page-id') : target.getAttribute('data-nav') }, '*');
       else feedback('前往「' + target.getAttribute('data-nav') + '」：请在项目预览中查看跨页跳转');
     } else if (target.hasAttribute('data-wf-tab')) {
       var group = target.getAttribute('data-wf-tab');

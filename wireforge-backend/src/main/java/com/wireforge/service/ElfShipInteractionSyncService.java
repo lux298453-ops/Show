@@ -13,8 +13,6 @@ import com.wireforge.mapper.PageMapper;
 import com.wireforge.mapper.ProjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +25,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ElfShipInteractionSyncService implements ApplicationRunner {
+public class ElfShipInteractionSyncService {
 
     private final ProjectMapper projectMapper;
     private final PageMapper pageMapper;
@@ -48,36 +46,8 @@ public class ElfShipInteractionSyncService implements ApplicationRunner {
         public int h;
     }
 
-    @Override
-    public void run(ApplicationArguments args) {
-        try {
-            syncMatchingProjects();
-        } catch (Exception e) {
-            log.error("[ElfShipSync] Startup sync failed: {}", e.getMessage(), e);
-        }
-    }
-
     /**
-     * 自动检测所有 ElfShip 相关项目并执行增量连线同步
-     */
-    public List<Map<String, Object>> syncMatchingProjects() {
-        List<Project> allProjects = projectMapper.selectList(null);
-        List<Map<String, Object>> results = new ArrayList<>();
-
-        for (Project p : allProjects) {
-            String name = p.getName() != null ? p.getName().trim() : "";
-            // 匹配线上项目 4 ("ElfShip · 账号权限与配置表管理版") 以及本地项目 161 ("ElfShip")
-            if (p.getId() == 4L || name.toLowerCase().contains("elfship") || name.contains("账号权限与配置表管理版")) {
-                log.info("[ElfShipSync] Found target project: id={}, name={}", p.getId(), p.getName());
-                Map<String, Object> res = syncProject(p.getId());
-                results.add(res);
-            }
-        }
-        return results;
-    }
-
-    /**
-     * 对指定项目执行全量热区增量补全
+     * 手动补全指定项目在旧 ElfShip 热区清单中的缺失连线。
      */
     @Transactional
     public Map<String, Object> syncProject(Long projectId) {

@@ -259,7 +259,7 @@ public class AppMapService {
                     .filter(id -> pages.stream().anyMatch(page -> page.getId().equals(id))).distinct().toList();
             Long target = targets.size() == 1 ? targets.get(0) : null;
             if (targets.isEmpty() && current.isEmpty()) {
-                List<Page> exact = pages.stream().filter(page -> AutowirePlanner.normalize(page.getName()).equals(AutowirePlanner.normalize(entry.label()))).toList();
+                List<Page> exact = new PageReferences(pages).candidates(entry.label()).stream().filter(page -> !PageTypes.overlay(page)).toList();
                 if (exact.size() == 1 && exact.get(0).getId().equals(p.getId())) target = p.getId();
             }
             if (target == null) continue;

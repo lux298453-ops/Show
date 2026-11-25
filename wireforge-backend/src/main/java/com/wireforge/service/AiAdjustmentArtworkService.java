@@ -1,6 +1,7 @@
 package com.wireforge.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -20,6 +21,7 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 public class AiAdjustmentArtworkService {
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final List<String> IDENTIFIERS = List.of("data-wf-id", "id", "data-wf-uid", "data-wf-element-id", "data-wf-select-id");
     private static final Set<String> KINDS = Set.of("background", "character", "illustration", "product");
     private static final Set<String> RATIOS = Set.of("portrait", "landscape", "square");
@@ -34,14 +36,14 @@ public class AiAdjustmentArtworkService {
     private final ProjectArtworkService artwork;
 
     public record Result(String html, List<AiGeneratedImage> images) { }
-    private record Task(String attribute, String id, String kind, String name, String prompt, String ratio, Element target) { }
+    private record Task(String attribute, String id, String kind, String name, String prompt, String ratio, Element target, ArtworkStyle profile) { }
     private record SvgBox(double x, double y, double width, double height) { }
 
     static boolean wantsImages(String instruction) {
         return imageIntent(instruction, GENERATE);
     }
 
-    private static boolean allowsImages(String instruction) {
+    static boolean allowsImages(String instruction) {
         if (wantsImages(instruction)) return true;
         return instruction != null && !NEGATIVE.matcher(instruction).find() && imageIntent(instruction, REPLACE);
     }
@@ -62,24 +64,27 @@ public class AiAdjustmentArtworkService {
 
                 【真实图片生成任务】
                 用户要求生成或更换图片。必须在结果 JSON 中额外返回 image_tasks 数组（最多3张），由服务端调用图片模型，不能用SVG/CSS冒充已出图。
-                每项格式：{"target_attribute":"data-wf-id","target_id":"原节点标识","kind":"background","name":"家园背景","prompt":"详细美术描述","aspect_ratio":"portrait"}。
+                每项格式：{"target_attribute":"data-wf-id","target_id":"原节点标识","kind":"background","name":"家园背景","prompt":"依据原稿的主体与构图描述","aspect_ratio":"portrait","style_profile":{"rendering":"原稿表现方式","proportions":"原稿比例","linework":"原稿线条","palette":"原稿配色","shading":"原稿明暗","texture":"原稿材质或无纹理","detail":"simple/moderate/intricate"}}。
                 target_attribute 只能是 id/data-wf-id/data-wf-element-id/data-wf-uid/data-wf-select-id；target_id 必须唯一对应本次返回 HTML 中的真实节点。
                 kind 只能是 background/character/illustration/product，aspect_ratio 只能是 portrait/landscape/square。
                 背景目标选实际背景 img、有背景样式的 HTML 容器或完整独立 SVG 插画根节点；角色目标优先选实际 img，没有 img 时选纯插画容器或完整独立 SVG。
                 SVG 目标必须是最外层 svg，具有有效 viewBox 或明确宽高，且不含文字按钮、链接、foreignObject 或交互；绝不能选其中的 g/path/rect/defs/use。
                 服务端支持在原 SVG 内换成真实图片，保留原 SVG 的编辑标识、位置、尺寸与备用图形；不要为出图改写 SVG 或把其标识移给其他节点。
-                prompt 写明主体、画风、材质、配色、构图与留白，保持原页面风格；图片不含界面文字、按钮、卡框或水印。这是文本出图，不要声称可像素级复刻原角色。
+                prompt 描述对应原稿实际存在的主体、配色、构图与留白，style_profile 明确记录其画风和细节密度。
+                原设计稿参考图与原稿风格记录优先于当前HTML中已经生成的图片；不能根据已生成的错误画风继续增加精细度。
+                用户明确指定新画风时按新要求；“清晰一点”“重新生成”沿用原稿画风，不增加饰品、毛发、纹理、三维材质和强光照。
+                图片不含界面文字、按钮、卡框或水印。这是文本出图，不要声称可像素级复刻原角色。
                 返回 HTML 保留旧图片 src/背景和全部稳定标识，服务端出图后替换目标素材；不得编造URL、删除交互子节点或把整个页面变成一张图片。
                 image_tasks 只能针对当前指令要求的新图片；纯移动、文字、配色调整不生成图片。生成任务不可省略，不能只改摘要而未生成图片。
-                """;
+                """ + ArtworkStyle.CONTRACT;
     }
 
     public String prompt(long projectId, String instruction) {
         String rules = prompt(instruction);
         if (!allowsImages(instruction) || wantsImages(instruction)) return rules;
         StringBuilder result = new StringBuilder(rules).append("\n【可复用的项目图片（仅语义匹配时使用）】\n");
-        artwork.assets(projectId).stream().limit(24).forEach(image -> result.append(image.name()).append(" | ")
-                .append(image.kind()).append(" | ").append(image.url()).append('\n'));
+        artwork.reusableAssets(projectId).stream().limit(24).forEach(image -> result.append(image.name()).append(" | ")
+                .append(image.kind()).append(" | ").append(image.url()).append(" | style_profile=").append(image.styleProfile().json()).append('\n'));
         return result.toString();
     }
 
@@ -106,6 +111,8 @@ public class AiAdjustmentArtworkService {
                 if (label.isBlank()) label = node.attr("alt");
                 if (label.isBlank()) label = node.className();
                 candidate.put("label", label.substring(0, Math.min(120, label.length())));
+                ArtworkStyle profile = sourceProfile(node);
+                if (profile != null) candidate.set("style_profile", JSON.valueToTree(profile));
                 var accepted = candidate.putArray("kinds"); kinds.forEach(accepted::add);
                 break;
             }
@@ -149,18 +156,38 @@ public class AiAdjustmentArtworkService {
             }
             String problem = targetProblem(target, kind);
             if (problem != null) throw invalid(problem + "：" + name);
+            ArtworkStyle profile = item.has("style_profile") ? ArtworkStyle.parse(item.get("style_profile")) : sourceProfile(target);
+            if (item.has("style_profile") && profile == null) throw invalid("图片画风描述格式无效：" + name);
             targets.add(target);
-            tasks.add(new Task(attr, id, kind, name, description, ratio, target));
+            tasks.add(new Task(attr, id, kind, name, description, ratio, target, profile));
         }
         // All destinations are now known to be valid. Keep partial successes for a manual retry.
         List<AiGeneratedImage> images = new ArrayList<>();
         for (Task task : tasks) {
-            ProjectArtworkService.Artwork image = artwork.generateAdjustment(projectId, pageId, token, source, instruction,
-                    task.attribute() + "=" + task.id(), task.kind(), task.name(), task.prompt(), task.ratio());
-            install(task, image.url());
+            ProjectArtworkService.Artwork image = task.profile() == null
+                    ? artwork.generateAdjustment(projectId, pageId, token, source, instruction,
+                        task.attribute() + "=" + task.id(), task.kind(), task.name(), task.prompt(), task.ratio())
+                    : artwork.generateAdjustment(projectId, pageId, token, source, instruction,
+                        task.attribute() + "=" + task.id(), task.kind(), task.name(), task.prompt(), task.ratio(), task.profile());
+            Element installed = install(task, image.url());
+            // A retry may reuse an earlier completed image; keep that image's actual style metadata.
+            if (image.styleProfile() != null) {
+                task.target().attr(ArtworkStyle.ATTRIBUTE, image.styleProfile().json());
+                installed.attr(ArtworkStyle.ATTRIBUTE, image.styleProfile().json());
+            } else {
+                task.target().removeAttr(ArtworkStyle.ATTRIBUTE);
+                installed.removeAttr(ArtworkStyle.ATTRIBUTE);
+            }
             images.add(new AiGeneratedImage(task.name(), image.url(), task.kind()));
         }
         return new Result(fragment ? doc.body().html() : doc.outerHtml(), List.copyOf(images));
+    }
+
+    private static ArtworkStyle sourceProfile(Element node) {
+        ArtworkStyle profile = ArtworkStyle.parse(node.attr(ArtworkStyle.ATTRIBUTE));
+        if (profile == null && node.parent() != null && node.parent().hasAttr("data-wf-artwork-key"))
+            profile = ArtworkStyle.parse(node.parent().attr(ArtworkStyle.ATTRIBUTE));
+        return profile;
     }
 
     private static String targetProblem(Element target, String kind) {
@@ -194,11 +221,12 @@ public class AiAdjustmentArtworkService {
         } catch (NumberFormatException invalid) { return null; }
     }
 
-    private static void install(Task task, String url) {
+    private static Element install(Task task, String url) {
         Element target = task.target();
         if (target.is("img")) {
             target.attr("src", url).removeAttr("srcset").removeAttr("sizes");
             if (target.parent() != null && target.parent().is("picture")) target.parent().select("source").removeAttr("srcset").removeAttr("src");
+            return target;
         } else if (target.is("svg")) {
             // Keep the original SVG root: its geometry, classes and editor identities stay intact.
             SvgBox box = svgBox(target);
@@ -213,13 +241,15 @@ public class AiAdjustmentArtworkService {
                     .attr("width", Double.toString(box.width())).attr("height", Double.toString(box.height()))
                     .attr("preserveAspectRatio", task.kind().equals("background") ? "xMidYMid slice" : "xMidYMid meet")
                     .attr("style", "display:block!important;opacity:1!important;visibility:visible!important;pointer-events:none!important");
+            return image;
         } else if (task.kind().equals("background")) {
             style(target, "background-image:url('" + url + "')!important;background-size:cover!important;background-position:center!important;background-repeat:no-repeat!important");
+            return target;
         } else {
             // Preserve fallback nodes and their stable IDs for the editor/undo contract.
             target.children().forEach(child -> style(child, "display:none!important"));
             style(target, "overflow:hidden");
-            target.appendElement("img").attr("src", url).attr("alt", task.name()).attr("data-wf-role", "image")
+            return target.appendElement("img").attr("src", url).attr("alt", task.name()).attr("data-wf-role", "image")
                     .attr("data-wf-id", "ai-image-" + UUID.randomUUID())
                     .attr("style", "width:100%;height:100%;object-fit:contain;display:block");
         }

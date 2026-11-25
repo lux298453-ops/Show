@@ -18,6 +18,20 @@ class GeneratedHtmlContractTest {
     private static Element source(long id) { Element e = new Element(); e.setId(id); return e; }
     private String prepare(String body) { return contract.prepare("<!doctype html><html><head><style>:root{--primary:#ff7022}</style></head><body>" + body + "</body></html>", page, List.of(button), List.of(page, detail), Set.of("/api/assets/u-witch"), Set.of(10L)); }
 
+    @Test void oldNamesAreResolvedToTheCurrentNameAndStableId() {
+        PageReferences.remember(detail, "旧商品详情");
+        var doc = Jsoup.parse(prepare("<button data-wf-element-id='10' data-nav='旧商品详情'>查看详情</button>"));
+        assertEquals("商品详情", doc.selectFirst("button").attr("data-nav"));
+        assertEquals("2", doc.selectFirst("button").attr("data-nav-page-id"));
+    }
+
+    @Test void ambiguousNamesDoNotBecomeArbitraryLinksAndPageTypeIsPersistedInMarkup() {
+        page.setPageType("page"); detail.setName("商城");
+        var doc = Jsoup.parse(prepare("<button data-wf-element-id='10' data-nav='商城'>按钮</button>"));
+        assertFalse(doc.selectFirst("button").hasAttr("data-nav"));
+        assertEquals("page", doc.selectFirst("meta[name=wf-page-type]").attr("content"));
+    }
+
     @Test void keepsStaticEditsAndStableIdsAcrossSerialization() {
         String result = prepare("<button data-wf-element-id='10' data-nav='商品详情'>购买</button><p>说明</p>");
         var doc = Jsoup.parse(result);

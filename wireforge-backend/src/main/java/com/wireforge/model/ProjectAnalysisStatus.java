@@ -23,6 +23,8 @@ public class ProjectAnalysisStatus {
     private String step;
     /** 已成功生成页面数 */
     private int okCount;
+    /** AI 生成失败后已保存基础原型的页面数 */
+    private int fallbackCount;
     /** 失败页面数 */
     private int failCount;
     /** 意外错误描述（若中断或异常则记录） */

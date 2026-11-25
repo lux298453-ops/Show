@@ -16,6 +16,16 @@ public class Page {
     private Long id;
     private Long projectId;
     private String name;
+    /** scan / filename / ai / user / legacy; confirmed names survive re-analysis. */
+    private String nameSource;
+    /** Original project-relative design name, including its folder group. */
+    private String sourceName;
+    /** JSON array of former names and design filenames used by saved navigation. */
+    private String nameAliases;
+    /** page / modal / drawer / unknown, independent of the display name. */
+    private String pageType;
+    /** ai / user / legacy; explicit user classification wins over recognition. */
+    private String pageTypeSource;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String backgroundImage;
     private Integer canvasWidth;

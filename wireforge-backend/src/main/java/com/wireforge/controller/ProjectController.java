@@ -32,6 +32,7 @@ public class ProjectController {
     private final com.wireforge.service.AuthService authService;
     private final com.wireforge.service.ElfShipInteractionSyncService elfShipInteractionSyncService;
     private final com.wireforge.service.AiAdjustService aiAdjustService;
+    private final com.wireforge.service.PageMetadataService pageMetadataService;
 
     @GetMapping
     public Result<List<Project>> list() {
@@ -179,6 +180,13 @@ public class ProjectController {
             @PathVariable Long pageId,
             @RequestBody Map<String, Object> body) {
         return Result.ok(projectService.updatePagePosition(id, pageId, body));
+    }
+
+    /** Update display metadata without replacing the saved page document. */
+    @PutMapping("/{id}/pages/{pageId}/metadata")
+    public Result<Map<String, Object>> updatePageMetadata(@PathVariable Long id, @PathVariable Long pageId,
+                                                         @RequestBody Map<String, String> body) {
+        return Result.ok(pageMetadataService.update(id, pageId, body));
     }
 
     /** 更新页面画板宽高 */

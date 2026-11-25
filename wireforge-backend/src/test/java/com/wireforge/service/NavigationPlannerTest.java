@@ -21,6 +21,14 @@ class NavigationPlannerTest {
     }
     NavigationPlanner.Result plan(List<Page> pages,List<Element> els,List<Interaction> lines) {return planner.plan(pages,els,lines,List.of(),List.of(),List.of(),Map.of());}
     Item label(NavigationPlanner.Result result,String name) {return result.items().stream().filter(i->name.equals(i.elementLabel())).findFirst().orElseThrow();}
+    @Test void navigationCandidatesUsePageTypeInsteadOfWordsInTheName() {
+        Page home = page(1, "首页"), overlay = page(2, "买这个"), normal = page(3, "弹窗制作教程");
+        overlay.setPageType("modal"); normal.setPageType("page");
+        var result = plan(List.of(home, overlay, normal), bar(1, "首页", "买这个", "弹窗制作教程"), List.of());
+        assertFalse(label(result, "买这个").applicable());
+        assertEquals(3L, label(result, "弹窗制作教程").targetPageId());
+        assertTrue(label(result, "买这个").navigation().candidateTargets().stream().noneMatch(option -> option.id() == 2L));
+    }
     @Test void missingBottomRelationshipsAreDetectedWithoutAnnotations() {
         var result=plan(List.of(page(1,"首页"),page(2,"商城"),page(3,"我的")),bar(1,"首页","商城","我的"),List.of());
         assertEquals(3,result.entries().size());assertEquals(2,result.items().size());

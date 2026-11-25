@@ -19,7 +19,7 @@ test('old white selected tab recovers the original gradient without rebuilding e
   const d = fixture(), nav = d.querySelector('nav'), active = d.querySelector('[aria-current=page]')
   const content = d.querySelector('#content').outerHTML, original = active.outerHTML
   run(d)
-  assert.equal(nav.style.getPropertyValue('--wf-chrome-active-bg'), 'linear-gradient(#879bfa,#88d4ff)')
+  assert.equal(nav.style.getPropertyValue('--wf-local-active-bg'), 'linear-gradient(#879bfa,#88d4ff)')
   assert.equal(nav.style.getPropertyValue('--wf-chrome-active-radius'), '9px')
   assert.equal(d.querySelector('[aria-current=page]'), active)
   assert.equal(active.outerHTML, original)
@@ -32,7 +32,7 @@ test('a missing legacy background gets a readable foreground on light and dark b
   for (const [bg, ink, fallback] of [['#fff', '#fff', '#365ac7'], ['#121212', '#151515', '#a8c7fa']]) {
     const d = fixture('', `--wf-chrome-nav-bg:${bg};--wf-chrome-active:${ink};`)
     run(d)
-    assert.equal(d.querySelector('nav').style.getPropertyValue('--wf-chrome-active'), fallback)
+    assert.equal(d.querySelector('nav').style.getPropertyValue('--wf-local-active-ink'), fallback)
     assert.equal(d.querySelectorAll('[aria-current=page]').length, 1)
   }
 })
@@ -40,18 +40,40 @@ test('a missing legacy background gets a readable foreground on light and dark b
 test('a decorative selected pseudo element supplies its surface without restoring pseudo markup', () => {
   const d = fixture('.nav-item{background:transparent}.nav-item.active{color:#fff}.nav-item.active:before{background:linear-gradient(#879bfa,#88d4ff);border-radius:9px}')
   run(d)
-  assert.equal(d.querySelector('nav').style.getPropertyValue('--wf-chrome-active-bg'), 'linear-gradient(#879bfa,#88d4ff)')
+  assert.equal(d.querySelector('nav').style.getPropertyValue('--wf-local-active-bg'), 'linear-gradient(#879bfa,#88d4ff)')
   assert.equal(d.querySelector('nav').style.getPropertyValue('--wf-chrome-active-radius'), '9px')
   assert.equal(d.querySelector('[aria-current=page]').className, 'nav-item')
 })
 
-test('valid unfilled selections and v3 project surfaces keep their own styling', () => {
+test('unfilled selections keep their ink and v3 colors migrate to their authored local surface', () => {
   const outline = fixture('', '--wf-chrome-nav-bg:#fff;--wf-chrome-active:#ec681d;')
   run(outline)
-  assert.equal(outline.querySelector('nav').style.getPropertyValue('--wf-chrome-active'), '')
+  assert.equal(outline.querySelector('nav').style.getPropertyValue('--wf-local-active-ink'), '#ec681d')
   const modern = fixture(undefined, '--wf-chrome-nav-bg:#fff;--wf-chrome-active:#fff;--wf-chrome-active-bg:#4563c2;')
-  const before = modern.documentElement.outerHTML; run(modern)
-  assert.equal(modern.documentElement.outerHTML, before)
+  run(modern)
+  assert.equal(modern.querySelector('nav').style.getPropertyValue('--wf-local-active-bg'), 'linear-gradient(#879bfa,#88d4ff)')
+  assert.equal(modern.querySelector('nav').getAttribute('data-wf-chrome-palette'), 'local')
+})
+
+test('pages with different original palettes ignore a conflicting shared project palette', () => {
+  for (const [ink, selected, background] of [['#334455', '#126834', 'rgba(230,245,234,.6)'], ['#cbd5e1', '#fff', 'linear-gradient(#293b66,#1b2555)']]) {
+    const d = fixture(`nav{background:${background}}.nav-item{color:${ink}}.nav-item.active{color:${selected};background:${background}}`, '--wf-chrome-nav-bg:#ff0000;--wf-chrome-active:#ff0000;--wf-chrome-active-bg:#ff0000;--wf-chrome-active-radius:8px;')
+    run(d)
+    const bar = d.querySelector('nav')
+    assert.equal(bar.style.getPropertyValue('--wf-local-nav-ink'), ink)
+    assert.equal(bar.style.getPropertyValue('--wf-local-active-ink'), selected)
+    assert.equal(bar.style.getPropertyValue('--wf-local-active-bg'), background)
+    assert.equal(bar.style.getPropertyValue('--wf-chrome-active-radius'), '', 'the shared selection geometry stays on the root')
+  }
+})
+
+test('v4 palettes already supplied by the backend remain unchanged', () => {
+  const d = fixture()
+  d.querySelector('nav').setAttribute('data-wf-chrome-palette', 'local')
+  d.querySelector('nav').style.setProperty('--wf-local-active-bg', '#4563c2')
+  const before = d.documentElement.outerHTML
+  run(d)
+  assert.equal(d.documentElement.outerHTML, before)
 })
 
 test('pages without project chrome are left unchanged and inactive items stay inactive', () => {

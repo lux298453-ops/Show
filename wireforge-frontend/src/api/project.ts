@@ -10,6 +10,7 @@ export interface AnalysisStatus {
   currentPageName?: string
   step?: string
   okCount: number
+  fallbackCount?: number
   failCount: number
   lastError?: string | null
   finished: boolean
@@ -67,6 +68,8 @@ export const projectApi = {
       { params: { force }, timeout: 1800000 },
     ),
   prototype: (id: number) => http.get<any, Prototype>(`/projects/${id}/prototype`),
+  updatePageMetadata: (id: number, pageId: number, body: { name?: string; pageType?: NonNullable<Page['page_type']> }) =>
+    http.put<any, Pick<Page, 'id' | 'name' | 'name_source' | 'source_name' | 'name_aliases' | 'page_type' | 'page_type_source'>>(`/projects/${id}/pages/${pageId}/metadata`, body),
   /** 仅重新生成某页的整页 HTML（Stitch 式直出），返回新 HTML */
   regenerateHtml: (id: number, pageId: number) =>
     http.post<any, string>(`/projects/${id}/pages/${pageId}/regenerate-html`, null, { timeout: 1800000 }),
@@ -172,6 +175,7 @@ export const projectApi = {
       x?: number
       y?: number
       htmlContent?: string
+      pageType?: NonNullable<Page['page_type']>
     },
   ) => http.post<any, Page>(`/projects/${id}/pages`, data),
   /** 删除画板/页面 */

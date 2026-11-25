@@ -718,7 +718,8 @@ function sendInteractiveMode() {
       if (el.interaction?.target_page_id) {
         activeTargets.push(String(el.interaction.target_page_id))
         const tp = (props.allPages || []).find((p) => p.id === el.interaction!.target_page_id)
-        if (tp) activeTargets.push(tp.name.trim().toLowerCase())
+        if (tp) activeTargets.push(...[tp.name, tp.source_name || '', ...(tp.name_aliases || [])]
+          .filter(Boolean).map(name => name.trim().toLowerCase()))
       }
     }
   }
@@ -835,7 +836,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
   // Register before the generated runtime: a saved line must win over an in-page tab handler.
   const routing = doc.createElement('script')
   routing.setAttribute('data-wf-inject', 'routing')
-  routing.textContent = `window.__wfCanvasRouting=(${installCanvasRouting.toString()})(document,${JSON.stringify(canvasBindings(props.page)).replace(/</g, '\\u003c')});`
+  routing.textContent = `window.__wfCanvasRouting=(${installCanvasRouting.toString()})(document,${JSON.stringify(canvasBindings(props.page)).replace(/</g, '\\u003c')},${JSON.stringify(backdropReturns)},${explicitBackgroundReturn?.interaction?.action === 'none'});`
   doc.head.prepend(routing)
   // 防溢出兜底：AI 常把字号写得过大（按 1080px 设计稿而非 375px 容器标定），
   // 导致一行折成两行、横向按钮组挤成竖排、元素相互重叠。
@@ -1082,7 +1083,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
       if(ev.source !== parent) return;
       if(!ev.data) return;
       if(ev.data.type === 'wf-interactive'){
-        if(window.__wfCanvasRouting && ev.data.bindings) window.__wfCanvasRouting.update(ev.data.bindings);
+        if(window.__wfCanvasRouting) window.__wfCanvasRouting.update(ev.data.bindings, ev.data.backdropReturns, ev.data.disabledBackgroundReturn);
         if(Array.isArray(ev.data.backdropReturns)) syncBackdropReturns(ev.data.backdropReturns, !!ev.data.disabledBackgroundReturn);
         isInteractive = !!ev.data.on;
         if(isInteractive) document.body.classList.add('wf-interactive');
@@ -1296,7 +1297,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         if (segNav) {
           e.preventDefault(); e.stopPropagation();
           var segRect=segItem.getBoundingClientRect(),bodyRect=document.body.getBoundingClientRect();
-          parent.postMessage({type:'wf-nav',page:segNav,uids:collectUids(segItem),uid:segItem.getAttribute('data-wf-uid')||'',
+          parent.postMessage({type:'wf-nav',page:segItem.getAttribute('data-nav-page-id') ? 'wf-page-id:' + segItem.getAttribute('data-nav-page-id') : segNav,uids:collectUids(segItem),uid:segItem.getAttribute('data-wf-uid')||'',
             x:Math.round(segRect.left-bodyRect.left+segRect.width/2),y:Math.round(segRect.top-bodyRect.top+segRect.height/2)},'*');
           return;
         }
@@ -1367,7 +1368,7 @@ function injectNavRuntime(html: string, initialInteractive = false, isReadOnly =
         var hitY = Math.round(r.top - bodyRect.top + r.height / 2);
         parent.postMessage({
           type: 'wf-nav',
-          page: nav,
+          page: el.getAttribute('data-nav-page-id') ? 'wf-page-id:' + el.getAttribute('data-nav-page-id') : nav,
           uids: collectUids(t),
           uid: el.getAttribute('data-wf-uid') || '',
           x: hitX,
@@ -1747,12 +1748,27 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       return false;
     }
 
+    function clearTextEditingState(root){
+      var nodes = [root].concat(Array.from(root.querySelectorAll('[contenteditable],[data-wf-editing-text]')));
+      nodes.forEach(function(node){
+        if(node.hasAttribute('data-wf-editing-text')){
+          node.style.outline = '';
+          node.style.outlineOffset = '';
+          node.style.cursor = '';
+        }
+        node.removeAttribute('data-wf-editing-text');
+        node.removeAttribute('contenteditable');
+      });
+    }
+
     function snapshotHtml(){
       var parts = [];
       var kids = document.body ? document.body.children : [];
       for(var i = 0; i < kids.length; i++){
         if(isSnapChrome(kids[i])) continue;
-        parts.push(kids[i].outerHTML);
+        var copy = kids[i].cloneNode(true);
+        clearTextEditingState(copy);
+        parts.push(copy.outerHTML);
       }
       var bodyBg = '';
       var rootBg = '';
@@ -1782,6 +1798,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         if (m) html = m[1];
       }
       var wrap = parseEditorHtml(html);
+      clearTextEditingState(wrap);
       var gone = [];
       var kids = document.body.children;
       for(var i = 0; i < kids.length; i++){
@@ -1942,11 +1959,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
     function nudgeElement(el, dx, dy){
       prepareArtworkLayout(el);
       var posVal = el.style.position || (window.getComputedStyle ? window.getComputedStyle(el).position : '');
-      var isAbsolute = posVal === 'absolute';
+      var isAbsolute = posVal === 'absolute' || posVal === 'fixed';
       var curL = parseFloat(el.style.left);
       var curT = parseFloat(el.style.top);
-      if(isNaN(curL)) curL = 0;
-      if(isNaN(curT)) curT = 0;
+      var computed = window.getComputedStyle(el);
+      if(isNaN(curL)) curL = parseFloat(computed.left) || 0;
+      if(isNaN(curT)) curT = parseFloat(computed.top) || 0;
       if(NAV_EDIT && NAV_EDIT.isPart(el)){
         var box=el.getBoundingClientRect();
         var constrained=NAV_EDIT.constrainBox(el,curL+dx,curT+dy,box.width,box.height,{left:curL,top:curT,boxL:box.left+(window.scrollX||0),boxT:box.top+(window.scrollY||0)});
@@ -1954,15 +1972,35 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
       if(!isAbsolute) el.style.position = 'relative';
       var origTrans = el.style.transition;
+      var origTransPriority = el.style.getPropertyPriority('transition');
       var hadInlineTrans = !!(el.style.getPropertyValue && el.style.getPropertyValue('transition'));
       el.style.setProperty('transition', 'none', 'important');
       if(dx) el.style.left = (Math.round((curL + dx) * 100) / 100) + 'px';
       if(dy) el.style.top = (Math.round((curT + dy) * 100) / 100) + 'px';
-      setTimeout(function(){
-        if(!el || !el.isConnected) return;
-        if(hadInlineTrans) el.style.transition = origTrans;
+      return function(){
+        if(hadInlineTrans) el.style.setProperty('transition', origTrans, origTransPriority);
         else el.style.removeProperty('transition');
-      }, 50);
+      };
+    }
+
+    function nudgeSelection(dx, dy, targets){
+      if(READONLY || !EDIT || PROTO_HOTSPOT || document.body.classList.contains('wf-interactive')) return;
+      if(document.querySelector('[data-wf-editing-text="true"]')) return;
+      var movable = (targets || selectedEls).filter(function(el){ return el && el.isConnected && !isLayerLocked(el); });
+      if(!movable.length || (!dx && !dy)) return;
+      pushSnapshot();
+      var restoreTransitions = movable.map(function(el){ return nudgeElement(el, dx, dy); });
+      try {
+        if(selectedEls.length > 1) updateMultiTransformBox();
+        else if(selectedEl) updateTransformBox(selectedEl);
+        if(selectedEl) notifySelectedElementInfo(selectedEl);
+      } finally {
+        // Geometry reads above commit the move without animation. Restore the
+        // authored transitions before saving history, rather than in a timer.
+        restoreTransitions.forEach(function(restore){ restore(); });
+      }
+      scheduleSave();
+      pushSnapshot();
     }
 
     function distributeSelection(axis){
@@ -2026,14 +2064,18 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         return;
       }
       pushSnapshot();
+      var restoreTransitions = [];
       for(var ai = 0; ai < items.length; ai++){
         if(items[ai].delta > -0.05 && items[ai].delta < 0.05) continue;
-        if(horizontal) nudgeElement(items[ai].el, items[ai].delta, 0);
-        else nudgeElement(items[ai].el, 0, items[ai].delta);
+        restoreTransitions.push(horizontal ? nudgeElement(items[ai].el, items[ai].delta, 0) : nudgeElement(items[ai].el, 0, items[ai].delta));
       }
-      if(selectedEls.length > 1) updateMultiTransformBox();
-      else if(selectedEl) updateTransformBox(selectedEl);
-      if(selectedEl) notifySelectedElementInfo(selectedEl);
+      try {
+        if(selectedEls.length > 1) updateMultiTransformBox();
+        else if(selectedEl) updateTransformBox(selectedEl);
+        if(selectedEl) notifySelectedElementInfo(selectedEl);
+      } finally {
+        restoreTransitions.forEach(function(restore){ restore(); });
+      }
       scheduleSave();
       pushSnapshot();
       showToast(horizontal ? '已按水平等间距排开' : '已按垂直等间距排开');
@@ -3344,8 +3386,9 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       isDirty = false;
       try{
         var clone = document.documentElement.cloneNode(true);
-        var bad = clone.querySelectorAll('[data-wf-inject],#wf-edit-toast,#wf-transform-box,#wf-marquee-box,#wf-snap-guides,[data-wf-editing-text],.wf-autowire-modal');
+        var bad = clone.querySelectorAll('[data-wf-inject],#wf-edit-toast,#wf-transform-box,#wf-marquee-box,#wf-snap-guides,.wf-autowire-modal');
         for(var i = 0; i < bad.length; i++) bad[i].parentNode.removeChild(bad[i]);
+        clearTextEditingState(clone);
         var savedBody = clone.querySelector('body');
         if(savedBody) savedBody.classList.remove('wf-edit-mode', 'wf-dragging', 'wf-proto-hotspot', 'wf-interactive');
         var multi = clone.querySelectorAll('.wf-multi-selected');
@@ -4887,6 +4930,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(READONLY || !target) return;
       var t = findTextTarget(target);
       if(!t) return;
+      if(t.getAttribute('data-wf-editing-text') === 'true'){ t.focus(); return; }
+      pushSnapshot();
 
       var b = document.getElementById('wf-transform-box');
       if(b) b.style.display = 'none';
@@ -5644,10 +5689,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         try { navEl = document.querySelector('[data-wf-uid="' + navUid + '"]'); } catch(err) {}
         if(!navEl) return;
         if(d.page){
+          navEl.removeAttribute('data-nav-page-id');
           navEl.setAttribute('data-nav', String(d.page));
           navEl.style.cursor = 'pointer';
         } else {
           navEl.removeAttribute('data-nav');
+          navEl.removeAttribute('data-nav-page-id');
         }
         if(!d.silent){
           scheduleSave();
@@ -5659,6 +5706,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           var elByUid = document.querySelector('[data-wf-uid="' + d.uid + '"]');
           if(elByUid){
             elByUid.removeAttribute('data-nav');
+            elByUid.removeAttribute('data-nav-page-id');
             elByUid.removeAttribute('data-modal');
             if(elByUid.getAttribute('data-action') === 'back')elByUid.removeAttribute('data-action');
             elByUid.style.cursor = '';
@@ -5668,6 +5716,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           var exactEl = document.querySelector('[data-wf-element-id="' + Number(d.elementId) + '"]');
           if(exactEl){
             exactEl.removeAttribute('data-nav');
+            exactEl.removeAttribute('data-nav-page-id');
             exactEl.removeAttribute('data-modal');
             if(exactEl.getAttribute('data-action') === 'back')exactEl.removeAttribute('data-action');
             exactEl.style.cursor = '';
@@ -5687,8 +5736,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             var navEls = document.querySelectorAll('[data-nav]');
             for(var ni = 0; ni < navEls.length; ni++){
               var nVal = (navEls[ni].getAttribute('data-nav') || '').trim().toLowerCase();
-              if(!validSet.has(nVal)){
+              var nId = navEls[ni].getAttribute('data-nav-page-id') || '';
+              if(!validSet.has(nVal) && !validSet.has(nId)){
                 navEls[ni].removeAttribute('data-nav');
+                navEls[ni].removeAttribute('data-nav-page-id');
                 if(navEls[ni].style.cursor === 'pointer'){
                   navEls[ni].style.cursor = '';
                 }
@@ -5749,14 +5800,14 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               if(reEls.length > 1){
                 setMultiSelection(reEls);
               } else if(reEls.length === 1){
-                selectElement(reEls[0]);
+                selectElement(reEls[0], true, false);
               } else {
                 deselect();
               }
             } else if(savedUids.length === 1){
               var reEl = document.querySelector('[data-wf-uid="' + savedUids[0] + '"]') || document.getElementById(savedUids[0]);
               if(reEl){
-                selectElement(reEl);
+                selectElement(reEl, true, false);
               } else {
                 deselect();
               }
@@ -5764,14 +5815,21 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
               deselect();
             }
             clearHover();
+            // Restoration is not an edit. Rebase silently so the next real edit
+            // is recorded immediately, without a timer suppressing user input.
+            history = [snapshotHtml()]; hIdx = 0;
             publishLayers();
             scheduleSave();
           } finally {
-            setTimeout(function(){ suppressSnapshot = prevSuppress; }, 120);
+            suppressSnapshot = prevSuppress;
           }
         }
       }else if(d.type === 'wf-undo'){ /* no-op: 由外层统一时间线管理，禁止页内旧历史复活 */ }
       else if(d.type === 'wf-redo'){ /* no-op: 由外层统一时间线管理，禁止页内旧历史复活 */ }
+      else if(d.type === 'wf-nudge'){
+        var dx = Number(d.dx), dy = Number(d.dy);
+        if(Number.isFinite(dx) && Number.isFinite(dy)) nudgeSelection(dx, dy, collectStyleTargets(d));
+      }
       else if(d.type === 'wf-copy'){
         if(selectedEl) copyElement(selectedEl);
       }else if(d.type === 'wf-capture-component'){
@@ -6803,20 +6861,37 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(!el) return { left: 0, top: 0, isAbsolute: false };
       var curL = parseFloat(el.style.left);
       var curT = parseFloat(el.style.top);
-      var pos = el.style.position || (window.getComputedStyle ? window.getComputedStyle(el).position : '');
-      var isAbs = (pos === 'absolute');
-      if(isAbs && !isNaN(curL) && !isNaN(curT)){
+      var computed = window.getComputedStyle(el);
+      var pos = computed.position;
+      var isAbs = (pos === 'absolute' || pos === 'fixed');
+      if(isAbs){
+        curL = pxNum(computed.left);
+        curT = pxNum(computed.top);
+      }
+      if(isAbs && curL !== null && curT !== null && !isNaN(curL) && !isNaN(curT)){
         return { left: curL, top: curT, isAbsolute: true };
       }
       var rect = el.getBoundingClientRect();
       var scrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
       var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
       var op = el.offsetParent;
+      // SVG roots do not expose offsetParent. Find their CSS containing block
+      // instead of treating page coordinates as local left/top values.
+      if(!op && pos !== 'fixed'){
+        var parentEl = el.parentElement;
+        while(parentEl && parentEl !== document.body && parentEl !== document.documentElement){
+          var parentStyle = window.getComputedStyle(parentEl);
+          if((parentStyle.position && parentStyle.position !== 'static') ||
+            (parentStyle.transform && parentStyle.transform !== 'none')){ op = parentEl; break; }
+          parentEl = parentEl.parentElement;
+        }
+      }
       var opRect = (op && op !== document.body && op !== document.documentElement) ? op.getBoundingClientRect() : { left: 0, top: 0 };
-      var sX = (op === document.body || !op) ? scrollX : 0;
-      var sY = (op === document.body || !op) ? scrollY : 0;
-      var calcL = Math.round(rect.left + sX - opRect.left);
-      var calcT = Math.round(rect.top + sY - opRect.top);
+      var parentStyle = op ? window.getComputedStyle(op) : null;
+      var sX = pos === 'fixed' ? 0 : ((op === document.body || !op) ? scrollX : (op.scrollLeft || 0));
+      var sY = pos === 'fixed' ? 0 : ((op === document.body || !op) ? scrollY : (op.scrollTop || 0));
+      var calcL = rect.left + sX - opRect.left - (parseFloat(parentStyle && parentStyle.borderLeftWidth) || 0) - (parseFloat(computed.marginLeft) || 0);
+      var calcT = rect.top + sY - opRect.top - (parseFloat(parentStyle && parentStyle.borderTopWidth) || 0) - (parseFloat(computed.marginTop) || 0);
       return { left: calcL, top: calcT, isAbsolute: isAbs };
     }
 
@@ -6965,6 +7040,127 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
     }
 
+    function prepareResizeGesture(gesture){
+      var resizeEls = gesture.elements.filter(function(el){ return el && el.isConnected && !isLayerLocked(el); });
+      if(!resizeEls.length){ resizing = null; return; }
+      var resizeEl = resizeEls[resizeEls.length - 1];
+      var dir = gesture.dir;
+      resizeEls.forEach(prepareArtworkLayout);
+      var scrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+
+      // 多选：以包围盒为基准，按比例同时缩放每个选中元素
+      if(resizeEls.length > 1){
+        var minL = Infinity, minT = Infinity, maxR = -Infinity, maxB = -Infinity;
+        var prep = [];
+        for(var mi = 0; mi < resizeEls.length; mi++){
+          var mEl = resizeEls[mi];
+          if(!mEl || !mEl.isConnected) continue;
+          var mRect = mEl.getBoundingClientRect();
+          var mL = mRect.left + scrollX;
+          var mT = mRect.top + scrollY;
+          var mW = mRect.width;
+          var mH = mRect.height;
+          var navOrigin = NAV_EDIT && NAV_EDIT.isPart(mEl) ? {left:parseFloat(mEl.style.left)||0,top:parseFloat(mEl.style.top)||0,boxL:mL,boxT:mT} : null;
+          var cssPos = getElementCssPos(mEl);
+          prep.push({ el: mEl, left: mL, top: mT, w: mW, h: mH, navOrigin: navOrigin, cssLeft: cssPos.left, cssTop: cssPos.top, isAbsolute: cssPos.isAbsolute, inners: snapshotInners(mEl) });
+          if(mL < minL) minL = mL;
+          if(mT < minT) minT = mT;
+          if(mL + mW > maxR) maxR = mL + mW;
+          if(mT + mH > maxB) maxB = mT + mH;
+        }
+        var boxW = Math.max(1, maxR - minL);
+        var boxH = Math.max(1, maxB - minT);
+        var items = [];
+        for(var mj = 0; mj < prep.length; mj++){
+          var p = prep[mj];
+          // Measure every selected item before taking any of them out of flow.
+          p.el.style.boxSizing = 'border-box';
+          p.el.style.width = p.w + 'px';
+          p.el.style.height = p.h + 'px';
+          p.el.style.maxWidth = 'none';
+          p.el.style.minWidth = '0px';
+          p.el.style.minHeight = '0px';
+          if(!p.navOrigin){
+            if(!p.isAbsolute) p.el.style.position = 'absolute';
+            p.el.style.left = p.cssLeft + 'px';
+            p.el.style.top = p.cssTop + 'px';
+          }
+          items.push({
+            el: p.el,
+            relL: (p.left - minL) / boxW,
+            relT: (p.top - minT) / boxH,
+            relW: p.w / boxW,
+            relH: p.h / boxH,
+            initW: p.w,
+            initH: p.h,
+            navOrigin: p.navOrigin,
+            cssLeft: p.cssLeft,
+            cssTop: p.cssTop,
+            boxL: p.left,
+            boxT: p.top,
+            inners: p.inners
+          });
+        }
+        resizing = {
+          dir: dir,
+          startX: gesture.startX,
+          startY: gesture.startY,
+          initW: boxW,
+          initH: boxH,
+          initLeft: minL,
+          initTop: minT,
+          multi: true,
+          items: items,
+          el: resizeEl,
+          hasMoved: false
+        };
+        return;
+      }
+
+      var posInfo = getElementCssPos(resizeEl);
+      var resizingNavPart = NAV_EDIT && NAV_EDIT.isPart(resizeEl);
+      if(resizingNavPart){
+        posInfo.left=parseFloat(resizeEl.style.left)||0;
+        posInfo.top=parseFloat(resizeEl.style.top)||0;
+      }
+      var rect = resizeEl.getBoundingClientRect();
+      var inners = snapshotInners(resizeEl);
+      resizeEl.style.boxSizing = 'border-box';
+      resizeEl.style.width = rect.width + 'px';
+      resizeEl.style.height = rect.height + 'px';
+      if(!posInfo.isAbsolute && !resizingNavPart){
+        resizeEl.style.position = 'absolute';
+        resizeEl.style.left = posInfo.left + 'px';
+        resizeEl.style.top = posInfo.top + 'px';
+      }
+      var initW = rect.width;
+      var initH = rect.height;
+      var initL = posInfo.left;
+      var initT = posInfo.top;
+
+      resizeEl.style.minWidth = '0px';
+      resizeEl.style.minHeight = '0px';
+      resizeEl.style.maxWidth = 'none';
+      resizeEl.style.boxSizing = 'border-box';
+      resizing = {
+        dir: dir,
+        startX: gesture.startX,
+        startY: gesture.startY,
+        initW: initW,
+        initH: initH,
+        initL: initL,
+        initT: initT,
+        initR: initL + initW,
+        initB: initT + initH,
+        el: resizeEl,
+        inners: inners,
+        hasMoved: false,
+        boxL: rect.left + scrollX,
+        boxT: rect.top + scrollY
+      };
+    }
+
     // 鼠标按下：拖动8点把手缩放、拖动元素位移、Alt/Shift快捷删除、单选元素
     listenEditor(document, 'mousedown', function(e){
       if(e.button === 0){
@@ -6973,7 +7169,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(PROTO_HOTSPOT || document.body.classList.contains('wf-interactive')) return;
       var handle = e.target.closest ? e.target.closest('.wf-handle') : null;
       if(handle && (selectedEl || selectedEls.length > 0)){
-        (selectedEls.length ? selectedEls : [selectedEl]).forEach(prepareArtworkLayout);
+        if(e.button !== 0 || READONLY || !EDIT) return;
         var handleLocked = false;
         var lockCheck = selectedEls.length ? selectedEls : [selectedEl];
         for(var lci = 0; lci < lockCheck.length; lci++){
@@ -6983,109 +7179,12 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         e.preventDefault();
         e.stopPropagation();
 
-        var dir = handle.getAttribute('data-dir');
-        var scrollX = window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
-        var scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-
-        // 多选：以包围盒为基准，按比例同时缩放每个选中元素
-        if(selectedEls.length > 1){
-          var minL = Infinity, minT = Infinity, maxR = -Infinity, maxB = -Infinity;
-          var prep = [];
-          for(var mi = 0; mi < selectedEls.length; mi++){
-            var mEl = selectedEls[mi];
-            if(!mEl || !mEl.isConnected) continue;
-            var mRect = mEl.getBoundingClientRect();
-            var mL = mRect.left + scrollX;
-            var mT = mRect.top + scrollY;
-            var mW = mRect.width;
-            var mH = mRect.height;
-            var navOrigin = NAV_EDIT && NAV_EDIT.isPart(mEl) ? {left:parseFloat(mEl.style.left)||0,top:parseFloat(mEl.style.top)||0,boxL:mL,boxT:mT} : null;
-            if(!navOrigin){
-              mEl.style.position = 'absolute';
-              mEl.style.left = Math.round(mL) + 'px';
-              mEl.style.top = Math.round(mT) + 'px';
-            }
-            mEl.style.width = Math.round(mW) + 'px';
-            mEl.style.height = Math.round(mH) + 'px';
-            mEl.style.maxWidth = 'none';
-            mEl.style.minWidth = '0px';
-            mEl.style.minHeight = '0px';
-            mEl.style.boxSizing = 'border-box';
-            prep.push({ el: mEl, left: mL, top: mT, w: mW, h: mH, navOrigin: navOrigin });
-            if(mL < minL) minL = mL;
-            if(mT < minT) minT = mT;
-            if(mL + mW > maxR) maxR = mL + mW;
-            if(mT + mH > maxB) maxB = mT + mH;
-          }
-          var boxW = Math.max(1, maxR - minL);
-          var boxH = Math.max(1, maxB - minT);
-          var items = [];
-          for(var mj = 0; mj < prep.length; mj++){
-            var p = prep[mj];
-            items.push({
-              el: p.el,
-              relL: (p.left - minL) / boxW,
-              relT: (p.top - minT) / boxH,
-              relW: p.w / boxW,
-              relH: p.h / boxH,
-              initW: p.w,
-              initH: p.h,
-              navOrigin: p.navOrigin,
-              inners: snapshotInners(p.el)
-            });
-          }
-          resizing = {
-            dir: dir,
-            startX: e.clientX,
-            startY: e.clientY,
-            initW: boxW,
-            initH: boxH,
-            initLeft: minL,
-            initTop: minT,
-            multi: true,
-            items: items,
-            el: selectedEl,
-            hasMoved: false
-          };
-          return;
-        }
-
-        var posInfo = getElementCssPos(selectedEl);
-        var resizingNavPart = NAV_EDIT && NAV_EDIT.isPart(selectedEl);
-        if(resizingNavPart){
-          posInfo.left=parseFloat(selectedEl.style.left)||0;
-          posInfo.top=parseFloat(selectedEl.style.top)||0;
-        }
-        if(!posInfo.isAbsolute && !resizingNavPart){
-          selectedEl.style.position = 'absolute';
-          selectedEl.style.left = posInfo.left + 'px';
-          selectedEl.style.top = posInfo.top + 'px';
-        }
-        var rect = selectedEl.getBoundingClientRect();
-        var initW = rect.width;
-        var initH = rect.height;
-        var initL = posInfo.left;
-        var initT = posInfo.top;
-
-        selectedEl.style.minWidth = '0px';
-        selectedEl.style.minHeight = '0px';
-        selectedEl.style.maxWidth = 'none';
-        selectedEl.style.boxSizing = 'border-box';
+        // A handle click is still just a click. Do not alter document flow or
+        // fitted artwork until a real resize crosses the movement threshold.
         resizing = {
-          dir: dir,
-          startX: e.clientX,
-          startY: e.clientY,
-          initW: initW,
-          initH: initH,
-          initL: initL,
-          initT: initT,
-          initR: initL + initW,
-          initB: initT + initH,
-          el: selectedEl,
-          inners: snapshotInners(selectedEl),
-          hasMoved: false,
-          boxL: rect.left + scrollX,
-          boxT: rect.top + scrollY
+          dir: handle.getAttribute('data-dir'),
+          startX: e.clientX, startY: e.clientY, hasMoved: false, pending: true,
+          elements: (selectedEls.length ? selectedEls : [selectedEl]).slice()
         };
         return;
       }
@@ -7158,7 +7257,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
           if(isLayerLocked(sEl)) continue;
           var rect = sEl.getBoundingClientRect();
           var posVal = sEl.style.position || (window.getComputedStyle ? window.getComputedStyle(sEl).position : '');
-          var isAbsolute = posVal === 'absolute';
+          var isAbsolute = posVal === 'absolute' || posVal === 'fixed';
           var curL = parseFloat(sEl.style.left);
           var curT = parseFloat(sEl.style.top);
           if(isAbsolute){
@@ -7166,8 +7265,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             if(isNaN(curL)) curL = cssPos.left;
             if(isNaN(curT)) curT = cssPos.top;
           } else {
-            if(isNaN(curL)) curL = 0;
-            if(isNaN(curT)) curT = 0;
+            if(isNaN(curL)) curL = parseFloat(window.getComputedStyle(sEl).left) || 0;
+            if(isNaN(curT)) curT = parseFloat(window.getComputedStyle(sEl).top) || 0;
           }
           items.push({
             el: sEl,
@@ -7222,13 +7321,17 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       if(resizing){
         var dx = e.clientX - resizing.startX;
         var dy = e.clientY - resizing.startY;
-        if(!resizing.hasMoved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)){
+        if(!resizing.hasMoved){
+          if(Math.abs(dx) <= 2 && Math.abs(dy) <= 2) return;
+          // Capture the original layout before preparing absolute coordinates.
+          pushSnapshot();
+          if(resizing.pending) prepareResizeGesture(resizing);
+          if(!resizing) return;
           var snapItems = [];
           if(resizing.multi && resizing.items){
             for(var sri = 0; sri < resizing.items.length; sri++) snapItems.push({ el: resizing.items[sri].el });
           } else if(resizing.el) snapItems.push({ el: resizing.el });
           resizing.snapTargets = collectSnapTargets(snapItems);
-          pushSnapshot();
           resizing.hasMoved = true;
         }
         var w = resizing.initW;
@@ -7340,7 +7443,10 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             if(rit.navOrigin){
               var constrained= NAV_EDIT.constrainBox(rit.el,rit.navOrigin.left+nl-rit.navOrigin.boxL,rit.navOrigin.top+nt-rit.navOrigin.boxT,nw,nh,rit.navOrigin);
               nl=constrained.left;nt=constrained.top;nw=constrained.width;nh=constrained.height;
-            } else rit.el.style.position = 'absolute';
+            } else {
+              nl = rit.cssLeft + nl - rit.boxL;
+              nt = rit.cssTop + nt - rit.boxT;
+            }
             rit.el.style.left = Math.round(nl) + 'px';
             rit.el.style.top = Math.round(nt) + 'px';
             rit.el.style.width = Math.round(nw) + 'px';
@@ -7683,7 +7789,8 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
             else if(rEl) updateTransformBox(rEl);
             if(selectedEl) notifySelectedElementInfo(selectedEl);
           } else if(rEl){
-            showToast('已调整尺寸: ' + Math.round(rEl.offsetWidth) + ' × ' + Math.round(rEl.offsetHeight) + ' 并保存');
+            var resizedRect = rEl.getBoundingClientRect();
+            showToast('已调整尺寸: ' + Math.round(resizedRect.width) + ' × ' + Math.round(resizedRect.height) + ' 并保存');
             notifySelectedElementInfo(rEl);
           }
         }
@@ -7902,7 +8009,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
       }
 
       // 方向键微调像素位置（支持多选元素同时平移微调）
-      if(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && selectedEls.length > 0 && !isEditing){
+      if(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && selectedEls.length > 0 && !isEditing && !e.ctrlKey && !e.metaKey && !e.altKey){
         if(READONLY) return;
         e.preventDefault();
         var step = e.shiftKey ? 10 : 1;
@@ -7912,16 +8019,7 @@ function buildEditorPayload(initialInteractive = false, isReadOnly = false): str
         if(e.key === 'ArrowUp') dy = -step;
         if(e.key === 'ArrowDown') dy = step;
 
-        pushSnapshot();
-        for(var si = 0; si < selectedEls.length; si++){
-          var sEl = selectedEls[si];
-          if(isLayerLocked(sEl)) continue;
-          nudgeElement(sEl, dx, dy);
-        }
-        if(selectedEls.length === 1) updateTransformBox(selectedEl);
-        else updateMultiTransformBox();
-        scheduleSave();
-        pushSnapshot();
+        nudgeSelection(dx, dy);
         return;
       }
 
@@ -8927,8 +9025,11 @@ function insertVectorShapes(shapes: any[], elementUid?: string, select = true) {
   postToFrame({ type: 'wf-insert-vector-shapes', shapes, elementUid, select })
 }
 
-function restoreSnapshotInFrame(snapshot: string, saveEpoch?: number) {
+function restoreSnapshotInFrame(snapshot: string, saveEpoch?: number, fullHtml?: string) {
   if (!snapshot) return
+  // The parent persists this same restoration. It must not reload srcdoc and
+  // replace the editor that is about to restore the DOM in place.
+  if (fullHtml) lastInternalSavedHtml = fullHtml
   postToFrame({ type: 'wf-restore-snapshot', html: snapshot, saveEpoch })
 }
 

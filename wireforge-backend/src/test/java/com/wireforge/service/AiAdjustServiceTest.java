@@ -17,6 +17,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class AiAdjustServiceTest {
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path designs;
     private final PageMapper pages = mock(PageMapper.class);
     private final AiClient ai = mock(AiClient.class);
     private final ObjectMapper json = new ObjectMapper();
@@ -25,6 +26,29 @@ class AiAdjustServiceTest {
     private final String original = page("<button id=\"buy\" data-nav=\"背包\">购买</button><img id=\"pet\" src=\"/api/assets/pet.png\">");
 
     private static String page(String body) { return "<!doctype html><html><head></head><body>" + body + "</body></html>"; }
+
+    @Test void imageAdjustmentReadsOriginalDesignWhileOrdinaryEditsKeepTheirTextOnlyRequest() throws Exception {
+        var design = designs.resolve("reference.png");
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(20, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", design.toFile());
+        pages.selectById(1L).setBackgroundImage(design.toString());
+        fullResponse(original.replace("购买", "立即购买"));
+        service.adjustPage(7L, 1L, "修改购买文案", original);
+        verify(ai, never()).generateHtmlWithImage(anyString(), anyString(), anyString(), any());
+
+        ArtworkStyle style = new ArtworkStyle("2D cartoon", "large head", "clean", "yellow", "light", "none", "simple");
+        Map<String, Object> task = new java.util.HashMap<>(imageTask("pet", "character")); task.put("style_profile", style);
+        when(ai.generateHtmlWithImage(anyString(), anyString(), eq("image/png"), any(byte[].class)))
+                .thenReturn(json.writeValueAsString(Map.of("edits", List.of(), "image_tasks", List.of(task))));
+        when(artwork.generateAdjustment(anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any(ArtworkStyle.class)))
+                .thenReturn(new ProjectArtworkService.Artwork("styled", "精灵", "原稿画风", "/api/assets/artwork/7/styled.png", "character", "精灵", ArtworkStyle.VERSION, style));
+        var result = service.adjustPage(7L, 1L, "重新生成角色图片，清晰一点", original, "", "image-reference");
+        var prompt = ArgumentCaptor.forClass(String.class);
+        verify(ai).generateHtmlWithImage(anyString(), prompt.capture(), eq("image/png"), any(byte[].class));
+        assertTrue(prompt.getValue().contains("附图为原始设计稿"));
+        assertTrue(prompt.getValue().contains("不要按原稿恢复其他已编辑的布局或内容"));
+        assertEquals(style, ArtworkStyle.parse(Jsoup.parse(result.getModifiedHtml()).getElementById("pet").attr(ArtworkStyle.ATTRIBUTE)));
+        verify(pages, never()).updateById(any());
+    }
 
     @BeforeEach void setup() {
         Page page = new Page(); page.setId(1L); page.setProjectId(7L); page.setName("商城"); page.setHtmlContent(original);

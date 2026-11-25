@@ -9,8 +9,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 全屏演示 AI 原型调整服务：
@@ -110,7 +113,7 @@ public class AiAdjustService {
 
         userPrompt += "\n【最近对话（需求参考，当前指令优先）】\n" + bounded(conversationContext, 6000);
         userPrompt += adjustmentArtwork.targetContext(currentHtml, false, instruction);
-        String rawResponse = aiClient.generateHtmlText(systemPrompt, userPrompt);
+        String rawResponse = generateAdjustmentResponse(page, instruction, systemPrompt, userPrompt);
         if (rawResponse == null || rawResponse.isBlank()) {
             throw new IllegalStateException("AI 服务未能返回有效响应，请稍后重试");
         }
@@ -211,7 +214,7 @@ public class AiAdjustService {
         userPrompt += "\n【最近对话（只读参考）】\n" + bounded(req.getConversationContext(), 6000)
                 + "\n【父布局与样式（只读参考，只返回目标元素）】\n" + bounded(req.getLayoutContext(), 14000);
         userPrompt += adjustmentArtwork.targetContext(elementHtml, true, req.getInstruction());
-        String raw = aiClient.generateHtmlText(systemPrompt, userPrompt);
+        String raw = generateAdjustmentResponse(page, req.getInstruction(), systemPrompt, userPrompt);
         if (raw == null || raw.isBlank()) {
             throw new IllegalStateException("AI 服务未能返回有效响应，请重试");
         }
@@ -259,6 +262,34 @@ public class AiAdjustService {
         return AiElementAdjustResponse.builder().elementId(elementId).action(changed ? action : "NO_CHANGE")
                 .summary(changed ? (summary.isBlank() ? "已生成元素调整方案" : summary) : "当前元素无需修改")
                 .modifiedSnippet(changed ? snippet : original).changed(changed).generatedImages(images).build();
+    }
+
+    /** Only image adjustments need the original design; ordinary edits keep their existing text request. */
+    private String generateAdjustmentResponse(Page page, String instruction, String systemPrompt, String userPrompt) {
+        AiClient.ImageInput reference = AiAdjustmentArtworkService.allowsImages(instruction) ? designReference(page) : null;
+        if (reference != null) {
+            return aiClient.generateHtmlWithImage(systemPrompt, userPrompt
+                    + "\n【附图为原始设计稿，仅用于识别目标素材的画风、造型和细节密度】\n"
+                    + "当前HTML及选中范围仍决定可修改的节点；不要按原稿恢复其他已编辑的布局或内容。"
+                    + "用户未明确更换画风时，按原稿中对应素材填写style_profile；不要沿用当前生成图片的偏差。\n",
+                    reference.mime(), reference.bytes());
+        }
+        return aiClient.generateHtmlText(systemPrompt, userPrompt);
+    }
+
+    private AiClient.ImageInput designReference(Page page) {
+        if (page.getBackgroundImage() == null || page.getBackgroundImage().isBlank()) return null;
+        try {
+            Path path = Path.of(page.getBackgroundImage());
+            String file = path.getFileName().toString().toLowerCase(Locale.ROOT);
+            String mime = file.endsWith(".png") ? "image/png" : file.endsWith(".webp") ? "image/webp"
+                    : file.endsWith(".jpg") || file.endsWith(".jpeg") ? "image/jpeg" : null;
+            if (mime != null && Files.isRegularFile(path) && Files.size(path) <= 20_000_000)
+                return new AiClient.ImageInput(mime, Files.readAllBytes(path));
+        } catch (java.io.IOException | java.nio.file.InvalidPathException e) {
+            log.warn("页面 {} 原稿画风参考不可用，继续使用已保存的画风描述 ({})", page.getId(), e.getClass().getSimpleName());
+        }
+        return null;
     }
 
     private JsonNode parseObject(String raw) {

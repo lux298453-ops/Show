@@ -13,6 +13,7 @@ const ast = ts.createSourceFile('canvas.ts', script, ts.ScriptTarget.Latest, tru
 const variables = ['editSourceHtml', 'lastInternalSavedHtml', 'initialIncludeEditor', 'hasLoadedEditorState', 'hasLoadedEditor', 'editorLifecycleVersion', 'navRuntimeHtml']
 const sources = ['() => props.page.html_content', '() => props.active', '() => [props.editMode, props.loadEditor, props.protoHotspot]', '() => props.readOnly', '() => props.page?.id', '() => [editSourceHtml.value, props.page.id, props.active, props.frameType] as const', '() => props.page.elements']
 const code = ast.statements.filter(n => {
+  if (ts.isFunctionDeclaration(n)) return n.name?.text === 'restoreSnapshotInFrame'
   if (ts.isVariableStatement(n)) return n.declarationList.declarations.some(d => variables.includes(d.name.getText(ast)))
   return ts.isExpressionStatement(n) && ts.isCallExpression(n.expression) && n.expression.expression.getText(ast) === 'watch'
     && sources.includes(n.expression.arguments[0].getText(ast))
@@ -27,6 +28,7 @@ function setup(t, initial = {}) {
     disposeEditorInFrame: () => calls.push('dispose'), sendEditMode: () => calls.push('edit'),
     sendProtoHotspot: () => calls.push('hotspot'), sendInteractiveMode: () => calls.push('bindings'),
     flushPendingSave: async () => calls.push('flush'),
+    postToFrame: message => calls.push(message),
     // Mirror the injected runtime's dependency on hotspot state and routing.
     injectNavRuntime: (html, interactive, readonly, editor) => JSON.stringify({ html, interactive, readonly, editor,
       pageId: props.page.id, hotspot: props.protoHotspot, elements: props.page.elements }),
@@ -38,8 +40,21 @@ function setup(t, initial = {}) {
     globalThis.saved = value => { lastInternalSavedHtml = value; props.page.html_content = value; };
   `, { loader: 'ts' }).code, context))
   t.after(() => scope.stop())
-  return { props, calls, html: context.html, source: context.source, save: context.saved }
+  return { props, calls, html: context.html, source: context.source, save: context.saved, restore: context.restoreSnapshotInFrame }
 }
+
+test('undo restores the live document without reloading srcdoc or interrupting a subsequent edit', async t => {
+  const s = setup(t), initial = s.html.value, restored = '<html>restored DOM</html>'
+  s.props.page.html_content = restored
+  s.restore('WFBG:|\n<section>restored DOM</section>', 1, restored)
+  await nextTick()
+  assert.equal(s.html.value, initial)
+  assert.equal(s.calls.at(-1).type, 'wf-restore-snapshot')
+  s.save('<html>new edit immediately after undo</html>'); await nextTick()
+  assert.equal(s.html.value, initial)
+  s.props.page.html_content = '<html>external regeneration</html>'; await nextTick()
+  assert.equal(JSON.parse(s.html.value).html, '<html>external regeneration</html>')
+})
 
 test('saved and pending DOM edits survive design/hotspot/preview round trips without changing srcdoc', async t => {
   for (const saved of [false, true]) {

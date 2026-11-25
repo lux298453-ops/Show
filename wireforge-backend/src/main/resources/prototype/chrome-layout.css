@@ -31,5 +31,5 @@ body [data-wf-shared-chrome=navigation] [data-wf-chrome-layout=indicator]{
   inset:auto auto 7px 50%!important;transform:translateX(-50%)!important;
   width:125px!important;max-width:35%!important;height:4px!important;min-height:0!important;
   margin:0!important;padding:0!important;border:0!important;border-radius:2px!important;
-  background:var(--wf-chrome-nav-ink,#686969)!important;box-shadow:none!important;pointer-events:none!important;
+  background:var(--wf-local-nav-ink,#686969)!important;box-shadow:none!important;pointer-events:none!important;
 }

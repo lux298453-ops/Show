@@ -127,7 +127,7 @@ public class InteractionAutowireService {
             Element element = findElement(snapshot,item.elementId());
             List<Element> siblings = pageElements(snapshot,item.pageId());
             List<TargetOption> options = snapshot.pages().stream().filter(p -> !p.getId().equals(item.pageId()))
-                    .filter(p -> !"navigate".equals(item.action()) || !AutowirePlanner.safe(p.getName()).matches(".*(弹窗|遮罩|提示弹框|确认弹框).*"))
+                    .filter(p -> !"navigate".equals(item.action()) || !PageTypes.overlay(p))
                     .filter(p -> !AutowirePlanner.excluded(element,siblings,AutowirePlanner.relationKey(item.trigger(),item.action(),p.getId()),snapshot.exclusions()))
                     .map(p -> new TargetOption(p.getId(),p.getName())).toList();
             Long chosen = choices.get(item.stableKey());
@@ -315,7 +315,7 @@ public class InteractionAutowireService {
     private Item resolveNavigationChoice(Snapshot snapshot, Item item, Page target) {
         NavigationInfo nav = item.navigation();
         if ("conflict".equals(nav.status()) || "conflict".equals(nav.basis()) || !"navigate".equals(item.action())
-                || AutowirePlanner.safe(target.getName()).matches(".*(弹窗|遮罩|提示弹框|确认弹框).*"))
+                || PageTypes.overlay(target))
             throw new IllegalStateException("现有导航存在冲突或目标不允许跳转，请先处理关系");
         Page source = snapshot.pages().stream().filter(p -> p.getId() == item.pageId()).findFirst().orElseThrow();
         List<Element> siblings = pageElements(snapshot, item.pageId());
@@ -539,7 +539,7 @@ public class InteractionAutowireService {
                 if (snapshot.annotations().stream().anyMatch(a -> members.contains(a.getElementId())
                         && AutowirePlanner.safe(a.getText()).matches("(?s).*(不(?:需要|可|能|支持)?(?:点击|跳转|连线)|仅(?:展示|显示)|无需(?:交互|跳转)).*"))) continue;
                 Page target = snapshot.pages().stream().filter(p -> p.getId() == link.targetId()).findFirst().orElseThrow();
-                String action = AutowirePlanner.safe(target.getName()).matches(".*(弹窗|浮层|对话框).*" ) ? "popup" : "navigate";
+                String action = PageTypes.overlay(target) ? "popup" : "navigate";
                 String relation = AutowirePlanner.relationKey("click", action, target.getId());
                 if (siblings.stream().filter(e -> members.contains(e.getId())).anyMatch(e ->
                         AutowirePlanner.excluded(e, siblings, "*", snapshot.exclusions())

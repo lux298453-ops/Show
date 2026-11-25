@@ -34,6 +34,24 @@
         属性修改将应用于全部选中元素
       </p>
 
+      <div v-if="!hasSelection && currentPage" class="px-3 pb-3 grid gap-2">
+        <label class="grid grid-cols-[48px_1fr] items-center gap-2 text-slate-500 dark:text-slate-400">
+          <span>名称</span>
+          <input :key="currentPage.id" :value="currentPage.name" maxlength="255" aria-label="画板名称"
+            class="min-w-0 rounded border border-slate-200 dark:border-[#383838] bg-white dark:bg-[#1e1e1e] px-2 py-1.5 text-slate-700 dark:text-slate-100 outline-none focus:border-[#0D99FF]"
+            :disabled="readOnly || metadataSaving" @change="onPageNameChange" @keydown.enter="($event.target as HTMLInputElement).blur()" />
+        </label>
+        <label class="grid grid-cols-[48px_1fr] items-center gap-2 text-slate-500 dark:text-slate-400">
+          <span>类型</span>
+          <select :value="currentPage.page_type || 'unknown'" aria-label="画板类型"
+            class="min-w-0 rounded border border-slate-200 dark:border-[#383838] bg-white dark:bg-[#1e1e1e] px-2 py-1.5 text-slate-700 dark:text-slate-100 outline-none focus:border-[#0D99FF]"
+            :disabled="readOnly || metadataSaving" @change="onPageTypeChange">
+            <option value="unknown">待识别</option><option value="page">普通页面</option>
+            <option value="modal">弹窗</option><option value="drawer">抽屉</option>
+          </select>
+        </label>
+      </div>
+
       <!-- 6 大 Figma 一键对齐工具栏 -->
       <div v-if="hasSelection" class="px-2.5 py-1.5 border-t border-slate-200/60 dark:border-[#383838] bg-white dark:bg-[#252525] flex items-center justify-between gap-1">
         <button
@@ -899,6 +917,7 @@ const props = defineProps<{
   /** 没选中元素时，填充色作用在画框背景上 */
   frameFill?: string | null
   readOnly?: boolean
+  metadataSaving?: boolean
   elementInfo?: {
     tagName?: string
     className?: string
@@ -935,6 +954,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (e: 'update-page-metadata', payload: { name?: string; pageType?: NonNullable<Page['page_type']> }): void
   (e: 'update-dimension', payload: { key: 'width' | 'height'; val: number }): void
   (e: 'update-position', payload: { key: 'x' | 'y'; val: number }): void
   (e: 'update-color', color: string): void
@@ -956,6 +976,16 @@ const emit = defineEmits<{
 }>()
 
 const hasSelection = computed(() => !!props.selectedElement || !!props.elementInfo)
+function onPageNameChange(event: Event) {
+  const input = event.target as HTMLInputElement, name = input.value.trim()
+  if (name && name !== props.currentPage?.name) emit('update-page-metadata', { name })
+  input.value = props.currentPage?.name || ''
+}
+function onPageTypeChange(event: Event) {
+  const select = event.target as HTMLSelectElement
+  emit('update-page-metadata', { pageType: select.value as NonNullable<Page['page_type']> })
+  select.value = props.currentPage?.page_type || 'unknown'
+}
 const selectedObjectName = computed(() => {
   if ((props.selectionCount || 0) > 1) return `已选择 ${props.selectionCount} 个元素`
   const content = props.elementInfo?.textContent?.replace(/\s+/g, ' ').trim()

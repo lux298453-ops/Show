@@ -177,6 +177,19 @@ class ProjectMetadataTest {
         verifyNoSideEffects();
     }
 
+    @Test
+    void newArtboardsDefaultToPageAndCopiesKeepTheirExplicitType() {
+        var blank = service.createPage(159L, Map.of("name", "弹窗制作教程"));
+        assertEquals("page", blank.getPageType());
+        assertEquals("user", blank.getNameSource());
+        assertEquals("user", blank.getPageTypeSource());
+        var copy = service.createPage(159L, Map.of("name", "确认购买 原型", "pageType", "drawer", "htmlContent", "<main>已编辑内容</main>"));
+        assertEquals("drawer", copy.getPageType());
+        assertEquals("<main>已编辑内容</main>", copy.getHtmlContent());
+        assertThrows(IllegalArgumentException.class, () -> service.createPage(159L, Map.of("pageType", "invalid")));
+        verify(pages, times(2)).insert(any(com.wireforge.entity.Page.class));
+    }
+
     @SuppressWarnings({"rawtypes", "unchecked"})
     private LambdaUpdateWrapper<Project> capturedUpdate() {
         ArgumentCaptor<Wrapper> capture = ArgumentCaptor.forClass(Wrapper.class);

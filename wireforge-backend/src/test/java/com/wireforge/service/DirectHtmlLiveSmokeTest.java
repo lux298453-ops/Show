@@ -44,7 +44,7 @@ class DirectHtmlLiveSmokeTest {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("projectId", project.getId()); result.put("pageId", page.getId()); result.put("targetPageId", target.getId());
         Files.writeString(output.resolve("implementation-live-result.json"), json.writerWithDefaultPrettyPrinter().writeValueAsString(result));
-        int count = analyzer.analyzePage(page, List.of("商城中心", "商品详情"));
+        int count = analyzer.analyzePage(page, List.of("商城中心", "商品详情")).elementCount();
         String generated = pages.selectById(page.getId()).getHtmlContent();
         Files.writeString(output.resolve("implementation-shop.html"), generated == null ? "" : generated);
         assertTrue(count > 0);

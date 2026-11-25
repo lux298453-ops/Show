@@ -37,6 +37,11 @@ public class DatabaseMigrationConfig {
             addColumnIfNotExists(stmt, "page", "html_content", "LONGTEXT COMMENT 'AI生成的HTML'");
             addColumnIfNotExists(stmt, "page", "layout_norm", "TINYINT DEFAULT 1 COMMENT '1=渲染时组内排版 0=用原始方框'");
             addColumnIfNotExists(stmt, "page", "image_hash", "VARCHAR(64) COMMENT '上次识别时设计稿指纹'");
+            addColumnIfNotExists(stmt, "page", "name_source", "VARCHAR(16) COMMENT 'scan/filename/ai/user/legacy'");
+            addColumnIfNotExists(stmt, "page", "source_name", "VARCHAR(255) COMMENT '原始设计稿相对名称与分组'");
+            addColumnIfNotExists(stmt, "page", "name_aliases", "TEXT COMMENT '历史名称与文件名别名 JSON'");
+            addColumnIfNotExists(stmt, "page", "page_type", "VARCHAR(16) DEFAULT 'unknown' COMMENT 'page/modal/drawer/unknown'");
+            addColumnIfNotExists(stmt, "page", "page_type_source", "VARCHAR(16) COMMENT 'ai/user/legacy'");
 
             // 组件表扩展字段
             addColumnIfNotExists(stmt, "element", "asset_id", "VARCHAR(50) COMMENT '素材库 ID'");

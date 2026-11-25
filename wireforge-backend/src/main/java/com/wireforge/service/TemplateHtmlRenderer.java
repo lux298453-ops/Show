@@ -397,8 +397,12 @@ public class TemplateHtmlRenderer {
 
     /** 弹窗身份不依赖底图的颜色，避免换成浅灰衬底后误补整页导航。 */
     private static boolean isOverlayPage(Page page) {
-        String name = page.getName() == null ? "" : page.getName();
-        return name.matches(".*(弹窗|浮层|遮罩|提醒|结果|说明|背包|试用已结束).*");
+        return PageTypes.overlay(page);
+    }
+
+    private static boolean isSkeletonPage(Page page) {
+        String name = page.getName();
+        return name != null && (name.contains("骨架") || name.contains("加载"));
     }
 
     /** 独立展示弹窗时用中性灰衬底；实际浮层的遮罩由 .wf-modal 绘制。 */
@@ -464,11 +468,7 @@ public class TemplateHtmlRenderer {
         if (all == null || all.isEmpty()) return List.of();
 
         String pageName = targetPage != null && targetPage.getName() != null ? targetPage.getName() : "";
-        boolean isModalTarget = pageName.contains("弹窗") || pageName.contains("到期")
-                || pageName.contains("确认") || pageName.contains("提醒") || pageName.contains("购买")
-                || pageName.contains("混搭") || pageName.contains("奖励") || pageName.contains("说明")
-                || pageName.contains("升级") || pageName.contains("每日") || pageName.contains("结果")
-                || pageName.contains("提示") || pageName.contains("骨架") || pageName.contains("任务");
+        boolean isModalTarget = targetPage != null && PageTypes.overlay(targetPage);
 
         // 0) 骨架屏弹窗/抽屉专用提取：提取 y >= 320 的所有抽屉与骨架条元素
         boolean isSkeletonPage = pageName.contains("骨架") || all.stream().anyMatch(e -> {
@@ -667,8 +667,7 @@ public class TemplateHtmlRenderer {
             if(entry.getValue()!=null && entry.getValue().stream().anyMatch(it -> segmentUids.contains(interactionDomUid(it))))segmentBindings.add(entry.getKey());
         elements.removeIf(e -> segmentBindings.contains(e.getId()) && !kind(e).equals("tabs"));
         boolean layoutOn = bp.getLayoutNorm() == null || bp.getLayoutNorm() != 0;
-        String layoutName=(bp.getName()==null?"":bp.getName())+" "+(bp.getBackgroundImage()==null?"":bp.getBackgroundImage());
-        boolean skeletonLayout=layoutName.contains("骨架") || layoutName.contains("加载");
+        boolean skeletonLayout = isSkeletonPage(bp);
         Map<Element, String> iconNames = new java.util.IdentityHashMap<>();
         Map<Element, double[]> sourceBoxes = new java.util.IdentityHashMap<>();
         for (Element e : elements) {
@@ -687,8 +686,7 @@ public class TemplateHtmlRenderer {
         if(!skeletonLayout)collapseDecorPiles(renderList, intersByEl);
 
         // 0.3) 弹窗/遮罩页背景残影过滤：过滤掉暗色遮罩层下方被压暗透出的宿主元素（如顶部状态栏/宿主底栏Tab）
-        String pageName = bp == null || bp.getName() == null ? "" : bp.getName();
-        boolean isOverlayPage = pageName.contains("弹窗") || pageName.contains("结果") || pageName.contains("提醒") || pageName.contains("遮罩");
+        boolean isOverlayPage = PageTypes.overlay(bp);
         if (isOverlayPage) {
             renderList.removeIf(e -> {
                 // 关键保护：所有按钮和带交互的元素绝对不过滤，保证弹窗内的关闭/操作按钮完整可见
@@ -821,805 +819,12 @@ public class TemplateHtmlRenderer {
             });
         }
 
-        // 0.4.1.3) 个性装扮页卡片内"预览"胶囊按钮位置校准：
-        // AI 标定时误将第 3 张装扮卡片底部的"预览"悬浮胶囊向下漂移至 y=751px，导致其错误跌入底部功能栏并与"表演"图标重叠。
-        // 将其校准锚定在对应装扮卡片底部中央(x≈210px, y=698px, w=44px, h=20px)，彻底移出底部功能栏。
-        for (Element e : renderList) {
-            if ("button".equals(e.getType()) && "预览".equals(e.getLabel())) {
-                if (nz(e.getPositionY()) >= 730) {
-                    e.setPositionX(210.0);
-                    e.setPositionY(698.0);
-                    e.setWidth(44.0);
-                    e.setHeight(20.0);
-                }
-            }
-        }
-
-        // 0.4.1.4) 宝箱奖励弹窗结构自愈：
-        // 原设计稿结构：顶部左侧浮动 Q版小剑客挂件立绘(pos≈33, 215)，顶部右侧浮动白色对话气泡(pos≈136, 259)；
-        // 中间为核心主弹窗卡片"奖励卡片"(pos≈31, 311, w≈313, h≈228)；正下方为圆形关闭按钮(✕, pos≈171, 569)。
-        // 缺陷：AI 误识别了一个"弹窗背景卡片"幽灵容器(id=22172, y=215, h=173)，
-        // 并在弹窗自适应拉伸中被拉至 411px，强行将挂件、气泡与主弹窗套在了一个破烂大框里，导致页面结构极度混乱。
-        String bpBg = bp != null && bp.getBackgroundImage() != null ? bp.getBackgroundImage() : "";
-        String bpNm = bp != null && bp.getName() != null ? bp.getName() : "";
-        boolean isChestPage = bpBg.contains("宝箱弹窗") || bpNm.contains("宝箱");
-        if (isChestPage) {
-            // 1. 彻底剔除包裹挂件与半截弹窗的幽灵容器
-            renderList.removeIf(e -> "container".equals(e.getType())
-                    && nz(e.getPositionY()) <= 240
-                    && (e.getLabel() == null || e.getLabel().contains("背景") || e.getLabel().contains("弹窗"))
-                    && nz(e.getHeight()) > 100);
-
-            // 2. 规整对话气泡与关闭按钮
-            for (Element e : renderList) {
-                if ("container".equals(e.getType()) && (e.getLabel() != null && e.getLabel().contains("气泡"))) {
-                    e.setLabel("对话气泡");
-                }
-                if ("container".equals(e.getType()) && nz(e.getPositionY()) >= 300 && nz(e.getPositionY()) <= 330) {
-                    e.setPositionX(31.0);
-                    e.setPositionY(311.0);
-                    e.setWidth(313.0);
-                    e.setHeight(228.0);
-                    e.setLabel("宝箱奖励卡片");
-                }
-                if ("button".equals(e.getType()) && nz(e.getPositionY()) >= 550 && nz(e.getWidth()) <= 45) {
-                    e.setPositionX(171.0);
-                    e.setPositionY(569.0);
-                    e.setWidth(34.0);
-                    e.setHeight(34.0);
-                    e.setLabel("✕");
-                }
-            }
-
-            // 3. 补全核心主面板（若 AI 未提取到独立主容器）
-            boolean hasMainRewardCard = renderList.stream().anyMatch(e -> "container".equals(e.getType()) && "宝箱奖励卡片".equals(e.getLabel()));
-            if (!hasMainRewardCard) {
-                Element c = new Element();
-                c.setId(-999L);
-                c.setType("container");
-                c.setLabel("宝箱奖励卡片");
-                c.setPositionX(31.0);
-                c.setPositionY(311.0);
-                c.setWidth(313.0);
-                c.setHeight(228.0);
-                renderList.add(0, c);
-            }
-        }
-
-        // 0.4.1.5) 扭蛋抽奖页卡片展示橱窗与出货槽自愈：
-        // 设计稿原图为立式扭蛋机的透明卡牌展示橱窗（包裹 4行x3列 共12张精灵卡片）。
-        // 缺陷：AI 误将高 350px 的完整大橱窗识别切片为仅 208px 高的半截残框(id=21881, y=174, h=208)，
-        // 导致其横腰截断在第2排和第3排卡片之间，下半截卡片掉在框外。
-        // 自愈：将其几何规整为完整包裹全部 12 张卡片的标准高保真橱窗面板 (left: 44, top: 188, width: 195, height: 348)，
-        // 并将下方出货槽规整对齐，渲染为扭蛋机高保真内胆。
-        boolean isGashaponPage = bpBg.contains("1.png") || bpNm.contains("扭蛋");
-        if (isGashaponPage) {
-            // 1. 彻底剔除误将扭蛋机机身大外壳识别为 image 的元素，防止生成多余的 [ 立绘 / 场景 ] 占位框
-            renderList.removeIf(e -> "image".equals(e.getType())
-                    && (e.getLabel() == null || e.getLabel().isBlank() || e.getLabel().contains("扭蛋机") || e.getLabel().contains("立绘") || e.getLabel().contains("场景"))
-                    && nz(e.getWidth()) >= 160 && nz(e.getHeight()) >= 160);
-
-            // 2. 规整并保护 12 张角色卡片外框 container，赋予专属 label "扭蛋卡片"，防止被 pruneRedundantContainers 误删
-            for (Element e : renderList) {
-                if ("container".equals(e.getType())) {
-                    double ey = nz(e.getPositionY());
-                    double ew = nz(e.getWidth());
-                    double eh = nz(e.getHeight());
-                    if (ey >= 195 && ey <= 530 && ew <= 65 && eh <= 85) {
-                        e.setLabel("扭蛋卡片");
-                    }
-                }
-            }
-
-            for (Element e : renderList) {
-                if ("container".equals(e.getType())) {
-                    String l = e.getLabel() == null ? "" : e.getLabel();
-                    if (l.contains("卡槽") || l.contains("底板") || l.contains("橱窗") || l.contains("奖品")
-                            || (nz(e.getPositionY()) >= 90 && nz(e.getPositionY()) <= 220 && nz(e.getWidth()) <= 220 && nz(e.getHeight()) >= 150)) {
-                        e.setPositionX(44.0);
-                        e.setPositionY(188.0);
-                        e.setWidth(195.0);
-                        e.setHeight(348.0);
-                        e.setLabel("扭蛋机卡牌橱窗");
-                    }
-                    if (l.contains("出货") || (nz(e.getPositionY()) >= 530 && nz(e.getPositionY()) <= 600 && nz(e.getWidth()) <= 220)) {
-                        e.setPositionX(44.0);
-                        e.setPositionY(565.0);
-                        e.setWidth(195.0);
-                        e.setHeight(58.0);
-                        e.setLabel("扭蛋机出货槽");
-                    }
-                }
-            }
-
-            // 3. 扭蛋卡片内部头像与文案规整防压字：
-            // AI 标定时将 12 张卡片内头像 image 的 height 框大为 53px（伸展至 y≈265），
-            // 直接越过文本顶边 y≈258，导致头像的底边虚线穿透在角色名字（"阿宝"、"圣彩儿"等）中间。
-            // 规整卡片内头像高度为 43px，确保底边虚线在 y=254.5 处停住，与下方角色名留出 3.5px 安全间距；
-            // 底部 3 张已获角色头像同样高度收缩至 46px，确保底边虚线不压盖文字。
-            for (Element e : renderList) {
-                if ("image".equals(e.getType())) {
-                    double ey = nz(e.getPositionY());
-                    double ex = nz(e.getPositionX());
-                    double ew = nz(e.getWidth());
-                    if (ex >= 50 && ex <= 235 && ey >= 200 && ey <= 520 && ew <= 55) {
-                        e.setHeight(43.0);
-                    }
-                    if (ey >= 660 && ey <= 750 && ew <= 65) {
-                        e.setHeight(46.0);
-                    }
-                }
-                if ("text".equals(e.getType())) {
-                    double ey = nz(e.getPositionY());
-                    double ex = nz(e.getPositionX());
-                    if (ex >= 50 && ex <= 235 && ey >= 200 && ey <= 520) {
-                        if (nz(e.getHeight()) < 14.0) {
-                            e.setHeight(14.0);
-                        }
-                    }
-                    if (ey >= 710 && ey <= 750 && ex >= 80 && ex <= 280) {
-                        if (nz(e.getHeight()) < 14.0) {
-                            e.setHeight(14.0);
-                        }
-                    }
-                }
-            }
-
-            // 顶部播报公告条 (恭喜XXX) 与操作按钮规格规整，避免被压扁为 20px
-            for (Element e : renderList) {
-                if (e.getLabel() != null && e.getLabel().contains("恭喜")) {
-                    if (nz(e.getHeight()) < 30) e.setHeight(32.0);
-                    if (nz(e.getPositionY()) < 80) e.setPositionY(120.0);
-                }
-                if ("container".equals(e.getType()) && (e.getLabel() != null && e.getLabel().contains("公告"))) {
-                    if (nz(e.getHeight()) < 32) e.setHeight(35.0);
-                    if (nz(e.getPositionY()) < 80) e.setPositionY(118.0);
-                }
-            }
-
-            // 顶部悬浮控件基准对齐（历史记录、静音、扭蛋/收集 Tabs、钻石余额统一基线 y=44, h=37）
-            for (Element e : renderList) {
-                if (nz(e.getPositionY()) >= 35 && nz(e.getPositionY()) <= 70) {
-                    String lbl = e.getLabel() == null ? "" : e.getLabel().trim();
-                    if ("历史记录".equals(lbl) || "静音".equals(lbl) || "tabs".equals(e.getType()) || lbl.contains("扭蛋/收集")) {
-                        e.setPositionY(44.0);
-                        e.setHeight(37.0);
-                    }
-                    if ("container".equals(e.getType()) && (lbl.contains("钻石") || lbl.contains("余额") || nz(e.getPositionX()) >= 260)) {
-                        e.setPositionY(44.0);
-                        e.setHeight(37.0);
-                    }
-                    if ("钻石".equals(lbl) || "icon".equals(e.getType()) && nz(e.getPositionX()) >= 280) {
-                        e.setPositionY(54.0);
-                    }
-                    if ("text".equals(e.getType()) && nz(e.getPositionX()) >= 300) {
-                        e.setPositionY(54.0);
-                    }
-                }
-            }
-
-            // 剔除与 tabs 重叠的孤立文本"扭蛋"和"收集"
-            boolean hasTabs = renderList.stream().anyMatch(e -> "tabs".equals(e.getType()) || (e.getLabel() != null && e.getLabel().contains("扭蛋/收集")));
-            if (hasTabs) {
-                renderList.removeIf(e -> "text".equals(e.getType()) && nz(e.getPositionY()) >= 35 && nz(e.getPositionY()) <= 75
-                        && ("扭蛋".equals(e.getLabel()) || "收集".equals(e.getLabel())));
-            }
-
-            // 保护右侧控制栏文字（立绘配图文字"等你来抽"、"再抽9次"等）不向左侵入橱窗
-            for (Element e : renderList) {
-                if ("text".equals(e.getType()) && nz(e.getPositionX()) >= 250 && nz(e.getPositionY()) >= 300 && nz(e.getPositionY()) <= 400) {
-                    if (nz(e.getWidth()) > 85.0) e.setWidth(85.0);
-                }
-            }
-        }
-
-        // 0.4.2) 背包页弹窗结构自愈：
-        // 内部包含两个平行的独立大卡片：奶龙专属道具卡片（宽 350px）与特殊道具卡片（宽 350px）。
-        // 必须在 pruneRedundantContainers 之前规整，赋予专属 label，防止奶龙卡片被作为中间冗余容器误删。
-        boolean isBackpackPage = (bpBg.contains("背包@3x.png") && !bpBg.contains("背包@3x-2.png"))
-                || (bpNm.contains("背包") && !bpNm.contains("确认"));
-        if (isBackpackPage) {
-            // 1. 查找外层抽屉底板（y 在 180~220，w >= 360 的大背景）
-            for (Element e : renderList) {
-                if ("container".equals(e.getType()) && nz(e.getPositionY()) >= 180 && nz(e.getPositionY()) <= 220
-                        && nz(e.getWidth()) >= 360) {
-                    e.setPositionX(0.0);
-                    e.setPositionY(192.0);
-                    e.setWidth((double) canvasW);
-                    e.setHeight((double) (canvasH - 192));
-                    e.setLabel("背包抽屉底板");
-                }
-            }
-
-            // 2. 规整并保护两个内部业务方框（宽度统一为 350px，绝对居中 left: 12.5px）
-            for (Element e : renderList) {
-                if ("container".equals(e.getType())) {
-                    double ey = nz(e.getPositionY());
-                    // 奶龙专属道具卡片（y 约 318）
-                    if (ey >= 300 && ey <= 340 && nz(e.getWidth()) >= 300) {
-                        e.setPositionX(12.5);
-                        e.setPositionY(318.0);
-                        e.setWidth(350.0);
-                        e.setHeight(312.0);
-                        e.setLabel("奶龙专属道具卡片");
-                    }
-                    // 特殊道具卡片（y 约 643）
-                    if (ey >= 630 && ey <= 660 && nz(e.getWidth()) >= 300) {
-                        e.setPositionX(12.5);
-                        e.setPositionY(644.0);
-                        e.setWidth(350.0);
-                        e.setHeight(170.0);
-                        e.setLabel("特殊道具卡片");
-                    }
-                }
-            }
-
-            // 3. 顶部下拉把手条（Handle bar）校准
-            for (Element e : renderList) {
-                if ("icon".equals(e.getType()) && nz(e.getPositionY()) >= 190 && nz(e.getPositionY()) <= 215 && nz(e.getWidth()) <= 50) {
-                    e.setPositionX((double) Math.round((canvasW - 36) / 2.0));
-                    e.setPositionY(200.0);
-                    e.setWidth(36.0);
-                    e.setHeight(5.0);
-                    e.setLabel("下拉把手");
-                }
-            }
-        }
-
-        // 0.4.3) 功能设置页卡片结构自愈：
-        boolean isSettingsPage = bpBg.contains("功能设置") || bpNm.contains("功能设置");
-        if (isSettingsPage) {
-            for (Element e : renderList) {
-                if ("container".equals(e.getType())) {
-                    double ey = nz(e.getPositionY());
-                    double eh = nz(e.getHeight());
-                    // 第2个卡片（全局主题卡片，y≈252）：单项，高度强制规整为 54px
-                    if (ey >= 240 && ey <= 270 && eh >= 80) {
-                        e.setHeight(54.0);
-                    }
-                    // 第3个卡片（其他功能双项大卡片）：包含自动下载与自动清理两项，高度规整为 131px，y 设为 360
-                    if (ey >= 330 && ey <= 430 && eh <= 80) {
-                        e.setPositionY(360.0);
-                        e.setHeight(131.0);
-                    }
-                }
-            }
-        }
-
-        // 0.4.3.1) 我的页面（已登录 / 未登录）卡片结构自愈：
-        boolean isProfilePage = (bpBg.contains("我的") || bpNm.contains("我的"))
-                && !bpNm.contains("功能设置") && !bpBg.contains("功能设置");
-        if (isProfilePage) {
-            // 1. 规整"我的服务"列表大卡片：以 y=292.0, w=351.0, h=104.0 为准，确保"我的服务"标题(y≈264)位于卡片外部上方，卡片内部完美容纳两个操作项
-            for (Element e : renderList) {
-                if ("container".equals(e.getType())) {
-                    double ey = nz(e.getPositionY());
-                    double ew = nz(e.getWidth());
-                    if (ey >= 240 && ey <= 300 && ew >= 300) {
-                        e.setPositionX(12.0);
-                        e.setPositionY(292.0);
-                        e.setWidth(351.0);
-                        e.setHeight(104.0);
-                        e.setLabel("我的服务列表卡片");
-                    }
-                }
-            }
-            // 2. 移除列表卡片内部同宽度的多余行容器（避免双重/三重边框阴影重叠）
-            renderList.removeIf(e -> "container".equals(e.getType())
-                    && nz(e.getPositionY()) >= 290 && nz(e.getPositionY()) <= 390
-                    && nz(e.getHeight()) <= 60 && nz(e.getWidth()) >= 300);
-        }
-
-        // 0.4.3.2) 商城、热销、角色收集页网格卡片结构自愈：
-        // 解决 AI 将商品卡片/角色图鉴卡片识别过短（仅框选上半部插图 h≈135px，甚至误标为 4.5px/14.6px 细条），
-        // 导致卡片底部的商品名称、券后价或角色名字悬挂在白色方框外部的问题。
-        // 严格白名单守卫：仅对包含"商城"、"热销"、"收集"的页面生效，与设置、我的、背包等通栏大卡片绝对隔离！
-        boolean isItemGridPage = (bpBg.contains("商城") || bpNm.contains("商城")
-                || bpBg.contains("热销") || bpNm.contains("热销")
-                || bpBg.contains("收集") || bpNm.contains("收集"))
-                && !bpNm.contains("菜单") && !bpNm.contains("展开");
-        if (isItemGridPage) {
-            // 提取所有多列商品/图鉴小卡片 (50 <= w <= 150 且 y < 740，或右边缘露出的残幅卡片 x >= 340 且 w <= 40)
-            List<Element> gridCards = renderList.stream()
-                    .filter(e -> "container".equals(e.getType()))
-                    .filter(e -> nz(e.getPositionY()) >= 120 && nz(e.getPositionY()) <= 740)
-                    .filter(e -> (nz(e.getWidth()) >= 50 && nz(e.getWidth()) <= 150)
-                            || (nz(e.getPositionX()) >= 340 && nz(e.getWidth()) <= 40))
-                    .sorted(Comparator.comparingDouble(TemplateHtmlRenderer::nzY))
-                    .toList();
-
-            // 按行分组 (同一排卡片 y 坐标相差 <= 25px)
-            List<List<Element>> rows = new ArrayList<>();
-            for (Element c : gridCards) {
-                boolean placed = false;
-                for (List<Element> r : rows) {
-                    if (Math.abs(nz(r.get(0).getPositionY()) - nz(c.getPositionY())) <= 25.0) {
-                        r.add(c);
-                        placed = true;
-                        break;
-                    }
-                }
-                if (!placed) {
-                    List<Element> nr = new ArrayList<>();
-                    nr.add(c);
-                    rows.add(nr);
-                }
-            }
-
-            // 对每排包含至少 2 张卡片的网格行进行自愈
-            for (List<Element> row : rows) {
-                if (row.size() < 2) continue;
-                double rowY = row.stream().mapToDouble(TemplateHtmlRenderer::nzY).min().orElse(0.0);
-                // 统一当前行完整卡片的标准宽度（非右侧切边残卡）
-                double standardW = row.stream()
-                        .mapToDouble(e -> nz(e.getWidth()))
-                        .filter(w -> w >= 90 && w <= 120)
-                        .max().orElse(99.0);
-                for (Element c : row) {
-                    if (nz(c.getPositionX()) < 340 && nz(c.getWidth()) < standardW - 4.0) {
-                        c.setWidth(standardW);
-                    }
-                }
-
-                // 修复碎条卡片（如 h <= 40px 的异常数据），取正常卡片的高度和起始 Y
-                double normalH = row.stream().mapToDouble(e -> nz(e.getHeight())).filter(h -> h > 50).max().orElse(135.0);
-                for (Element c : row) {
-                    if (nz(c.getHeight()) <= 40.0) {
-                        c.setHeight(normalH);
-                        c.setPositionY(rowY);
-                    }
-                }
-
-                // 查找属于当前行的子文本与价格（水平方向落在卡片列内，垂直方向在卡片内或下方 60px 范围内，且排除操作按钮与底部导航栏）
-                double maxContentBottom = row.stream().mapToDouble(c -> nz(c.getPositionY()) + nz(c.getHeight())).max().orElse(rowY + normalH);
-                for (Element c : row) {
-                    double cx = nz(c.getPositionX()), cw = nz(c.getWidth()), cy = nz(c.getPositionY()), ch = nz(c.getHeight());
-                    for (Element t : renderList) {
-                        if (!"text".equals(t.getType()) && !"badge".equals(t.getType())) continue;
-                        double tx = nz(t.getPositionX()), tw = nz(t.getWidth()), ty = nz(t.getPositionY()), th = nz(t.getHeight());
-                        // 水平重叠
-                        if (tx + tw >= cx - 6 && tx <= cx + Math.max(cw, standardW) + 6) {
-                            // 垂直在卡片内或正下方 60px 范围内（排除底部导航栏区域 >= 750px）
-                            if (ty >= cy && ty <= cy + Math.max(ch, 135.0) + 60.0 && ty < 750.0) {
-                                maxContentBottom = Math.max(maxContentBottom, ty + th + 8.0);
-                            }
-                        }
-                    }
-                }
-
-                double finalRowH = maxContentBottom - rowY;
-                // 旧规则向下寻找文案时可能吸入下一排角标，卡片不得跨过下一排起点。
-                double nextRowTop = rows.stream().mapToDouble(r -> r.stream().mapToDouble(TemplateHtmlRenderer::nzY).min().orElse(Double.MAX_VALUE))
-                        .filter(y -> y > rowY + 25).min().orElse(Double.MAX_VALUE);
-                if (nextRowTop < Double.MAX_VALUE) finalRowH = Math.min(finalRowH, nextRowTop - rowY - 8);
-                // 商城页面前两排卡片高度标准化为统一的 164px，包裹下移至插画下方的文本，与下方购买按钮保持 10px 舒适留白
-                if ((bpBg.contains("商城") || bpNm.contains("商城")) && rowY < 600.0) {
-                    finalRowH = Math.max(finalRowH, 164.0);
-                }
-                for (Element c : row) {
-                    c.setPositionY(rowY);
-                    c.setHeight(finalRowH);
-                }
-
-                // 商城页面卡片内文字槽位基线对齐（按实际高保真设计真实位置还原）：
-                // 1. 商品品名（幽筱/芬然/石昊）下移至插画底框下方 rowY + 135px（避开 rowY + 124 的插画虚线边框，彻底消灭压线）
-                // 2. 券后价下移至品名下方 rowY + 151px
-                // 3. 【即将上线】为单行状态文本，独立居中在 rowY + 139px，不与两行商品文本强行同高
-                if ((bpBg.contains("商城") || bpNm.contains("商城")) && rowY < 600.0) {
-                    for (Element c : row) {
-                        double cx = nz(c.getPositionX()), cw = nz(c.getWidth());
-                        for (Element t : renderList) {
-                            if (!"text".equals(t.getType())) continue;
-                            double tx = nz(t.getPositionX()), tw = nz(t.getWidth()), ty = nz(t.getPositionY());
-                            String lbl = t.getLabel() != null ? t.getLabel() : "";
-                            if (tx + tw >= cx - 6 && tx <= cx + cw + 6 && ty >= rowY && ty <= rowY + 175.0) {
-                                if (lbl.contains("上线") || lbl.contains("预定")) {
-                                    t.setPositionY(rowY + 139.0);
-                                } else if (lbl.startsWith("券后价") || lbl.contains("￥") || lbl.contains("¥")) {
-                                    t.setPositionY(rowY + 151.0);
-                                } else if ("幽筱".equals(lbl) || "芬然".equals(lbl) || "石昊".equals(lbl)
-                                        || (lbl.length() <= 6 && !lbl.startsWith("?") && ty > rowY + 80.0)) {
-                                    t.setPositionY(rowY + 135.0);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 0.4.4) 家园页右下角任务/扭蛋机/其他收集入口自愈：
-        boolean isHomePage = bpBg.contains("95.png") || bpNm.contains("家园");
-        if (isHomePage) {
-            // 1. 剔除与 container 完全重合的同名幽灵 icon，消灭双重方框叠画重影
-            renderList.removeIf(e -> "icon".equals(e.getType()) && nz(e.getPositionX()) >= 280 && nz(e.getPositionY()) >= 560
-                    && ("每日任务".equals(e.getLabel()) || "扭蛋机".equals(e.getLabel()) || "其他收集".equals(e.getLabel())));
-
-            // 2. 纠正"其他收集"宝石图标错位飞到扭蛋机内部的问题（AI 误标在 y=627，实际应在 y=698）
-            for (Element e : renderList) {
-                if ("image".equals(e.getType()) && nz(e.getPositionX()) >= 305 && nz(e.getPositionY()) >= 615 && nz(e.getPositionY()) <= 645) {
-                    e.setPositionY(698.0);
-                }
-            }
-        }
-
-        // 0.4.5) 每日任务弹窗全高度自愈：
-        // AI 误将大弹窗背景卡片标注为仅 178px 高(y=327, h=178)，导致任务列表或空状态内容大半截掉在弹窗外面
-        boolean isTaskModal = bpBg.contains("每日任务") || bpNm.contains("每日任务");
-        if (isTaskModal) {
-            for (Element e : renderList) {
-                if ("container".equals(e.getType()) && nz(e.getPositionY()) >= 310 && nz(e.getPositionY()) <= 340) {
-                    e.setPositionX(0.0);
-                    e.setPositionY(327.0);
-                    e.setWidth((double) canvasW);
-                    e.setHeight((double) (canvasH - 327)); // 铺满至屏幕底部
-                    e.setLabel("每日任务弹窗底板");
-                }
-            }
-        }
-
-        // 0.4.6) 探险与属性说明弹窗自愈：
-        // 无论是合并提取还是按 1~7 条独立提取，统一进行紧凑流式对齐排布，
-        // 消除过大隔行留白，并将"知道了"按钮紧跟其后，卡片紧凑贴合包裹，杜绝浪费空间。
-        boolean isExploreModal = bpBg.contains("探险与属性说明") || bpNm.contains("探险与属性说明");
-        if (isExploreModal) {
-            List<Element> ruleTexts = renderList.stream()
-                    .filter(e -> "text".equals(e.getType()))
-                    .filter(e -> {
-                        String l = e.getLabel() == null ? "" : e.getLabel().trim();
-                        return l.matches("^[1-7][.、].*") || l.contains("每天7:00") || l.contains("能量主要")
-                                || l.contains("探险可以") || l.contains("体力、心情") || l.contains("领取每日")
-                                || l.contains("非月卡") || l.contains("月卡可以");
-                    })
-                    .sorted(Comparator.comparingDouble(e -> nz(e.getPositionY())))
-                    .toList();
-
-            double curY = 280.0;
-            double ruleW = 295.0;
-            if (!ruleTexts.isEmpty()) {
-                for (Element rt : ruleTexts) {
-                    rt.setPositionX(40.0);
-                    rt.setPositionY(curY);
-                    rt.setWidth(ruleW);
-                    String text = rt.getLabel() == null ? "" : rt.getLabel().trim();
-                    int lines = Math.max(1, (int) Math.ceil(textUnits(text) / 21.0));
-                    double itemH = lines * 18.0 + 4.0;
-                    rt.setHeight(itemH);
-                    curY += itemH + 6.0; // 紧凑舒适的条目间距 6px
-                }
-            }
-
-            double btnY = curY + 12.0;
-            double btnH = 40.0;
-            for (Element e : renderList) {
-                if ("button".equals(e.getType()) || "知道了".equals(e.getLabel())) {
-                    e.setPositionX(40.0);
-                    e.setPositionY(btnY);
-                    e.setWidth(ruleW);
-                    e.setHeight(btnH);
-                }
-            }
-
-            double cardTop = 210.0;
-            double cardH = (btnY + btnH + 20.0) - cardTop;
-            for (Element e : renderList) {
-                if ("container".equals(e.getType())) {
-                    e.setPositionX(20.0);
-                    e.setPositionY(cardTop);
-                    e.setWidth(335.0);
-                    e.setHeight(cardH);
-                    e.setLabel("探险与属性说明底板");
-                }
-            }
-        }
-
-        // 0.4.7) 主题试用到期弹窗（限时耀宝已到期）自愈：
-        // AI 误将大弹窗背景卡片标注为仅 83px 高 (y=358, h=83)，导致手机插画、会员开通、单独购买、关闭按钮全掉在框外。
-        // 自愈：将卡片扩展为覆盖下半屏的大圆角底板 (top: 360, width: canvasW, height: canvasH - 360)，全包裹所有元素。
-        boolean isExpireModal = bpBg.contains("主题试用已结束") || bpNm.contains("主题试用")
-                || bpNm.contains("到期") || bpNm.contains("限时耀宝");
-        if (isExpireModal) {
-            boolean foundCard = false;
-            for (Element e : renderList) {
-                if ("container".equals(e.getType())) {
-                    e.setPositionX(0.0);
-                    e.setPositionY(360.0);
-                    e.setWidth((double) canvasW);
-                    e.setHeight((double) (canvasH - 360));
-                    e.setLabel("主题试用到期弹窗底板");
-                    foundCard = true;
-                    break;
-                }
-            }
-            if (!foundCard) {
-                Element card = new Element();
-                card.setId(-889L);
-                card.setType("container");
-                card.setLabel("主题试用到期弹窗底板");
-                card.setPositionX(0.0);
-                card.setPositionY(360.0);
-                card.setWidth((double) canvasW);
-                card.setHeight((double) (canvasH - 360));
-                renderList.add(0, card);
-            }
-        }
-
-        // 0.4.8) 混搭模式设置弹窗自愈：
-        // AI 误将弹窗背景卡片标注为仅 303px 高 (y=252, h=303)，在 555 处腰斩截断，
-        // 导致后半截"控制中心"、"电话"以及"应用"按钮掉在卡片外面。
-        // 自愈：将卡片扩展为铺满屏幕底部的标准白色抽屉弹窗 (top: 250, width: canvasW, height: canvasH - 250)，完整包裹所有设置项与按钮。
-        boolean isMixModal = !skeletonLayout && (bpBg.contains("资源详情页") || bpNm.contains("混搭模式"));
-        if (isMixModal) {
-            for (Element e : renderList) {
-                if ("container".equals(e.getType()) && (nz(e.getPositionY()) <= 320 || "弹窗背景卡片".equals(e.getLabel()))) {
-                    e.setPositionX(0.0);
-                    e.setPositionY(250.0);
-                    e.setWidth((double) canvasW);
-                    e.setHeight((double) (canvasH - 250));
-                    e.setLabel("混搭模式弹窗底板");
-                    break;
-                }
-            }
-        }
-
-        // 已经按点击分组排过的底栏，不再用写死的词表重排一遍。
-        // 没有分组的旧页面仍走原来的词表等分，避免没点「重算」时底栏散开。
-        boolean hasNavGroups = false;
-        for (Element navEl : renderList) {
-            String navKey = navEl.getGroupKey() == null ? "" : navEl.getGroupKey();
-            if (navKey.contains("-tab-")) {
-                hasNavGroups = true;
-                break;
-            }
-        }
-        if (!hasNavGroups) {
-        List<String> tabOrder = new ArrayList<>();
-        List<Element> bottomTabItems = renderList.stream()
-                .filter(e -> nz(e.getPositionY()) >= 650.0)
-                .filter(e -> {
-                    String lbl = e.getLabel() == null ? "" : e.getLabel().trim();
-                    return "家园".equals(lbl) || "商城".equals(lbl) || "收集".equals(lbl)
-                            || "我的".equals(lbl) || "装扮".equals(lbl) || "背包".equals(lbl);
-                })
-                .sorted(Comparator.comparingDouble(TemplateHtmlRenderer::nzX))
-                .toList();
-
-        for (Element item : bottomTabItems) {
-            String lbl = item.getLabel().trim();
-            if (!tabOrder.contains(lbl)) {
-                tabOrder.add(lbl);
-            }
-        }
-
-        int tabCount = Math.max(3, tabOrder.size()); // 动态支持 3 或 4 等分
-        double slotW = canvasW / (double) tabCount;
-
-        for (Element e : renderList) {
-            String lbl = e.getLabel() == null ? "" : e.getLabel().trim();
-            double ey = nz(e.getPositionY());
-            if (ey >= 650.0 && tabOrder.contains(lbl)) {
-                int idx = tabOrder.indexOf(lbl);
-                double centerX = slotW * (idx + 0.5);
-
-                if ("icon".equals(e.getType())) {
-                    e.setPositionY(768.0);
-                    e.setWidth(22.0);
-                    e.setHeight(22.0);
-                    e.setPositionX((double) Math.round(centerX - 11.0));
-                } else if ("text".equals(e.getType())) {
-                    e.setPositionY(796.0);
-                    e.setHeight(14.0);
-                    e.setWidth(24.0);
-                    e.setPositionX((double) Math.round(centerX - 12.0));
-                }
-            }
-            // 底部导航背景底板自愈：规整为从 y=760 开始，高度覆盖到底部
-            if ("container".equals(e.getType()) && (lbl.contains("底部导航") || lbl.contains("底栏") || (nz(e.getPositionY()) >= 720 && nz(e.getWidth()) >= 360))) {
-                e.setPositionX(0.0);
-                e.setPositionY(760.0);
-                e.setWidth((double) canvasW);
-                e.setHeight((double) (canvasH - 760));
-            }
-        }
-        }
-
-        // 0.4.10) 更换耀宝页（组 524323）专属排版自愈：
-        // 1. 消除搜索框内部重叠的放大镜 icon 虚线框（x=31, y=151 处的重复冗余 icon）；
-        // 2. 纠正 60% 为状态进度胶囊按钮（非虚线 icon）；
-        // 3. 底部"一键入住"吸底大按钮校准：
-        //    - 底板容器铺满至屏幕底部 (top: 730, height: canvasH - 730)
-        //    - "一键入住"按钮精准吸底居中 (top: 748, height: 48, width: 325, 耀宝亮橙色)
-        boolean isChangeYaobaoPage = bpBg.contains("524323") || bpNm.contains("更换耀宝");
-        if (isChangeYaobaoPage) {
-            // 1. 移除搜索框内部重叠的冗余 icon
-            renderList.removeIf(e -> "icon".equals(e.getType())
-                    && nz(e.getPositionY()) >= 140 && nz(e.getPositionY()) <= 165
-                    && nz(e.getPositionX()) <= 60);
-
-            // 2. 纠正 60% 为 button 类型
-            for (Element e : renderList) {
-                if ("60%".equals(e.getLabel())) {
-                    e.setType("button");
-                }
-            }
-
-            // 3. 底部"一键入住"与吸底容器校准
-            for (Element e : renderList) {
-                String lbl = e.getLabel() == null ? "" : e.getLabel();
-                if ("container".equals(e.getType()) && (lbl.contains("一键入住") || nz(e.getPositionY()) >= 650)) {
-                    e.setPositionX(0.0);
-                    e.setPositionY(730.0);
-                    e.setWidth((double) canvasW);
-                    e.setHeight((double) (canvasH - 730));
-                    e.setLabel("一键入住吸底栏");
-                }
-                if ("button".equals(e.getType()) && lbl.contains("一键入住")) {
-                    e.setPositionX(25.0);
-                    e.setPositionY(748.0);
-                    e.setWidth(325.0);
-                    e.setHeight(48.0);
-                    e.setLabel("一键入住");
-                }
-            }
-        }
-
-        // 0.4.11) 限时兑换商店（2455.png）：
-        // AI 提取的"货架"容器高度仅 420px，在 595px 截断，导致第 3 排商品卡片与兑换按钮掉在框外。
-        // 自愈：将货架容器扩展至 y=740，全宽包裹住全部 3 排共 12 张卡片与按钮。
-        boolean isExchangeShop = bpBg.contains("2455") || bpNm.contains("兑换商店");
-        if (isExchangeShop) {
-            for (Element e : renderList) {
-                if ("container".equals(e.getType()) && ("货架".equals(e.getLabel()) || (nz(e.getPositionY()) >= 170 && nz(e.getPositionY()) <= 190 && nz(e.getWidth()) >= 260))) {
-                    e.setPositionX(18.0);
-                    e.setPositionY(175.0);
-                    e.setWidth(339.0);
-                    e.setHeight(565.0);
-                    e.setLabel("限时兑换货架底板");
-                    break;
-                }
-            }
-        }
-
-        // 0.4.12) 抽奖结果弹窗（87.png）：
-        // AI 提取的弹窗方框仅 219px 宽且偏左（left=52, right=271），包不住宽 243px 的"恭喜获得大奖典藏碎片"大标题。
-        // 自愈：将弹窗方框居中并展宽至 325px（left=25），高 280px，全包裹大标题与奖品卡片；
-        // 标题文字同步水平居中扩展为 325px，彻底消除文字右侧出框。
-        boolean isLotteryResult = bpBg.contains("87") || bpNm.contains("抽奖结果");
-        if (isLotteryResult) {
-            for (Element e : renderList) {
-                if ("container".equals(e.getType())) {
-                    e.setPositionX(25.0);
-                    e.setPositionY(235.0);
-                    e.setWidth(325.0);
-                    e.setHeight(280.0);
-                    e.setLabel("抽奖结果展示底板");
-                }
-                if ("text".equals(e.getType()) && e.getLabel() != null && e.getLabel().contains("恭喜获得")) {
-                    e.setPositionX(25.0);
-                    e.setPositionY(248.0);
-                    e.setWidth(325.0);
-                    e.setHeight(36.0);
-                }
-            }
-        }
-
-        // 0.4.13) 功能设置页自愈：
-        // 区分两个不同版本的设计稿：
-        // 版本 A (我的_功能设置@3x.png - 3组卡片)：桌面挂件(单行) + 全局主题(单行) + 其他功能(双行大卡片)
-        // 版本 B (我的_功能设置@3x-2.png - 4组卡片)：桌面挂件(单行) + 壁纸个性化(双行) + 视频铃声(单行) + 其他功能(双行大卡片)
-        boolean isFunctionSettings = bpBg.contains("功能设置") || bpNm.contains("功能设置");
-        if (isFunctionSettings) {
-            boolean hasGlobalTheme = renderList.stream().anyMatch(e -> e.getLabel() != null && e.getLabel().contains("全局主题"));
-            if (hasGlobalTheme) {
-                // 版本 A (3组卡片):
-                for (Element e : renderList) {
-                    if ("container".equals(e.getType())) {
-                        double y = nz(e.getPositionY());
-                        // 1. 桌面挂件卡片 (单行)
-                        if (y >= 130 && y <= 180) {
-                            e.setPositionX(12.0);
-                            e.setPositionY(146.0);
-                            e.setWidth(351.0);
-                            e.setHeight(54.0);
-                        }
-                        // 2. 全局主题卡片 (单行! 仅包裹全局主题，严禁向下越界包入 y=336 的"其他功能"标题)
-                        if (y >= 230 && y <= 290) {
-                            e.setPositionX(12.0);
-                            e.setPositionY(254.0);
-                            e.setWidth(351.0);
-                            e.setHeight(54.0);
-                        }
-                        // 3. 其他功能卡片 (双行大卡片! 完整包裹"自动下载"与"自动清理"两组内容与按钮)
-                        if (y >= 330 && y <= 430) {
-                            e.setPositionX(12.0);
-                            e.setPositionY(360.0);
-                            e.setWidth(351.0);
-                            e.setHeight(131.0);
-                        }
-                    }
-                }
-            } else {
-                // 版本 B (4组卡片):
-                renderList.removeIf(e -> "container".equals(e.getType()) && nz(e.getPositionY()) >= 310 && nz(e.getPositionY()) <= 350 && nz(e.getHeight()) >= 150);
-
-                for (Element e : renderList) {
-                    if ("container".equals(e.getType())) {
-                        double y = nz(e.getPositionY());
-                        if (y >= 130 && y <= 180) {
-                            e.setPositionX(12.0);
-                            e.setPositionY(146.0);
-                            e.setWidth(351.0);
-                            e.setHeight(54.0);
-                        }
-                        if (y >= 240 && y <= 270) {
-                            e.setPositionX(12.0);
-                            e.setPositionY(252.0);
-                            e.setWidth(351.0);
-                            e.setHeight(108.0);
-                        }
-                        if (y >= 350 && y <= 450) {
-                            e.setPositionX(12.0);
-                            e.setPositionY(412.0);
-                            e.setWidth(351.0);
-                            e.setHeight(54.0);
-                        }
-                        if (y >= 480 && y <= 550) {
-                            e.setPositionX(12.0);
-                            e.setPositionY(518.0);
-                            e.setWidth(351.0);
-                            e.setHeight(131.0);
-                        }
-                    }
-                }
-            }
-        }
-
-        // 0.5) 容器结构自愈：修剪多余嵌套 + 弹窗完整包围自愈
+        // 修剪重复的嵌套容器，骨架屏的占位块保留。
         if (!skeletonLayout) pruneRedundantContainers(renderList);
 
-        // 0.5.1) 扭蛋抽奖页/大型面板内部多余局部子容器修剪（如只圈了前6个卡片的"奖品展示区"）
-        if (bp != null && bp.getName() != null && bp.getName().contains("扭蛋")) {
-            renderList.removeIf(e -> "container".equals(e.getType()) && e.getLabel() != null
-                    && (e.getLabel().contains("奖品展示区") || e.getLabel().contains("展示区")));
-        }
-
-        // 0.5.2) 骨架屏页（资源详情骨架页/加载页）：底部半屏抽屉弹窗 (Bottom Sheet) 结构自愈与骨架条规整化
-        boolean isSkeletonPage = bpBg.contains("骨架") || bpNm.contains("骨架") || bpNm.contains("加载");
-        if (isSkeletonPage) {
-            // 骨架内容条不是冗余容器。只识别最外层抽屉，保留原有条目、内卡与箭头坐标。
-            List<Element> bottomSheetCards = renderList.stream()
-                    .filter(e -> "container".equals(e.getType()))
-                    .filter(e -> nz(e.getPositionY()) >= canvasH*.3 && nz(e.getWidth()) >= canvasW*.95 && nz(e.getHeight()) >= 100)
-                    .sorted(Comparator.comparingDouble(TemplateHtmlRenderer::nzY))
-                    .toList();
-            if (!bottomSheetCards.isEmpty()) {
-                Element mainSheet = bottomSheetCards.get(0);
-                mainSheet.setPositionX(0.0);
-                mainSheet.setWidth((double) canvasW);
-                mainSheet.setHeight(canvasH - nz(mainSheet.getPositionY()));
-                mainSheet.setLabel("骨架弹窗底板");
-
-            }
-
-            // 3. 上半部分的壁纸预览卡片：标记为壁纸预览
-            for (Element e : renderList) {
-                if ("image".equals(e.getType()) && nz(e.getPositionY()) >= 50 && nz(e.getPositionY()) <= 350) {
-                    if (nz(e.getPositionX()) < 150) {
-                        e.setLabel("锁屏壁纸预览");
-                    } else {
-                        e.setLabel("桌面组件预览");
-                    }
-                }
-            }
-        }
-
         // a) 弹窗页面自动全包裹与绝对水平居中自愈：确保弹窗白卡片完整包裹内部标题、立绘、所有按钮及底部关闭，并完美水平居中
-        boolean isBackpackDrawer = bpBg.contains("背包@3x.png") && !bpBg.contains("背包@3x-2.png");
-        boolean isModalPage = !isBackpackDrawer && bp.getName() != null && (bp.getName().contains("弹窗") || bp.getName().contains("到期")
-                || bp.getName().contains("确认") || bp.getName().contains("提醒") || bp.getName().contains("购买")
-                || bp.getName().contains("混搭") || bp.getName().contains("奖励") || bp.getName().contains("说明")
-                || bp.getName().contains("升级") || bp.getName().contains("每日") || bp.getName().contains("结果")
-                || bp.getName().contains("提示") || bp.getName().contains("骨架"));
+        boolean isDrawerPage = PageTypes.DRAWER.equals(PageTypes.effective(bp));
+        boolean isModalPage = !isDrawerPage && PageTypes.overlay(bp);
         if (isModalPage) {
             // 选择宽度>=240且Y<=560范围内排除小气泡/子卡槽后的弹窗主容器（优先按label含弹窗/卡片/背景/面板，或按面积选最贴切的大卡片）
             Element mainModal = renderList.stream()
@@ -1659,18 +864,6 @@ public class TemplateHtmlRenderer {
                             }
                         }
                     }
-                }
-            }
-        }
-
-        // 0.5.2) 任务奖励弹窗（首页_每日任务@3x）：
-        boolean isTaskRewardPage = (bp != null && bp.getName() != null && (bp.getName().contains("任务奖励") || bp.getName().contains("每日任务")))
-                || (bpBg.contains("每日任务"));
-        if (isTaskRewardPage) {
-            for (Element c : renderList) {
-                if (("container".equals(c.getType()) || "list".equals(c.getType()))
-                        && ("任务列表卡片".equals(c.getLabel()) || (nz(c.getPositionY()) >= 410 && nz(c.getPositionY()) <= 440))) {
-                    c.setLabel("任务列表白卡");
                 }
             }
         }
@@ -2291,10 +1484,6 @@ public class TemplateHtmlRenderer {
                 double x0 = nz(c.getPositionX()), x1 = x0 + nz(c.getWidth());
                 double y0 = nz(c.getPositionY()), y1 = y0 + nz(c.getHeight());
                 if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) {
-                    String label = c.getLabel() == null ? "" : c.getLabel();
-                    if (label.equals("抽奖结果展示底板") || label.equals("限时兑换货架底板")) {
-                        return extractLuminance(pageBg);
-                    }
                     return 245; // 承载在 88% 磨砂白卡片容器上
                 }
             }
@@ -2350,8 +1539,7 @@ public class TemplateHtmlRenderer {
                     // 用户添加的透明点击覆盖层保留 ID 和交互，结构名称不遮住下方图标。
                     return el(pos, "wf-act", attr, "");
                 }
-                boolean isSkeleton = page.getName() != null && (page.getName().contains("骨架") || page.getName().contains("加载"));
-                if (isSkeleton && label.isEmpty() && nz(e.getPositionY()) >= 700) {
+                if (isSkeletonPage(page) && label.isEmpty() && nz(e.getPositionY()) >= 700) {
                     return el(pos + "background:#E5E7EB;border-radius:23px;box-sizing:border-box;", "wf-skeleton-bar", attr, "");
                 }
                 String radius = radius(fill, e.getHeight());
@@ -2417,10 +1605,6 @@ public class TemplateHtmlRenderer {
                     return el(pos + claimStyle, attr.isEmpty() ? "wf-btn" : "wf-btn wf-act", attr, esc(label));
                 }
 
-                if ("一键入住".equals(label)) {
-                    String btnInner = "<span class='wf-btn-label' style='color:#FFFFFF;font-size:16px;font-weight:bold;white-space:nowrap;'>一键入住</span>";
-                    return el(pos + "background:#F85A18;border-radius:24px;display:flex;align-items:center;justify-content:center;box-shadow:none;cursor:pointer;", "wf-btn wf-act", attr, btnInner);
-                }
                 if ("等待".equals(label)) {
                     String btnInner = "<span class='wf-btn-label' style='color:#F87F2C;font-size:11px;font-weight:600;white-space:nowrap;'>等待</span>";
                     return el(pos + "background:rgba(255,255,255,0.9);border:1px solid #F87F2C;border-radius:15px;display:flex;align-items:center;justify-content:center;", "wf-btn", attr, btnInner);
@@ -2550,13 +1734,12 @@ public class TemplateHtmlRenderer {
                 // 列表逻辑容器：本身为无边框的布局边界，内部子项已有分割线/卡槽呈现，不画多余的外层虚线框避免重叠压字
                 return "";
             case "container": {
-                boolean isSkeleton = page.getName() != null && (page.getName().contains("骨架") || page.getName().contains("加载"));
-                if (isSkeleton) {
+                if (isSkeletonPage(page)) {
                     double ey = nz(e.getPositionY());
                     double ew = nz(e.getWidth());
                     double eh = nz(e.getHeight());
                     // 1. 骨架半屏抽屉/弹窗底板判定：
-                    boolean isSheetBase = label.contains("抽屉") || label.contains("底板") || label.contains("面板") || "骨架弹窗底板".equals(label)
+                    boolean isSheetBase = label.contains("抽屉") || label.contains("底板") || label.contains("面板")
                             || (ew>=canvasW*.95 && eh>=100);
                     if (isSheetBase && ew >= canvasW*.95) {
                         double totalH = page.getCanvasHeight() == null ? 833 : page.getCanvasHeight();
@@ -2573,57 +1756,20 @@ public class TemplateHtmlRenderer {
                         return el(pos + "background:#E5E7EB;border-radius:8px;box-sizing:border-box;", "wf-skeleton-bar", attr, "");
                     }
                 }
-                // 专属业务卡片与面板优先匹配，防止被通用底板通配误伤：
+                // 根据底部容器与内部控件的位置关系识别操作栏。
                 if (nz(e.getWidth())>=canvasW*.85 && nz(e.getHeight())<=90
                         && nz(e.getPositionY())>=(page.getCanvasHeight()==null?812:page.getCanvasHeight())*.85
                         && all.stream().anyMatch(child -> child!=e && kind(child).matches("button|tabs") && inside(frame(e),frame(child),6))) {
                     return el(pos+"z-index:45;background:#FFFFFF;border-top:1px solid #E5E7EB;border-radius:0;box-shadow:0 -2px 6px rgba(0,0,0,.04);", "wf-dock-bar",attr,"");
                 }
-                if ("奶龙专属道具卡片".equals(label) || "特殊道具卡片".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:16px;box-shadow:0 2px 10px rgba(0,0,0,0.05);border:1px solid #E5E7EB;box-sizing:border-box;", "wf-card", attr, "");
-                }
-                if ("宝箱奖励卡片".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:20px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #E5E7EB;box-sizing:border-box;", "wf-card wf-modal-panel", attr, "");
-                }
-                if ("对话气泡".equals(label) || label.contains("气泡")) {
+                if (label.contains("气泡")) {
                     return el(pos + "background:#FFFFFF;border-radius:18px;box-shadow:0 3px 10px rgba(0,0,0,0.12);box-sizing:border-box;", "wf-card wf-bubble", attr, "");
-                }
-                if ("扭蛋机卡牌橱窗".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:16px;border:1px solid #E5E7EB;box-shadow:0 2px 6px rgba(0,0,0,0.04);box-sizing:border-box;", "wf-card wf-window-panel", attr, "");
-                }
-                if ("扭蛋卡片".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:8px;border:1px solid rgba(0,0,0,0.08);box-shadow:0 1px 3px rgba(0,0,0,0.04);box-sizing:border-box;", "wf-card wf-card-slot", attr, "");
-                }
-                if ("扭蛋机出货槽".equals(label)) {
-                    return el(pos + "background:#F7F8FA;border-radius:12px;border:1px solid #E5E7EB;box-shadow:none;box-sizing:border-box;", "wf-card wf-slot-panel", attr, "");
                 }
                 if ("顶部导航栏底板".equals(label)) {
                     return el(pos + "background:rgba(255,255,255,0.85);border-bottom:1px solid #E5E7EB;box-sizing:border-box;", "wf-navbar-bar wf-el", attr, "");
                 }
-                if ("探险与属性说明底板".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:20px;box-shadow:0 4px 16px rgba(0,0,0,0.06);box-sizing:border-box;", "wf-card wf-modal-panel", attr, "");
-                }
-                if ("主题试用到期弹窗底板".equals(label) || "混搭模式弹窗底板".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:24px 24px 0 0;box-shadow:0 -2px 10px rgba(0,0,0,0.05);box-sizing:border-box;", "wf-card wf-bottom-sheet", attr, "");
-                }
-                if ("一键入住吸底栏".equals(label)) {
-                    return el(pos + "background:#FFFFFF;box-shadow:0 -4px 16px rgba(0,0,0,0.06);box-sizing:border-box;", "wf-card wf-dock-bar", attr, "");
-                }
-                if ("任务列表白卡".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:18px;box-shadow:0 3px 14px rgba(0,0,0,0.06);box-sizing:border-box;", "wf-card wf-task-panel", attr, "");
-                }
-                if ("限时兑换货架底板".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:16px;border:1px solid #E5E7EB;box-shadow:0 2px 6px rgba(0,0,0,0.04);box-sizing:border-box;", "wf-card wf-shelf-panel", attr, "");
-                }
-                if ("抽奖结果展示底板".equals(label)) {
-                    return el(pos + "background:#FFFFFF;border-radius:20px;border:1px solid #E5E7EB;box-shadow:0 4px 16px rgba(0,0,0,0.06);box-sizing:border-box;", "wf-card wf-lottery-panel", attr, "");
-                }
-
-                // 真正的半屏抽屉底板（背包抽屉底板、每日任务弹窗底板、骨架弹窗底板等，绝不能匹配任何普通卡片/列表容器）：
-                boolean isBottomSheet = "背包抽屉底板".equals(label)
-                        || "每日任务弹窗底板".equals(label)
-                        || "骨架弹窗底板".equals(label)
-                        || (!label.contains("卡片") && !label.contains("列表") && (label.contains("抽屉") || label.endsWith("半屏底板")));
+                boolean isBottomSheet = !label.contains("卡片") && !label.contains("列表")
+                        && (label.contains("抽屉") || label.endsWith("半屏底板"));
                 if (isBottomSheet) {
                     double totalH = page.getCanvasHeight() == null ? 833 : page.getCanvasHeight();
                     double ey = nz(e.getPositionY());
@@ -2741,10 +1887,6 @@ public class TemplateHtmlRenderer {
                         "wf-progress", attr, innerBar);
             }
             case "tabs": {
-                if (label.contains("动漫耀宝")) {
-                    String tabInner = "<span style='color:#F85A18;font-size:15px;font-weight:bold;border-bottom:2.5px solid #F85A18;padding-bottom:2px;'>" + esc(label) + "</span>";
-                    return el(pos + "display:flex;align-items:center;background:none;border-radius:0;", "wf-tab-underline", attr, tabInner);
-                }
                 String[] seg = label.split("[|/、,，]");
                 boolean dock=inBottomDock(e,all,canvasW,page.getCanvasHeight()==null?833:page.getCanvasHeight());
                 boolean pose=dock && seg.length==2 && java.util.Arrays.stream(seg).allMatch(s -> s.trim().matches("形象[一二12]"));
@@ -2798,8 +1940,7 @@ public class TemplateHtmlRenderer {
                         "wf-rate", attr, sb.toString());
             }
             default:
-                if ((page.getBackgroundImage() != null && page.getBackgroundImage().contains("骨架"))
-                        || (page.getName() != null && page.getName().contains("骨架"))) {
+                if (isSkeletonPage(page)) {
                     return el(pos + "background:#E5E7EB;border-radius:8px;box-sizing:border-box;", "wf-skeleton-bar", attr, "");
                 }
                 // other / effect 等：透明占位块，保持占位与可交互性

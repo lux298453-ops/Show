@@ -1448,6 +1448,7 @@
           <DesignInspector
             :read-only="isViewer"
             :current-page="currentFocusPage"
+            :metadata-saving="isSavingPageMetadata"
             :selected-element="selectedElementObj"
             :element-info="activeSelectedElementInfo"
             :selection-count="selectedDomLayerUids.length"
@@ -1456,6 +1457,7 @@
             @update-position="onInspectorUpdatePosition"
             @update-color="onInspectorUpdateColor"
             @update-frame-color="onInspectorUpdateFrameColor"
+            @update-page-metadata="onInspectorUpdatePageMetadata"
             @update-font-size="onInspectorUpdateFontSize"
             @update-text-style="onInspectorUpdateTextStyle"
             @align-selection="onInspectorAlign"
@@ -2528,6 +2530,7 @@ import PageCanvas from '../components/PageCanvas.vue'
 import PreviewPageStack from '../components/PreviewPageStack.vue'
 import { isTabNavigation } from '../utils/previewTabs'
 import { mainNavigation } from '../utils/mainNavigation'
+import { resolvePageReference } from '../utils/pageReferences'
 import { previewEntryPage } from '../utils/previewEntry'
 import ComponentPalette, { type PaletteItem } from '../components/ComponentPalette.vue'
 import { createMyComponent, loadMyComponents } from '../services/customComponentService'
@@ -4792,6 +4795,12 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null
 const regeneratingIds = ref<Set<number>>(new Set())
 const aiGlowOrigin = ref<HTMLElement | null>(null)
 const regenChecked = ref<Set<number>>(new Set())
+const basicPrototypeMessage = 'AI 生成失败，暂用基础原型'
+
+function isBasicPrototype(html?: string | null) {
+  return html?.includes('<meta name="wf-renderer" content="template-fallback-v1">') ?? false
+}
+
 const regenAll = computed(() => {
   return pages.value.length > 0 && pages.value.every((p) => regenChecked.value.has(p.id))
 })
@@ -4812,6 +4821,15 @@ async function onGeneratePrototypeForDesign(b: { page: Page; x: number; y: numbe
   showToast(`正在为「${b.page.name}」生成独立原型图...`)
   try {
     const html = await projectApi.regenerateHtml(id, pageId)
+    const basic = isBasicPrototype(html)
+    if (basic || isBasicPrototype(b.page.html_content)) {
+      if (!basic) clearAllRedoStacks()
+      await loadData()
+      await focusPage(pageId)
+      if (basic) ElMessage.warning(basicPrototypeMessage)
+      else showToast(`「${b.page.name}」原型预览已更新`)
+      return
+    }
     const pWidth = b.page.canvas_width || 375
     const pHeight = b.page.canvas_height || 812
     // 在设计稿画框右侧 60px 处紧靠放置
@@ -4825,6 +4843,7 @@ async function onGeneratePrototypeForDesign(b: { page: Page; x: number; y: numbe
       x: newX,
       y: newY,
       htmlContent: html,
+      pageType: b.page.page_type || 'unknown',
     })
     clearAllRedoStacks()
 
@@ -4853,6 +4872,10 @@ async function onRegenerateHtml(pageId: number, event?: MouseEvent) {
     const html = await projectApi.regenerateHtml(id, pageId)
     const page = proto.value?.pages.find((p) => p.id === pageId)
     if (page) page.html_content = html
+    if (isBasicPrototype(html)) {
+      ElMessage.warning(basicPrototypeMessage)
+      return false
+    }
     showToast(`「${page?.name || pageId}」原型预览已更新`)
     return true
   } catch (e: any) {
@@ -5053,6 +5076,10 @@ async function onReanalyzePage(pageId: number) {
     await loadData()
     const failed = results.find(item => item.status === 'error')
     if (failed) throw new Error(failed.error || '原型生成未完成')
+    if (results.some(item => item.status === 'fallback')) {
+      ElMessage.warning(basicPrototypeMessage)
+      return
+    }
     showToast(`页面「${page?.name || pageId}」已由 AI 重新识别并更新`)
   } catch (e: any) {
     showToast(`识别失败: ${e?.message || '未知错误'}`)
@@ -5074,12 +5101,18 @@ async function onReanalyzeChecked(event?: MouseEvent) {
   showToast(`正在调用 AI 重新深度识别选中的 ${targets.length} 个页面...`)
   try {
     const failures: string[] = []
+    let fallbackCount = 0
     for (const pageId of targets) {
       const results = await projectApi.reanalyzePage(id, pageId)
-      for (const item of results) if (item.status === 'error') failures.push(`${item.page_name}：${item.error || '原型生成未完成'}`)
+      for (const item of results) {
+        if (item.status === 'error') failures.push(`${item.page_name}：${item.error || '原型生成未完成'}`)
+        if (item.status === 'fallback') fallbackCount++
+      }
     }
     await loadData()
+    if (fallbackCount) ElMessage.warning(`${fallbackCount} 个画板 AI 生成失败，暂用基础原型`)
     if (failures.length) throw new Error(failures.join('；'))
+    if (fallbackCount) return
     showToast(`已完成 ${targets.length} 个页面的 AI 深度重新识别`)
   } catch (e: any) {
     showToast(`重新识别失败: ${e?.message || '未知错误'}`)
@@ -5199,68 +5232,13 @@ function onProtoBack() {
 
 function findTargetPage(pageKey: string, fromPageId?: number | null): Page | null {
   if (!pageKey) return null
-  const rawKey = pageKey.trim()
-
-  // 1. 直接通过页面 ID 匹配
-  const asNum = Number(rawKey)
-  if (!isNaN(asNum) && asNum > 0) {
-    const byId = pages.value.find((p) => p.id === asNum)
-    if (byId) return byId
-  }
-
-  // 2. 页面全名精准匹配。自己连的线会带上页面名或页面编号，必须先于“按钮文案碰巧同名”的猜测。
-  const exact = pages.value.find((p) => p.name.trim() === rawKey)
-  if (exact) return exact
-
-  const norm = (s: string) => s.replace(/[（\(].*?[）\)]/g, '').replace(/[_\-\s]/g, '').trim()
-  const normKey = norm(rawKey)
-  const normMatch = pages.value.find((p) => norm(p.name) === normKey)
-  if (normMatch) return normMatch
-
-  // 3. 文案不是页面名时，再看来源页上有没有同名按钮的连线
-  if (fromPageId) {
-    const fromPage = pages.value.find((p) => p.id === fromPageId)
-    if (fromPage) {
-      const matchedEl = fromPage.elements.find(
-        (e) =>
-          e.interaction?.target_page_id &&
-          (e.label === rawKey || (e.interaction.params && e.interaction.params.includes(rawKey)))
-      )
-      if (matchedEl?.interaction?.target_page_id) {
-        const targetById = pages.value.find((p) => p.id === matchedEl.interaction!.target_page_id)
-        if (targetById) return targetById
-      }
-    }
-  }
-
-  // 4. 常见语义模糊归一化处理（彻底修复“我的”跳错、“家园”跳错问题）
-
-  if (normKey === '我的') {
-    const myLogged = pages.value.find((p) => p.name.includes('我的') && p.name.includes('已登录'))
-    if (myLogged) return myLogged
-    const myPage = pages.value.find((p) => p.name.startsWith('我的') && !p.name.includes('设置'))
-    if (myPage) return myPage
-  }
-  if (normKey === '家园' || normKey === '宠物家园') {
-    const home = pages.value.find((p) => p.name.includes('宠物家园') || p.name.includes('家园'))
-    if (home) return home
-  }
-  if (normKey === '收集') {
-    const coll = pages.value.find((p) => p.name.includes('收集'))
-    if (coll) return coll
-  }
-
-  // 5. 前缀与包含匹配
-  const startsWith = pages.value.find((p) => p.name.trim().startsWith(rawKey))
-  if (startsWith) return startsWith
-
-  const includes = pages.value.find((p) => p.name.trim().includes(rawKey))
-  if (includes) return includes
-
-  const reverseIncludes = pages.value.find((p) => rawKey.includes(p.name.trim()))
-  if (reverseIncludes) return reverseIncludes
-
-  return null
+  const resolved = resolvePageReference(pageKey, pages.value)
+  if (resolved) return resolved
+  // A label can still refer to an explicit saved relation, provided all matching buttons agree.
+  const source = pages.value.find(page => page.id === fromPageId)
+  const targets = [...new Set((source?.elements || []).filter(element => element.label === pageKey.trim())
+    .map(element => element.interaction?.target_page_id).filter((id): id is number => !!id))]
+  return targets.length === 1 ? pages.value.find(page => page.id === targets[0]) || null : null
 }
 
 // ===== 整页 HTML 内的跨页跳转：点击 data-nav 元素 → 切换到目标页原型 =====
@@ -5385,7 +5363,14 @@ function setPageRef(pageId: number, el: InstanceType<typeof PageCanvas> | null, 
   pageRefs.value[pageId] = el
 }
 
-let isGlobalUndoingRedoing = false
+let historyCommand: Promise<void> = Promise.resolve()
+
+function enqueueHistoryCommand(command: () => Promise<boolean>): Promise<boolean> {
+  const result = historyCommand.then(command)
+  // Keep rapid undo/redo requests ordered, including after a failed operation.
+  historyCommand = result.then(() => {}, () => {})
+  return result
+}
 
 /** 将 snapshotHtml 的轻量格式还原为完整的 HTML 字符串 */
 function snapshotToFullHtml(snapshot: string, baseHtml: string): string {
@@ -5432,7 +5417,7 @@ async function applyHtmlToPage(pageId: number, snapshot: string) {
   // 3. 这一页正开着：仍发 wf-restore-snapshot 原地换画面，带上新的 saveEpoch
   const inst = pageRefs.value[pageId] as any
   if (inst && typeof inst.restoreSnapshot === 'function') {
-    inst.restoreSnapshot(snapshot, newEpoch)
+    inst.restoreSnapshot(snapshot, newEpoch, fullHtml)
   } else {
     const frame = (inst?.htmlFrameRef as HTMLIFrameElement | undefined) || iframeForPage(pageId)
     if (frame && frame.contentWindow) {
@@ -5452,102 +5437,88 @@ async function applyHtmlToPage(pageId: number, snapshot: string) {
 /** 跨画板时间线画板编辑撤回 (Ctrl+Z) */
 async function undoPageEdit(): Promise<boolean> {
   if (pageEditUndoStack.value.length === 0) return false
-  isGlobalUndoingRedoing = true
-  try {
-    while (pageEditUndoStack.value.length > 0) {
-      const topRecord = pageEditUndoStack.value[pageEditUndoStack.value.length - 1]
+  while (pageEditUndoStack.value.length > 0) {
+    const topRecord = pageEditUndoStack.value[pageEditUndoStack.value.length - 1]
 
-      // 1. 优先使用 record 本身记录的 prevHtml
-      let targetHtml: string | null = topRecord.prevHtml || null
+    // 1. 优先使用 record 本身记录的 prevHtml
+    let targetHtml: string | null = topRecord.prevHtml || null
 
-      // 2. 兼容兜底：向后寻找属于 topRecord.pageId 的上一步快照
-      if (!targetHtml) {
-        for (let i = pageEditUndoStack.value.length - 2; i >= 0; i--) {
-          if (pageEditUndoStack.value[i].pageId === topRecord.pageId) {
-            targetHtml = pageEditUndoStack.value[i].html
-            break
-          }
+    // 2. 兼容兜底：向后寻找属于 topRecord.pageId 的上一步快照
+    if (!targetHtml) {
+      for (let i = pageEditUndoStack.value.length - 2; i >= 0; i--) {
+        if (pageEditUndoStack.value[i].pageId === topRecord.pageId) {
+          targetHtml = pageEditUndoStack.value[i].html
+          break
         }
       }
-
-      // 如果当前项就是最初基准快照，无前序可退：
-      if (!targetHtml) {
-        // 检查栈中是否还有属于其他页面的修改可撤销
-        const hasOtherUndoable = pageEditUndoStack.value.some((rec, idx) => {
-          if (rec.pageId === topRecord.pageId) return false
-          if (rec.prevHtml) return true
-          for (let j = idx - 1; j >= 0; j--) {
-            if (pageEditUndoStack.value[j].pageId === rec.pageId) return true
-          }
-          return false
-        })
-        if (!hasOtherUndoable) {
-          showToast('已是最初状态，无更多可撤回')
-          return false
-        }
-        // 如果还有其他画板的修改，弹出当前已无前序的基准快照，继续循环寻找其他画板的修改
-        pageEditUndoStack.value.pop()
-        continue
-      }
-
-      // 找到了上一步快照 targetHtml：弹出最新一步
-      const current = pageEditUndoStack.value.pop()!
-      current.timestamp = Date.now()
-      current.prevHtml = targetHtml
-
-      // 将本次被撤销的修改压入 Redo 栈
-      pageEditRedoStack.value.push(current)
-
-      // 先写回 html 并保存，再移动焦点（确保焦点离开上一页时，editSourceHtml 去读 html_content 读到的已经是退回后的样子）
-      await applyHtmlToPage(current.pageId, targetHtml)
-
-      // 那一页不在眼前时，移动焦点至该页
-      if (focusPageId.value !== current.pageId) {
-        focusPage(current.pageId)
-      } else {
-        selectedNodeId.value = current.pageId
-        showFrameFill(current.pageId)
-      }
-
-      showToast('已撤回画板修改 (Ctrl+Z)')
-      return true
     }
-    showToast('已是最初状态，无更多可撤回')
-    return false
-  } finally {
-    setTimeout(() => {
-      isGlobalUndoingRedoing = false
-    }, 400)
+
+    // 如果当前项就是最初基准快照，无前序可退：
+    if (!targetHtml) {
+      // 检查栈中是否还有属于其他页面的修改可撤销
+      const hasOtherUndoable = pageEditUndoStack.value.some((rec, idx) => {
+        if (rec.pageId === topRecord.pageId) return false
+        if (rec.prevHtml) return true
+        for (let j = idx - 1; j >= 0; j--) {
+          if (pageEditUndoStack.value[j].pageId === rec.pageId) return true
+        }
+        return false
+      })
+      if (!hasOtherUndoable) {
+        showToast('已是最初状态，无更多可撤回')
+        return false
+      }
+      // 如果还有其他画板的修改，弹出当前已无前序的基准快照，继续循环寻找其他画板的修改
+      pageEditUndoStack.value.pop()
+      continue
+    }
+
+    // 找到了上一步快照 targetHtml：弹出最新一步
+    const current = pageEditUndoStack.value.pop()!
+    current.timestamp = Date.now()
+    current.prevHtml = targetHtml
+
+    // 将本次被撤销的修改压入 Redo 栈
+    pageEditRedoStack.value.push(current)
+
+    // 先写回 html 并保存，再移动焦点（确保焦点离开上一页时，editSourceHtml 去读 html_content 读到的已经是退回后的样子）
+    await applyHtmlToPage(current.pageId, targetHtml)
+
+    // 那一页不在眼前时，移动焦点至该页
+    if (focusPageId.value !== current.pageId) {
+      focusPage(current.pageId)
+    } else {
+      selectedNodeId.value = current.pageId
+      showFrameFill(current.pageId)
+    }
+
+    showToast('已撤回画板修改 (Ctrl+Z)')
+    return true
   }
+  showToast('已是最初状态，无更多可撤回')
+  return false
 }
 
 /** 跨画板时间线画板编辑重做 (Ctrl+Y) */
 async function redoPageEdit(): Promise<boolean> {
   if (pageEditRedoStack.value.length === 0) return false
-  isGlobalUndoingRedoing = true
-  try {
-    const record = pageEditRedoStack.value.pop()!
-    record.timestamp = Date.now()
-    pageEditUndoStack.value.push(record)
+  const record = pageEditRedoStack.value.pop()!
+  record.timestamp = Date.now()
+  pageEditUndoStack.value.push(record)
 
-    // 5. 先把要重做的 html 写入 page.html_content 并保存，再移动焦点
-    await applyHtmlToPage(record.pageId, record.html)
+  // 5. 先把要重做的 html 写入 page.html_content 并保存，再移动焦点
+  await applyHtmlToPage(record.pageId, record.html)
 
-    // 移动焦点
-    if (focusPageId.value !== record.pageId) {
-      focusPage(record.pageId)
-    } else {
-      selectedNodeId.value = record.pageId
-      showFrameFill(record.pageId)
-    }
-
-    showToast('已重做画板修改 (Ctrl+Y)')
-    return true
-  } finally {
-    setTimeout(() => {
-      isGlobalUndoingRedoing = false
-    }, 400)
+  // 移动焦点
+  if (focusPageId.value !== record.pageId) {
+    focusPage(record.pageId)
+  } else {
+    selectedNodeId.value = record.pageId
+    showFrameFill(record.pageId)
   }
+
+  showToast('已重做画板修改 (Ctrl+Y)')
+  return true
 }
 
 /** 仅向当前焦点页的单个 iframe 发送撤销/重做，避免 querySelectorAll 广播所有画板 */
@@ -5685,7 +5656,7 @@ const blocks = computed<CanvasBlock[]>(() => {
         id: protoKey,
         pageId: p.id,
         blockType: 'prototype',
-        title: `${p.name} - 原型图`,
+        title: `${p.name} - ${isBasicPrototype(p.html_content) ? '基础原型' : '原型图'}`,
         page: p,
         x: px,
         y: py,
@@ -8639,6 +8610,20 @@ function onInspectorUpdatePosition(payload: { key: 'x' | 'y'; val: number }) {
   }
 }
 
+const isSavingPageMetadata = ref(false)
+async function onInspectorUpdatePageMetadata(body: { name?: string; pageType?: NonNullable<Page['page_type']> }) {
+  const page = currentFocusPage.value
+  if (!page || isViewer.value || isSavingPageMetadata.value) return
+  isSavingPageMetadata.value = true
+  try {
+    const saved = await projectApi.updatePageMetadata(id, page.id, body)
+    const current = pages.value.find(candidate => candidate.id === page.id)
+    if (current) Object.assign(current, saved)
+    showToast('已更新画板信息')
+  } catch (error: any) { showToast(error.message || '画板信息保存失败') }
+  finally { isSavingPageMetadata.value = false }
+}
+
 function onInspectorUpdateFrameColor(color: string) {
   const pageId = focusPageId.value || selectedNodeId.value || currentFocusPage.value?.id
   if (!pageId) return
@@ -9236,7 +9221,11 @@ async function writePngDataUrlToClipboard(dataUrl: string) {
 }
 
 /** 全局分层撤回逻辑：严格对齐 Figma 单一全局时间线，跨画板平滑自动流转 */
-async function handleGlobalUndo(): Promise<boolean> {
+function handleGlobalUndo(): Promise<boolean> {
+  return enqueueHistoryCommand(undoLatestChange)
+}
+
+async function undoLatestChange(): Promise<boolean> {
   if (isViewer.value) {
     ElMessage.warning('只读评审模式下画板已锁定保护，无法执行撤回')
     return false
@@ -9278,7 +9267,11 @@ async function handleGlobalUndo(): Promise<boolean> {
 }
 
 /** 全局分层重做逻辑：严格按照 Figma 单一全局时间线执行重做 */
-async function handleGlobalRedo(): Promise<boolean> {
+function handleGlobalRedo(): Promise<boolean> {
+  return enqueueHistoryCommand(redoLatestChange)
+}
+
+async function redoLatestChange(): Promise<boolean> {
   if (isViewer.value) {
     ElMessage.warning('只读评审模式下画板已锁定保护，无法执行重做')
     return false
@@ -9359,7 +9352,6 @@ function onSimMessage(ev: MessageEvent) {
     return
   }
   if (ev.data.type === 'wf-snapshot-pushed' && ev.data.pageId) {
-    if (isGlobalUndoingRedoing) return
     const pid = Number(ev.data.pageId)
     const html = String(ev.data.html || '')
     if (!html) return
@@ -9788,6 +9780,25 @@ watch(
   },
 )
 
+function onEditorNudgeKey(e: KeyboardEvent, isInput: boolean): boolean {
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return false
+  if (isInput || isViewer.value || mode.value !== 'edit' || workbenchMode.value !== 'design'
+      || activeDrawTool.value !== 'select' || isVectorMode.value || !fineTune.value || !hasSelectedDomElements.value) return false
+  // Menus and dialogs retain their own keyboard navigation.
+  if ((e.target as HTMLElement)?.closest?.('[role="dialog"],[role="menu"],[role="listbox"],[role="tree"],[role="tablist"]')) return false
+  const pageId = focusPageId.value ?? currentFocusPage.value?.id
+  if (!pageId || pageEditingConflicts.value[pageId]?.conflict) return false
+  const step = e.shiftKey ? 10 : 1
+  e.preventDefault()
+  postToFocusFrame({
+    type: 'wf-nudge',
+    dx: e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
+    dy: e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0,
+    uids: selectedDomLayerUids.value.slice(),
+  })
+  return true
+}
+
 async function onGlobalKeydown(e: KeyboardEvent) {
   if (isVectorMode.value) {
     // 矢量编辑模式下，由 VectorDrawOverlay 捕获拦截消费，避免画板被误删或工具状态错乱
@@ -9825,6 +9836,8 @@ async function onGlobalKeydown(e: KeyboardEvent) {
   // 2. 绘制工具快捷键监听 (V: 指针选择, R: 矩形方框, T: 文本落字, O: 圆形, P: 钢笔)
   const activeTag = (document.activeElement?.tagName || '').toLowerCase()
   const isInput = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || (document.activeElement as HTMLElement)?.isContentEditable
+
+  if (onEditorNudgeKey(e, isInput)) return
 
   // 快捷键 Shift+I: 调出 Figma 风格资源与插件中心 (Resources / Plugins Modal)
   if (!isInput && !e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && (e.key === 'I' || e.key === 'i') && mode.value !== 'preview') {

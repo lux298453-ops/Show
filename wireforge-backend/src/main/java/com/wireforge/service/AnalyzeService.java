@@ -56,6 +56,8 @@ public class AnalyzeService {
     private final ProjectChrome projectChrome = new ProjectChrome();
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ProjectArtworkService artworkService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private PageMetadataService pageMetadataService;
 
     @org.springframework.beans.factory.annotation.Value("${wireforge.ai.direct-html:true}")
     private boolean directHtml = true;
@@ -71,11 +73,21 @@ public class AnalyzeService {
     @org.springframework.beans.factory.annotation.Value("${wireforge.mock:false}")
     private boolean mock;
 
+    private static final String BASIC_PROTOTYPE_META = "<meta name=\"wf-renderer\" content=\"template-fallback-v1\">";
+
+    record PageAnalysis(int elementCount, String generationError) {}
+
+    private static final class HtmlGenerationFailure extends IllegalStateException {
+        HtmlGenerationFailure(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     /**
-     * 分析单张设计稿页面。返回识别到的元素数量。
+     * 分析单张设计稿页面，返回识别数量以及使用基础原型时的 AI 失败原因。
      * 关键架构：AI 调用、读图、解析与整页 HTML 绘制均在事务外部进行，仅将入库操作包入毫秒级短事务。
      */
-    public int analyzePage(Page page, List<String> allPageNames) {
+    public PageAnalysis analyzePage(Page page, List<String> allPageNames) {
         // 注意：先完成耗时的 AI 调用，再清理/写库，避免事务长时间持有行锁（并发分析会锁等待超时）
         JsonNode root;
         int imgW = 0;
@@ -126,10 +138,6 @@ public class AnalyzeService {
             page.setImageHash(fingerprint(imageBytes));
         }
 
-        JsonNode pageNameNode = root.path("page_name");
-        String aiName = (pageNameNode != null && !pageNameNode.isMissingNode()) ? pageNameNode.asText("") : "";
-        String resolvedName = PageNameResolver.resolve(page.getBackgroundImage(), root.path("elements"), aiName);
-
         // 画布按设计稿宽高比设置（宽固定 375），元素坐标从预处理图像素等比缩放到画布
         double scaleX = 1;
         double scaleY = 1;
@@ -146,12 +154,14 @@ public class AnalyzeService {
         final double finalScaleX = scaleX;
         final double finalScaleY = scaleY;
         final JsonNode finalRoot = root;
-        final String finalResolvedName = resolvedName;
         Integer savedCount = transactionTemplate.execute(status -> {
+            pageMetadataService.applyAnalysis(page, finalRoot);
             clearPageData(page.getId());
-            page.setName(finalResolvedName);
             page.setAnalyzed(1);
-            pageMapper.updateById(page);
+            pageMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
+                    .eq(Page::getId, page.getId()).set(Page::getAnalyzed, 1)
+                    .set(Page::getCanvasWidth, page.getCanvasWidth()).set(Page::getCanvasHeight, page.getCanvasHeight())
+                    .set(page.getImageHash() != null, Page::getImageHash, page.getImageHash()));
 
             int elCount = saveElements(page, finalRoot.path("elements"), finalScaleX, finalScaleY);
             try {
@@ -169,14 +179,18 @@ public class AnalyzeService {
             try {
                 String html = renderPageHtml(page);
                 page.setHtmlContent(html);
-                pageMapper.updateById(page);
+                pageMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
+                        .eq(Page::getId, page.getId()).set(Page::getHtmlContent, html));
                 log.info("页面 [{}] 整页 HTML 生成完成（{} 字符）", page.getName(), html.length());
             } catch (Exception e) {
                 log.warn("页面 [{}] 原型生成失败: {}", page.getName(), e.getMessage());
+                if (e instanceof HtmlGenerationFailure && count > 0 && saveBasicPrototypeIfEmpty(page) != null) {
+                    return new PageAnalysis(count, e.getMessage());
+                }
                 throw new IllegalStateException("页面「" + page.getName() + "」识别已完成，但原型生成失败。" + e.getMessage(), e);
             }
         }
-        return count;
+        return new PageAnalysis(count, null);
     }
 
     /**
@@ -219,7 +233,7 @@ public class AnalyzeService {
         return templateHtmlRenderer.render(page, bundles, nameById, page.getName(), appMap);
     }
 
-    /** Explicit AI generation must report failure instead of silently replacing it with a low-fidelity template. */
+    /** Report AI failures to the caller so it can distinguish a basic prototype from an AI result. */
     public String renderPageHtml(Page page) {
         if (!mock && directHtml && page.getBackgroundImage() != null && !page.getBackgroundImage().isBlank()) {
             Path imagePath = Path.of(page.getBackgroundImage());
@@ -239,13 +253,35 @@ public class AnalyzeService {
                         : reason.contains("没有文本内容") || reason.contains("空响应") ? "AI 服务未返回可用的原型内容"
                         : e instanceof IllegalArgumentException ? "生成的 HTML 未通过结构或编辑兼容校验"
                         : "AI 服务调用失败或生成内容未通过校验";
-                log.warn("页面 [{}] HTML 生成失败，未用旧模板替代（{}）", page.getName(), message);
-                throw new IllegalStateException(message + "，本次未生成新原型。请稍后重试。", e);
+                log.warn("页面 [{}] AI HTML 生成失败（{}）", page.getName(), message);
+                throw new HtmlGenerationFailure(message + "，本次未生成新原型。请稍后重试。", e);
             } finally {
                 AiClient.setUsageLabel(null);
             }
         }
         return renderTemplateHtml(page);
+    }
+
+    /** Save a basic prototype only while the original HTML column is still empty. */
+    private String saveBasicPrototypeIfEmpty(Page page) {
+        String previousHtml = page.getHtmlContent();
+        if (previousHtml != null && !previousHtml.isBlank()) return null;
+        try {
+            String html = renderTemplateHtml(page).replaceFirst("<head>", "<head>" + BASIC_PROTOTYPE_META);
+            int updated = pageMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
+                    .eq(Page::getId, page.getId())
+                    .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))
+                    .isNull(previousHtml == null, Page::getHtmlContent)
+                    .eq(previousHtml != null, Page::getHtmlContent, previousHtml)
+                    .set(Page::getHtmlContent, html));
+            if (updated != 1) return null;
+            page.setHtmlContent(html);
+            log.info("页面 [{}] 已保存临时基础原型", page.getName());
+            return html;
+        } catch (RuntimeException e) {
+            log.warn("页面 [{}] 基础原型保存失败: {}", page.getName(), e.getMessage());
+            return null;
+        }
     }
 
     /** Maintenance must read the current row: analysis and editor saves can make caller snapshots stale. */
@@ -393,7 +429,8 @@ public class AnalyzeService {
             Page p = pageMapper.selectById(entry.getKey());
             if (p != null && page.getProjectId().equals(p.getProjectId())
                     && !Integer.valueOf(1).equals(p.getIsDeleted())
-                    && p.getHtmlContent() != null && p.getHtmlContent().length() > 50) {
+                    && p.getHtmlContent() != null && p.getHtmlContent().length() > 50
+                    && !p.getHtmlContent().contains(BASIC_PROTOTYPE_META)) {
                 bestPage = p;
                 bestScore = entry.getValue();
                 break;
@@ -440,7 +477,19 @@ public class AnalyzeService {
         if (page == null) {
             throw new IllegalArgumentException("页面不存在: " + pageId);
         }
-        String html = renderPageHtml(page);
+        String html;
+        try {
+            html = renderPageHtml(page);
+        } catch (HtmlGenerationFailure e) {
+            if (Integer.valueOf(1).equals(page.getAnalyzed())
+                    && (page.getHtmlContent() == null || page.getHtmlContent().isBlank())
+                    && elementMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Element>lambdaQuery()
+                            .eq(Element::getPageId, pageId)).stream().anyMatch(element -> !PageBackgroundAction.persistent(element))) {
+                String fallback = saveBasicPrototypeIfEmpty(page);
+                if (fallback != null) return fallback;
+            }
+            throw e;
+        }
         pageMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaUpdate()
                 .eq(Page::getId, pageId).set(Page::getHtmlContent, html));
         interactionAutowireService.autowireProjectInteractions(page.getProjectId());
@@ -493,7 +542,7 @@ public class AnalyzeService {
                 .forEach(i -> requiredBindings.add(i.getElementId()));
         java.util.Set<String> assetUrls = assetService.scanUserAssetsFor(imagePath).stream()
                 .map(a -> "/api/assets/" + a.assetId()).collect(java.util.stream.Collectors.toSet());
-        if (artworkService != null) artworkService.assets(page.getProjectId()).forEach(a -> assetUrls.add(a.url()));
+        if (artworkService != null) artworkService.reusableAssets(page.getProjectId()).forEach(a -> assetUrls.add(a.url()));
         Page refPage = findStyleReferencePage(page);
         if (refPage == null) refPage = pages.stream()
                 .filter(p -> !p.getId().equals(page.getId()) && p.getHtmlContent() != null
@@ -507,10 +556,10 @@ public class AnalyzeService {
                 page.getCanvasWidth() == null ? 375 : page.getCanvasWidth(),
                 page.getCanvasHeight() == null ? 812 : page.getCanvasHeight(),
                 page.getName(), buildPageNames(pages), elementSummary, navSummary, assetsSummary, refHtml)
-                + projectChrome.prompt(page, pages);
+                + PageTypes.prompt(page) + projectChrome.prompt(page, pages);
         String rawHtml = generateHtmlWithRef(page, prompt, mime, imageBytes, refPage, imagePath);
         String html = htmlContract.prepare(rawHtml, page, sources, pages, assetUrls, requiredBindings);
-        if (artworkService != null) html = artworkService.resolve(page.getProjectId(), html, assetUrls, true);
+        if (artworkService != null) html = artworkService.resolve(page.getProjectId(), html, assetUrls, true, sources);
         html = projectChrome.apply(page, pages, html);
         if (repairEnabled && repairRounds > 0 && htmlRenderer != null && htmlRenderer.isAvailable()) {
             html = repairHtml(html, page, elementSummary, navSummary, assetsSummary, mime, imageBytes, refHtml,
@@ -555,7 +604,7 @@ public class AnalyzeService {
                 frozen.setSortOrder(Integer.MIN_VALUE); frozen.setHtmlContent(current);
                 List<Page> chromeReferences = new ArrayList<>(); chromeReferences.add(frozen); chromeReferences.addAll(pages);
                 String candidate = htmlContract.prepare(repaired, page, sources, pages, assetUrls, requiredBindings);
-                if (artworkService != null) candidate = artworkService.resolve(page.getProjectId(), candidate, assetUrls, false);
+                if (artworkService != null) candidate = artworkService.resolve(page.getProjectId(), candidate, assetUrls, false, sources);
                 java.util.Set<String> previousArtwork = org.jsoup.Jsoup.parse(current).select("img[src^=/api/assets/artwork/]")
                         .stream().map(n -> n.attr("src")).collect(java.util.stream.Collectors.toSet());
                 java.util.Set<String> repairedArtwork = org.jsoup.Jsoup.parse(candidate).select("img[src^=/api/assets/artwork/]")
@@ -729,13 +778,7 @@ public class AnalyzeService {
                         .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)));
         if (projectPages.isEmpty()) return;
 
-        Map<String, Long> pageIdByName = new HashMap<>();
-        for (Page p : projectPages) {
-            pageIdByName.put(p.getName(), p.getId());
-        }
-        if (originalNameToId != null) {
-            pageIdByName.putAll(originalNameToId);
-        }
+        PageReferences references = new PageReferences(projectPages);
 
         // 只补链本项目页面下的交互，避免跨项目按页面名串链
         List<Element> projectElements = elementMapper.selectList(
@@ -759,7 +802,12 @@ public class AnalyzeService {
                 JsonNode params = objectMapper.readTree(interaction.getParams());
                 String targetName = params.path("target_name").asText("");
                 if (targetName.isBlank()) continue;
-                Long targetPageId = pageIdByName.get(targetName);
+                Page target = references.resolve(targetName);
+                Long targetPageId = target == null ? null : target.getId();
+                if (targetPageId == null && references.candidates(targetName).isEmpty() && originalNameToId != null) {
+                    Long originalId = originalNameToId.get(targetName);
+                    if (projectPages.stream().anyMatch(p -> java.util.Objects.equals(p.getId(), originalId))) targetPageId = originalId;
+                }
                 if (targetPageId != null) {
                     interaction.setTargetPageId(targetPageId);
                     // Keep the original target reference as evidence for future audits.
@@ -909,10 +957,9 @@ public class AnalyzeService {
                         .orderByAsc(Page::getSortOrder));
         if (pages.isEmpty()) return 0;
 
-        Map<String, Long> pageIdByName = new HashMap<>();
+        PageReferences references = new PageReferences(pages);
         List<String> pageNames = new ArrayList<>();
         for (Page p : pages) {
-            pageIdByName.put(p.getName(), p.getId());
             pageNames.add(p.getName());
         }
 
@@ -953,7 +1000,7 @@ public class AnalyzeService {
                         page.getName(),
                         page.getCanvasWidth() == null ? 375 : page.getCanvasWidth(),
                         page.getCanvasHeight() == null ? 812 : page.getCanvasHeight(),
-                        pageNames, list.toString());
+                        pageNames, list.toString()) + PageTypes.prompt(page);
                 AiClient.setUsageLabel("补交互「" + page.getName() + "」");
                 try {
                     String raw = aiClient.generateWithImage(
@@ -990,7 +1037,8 @@ public class AnalyzeService {
                 it.setActionType(action);
                 it.setSource("ai");
                 if (needsTarget) {
-                    Long targetPageId = pageIdByName.get(target);
+                    Page targetPage = references.resolve(target);
+                    Long targetPageId = targetPage == null ? null : targetPage.getId();
                     if (targetPageId != null) {
                         it.setTargetPageId(targetPageId);
                     } else {
@@ -1065,14 +1113,11 @@ public class AnalyzeService {
         double canvasW = page.getCanvasWidth() == null ? 375 : page.getCanvasWidth();
         double canvasH = page.getCanvasHeight() == null ? 812 : page.getCanvasHeight();
 
-        // 页面名 → 页面 id，用于解析交互 target
-        Map<String, Long> pageIdByName = new HashMap<>();
-        for (Page p : pageMapper.selectList(
+        // Resolve names and old aliases only when they identify one page in this project.
+        PageReferences references = new PageReferences(pageMapper.selectList(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<Page>lambdaQuery()
                         .eq(Page::getProjectId, page.getProjectId())
-                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0)))) {
-            pageIdByName.put(p.getName(), p.getId());
-        }
+                        .and(w -> w.isNull(Page::getIsDeleted).or().eq(Page::getIsDeleted, 0))));
 
         int index = 0;
         int count = 0;
@@ -1159,7 +1204,8 @@ public class AnalyzeService {
                     interaction.setTriggerType(interactionNode.path("trigger").asText("click"));
                     interaction.setActionType(action);
                     String target = interactionNode.path("target").asText("");
-                    Long targetPageId = pageIdByName.get(target);
+                    Page targetPage = references.resolve(target);
+                    Long targetPageId = targetPage == null ? null : targetPage.getId();
                     if (targetPageId != null) {
                         interaction.setTargetPageId(targetPageId);
                     } else if (action.equals("modal") || action.equals("carousel")) {

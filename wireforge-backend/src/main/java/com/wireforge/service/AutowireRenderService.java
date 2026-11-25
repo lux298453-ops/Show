@@ -255,7 +255,7 @@ public class AutowireRenderService {
                 if(!foreign&&!otherItem){
                   wrapper.setAttribute('data-wf-nav-owner',String(b.elementId));
                   // Only clear members of this reviewed item; independent child controls keep their behavior.
-                  wrapper.querySelectorAll('[data-nav]').forEach(function(el){if(owned(el))el.removeAttribute('data-nav');});
+                  wrapper.querySelectorAll('[data-nav],[data-nav-page-id]').forEach(function(el){if(owned(el)){el.removeAttribute('data-nav');el.removeAttribute('data-nav-page-id');}});
                   return wrapper;
                 }
               }
@@ -277,11 +277,11 @@ public class AutowireRenderService {
             rows.forEach(function(b){
               var n=find(b);if(!n){missing.push(b.elementId);return;}
               if(!n.hasAttribute('data-wf-element-id'))n.setAttribute('data-wf-element-id',String(b.elementId));
-              document.querySelectorAll('[data-wf-nav-owner]').forEach(function(el){if(el.getAttribute('data-wf-nav-owner')===String(b.elementId)){el.removeAttribute('data-nav');if(el.classList.contains('wf-nav-hotspot'))el.remove();}});
-              n.removeAttribute('data-nav');n.removeAttribute('data-modal');
+              document.querySelectorAll('[data-wf-nav-owner]').forEach(function(el){if(el.getAttribute('data-wf-nav-owner')===String(b.elementId)){el.removeAttribute('data-nav');el.removeAttribute('data-nav-page-id');if(el.classList.contains('wf-nav-hotspot'))el.remove();}});
+              n.removeAttribute('data-nav');n.removeAttribute('data-nav-page-id');n.removeAttribute('data-modal');
               if(n.getAttribute('data-action')==='back')n.removeAttribute('data-action');
               if(b.navigation){n=navigationNode(n,b);if(!n){missing.push(b.elementId);return;}}
-              if(b.action==='navigate'&&b.targetName)n.setAttribute('data-nav',b.targetName);
+              if(b.action==='navigate'&&b.targetName){n.setAttribute('data-nav',b.targetName);if(b.targetId)n.setAttribute('data-nav-page-id',String(b.targetId));}
               else if((b.action==='popup'||b.action==='modal')&&b.targetId)n.setAttribute('data-modal',String(b.targetId));
               else if(b.action==='back')n.setAttribute('data-action','back');
             });
@@ -315,7 +315,7 @@ public class AutowireRenderService {
                 if(rows.some(function(b){return n.getAttribute('data-wf-element-id')===String(b.elementId);}))return;
                 if(!n.hasAttribute('data-nav')||n.hasAttribute('data-wf-nav-owner'))return;
                 var matching=items.filter(function(i){return norm(i.label)===norm(n.textContent);});
-                if(matching.length===1&&shared.pageNames[String(matching[0].target)])n.setAttribute('data-nav',shared.pageNames[String(matching[0].target)]);
+                if(matching.length===1&&shared.pageNames[String(matching[0].target)]){n.setAttribute('data-nav',shared.pageNames[String(matching[0].target)]);n.setAttribute('data-nav-page-id',String(matching[0].target));}
               });
             }
           }

@@ -1,7 +1,6 @@
 (function () {
-  // Repair v1/v2 chrome in memory. Never recreate items or change their IDs/links.
+  // Recover page-local palettes on saved v1-v3 chrome without changing editable nodes or links.
   var styles = Array.from(document.querySelectorAll('style'));
-  if (styles.some(function (style) { return /--wf-chrome-active-bg\s*:/.test(style.textContent); })) return;
   var originalStyles = styles.filter(function (style) {
     return !style.hasAttribute('data-wf-chrome-style') && !style.hasAttribute('data-wf-chrome-selection-style');
   });
@@ -55,29 +54,41 @@
     }, 0);
   }
   document.querySelectorAll('[data-wf-shared-chrome=navigation]').forEach(function (bar) {
-    if (bar.style.getPropertyValue('--wf-chrome-active-bg')) return;
+    if (bar.getAttribute('data-wf-chrome-palette') === 'local') return;
     var active = bar.querySelector('[data-wf-chrome-part=item][aria-current=page]');
-    if (!active) return;
-    var original = active.getAttribute('class'), background = '', radius = '';
-    try {
-      states.forEach(function (state) { active.classList.add(state); });
-      background = declaration(active, 'background');
-      radius = declaration(active, 'border-radius');
-      if (!visiblePaint(background)) {
-        background = declaration(active, 'background', true);
-        radius = declaration(active, 'border-radius', true) || radius;
+    var normal = Array.from(bar.querySelectorAll('[data-wf-chrome-part=item]')).find(function (node) { return node !== active; });
+    var ink = (normal && declaration(normal, 'color')) || declaration(bar, 'color') || '#8b8b96';
+    var activeInk = declaration(bar, 'color') || variable('--wf-chrome-active') || '#ff8c27';
+    var background = '', radius = '';
+    if (active) {
+      var original = active.getAttribute('class');
+      try {
+        states.forEach(function (state) { active.classList.add(state); });
+        activeInk = declaration(active, 'color') || activeInk;
+        background = declaration(active, 'background');
+        radius = declaration(active, 'border-radius');
+        if (!visiblePaint(background)) {
+          background = declaration(active, 'background', true);
+          radius = declaration(active, 'border-radius', true) || radius;
+        }
+      } finally {
+        if (original === null) active.removeAttribute('class'); else active.setAttribute('class', original);
       }
-    } finally {
-      if (original === null) active.removeAttribute('class'); else active.setAttribute('class', original);
     }
     var visible = visiblePaint(background);
-    bar.style.setProperty('--wf-chrome-active-bg', visible ? background : 'transparent');
-    bar.style.setProperty('--wf-chrome-active-radius', /^\d+(?:\.\d+)?px$/.test(radius) ? radius : '10px');
+    bar.style.setProperty('--wf-local-nav-ink', ink);
+    var border = declaration(bar, 'border-top').match(/#[0-9a-f]{3,8}\b|rgba?\([0-9.,%\s]+\)|\b(?:white|black)\b/i);
+    bar.style.setProperty('--wf-local-nav-border', border ? border[0] : 'transparent');
+    bar.style.setProperty('--wf-local-active-bg', visible ? background : 'transparent');
+    if (!variable('--wf-chrome-active-radius'))
+      bar.style.setProperty('--wf-chrome-active-radius', /^\d+(?:\.\d+)?px$/.test(radius) ? radius : '10px');
     if (!visible) {
-      var fg = luminance(variable('--wf-chrome-active')), bg = luminance(variable('--wf-chrome-nav-bg'));
-      if (fg >= 0 && bg >= 0 && (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05) < 1.5) {
-        bar.style.setProperty('--wf-chrome-active', bg < 0.3 ? '#a8c7fa' : '#365ac7');
+      var fg = luminance(activeInk), bg = luminance(declaration(bar, 'background') || variable('--wf-chrome-nav-bg'));
+      if (fg >= 0 && bg >= 0 && (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05) < 1.05) {
+        activeInk = bg < 0.3 ? '#a8c7fa' : '#365ac7';
       }
     }
+    bar.style.setProperty('--wf-local-active-ink', activeInk);
+    bar.setAttribute('data-wf-chrome-palette', 'local');
   });
 })();

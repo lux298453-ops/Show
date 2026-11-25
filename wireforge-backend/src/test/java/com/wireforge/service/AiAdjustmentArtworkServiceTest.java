@@ -195,4 +195,54 @@ class AiAdjustmentArtworkServiceTest {
             assertThrows(IllegalStateException.class, () -> AiAdjustmentContract.validatePage(source, source.replace("old.png", "other.png"), "修改提示文字"));
         }
     }
+
+    @Test void referenceStyleFlowsToTheProviderAndIsKeptOnTheEditedNodeWithoutChangingNavigation() {
+        ArtworkStyle profile = new ArtworkStyle("二维卡通", "大头短身", "简洁轮廓", "少量黄色色块", "轻阴影", "无纹理", "simple");
+        Map<String, Object> plan = new java.util.HashMap<>(task("pet", "character"));
+        plan.put("style_profile", profile);
+        when(artwork.generateAdjustment(anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any(ArtworkStyle.class)))
+                .thenReturn(new ProjectArtworkService.Artwork("styled", "精灵", "原稿", URL, "character", "精灵", ArtworkStyle.VERSION, profile));
+        var result = apply("重新生成精灵图片，清晰一点", json.valueToTree(List.of(plan)));
+        var target = Jsoup.parse(result.html()).getElementById("pet");
+        assertEquals(profile, ArtworkStyle.parse(target.attr(ArtworkStyle.ATTRIBUTE)));
+        assertEquals("商城", Jsoup.parse(result.html()).getElementById("buy").attr("data-nav"));
+        verify(artwork).generateAdjustment(eq(7L), eq(1L), eq("request-1"), eq(PAGE), anyString(), eq("id=pet"), eq("character"), anyString(), anyString(), eq("portrait"), eq(profile));
+        assertTrue(AiAdjustmentContract.validatePage(PAGE, result.html(), "重新生成精灵图片"));
+    }
+
+    @Test void backgroundStyleDoesNotOverwriteTheSeparateCharacterStyle() {
+        ArtworkStyle simple = new ArtworkStyle("二维卡通", "大头短身", "简洁轮廓", "黄色", "轻阴影", "无纹理", "simple");
+        ArtworkStyle intricate = new ArtworkStyle("精细插画", "原稿比例", "细线", "蓝绿", "多层明暗", "岩石纹理", "intricate");
+        var source = Jsoup.parse(PAGE);
+        source.getElementById("scene").appendChild(source.getElementById("pet"));
+        source.getElementById("pet").attr(ArtworkStyle.ATTRIBUTE, simple.json());
+        String html = source.outerHtml();
+        Map<String, Object> plan = new java.util.HashMap<>(task("scene", "background"));
+        plan.put("style_profile", intricate);
+        when(artwork.generateAdjustment(anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any(ArtworkStyle.class)))
+                .thenReturn(new ProjectArtworkService.Artwork("styled", "场景", "原稿", URL, "background", "场景", ArtworkStyle.VERSION, intricate));
+        var result = service.apply(7, 1, "request", html, "重新生成背景图", html, false, json.valueToTree(List.of(plan)));
+        var after = Jsoup.parse(result.html());
+        assertEquals(intricate, ArtworkStyle.parse(after.getElementById("scene").attr(ArtworkStyle.ATTRIBUTE)));
+        assertEquals(simple, ArtworkStyle.parse(after.getElementById("pet").attr(ArtworkStyle.ATTRIBUTE)));
+        assertTrue(AiAdjustmentContract.validatePage(html, result.html(), "重新生成背景图"));
+    }
+
+    @Test void retryKeepsTheStyleOfTheImageAlreadyGenerated() {
+        ArtworkStyle saved = new ArtworkStyle("二维卡通", "大头短身", "简洁轮廓", "黄色", "轻阴影", "无纹理", "simple");
+        ArtworkStyle rephrased = new ArtworkStyle("2D cartoon", "large head", "outlines", "yellow", "one shadow", "none", "simple");
+        Map<String, Object> plan = new java.util.HashMap<>(task("pet", "character"));
+        plan.put("style_profile", rephrased);
+        when(artwork.generateAdjustment(anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any(ArtworkStyle.class)))
+                .thenReturn(new ProjectArtworkService.Artwork("cached", "精灵", "原稿", URL, "character", "精灵", ArtworkStyle.VERSION, saved));
+        var result = apply("重新生成精灵图片", json.valueToTree(List.of(plan)));
+        assertEquals(saved, ArtworkStyle.parse(Jsoup.parse(result.html()).getElementById("pet").attr(ArtworkStyle.ATTRIBUTE)));
+    }
+
+    @Test void malformedStyleIsRejectedBeforeAnyImageIsGenerated() {
+        Map<String, Object> malformed = new java.util.HashMap<>(task("pet", "character"));
+        malformed.put("style_profile", Map.of("rendering", List.of("2D"), "detail", "simple"));
+        assertThrows(IllegalStateException.class, () -> apply("重新生成图片", json.valueToTree(List.of(task("scene", "background"), malformed))));
+        verifyNoInteractions(artwork);
+    }
 }

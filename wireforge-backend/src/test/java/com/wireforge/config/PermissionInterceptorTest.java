@@ -92,6 +92,7 @@ class PermissionInterceptorTest {
         assertEquals(PROJECT_ADMIN, PermissionInterceptor.requirement("GET", "/api/projects/7/logs"));
         assertEquals(SYSTEM_ADMIN, PermissionInterceptor.requirement("GET", "/api/logs/projects"));
         assertEquals(EDITOR, PermissionInterceptor.requirement("PUT", "/api/projects/7/pages/1/html"));
+        assertEquals(EDITOR, PermissionInterceptor.requirement("PUT", "/api/projects/7/pages/1/metadata"));
         assertEquals(EDITOR, PermissionInterceptor.requirement("POST", "/api/projects/7/reanalyze-all"));
         assertEquals(EDITOR, PermissionInterceptor.requirement("DELETE", "/api/projects/7/pages/1"));
         assertEquals(LOGIN, PermissionInterceptor.requirement("POST", "/api/assets/upload"));
@@ -112,6 +113,7 @@ class PermissionInterceptorTest {
             assertEquals(401, call("HEAD", path, null).getStatus());
         }
         assertEquals(401, call("PUT", "/api/projects/7/pages/1/html", null).getStatus());
+        assertEquals(401, call("PUT", "/api/projects/7/pages/1/metadata", null).getStatus());
         assertEquals(401, call("DELETE", "/api/projects/7/pages/1", null).getStatus());
         assertEquals(401, call("POST", "/api/projects/7/reanalyze-all", null).getStatus());
         assertEquals(401, call("PUT", "/api/projects/7", null).getStatus());
@@ -129,6 +131,7 @@ class PermissionInterceptorTest {
         assertEquals(403, call("POST", "/api/projects/7/sync-elfship-interactions", "ou_user").getStatus());
         assertEquals(200, call("POST", "/api/projects/7/comments", "ou_user").getStatus());
         assertEquals(403, call("PUT", "/api/projects/7/pages/1/html", "ou_user").getStatus());
+        assertEquals(403, call("PUT", "/api/projects/7/pages/1/metadata", "ou_user").getStatus());
         assertEquals(403, call("POST", "/api/projects/7/members", "ou_user").getStatus());
     }
 
@@ -137,6 +140,7 @@ class PermissionInterceptorTest {
         memberRole("editor");
         assertEquals(200, call("POST", "/api/projects/7/sync-elfship-interactions", "ou_user").getStatus());
         assertEquals(200, call("PUT", "/api/projects/7/pages/1/html", "ou_user").getStatus());
+        assertEquals(200, call("PUT", "/api/projects/7/pages/1/metadata", "ou_user").getStatus());
         assertEquals(403, call("POST", "/api/projects/7/members", "ou_user").getStatus());
         assertEquals(403, call("DELETE", "/api/projects/7", "ou_user").getStatus());
         assertEquals(403, call("GET", "/api/projects/7/logs", "ou_user").getStatus());

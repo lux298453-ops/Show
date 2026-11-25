@@ -610,7 +610,12 @@ async function pollAnalysisStatus() {
       analyzeProgressText.value = ''
 
       if (wasTracking) {
-        if (status.lastError) {
+        if (status.fallbackCount) {
+          ElMessage.warning(t('analysisFallbackSummary', {
+            ok: status.okCount, fallback: status.fallbackCount, failed: status.failCount,
+          }))
+          if (status.lastError) ElMessage.error(t('analysisInterrupted', { error: status.lastError }))
+        } else if (status.lastError) {
           ElMessage.error(t('analysisInterrupted', { error: status.lastError }))
         } else if (status.okCount > 0) {
           ElMessage.success(t('analysisCompleteSummary', { ok: status.okCount, failed: status.failCount }))

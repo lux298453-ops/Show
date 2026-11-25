@@ -69,7 +69,15 @@ test('host runtime installs the same shared geometry on saved pages and replaces
   obsolete.setAttribute('data-wf-chrome-layout-style', 'true')
   obsolete.textContent = 'old geometry'
   doc.head.appendChild(obsolete)
+  const savedChrome = doc.createElement('style')
+  savedChrome.setAttribute('data-wf-chrome-style', 'true')
+  savedChrome.textContent = ':root{--wf-chrome-nav-height:74px;--wf-chrome-active-radius:9px;}body [data-wf-shared-chrome=navigation]{background:var(--wf-chrome-nav-bg)!important}'
+  doc.head.appendChild(savedChrome)
   installPrototypeRuntime(doc)
+  assert.ok(savedChrome.textContent.includes('--wf-chrome-nav-height:74px'))
+  assert.ok(savedChrome.textContent.includes('--wf-chrome-active-radius:9px'))
+  assert.ok(savedChrome.textContent.includes(readFileSync(resource + 'chrome.css', 'utf8')))
+  assert.ok(!savedChrome.textContent.includes('background:var(--wf-chrome-nav-bg)'))
   assert.equal(doc.querySelectorAll('[data-wf-chrome-layout-style]').length, 1)
   assert.equal(doc.querySelector('[data-wf-chrome-layout-style]').textContent, readFileSync(resource + 'chrome-layout.css', 'utf8'))
   assert.ok(doc.querySelector('[data-wf-prototype-runtime]').textContent.includes(runtime))

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionTemplate;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -165,6 +166,72 @@ class AnalyzeHtmlGenerationTest {
         verify(service, never()).renderTemplateHtml(any());
     }
 
+    @Test void failedHtmlGenerationAfterRecognitionSavesABasicPrototype() {
+        TransactionTemplate transaction = mock(TransactionTemplate.class);
+        when(transaction.<Integer>execute(any())).thenReturn(1);
+        ReflectionTestUtils.setField(service, "transactionTemplate", transaction);
+        when(ai.generateWithImage(anyString(), anyString(), anyString(), any())).thenReturn("""
+                {"elements":[{"type":"button","label":"购买","bbox":[8,300,88,30]}]}
+                """);
+        when(ai.generateHtmlWithImage(anyString(), anyString(), anyString(), any())).thenThrow(new IllegalStateException("HTTP 502"));
+        doReturn(valid()).when(service).renderTemplateHtml(page);
+        when(pages.update(isNull(), any())).thenReturn(1);
+
+        var result = service.analyzePage(page, List.of("商城", "商品详情"));
+
+        assertEquals(1, result.elementCount());
+        assertTrue(result.generationError().contains("502"));
+        assertTrue(page.getHtmlContent().contains("template-fallback-v1"));
+        verify(pages).update(isNull(), any());
+    }
+
+    @Test void anEmptyRecognizedPageUsesAnEditableBasicPrototypeWhenRegenerationFails() {
+        page.setAnalyzed(1);
+        when(ai.generateHtmlWithImage(anyString(), anyString(), anyString(), any())).thenThrow(new IllegalStateException("HTTP 502"));
+        doReturn(valid()).when(service).renderTemplateHtml(page);
+        when(pages.update(isNull(), any())).thenReturn(1);
+
+        String html = service.regeneratePageHtml(1L);
+
+        assertTrue(html.contains("template-fallback-v1"));
+        assertTrue(html.contains("data-wf-element-id='10'"));
+        assertEquals(html, page.getHtmlContent());
+    }
+
+    @Test void anUnrecognizedPageDoesNotReceiveABasicPrototype() {
+        when(ai.generateHtmlWithImage(anyString(), anyString(), anyString(), any())).thenThrow(new IllegalStateException("HTTP 502"));
+
+        assertThrows(IllegalStateException.class, () -> service.regeneratePageHtml(1L));
+
+        verify(service, never()).renderTemplateHtml(any());
+        verify(pages, never()).update(isNull(), any());
+    }
+
+    @Test void aConcurrentSaveTakesPriorityOverTheBasicPrototype() {
+        page.setAnalyzed(1);
+        when(ai.generateHtmlWithImage(anyString(), anyString(), anyString(), any())).thenThrow(new IllegalStateException("HTTP 502"));
+        doReturn(valid()).when(service).renderTemplateHtml(page);
+        when(pages.update(isNull(), any())).thenReturn(0);
+
+        assertThrows(IllegalStateException.class, () -> service.regeneratePageHtml(1L));
+
+        assertNull(page.getHtmlContent());
+        verifyNoInteractions(bindings);
+    }
+
+    @Test void aRelatedBasicPrototypeDoesNotBecomeAGenerationStyleReference() throws Exception {
+        Path reference = dir.resolve("reference.png");
+        Files.write(reference, new byte[]{4,5,6});
+        detail.setProjectId(7L);
+        detail.setBackgroundImage(reference.toString());
+        detail.setHtmlContent(valid().replace("<head>", "<head><meta name=\"wf-renderer\" content=\"template-fallback-v1\">"));
+        when(ai.generateHtmlWithImage(anyString(), anyString(), anyString(), any())).thenReturn(valid());
+
+        assertTrue(service.renderPageHtml(page).contains("ai-static-v1"));
+
+        verify(ai, never()).generateHtmlWithImages(anyString(), anyString(), any());
+    }
+
     @Test void aDisconnectedStreamIsReportedSeparatelyFromHtmlValidationFailure() {
         when(ai.generateHtmlWithImage(anyString(), anyString(), anyString(), any()))
                 .thenThrow(new IllegalStateException("AI 调用失败: AI 流式响应中断（未收到完成事件，未重发）"));
@@ -185,7 +252,7 @@ class AnalyzeHtmlGenerationTest {
         ProjectArtworkService artwork = mock(ProjectArtworkService.class);
         ReflectionTestUtils.setField(service, "artworkService", artwork);
         when(artwork.assets(anyLong())).thenReturn(List.of()); when(artwork.prompt(anyLong())).thenReturn("");
-        when(artwork.resolve(anyLong(), anyString(), anySet(), anyBoolean())).thenAnswer(invocation -> {
+        when(artwork.resolve(anyLong(), anyString(), anySet(), anyBoolean(), anyList())).thenAnswer(invocation -> {
             String html = invocation.getArgument(1);
             if (Boolean.TRUE.equals(invocation.getArgument(3))) {
                 ((java.util.Set<String>)invocation.getArgument(2)).add("/api/assets/artwork/7/character.png");

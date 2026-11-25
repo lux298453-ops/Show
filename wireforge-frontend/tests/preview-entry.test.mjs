@@ -3,12 +3,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import ts from 'typescript'
-import { transformSync } from 'esbuild'
+import { buildSync, transformSync } from 'esbuild'
 
 const module = { exports: {} }
-vm.runInNewContext(transformSync(readFileSync('src/utils/previewEntry.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code, { module, exports: module.exports })
+vm.runInNewContext(buildSync({ entryPoints: ['src/utils/previewEntry.ts'], bundle: true, write: false, format: 'cjs', platform: 'node' }).outputFiles[0].text,
+  { module, exports: module.exports })
 const { previewEntryPage } = module.exports
-const detail = { id: 1, name: '背包弹窗' }, home = { id: 20, name: '家园' }, shop = { id: 10, name: '商城' }
+const detail = { id: 1, name: '背包弹窗', page_type: 'modal' }, home = { id: 20, name: '家园' }, shop = { id: 10, name: '商城' }
 const pages = [detail, shop, home]
 const navigation = [{ key: 'home', label: '家园', page: home }, { key: 'shop', label: '商城', page: shop }]
 
@@ -35,9 +36,13 @@ test('deleted or invalid destinations fall back to the first available main page
   for (const requestedPageId of [999, NaN, null]) assert.equal(previewEntryPage(pages, missing, { requestedPageId }), home)
   assert.equal(previewEntryPage([], missing), undefined)
 })
-test('projects without linked navigation retain explicit selected artboard previews', () => {
+test('projects without usable main navigation prefer ordinary pages on canvas entry and preserve shared modal links', () => {
   assert.equal(previewEntryPage(pages, [], { requestedPageId: 10, mainOnly: true }), shop)
-  assert.equal(previewEntryPage(pages, []), detail)
+  assert.equal(previewEntryPage(pages, [], { requestedPageId: 20, mainOnly: true }), home)
+  assert.equal(previewEntryPage(pages, [], { requestedPageId: 1, mainOnly: true }), shop)
+  assert.equal(previewEntryPage(pages, [], { requestedPageId: 1 }), detail)
+  assert.equal(previewEntryPage(pages, []), shop)
+  assert.equal(previewEntryPage([detail], []), detail)
 })
 for (const [focus, previous, expected] of [[1, 10, 20], [10, 1, 10], [20, 10, 20]]) test(`canvas focused on ${focus} opens ${expected} despite stale preview ${previous}`, () => {
   const routes = []
@@ -84,4 +89,17 @@ test('choosing a main page uses the same in-place transition as its navigation t
   assert.equal(context.searchQuery.value,'')
   vm.runInContext('selectPageFromDropdown(1)',context)
   assert.deepEqual(calls[1],[1,false])
+})
+
+test('entry and reset use all artboards when every main navigation target is unresolved', async () => {
+  const context = previewContext({ page: '1', entry: 'main' })
+  context.mainFlowItems.value = [{ key: 'pending', label: '待确认' }]
+  context.defaultPreviewPage.value = previewEntryPage(pages, context.mainFlowItems.value)
+  await vm.runInContext('loadData()', context)
+  assert.equal(context.currentPageId.value, 10)
+  assert.equal(context.activeSegmentTab.value, 'all')
+  context.activeSegmentTab.value = 'main'
+  vm.runInContext('resetPrototype()', context)
+  assert.equal(context.currentPageId.value, 10)
+  assert.equal(context.activeSegmentTab.value, 'all')
 })

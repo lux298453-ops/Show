@@ -202,10 +202,10 @@ public class AutowirePlanner {
     }
     public static String crossAction(String existing, Page target, String evidence) {
         if (Set.of("navigate", "popup", "modal").contains(safe(existing))) return existing;
-        return safe(target.getName()).matches(".*(弹窗|遮罩|确认弹框|提示弹框).*" ) || evidence.matches("(?s).*(弹出|弹窗|浮层).*" ) ? "popup" : "navigate";
+        return PageTypes.overlay(target) || evidence.matches("(?s).*(弹出|弹窗|浮层).*" ) ? "popup" : "navigate";
     }
     private static List<Page> exactTargets(String name, Long self, List<Page> pages) {
-        return pages.stream().filter(p -> !p.getId().equals(self) && !normalize(name).isBlank() && normalize(p.getName()).equals(normalize(name))).toList();
+        return new PageReferences(pages).candidates(name).stream().filter(p -> !p.getId().equals(self)).toList();
     }
     public static String relationKey(String trigger, String action, Long target) { return safeTrigger(trigger) + "|" + safe(action) + "|" + (target == null ? "none" : target); }
     public static String elementKey(Element e) {

@@ -37,6 +37,12 @@ function editorSetup(html=markup) {
   }
   window.getComputedStyle=el=>new Proxy(el.style,{get:(style,key)=>style[key]||({position:'relative',backgroundColor:'transparent',backgroundImage:'none',boxShadow:'none',fontSize:'11px',color:'#888'}[key])||''})
   window.getSelection=()=>({removeAllRanges(){},rangeCount:0})
+  const cssProto=Object.getPrototypeOf(document.body.style)
+  if(!cssProto.getPropertyPriority)cssProto.getPropertyPriority=function(name){
+    const declaration=security.window.document.createElement('span').style
+    declaration.cssText=this.cssText
+    return declaration.getPropertyPriority(name)
+  }
   const proto=window.HTMLElement.prototype
   Object.defineProperty(proto,'innerText',{configurable:true,get(){return this.textContent},set(value){this.textContent=value}})
   Object.defineProperty(proto,'offsetWidth',{configurable:true,get(){return this.getBoundingClientRect().width}})
@@ -249,6 +255,111 @@ test('actual icon resize keeps relative positioning and does not move the naviga
   event('mousemove',icon,{clientX:36,clientY:716,ctrlKey:true})
   event('mouseup',icon,{clientX:36,clientY:716})
   assert.equal(icon.style.width,'30px');assert.equal(item.style.left,'')
+})
+
+test('clicking resize handles and sub-threshold jitter leave layout, artwork fitting and history untouched',()=>{
+  for(const html of [markup,
+    '<article data-wf-role="card"><span>角色</span><svg data-wf-uid="art" width="19" height="19"><path/></svg></article>',
+    '<div><img data-wf-uid="art" data-wf-artwork-image="true" src="/art.png"></div>',
+  ]){
+    const s=editorSetup(html),target=s.document.querySelector('[data-wf-uid="art"]')||s.icon
+    s.api.selectElement(target,true,false)
+    const before=s.api.snapshotHtml(),messages=s.messages.length
+    s.event('mousedown',s.document.querySelector('#wf-transform-box [data-dir="se"]'))
+    s.event('mousemove',target,{clientX:31,clientY:711});s.event('mouseup',target)
+    assert.equal(s.api.snapshotHtml(),before)
+    assert.equal(s.messages.slice(messages).some(m=>m.type==='wf-snapshot-pushed'||m.type==='wf-save-dirty'),false)
+  }
+  const s=editorSetup('<div><span data-wf-uid="a">A</span><span data-wf-uid="b">B</span></div>')
+  s.event('window:message',null,{data:{type:'wf-select-uids',uids:['a','b']}})
+  const before=s.api.snapshotHtml()
+  s.event('mousedown',s.document.querySelector('#wf-transform-box [data-dir="se"]'));s.event('mouseup',null)
+  assert.equal(s.api.snapshotHtml(),before,'multi-selection clicks must not remove children from document flow')
+})
+
+test('resizing captures the layout before preparation so undo restores the original element',()=>{
+  const s=editorSetup('<article data-wf-uid="card"><span data-wf-uid="label">角色</span></article>')
+  const original=s.document.querySelector('article').outerHTML
+  s.api.selectElement(s.document.querySelector('article'),true,false)
+  s.event('mousedown',s.document.querySelector('#wf-transform-box [data-dir="se"]'))
+  s.event('mousemove',null,{clientX:55,clientY:730,ctrlKey:true});s.event('mouseup',null)
+  assert.equal(s.document.querySelector('article').style.width,'185px')
+  s.api.undo()
+  assert.equal(s.document.querySelector('article').outerHTML,original)
+  s.api.redo();assert.equal(s.document.querySelector('article').style.width,'185px')
+})
+
+test('export and history preserve text being edited while stripping only its temporary editing state',()=>{
+  const s=editorSetup('<button data-wf-uid="label">原文</button>'),label=s.document.querySelector('button')
+  s.api.selectElement(label,true,false);s.event('dblclick',label)
+  label.textContent='正在修改的文字'
+  s.api.doExport()
+  const saved=new DOMParser().parseFromString(s.messages.findLast(m=>m.type==='wf-save').html,'text/html')
+  assert.equal(saved.querySelector('[data-wf-uid="label"]').textContent,'正在修改的文字')
+  assert.equal(saved.querySelector('[contenteditable],[data-wf-editing-text]'),null)
+  assert.equal(label.getAttribute('data-wf-editing-text'),'true','export must not interrupt the live text editor')
+  assert.doesNotMatch(s.api.snapshotHtml(),/data-wf-editing-text|contenteditable/)
+  label.dispatchEvent(new s.document.defaultView.Event('blur'))
+  s.api.undo();assert.equal(s.document.querySelector('button').textContent,'原文','the first text edit must be undoable')
+})
+
+test('restoration strips stale editing markers and immediately records the next nudge without a timer',()=>{
+  const s=editorSetup('<p data-wf-uid="label">原文</p>')
+  s.event('window:message',null,{data:{type:'wf-restore-snapshot',html:'WFBG:|\n<p data-wf-uid="label" contenteditable="true" data-wf-editing-text="true">恢复文字</p>',saveEpoch:1}})
+  const label=s.document.querySelector('p')
+  assert.equal(label.hasAttribute('data-wf-editing-text'),false)
+  s.api.selectElement(label,true,false)
+  const start=s.messages.length
+  s.event('keydown',label,{key:'ArrowDown'})
+  assert.equal(label.style.top,'1px')
+  assert.equal(s.messages.slice(start).some(m=>m.type==='wf-snapshot-pushed'),true)
+  s.api.undo();assert.equal(s.document.querySelector('p').style.top,'')
+})
+
+test('restoring a snapshot retains the exact nested selection for subsequent keyboard edits',()=>{
+  const s=editorSetup('<button data-wf-uid="button"><span><svg data-wf-uid="icon" width="19" height="19"><path/></svg></span>奖池</button>')
+  s.api.selectElement(s.document.querySelector('svg'),true,false)
+  const snapshot=s.api.snapshotHtml()
+  s.event('window:message',null,{data:{type:'wf-restore-snapshot',html:snapshot,saveEpoch:1}})
+  const icon=s.document.querySelector('svg'),button=s.document.querySelector('button')
+  assert.equal(s.window.__wf_getSelectedEl(),icon,'restoration must not promote the selected icon to its button')
+  s.event('keydown',icon,{key:'ArrowDown'})
+  assert.equal(icon.style.top,'1px')
+  assert.equal(button.style.top,'')
+})
+
+test('keyboard and host nudges honor CSS positioning, selection, locked layers and editing modes',()=>{
+  const s=editorSetup('<p data-wf-uid="label">文字</p>'),label=s.document.querySelector('p'),computed=s.window.getComputedStyle
+  s.window.getComputedStyle=el=>el===label?new Proxy(computed(el),{get:(style,key)=>style[key]||({position:'absolute',left:'70px',top:'120px'}[key])||''}):computed(el)
+  s.api.selectElement(label,true,false)
+  s.event('keydown',label,{key:'ArrowUp'})
+  assert.equal(label.style.top,'119px','CSS offsets must not restart from zero')
+  s.event('window:message',null,{data:{type:'wf-nudge',dx:0,dy:10,uids:['label']}})
+  assert.equal(label.style.top,'129px')
+  assert.equal(s.messages.findLast(m=>m.type==='wf-element-selected').info.y,829,'inspector position stays current')
+  label.setAttribute('data-wf-locked','1')
+  s.event('window:message',null,{data:{type:'wf-nudge',dx:0,dy:10,uids:['label']}})
+  assert.equal(label.style.top,'129px')
+  label.removeAttribute('data-wf-locked')
+  s.event('window:message',null,{data:{type:'wf-edit',on:false}})
+  s.event('window:message',null,{data:{type:'wf-nudge',dx:0,dy:10,uids:['label']}})
+  assert.equal(label.style.top,'129px','disabled editing cannot move a retained target')
+})
+
+test('consecutive nudges record only real geometry changes and restore authored transitions before history',()=>{
+  for(const transition of ['', 'transition:all .2s!important;']){
+    const s=editorSetup('<p data-wf-uid="label" style="'+transition+'">文字</p>')
+    const get=()=>s.document.querySelector('p'),original=get().style.transition
+    s.api.selectElement(get(),true,false)
+    s.event('keydown',get(),{key:'ArrowDown'})
+    assert.equal(get().style.transition,original)
+    const snapshots=s.messages.filter(m=>m.type==='wf-snapshot-pushed').length
+    s.event('keydown',get(),{key:'ArrowDown'})
+    assert.equal(s.messages.filter(m=>m.type==='wf-snapshot-pushed').length,snapshots+1,'temporary transition styles must not add a no-op history step')
+    assert.equal(get().style.top,'2px')
+    s.api.undo();assert.equal(get().style.top,'1px')
+    s.api.undo();assert.equal(get().style.top,'')
+  }
 })
 test('actual icon color editing preserves an outlined SVG instead of filling its paths',()=>{
   const {api,icon}=editorSetup(),svg=icon.querySelector('svg'),path=icon.querySelector('path')

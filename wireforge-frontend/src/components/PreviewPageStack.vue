@@ -76,7 +76,8 @@ watch(() => [props.page, (returningPath.value || [props.page.id]).every(id => re
   if (!isReady) return
   const id = page.id
   if (displayedId.value === id) {
-    if (layers.value.indexOf(id) > 0 && !overlays.has(id)) {
+    if (page.page_type === 'page') restoreOverlay(id)
+    if (page.page_type !== 'page' && layers.value.indexOf(id) > 0 && !overlays.has(id)) {
       const overlay = preparePreviewOverlay(canvases.get(id)?.htmlFrameRef)
       if (overlay) overlays.set(id, overlay)
     }
@@ -86,7 +87,7 @@ watch(() => [props.page, (returningPath.value || [props.page.id]).every(id => re
   const hadPage = displayedId.value != null
   const closing = layers.value.includes(id)
   let next = closing ? layers.value.slice(0, layers.value.indexOf(id) + 1) : returningPath.value?.slice()
-  if (!next && hadPage) {
+  if (!next && hadPage && page.page_type !== 'page') {
     const overlay = preparePreviewOverlay(canvases.get(id)?.htmlFrameRef)
     if (overlay) { overlays.set(id, overlay); next = [...layers.value, id] }
   }

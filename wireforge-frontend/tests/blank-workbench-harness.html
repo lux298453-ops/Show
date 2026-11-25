@@ -10,8 +10,16 @@ import PrototypeView from '../src/views/PrototypeView.vue'
 
 // Run the real workbench with a local adapter: creation, edit locks, audit logs
 // and HTML saves are confined to this tab. No backend mutations or AI calls.
-const source = await http.get('/projects/182/prototype')
 const params = new URLSearchParams(location.search)
+const source = await http.get(`/projects/${Number(params.get('sourceProject')) || 182}/prototype`)
+if (params.has('editable')) {
+  const stored = new Map()
+  Object.defineProperty(window, 'localStorage', { value: {
+    get length() { return stored.size }, key: index => [...stored.keys()][index] ?? null,
+    getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, String(value)),
+    removeItem: key => stored.delete(key), clear: () => stored.clear(),
+  } })
+}
 const sourcePage = source.pages.find(p => p.id === Number(params.get('sourcePage'))) || source.pages[0]
 const fixtureId = 900001
 const fixture = { ...structuredClone(source), project: { ...source.project, id: fixtureId, name: '空白画板隔离验证' },
@@ -52,6 +60,10 @@ window.fetch = async (input, options = {}) => {
   return originalFetch(input, options)
 }
 window.blankWorkbenchTest = { fixture, requests, saves }
+if (params.has('editable')) {
+  const { completeLogin } = await import('../src/services/auth')
+  await completeLogin('workbench-fixture-token', { userId: 'fixture-user', userName: '隔离测试' })
+}
 const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/projects/:id/prototype', component: PrototypeView }] })
 await router.push(`/projects/${fixtureId}/prototype${fixture.pages.length ? `?page=${fixture.pages.at(-1).id}` : ''}`)
 createApp({ render: () => h(RouterView) }).use(router).use(ElementPlus).mount('#app')

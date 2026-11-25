@@ -52,13 +52,17 @@ class ProjectChromeTest {
         assertEquals(generated, chrome.apply(home, List.of(home), generated));
     }
 
-    @Test void projectPagesReuseExactlyTheSameStyleAndIconsButKeepTheirOwnLinksAndIds() {
+    @Test void projectPagesShareGeometryAndIconsButKeepTheirOwnPaletteLinksAndIds() {
         Page home = page(1, 7, "家园", html(10, "#efedf3", 70, "M2 2L20 20"));
-        Page shop = page(2, 7, "商城", html(20, "#ff0000", 55, "M4 4L12 12"));
+        Page shop = page(2, 7, "商城", html(20, "#ff0000", 55, "M4 4L12 12")
+                .replace("color:#888", "color:#456789").replace("color:#ff8c27", "color:#137c58"));
         String first = chrome.apply(home, List.of(home, shop), home.getHtmlContent()); home.setHtmlContent(first);
         String second = chrome.apply(shop, List.of(home, shop), shop.getHtmlContent());
         var a = Jsoup.parse(first); var b = Jsoup.parse(second);
         assertEquals(a.selectFirst("style[data-wf-chrome-style]").data(), b.selectFirst("style[data-wf-chrome-style]").data());
+        assertTrue(a.selectFirst("[data-wf-shared-chrome=navigation]").attr("style").contains("--wf-local-nav-ink:#888"));
+        assertTrue(b.selectFirst("[data-wf-shared-chrome=navigation]").attr("style").contains("--wf-local-nav-ink:#456789"));
+        assertTrue(b.selectFirst("[data-wf-shared-chrome=navigation]").attr("style").contains("--wf-local-active-ink:#137c58"));
         assertEquals(a.selectFirst("[data-wf-chrome-part=icon]").html(), b.selectFirst("[data-wf-chrome-part=icon]").html());
         assertEquals("20", b.selectFirst("[data-wf-chrome-part=time]").attr("data-wf-element-id"));
         assertEquals("24", b.select("[data-wf-chrome-part=item]").get(1).attr("data-wf-element-id"));
@@ -76,6 +80,7 @@ class ProjectChromeTest {
         assertEquals(a.selectFirst("style[data-wf-chrome-style]").data(), b.selectFirst("style[data-wf-chrome-style]").data());
         assertEquals(a.selectFirst("[data-wf-chrome-part=icon]").html(), b.selectFirst("[data-wf-chrome-part=icon]").html());
         assertTrue(chrome.prompt(home, List.of(home)).contains("严格复用"));
+        assertFalse(chrome.prompt(home, List.of(home)).contains("#efedf3"), "shared geometry must not prescribe a reference page's palette");
         assertFalse(chrome.prompt(home, List.of(home)).contains("home-icon-10"));
     }
 
@@ -96,7 +101,8 @@ class ProjectChromeTest {
         foreign.setHtmlContent(chrome.apply(foreign, List.of(foreign), foreign.getHtmlContent()));
         Page own = page(2, 7, "家园", html(20, "#efedf3", 70, "M3 3L4 4"));
         String local = chrome.apply(own, List.of(foreign, own), own.getHtmlContent());
-        assertTrue(Jsoup.parse(local).selectFirst("style[data-wf-chrome-style]").data().contains("--wf-chrome-nav-bg:#efedf3"));
+        assertFalse(Jsoup.parse(local).selectFirst("style[data-wf-chrome-style]").data().contains("--wf-chrome-nav-bg:"));
+        assertTrue(Jsoup.parse(local).select("style:not([data-wf-chrome-style])").stream().anyMatch(s -> s.data().contains("background:#efedf3")));
         own.setHtmlContent(local);
         String otherFamily = html(30, "#ff0000", 55, "M5 5L6 6").replace("家园", "动态").replace("商城", "消息");
         Page feed = page(3, 7, "动态", otherFamily);
@@ -133,7 +139,7 @@ class ProjectChromeTest {
         Page anchor = page(1, 7, "家园", html(10, "#efedf3", 70, "M2 2L20 20"));
         var legacy = Jsoup.parse(chrome.apply(anchor, List.of(anchor), anchor.getHtmlContent()));
         var meta = legacy.selectFirst("meta[name=wf-project-chrome]");
-        meta.attr("content", meta.attr("content").replace("\"version\":3", "\"version\":1")
+        meta.attr("content", meta.attr("content").replace("\"version\":4", "\"version\":1")
                 .replace("\"statusBackground\":\"transparent\"", "\"statusBackground\":\"#686873\""));
         anchor.setHtmlContent(legacy.outerHtml());
         String raw = html(20, "#ff0000", 55, "M4 4L12 12")
@@ -145,7 +151,7 @@ class ProjectChromeTest {
         var status = doc.selectFirst("[data-wf-chrome=status]");
         assertTrue(status.attr("style").contains("--wf-local-status-bg:linear-gradient(110deg,#fff7e4,#fce9e3)"));
         assertTrue(status.attr("style").contains("--wf-local-status-ink:#302c32"));
-        assertTrue(doc.selectFirst("style[data-wf-chrome-style]").data().contains("--wf-chrome-nav-bg:#efedf3"));
+        assertFalse(doc.selectFirst("style[data-wf-chrome-style]").data().contains("--wf-chrome-nav-bg:"));
         assertFalse(doc.selectFirst("meta[name=wf-project-chrome]").attr("content").contains("#686873"));
         shop.setHtmlContent(result);
         assertEquals(result, chrome.apply(shop, List.of(anchor, shop), result));
@@ -162,19 +168,23 @@ class ProjectChromeTest {
         assertTrue(lightStatus.attr("style").contains("--wf-local-status-ink:#302c32"));
     }
 
-    @Test void selectedWhiteIconsAndLabelsKeepTheirGradientSurfaceAcrossPages() {
+    @Test void selectedForegroundAndGradientStayLocalWhileSelectionGeometryIsShared() {
         String raw = html(10, "#fff", 70, "M2 2L20 20").replace(".nav .selected{color:#ff8c27}",
                 ".nav .selected{color:#fff;background:linear-gradient(#879bfa,#88d4ff);border-radius:9px}");
         Page home = page(1, 7, "家园", raw);
         home.setHtmlContent(chrome.apply(home, List.of(home), raw));
-        Page shop = page(2, 7, "商城", html(20, "#ff0000", 55, "M4 4L12 12"));
+        Page shop = page(2, 7, "商城", html(20, "#ff0000", 55, "M4 4L12 12")
+                .replace(".nav .selected{color:#ff8c27}", ".nav .selected{color:#122344;background:linear-gradient(#fff7e4,#fce9e3);border-radius:17px}"));
         String result = chrome.apply(shop, List.of(home, shop), shop.getHtmlContent());
         var doc = Jsoup.parse(result);
         String css = doc.selectFirst("[data-wf-chrome-style]").data();
-        assertTrue(css.contains("--wf-chrome-active:#fff;"));
-        assertTrue(css.contains("--wf-chrome-active-bg:linear-gradient(#879bfa,#88d4ff)"));
+        assertTrue(Jsoup.parse(home.getHtmlContent()).selectFirst("[data-wf-shared-chrome=navigation]").attr("style")
+                .contains("--wf-local-active-bg:linear-gradient(#879bfa,#88d4ff)"));
+        String palette = doc.selectFirst("[data-wf-shared-chrome=navigation]").attr("style");
+        assertTrue(palette.contains("--wf-local-active-ink:#122344;"));
+        assertTrue(palette.contains("--wf-local-active-bg:linear-gradient(#fff7e4,#fce9e3)"));
         assertTrue(css.contains("--wf-chrome-active-radius:9px"));
-        assertTrue(css.contains("background:var(--wf-chrome-active-bg,transparent)!important"));
+        assertTrue(css.contains("background:var(--wf-local-active-bg,transparent)!important"));
         assertEquals("商城", doc.selectFirst("[aria-current=page]").attr("data-nav"));
         assertEquals(ids(shop.getHtmlContent(), "data-wf-element-id"), ids(result, "data-wf-element-id"));
     }
@@ -186,8 +196,8 @@ class ProjectChromeTest {
         home.setHtmlContent(legacySnapshot(chrome.apply(home, List.of(home), raw)));
         String fixed = chrome.apply(home, List.of(home), home.getHtmlContent());
         var doc = Jsoup.parse(fixed);
-        assertTrue(doc.selectFirst("[data-wf-chrome-style]").data().contains("--wf-chrome-active-bg:linear-gradient(#879bfa,#88d4ff)"));
-        assertTrue(doc.selectFirst("meta[name=wf-project-chrome]").attr("content").contains("\"version\":3"));
+        assertTrue(doc.selectFirst("[data-wf-shared-chrome=navigation]").attr("style").contains("--wf-local-active-bg:linear-gradient(#879bfa,#88d4ff)"));
+        assertTrue(doc.selectFirst("meta[name=wf-project-chrome]").attr("content").contains("\"version\":4"));
         home.setHtmlContent(fixed);
         assertEquals(fixed, chrome.apply(home, List.of(home), fixed));
     }
@@ -197,7 +207,7 @@ class ProjectChromeTest {
                 ".nav .selected{color:#fff}.nav .selected::before{background:linear-gradient(#879bfa,#88d4ff);border-radius:9px}");
         Page home = page(1, 7, "家园", raw);
         var doc = Jsoup.parse(chrome.apply(home, List.of(home), raw));
-        assertTrue(doc.selectFirst("[data-wf-chrome-style]").data().contains("--wf-chrome-active-bg:linear-gradient(#879bfa,#88d4ff)"));
+        assertTrue(doc.selectFirst("[data-wf-shared-chrome=navigation]").attr("style").contains("--wf-local-active-bg:linear-gradient(#879bfa,#88d4ff)"));
         assertTrue(doc.selectFirst("[data-wf-chrome-style]").data().contains("--wf-chrome-active-radius:9px"));
     }
 
@@ -209,7 +219,25 @@ class ProjectChromeTest {
         meta.attr("content", meta.attr("content").replace("#365ac7", "#fff"));
         home.setHtmlContent(broken.outerHtml());
         var doc = Jsoup.parse(chrome.apply(home, List.of(home), home.getHtmlContent()));
-        assertTrue(doc.selectFirst("[data-wf-chrome-style]").data().contains("--wf-chrome-active:#365ac7;"));
+        assertTrue(doc.selectFirst("[data-wf-shared-chrome=navigation]").attr("style").contains("--wf-local-active-ink:#365ac7;"));
+    }
+
+    @Test void savedVersionThreeColorsCannotOverrideAnotherPagesAuthoredPalette() throws Exception {
+        Page home = page(1, 7, "家园", html(10, "#efedf3", 70, "M2 2L20 20"));
+        var previous = Jsoup.parse(chrome.apply(home, List.of(home), home.getHtmlContent()));
+        var metadata = previous.selectFirst("meta[name=wf-project-chrome]");
+        metadata.attr("content", metadata.attr("content").replace("\"version\":4", "\"version\":3"));
+        previous.selectFirst("[data-wf-chrome-style]").prependText(":root{--wf-chrome-nav-bg:#efedf3;--wf-chrome-active:#987654;}");
+        previous.selectFirst("[data-wf-shared-chrome=navigation]").removeAttr("data-wf-chrome-palette");
+        home.setHtmlContent(previous.outerHtml());
+        String raw = html(20, "rgba(20,30,40,.45)", 55, "M4 4L12 12")
+                .replace("color:#888", "color:var(--local-ink)").replace(".screen{", ".screen{--local-ink:#abcdef;");
+        Page shop = page(2, 7, "商城", raw);
+        var result = Jsoup.parse(chrome.apply(shop, List.of(home, shop), raw));
+        assertTrue(result.selectFirst("[data-wf-shared-chrome=navigation]").attr("style").contains("--wf-local-nav-ink:var(--local-ink)"));
+        assertFalse(result.selectFirst("[data-wf-chrome-style]").data().contains("--wf-chrome-nav-bg:"));
+        assertTrue(result.select("style:not([data-wf-chrome-style])").stream().anyMatch(s -> s.data().contains("rgba(20,30,40,.45)")));
+        assertEquals(ids(raw, "data-wf-element-id"), ids(result.outerHtml(), "data-wf-element-id"));
     }
 
     @Test void pressedAndIsActiveStatesAreRecognizedWithoutANameBasedLink() {

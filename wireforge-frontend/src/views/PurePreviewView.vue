@@ -58,6 +58,7 @@
                 type="button"
                 class="flex-1 py-1 px-2 rounded-lg text-center font-semibold text-[11px] transition-all duration-150 cursor-pointer"
                 :class="activeSegmentTab === 'main' ? 'preview-selected preview-accent border border-transparent shadow-xs font-bold' : 'preview-muted  border border-transparent'"
+                :aria-pressed="activeSegmentTab === 'main'"
                 @click="activeSegmentTab = 'main'"
               >
                 主页面 ({{ mainFlowItems.length }})
@@ -66,6 +67,7 @@
                 type="button"
                 class="flex-1 py-1 px-2 rounded-lg text-center font-semibold text-[11px] transition-all duration-150 cursor-pointer"
                 :class="activeSegmentTab === 'all' ? 'preview-selected preview-accent border border-transparent shadow-xs font-bold' : 'preview-muted  border border-transparent'"
+                :aria-pressed="activeSegmentTab === 'all'"
                 @click="activeSegmentTab = 'all'"
               >
                 全部画板 ({{ pages.length }})
@@ -74,18 +76,20 @@
 
             <!-- Main entries follow the actual bottom navigation, including unresolved destinations. -->
             <div v-if="activeSegmentTab === 'main'" class="space-y-1 max-h-[190px] overflow-y-auto custom-scrollbar pr-0.5">
-              <div
-                v-for="(item, idx) in mainFlowItems"
+              <button
+                v-for="item in mainFlowItems"
                 :key="item.key"
-                class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors"
-                :class="item.page && isPageActive(item.page.id) ? 'preview-selected preview-accent font-bold' : item.page ? 'preview-hover preview-muted' : 'preview-muted opacity-60 cursor-default'"
-                :aria-disabled="!item.page"
+                type="button"
+                class="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between gap-2 text-left transition-colors"
+                :class="item.key === activeMainItemKey ? 'preview-selected preview-accent font-bold cursor-pointer' : item.page ? 'preview-hover preview-muted cursor-pointer' : 'preview-muted opacity-60 cursor-default'"
+                :disabled="!item.page"
+                :aria-current="item.key === activeMainItemKey ? 'location' : undefined"
                 @click="item.page && selectPageFromDropdown(item.page.id)"
               >
-                <span class="truncate">{{ idx + 1 }}. {{ item.page?.name || item.label }}</span>
-                <Check v-if="item.page && isPageActive(item.page.id)" class="w-3.5 h-3.5 preview-accent shrink-0" />
-                <span v-else-if="!item.page" class="text-[10px] shrink-0 ml-2">未关联画板</span>
-              </div>
+                <span class="truncate">{{ item.label || item.page?.name || '未命名导航项' }}</span>
+                <Check v-if="item.key === activeMainItemKey" class="w-3.5 h-3.5 preview-accent shrink-0" aria-hidden="true" />
+                <span v-else-if="!item.page" class="text-[10px] shrink-0">待确认画板</span>
+              </button>
               <div v-if="mainFlowItems.length === 0" class="py-3 text-center preview-muted text-xs">
                 暂无主导航页面
               </div>
@@ -496,7 +500,8 @@ import { projectApi } from '../api/project'
 import type { Element, Page, Prototype } from '../types'
 import PreviewPageStack from '../components/PreviewPageStack.vue'
 import { isTabNavigation } from '../utils/previewTabs'
-import { mainNavigation } from '../utils/mainNavigation'
+import { activeMainNavigationKey, mainNavigation } from '../utils/mainNavigation'
+import { resolvePageReference } from '../utils/pageReferences'
 import { previewEntryPage } from '../utils/previewEntry'
 import AiAdjustDrawer from '../components/AiAdjustDrawer.vue'
 import { captureAiElement, type AiElementTarget, isTextEditingTarget } from '../utils/aiAdjustment'
@@ -784,19 +789,7 @@ const pageDropdownRef = ref<HTMLElement | null>(null)
 // 主页面数量与顺序由实际导航决定，不按固定槽位或画板总数推测。
 const mainFlowItems = computed(() => mainNavigation(pages.value, proto.value?.project?.appMap))
 const defaultPreviewPage = computed(() => previewEntryPage(pages.value, mainFlowItems.value))
-
-// 判断下拉列表中某项是否处于激活态（包含同 Tab 子状态关联）
-function isPageActive(pageId: number): boolean {
-  if (pageId === currentPageId.value) return true
-  // 关联子页判断：若当前停留在"扭蛋抽奖页"，且该 Tab 项是"收集_次态"或"宠物家园首页"，联动高亮
-  const curPage = pages.value.find((pg) => pg.id === currentPageId.value)
-  const targetPage = pages.value.find((pg) => pg.id === pageId)
-  if (curPage && targetPage) {
-    if (curPage.name.includes('扭蛋抽奖') && targetPage.name.includes('收集')) return true
-    if ((currentPageId.value === 2322 || currentPageId.value === 60001) && (pageId === 2346 || pageId === 60025)) return true
-  }
-  return false
-}
+const activeMainItemKey = computed(() => activeMainNavigationKey(displayCurrentPage.value, mainFlowItems.value, pages.value))
 
 // 拼音首字母提取算法，支持中文字符声母模糊匹配
 function getPinyinInitials(str: string): string {
@@ -1032,12 +1025,7 @@ function handleNavigate(pageName: string, uids?: string[], pos?: { x?: number; y
   }
 
   // 6. 纯静态原型无元素时的兜底匹配
-  const clean = pageName.trim().toLowerCase()
-  const target = pages.value.find(
-    (p) => p.name.trim().toLowerCase() === clean || String(p.id) === clean,
-  ) || pages.value.find(
-    (p) => p.name.toLowerCase().includes(clean) || clean.includes(p.name.toLowerCase()),
-  )
+  const target = resolvePageReference(pageName, pages.value)
   if (target) {
     navigateTo(target.id, isTabNavigation(currentPage.value, uids))
   }
@@ -1070,7 +1058,7 @@ function resetPrototype() {
   historyStack.value = []
   transitionDirection.value = 'backward'
   currentPageId.value = defaultPreviewPage.value?.id ?? null
-  activeSegmentTab.value = mainFlowItems.value.length ? 'main' : 'all'
+  activeSegmentTab.value = mainFlowItems.value.some(item => item.page?.id === currentPageId.value) ? 'main' : 'all'
   pageDropdownOpen.value = false
   searchQuery.value = ''
   activeModal.value = null
@@ -1188,7 +1176,7 @@ async function loadData() {
       mainOnly: route.query.entry === 'main',
     })
     currentPageId.value = startPage?.id ?? null
-    activeSegmentTab.value = mainFlowItems.value.some(item => item.page?.id === startPage?.id) ? 'main' : 'all'
+    activeSegmentTab.value = mainFlowItems.value.some(item => item.page?.id === currentPageId.value) ? 'main' : 'all'
     nextTick(updatePhoneScale)
   } catch (e: any) {
     showToast(`加载失败: ${e.message || '网络错误'}`)

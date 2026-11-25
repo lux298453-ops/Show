@@ -22,8 +22,8 @@ class TemplateHtmlRendererModalBackgroundTest {
         Element e=new Element();e.setId(id);e.setPageId(1L);e.setType(type);e.setLabel(text);
         e.setPositionX(x);e.setPositionY(y);e.setWidth(w);e.setHeight(h);return e;
     }
-    private Page page(long id,String name,String image) {
-        Page p=new Page();p.setId(id);p.setName(name);p.setBackgroundImage(image);p.setCanvasWidth(375);p.setCanvasHeight(833);return p;
+    private Page page(long id,String name,String image,String type) {
+        Page p=new Page();p.setId(id);p.setName(name);p.setBackgroundImage(image);p.setCanvasWidth(375);p.setCanvasHeight(833);p.setPageType(type);return p;
     }
     private String artwork(String color) throws Exception {
         BufferedImage image=new BufferedImage(375,833,BufferedImage.TYPE_INT_RGB);
@@ -45,9 +45,9 @@ class TemplateHtmlRendererModalBackgroundTest {
         assertEquals(before,mapper.writeValueAsString(elements));return html;
     }
 
-    @ParameterizedTest @ValueSource(strings={"版本更新提醒弹窗","探险与属性说明弹窗","宝箱弹窗","多张横滑弹窗","横滑活动特价弹窗","单张活动弹窗"})
+    @ParameterizedTest @ValueSource(strings={"版本更新提醒弹窗","探险与属性说明弹窗","宝箱弹窗","多张横滑弹窗","横滑活动特价弹窗","单张活动弹窗","确认购买","背包-2"})
     void independentPopupUsesNeutralBackingInsteadOfSampledSceneColor(String name) throws Exception {
-        String html=render(page(1,name,artwork("#3D1908")),content());
+        String html=render(page(1,name,artwork("#3D1908"),PageTypes.MODAL),content());
         assertTrue(html.contains("body{width:375px;height:833px;position:relative;background:#EEF0F3;"));
         assertTrue(html.contains("background:#FFFFFF;border-radius:"));
         assertTrue(html.contains("提示内容 158"));assertTrue(html.contains("data-wf-element-id=\"12\" data-nav=\"目标页\""));
@@ -55,21 +55,23 @@ class TemplateHtmlRendererModalBackgroundTest {
     }
     @Test void missingOrDifferentlyColoredArtworkDoesNotChangePopupBacking() throws Exception {
         for(String image:java.util.Arrays.asList(null,artwork("#241811"),artwork("#112244"),artwork("#FFFFFF"))) {
-            String html=render(page(1,"系统提醒",image),content());
+            String html=render(page(1,"系统提醒",image,PageTypes.MODAL),content());
             assertTrue(html.contains("position:relative;background:#EEF0F3;"));
         }
     }
     @Test void ordinaryPageKeepsWhiteBackgroundEvenWhenItsDesignIsDark() throws Exception {
-        String html=render(page(1,"家园",artwork("#3D1908")),content());
-        assertTrue(html.contains("body{width:375px;height:833px;position:relative;background:#FFFFFF;"));
+        for (String name : List.of("家园", "弹窗制作教程")) {
+            String html=render(page(1,name,artwork("#3D1908"),PageTypes.PAGE),content());
+            assertTrue(html.contains("body{width:375px;height:833px;position:relative;background:#FFFFFF;"));
+        }
     }
     @Test void descriptionPopupStaysAnOverlayAfterItsBackgroundBecomesLight() throws Exception {
-        String html=render(page(1,"属性说明",null),content());
+        String html=render(page(1,"属性说明",null,PageTypes.MODAL),content());
         assertFalse(html.contains("wf-statusbar wf-el"));assertFalse(html.contains("wf-canonical-nav wf-el"));
     }
     @Test void openedPopupRetainsHostPageAndUsesOneTransparentNeutralMask() throws Exception {
         var renderer=new TemplateHtmlRenderer(new DesignColorSampler(),new ObjectMapper());
-        Page host=page(1,"家园",null),popup=page(2,"系统提醒",artwork("#3D1908"));
+        Page host=page(1,"家园",null,PageTypes.PAGE),popup=page(2,"系统提醒",artwork("#3D1908"),PageTypes.MODAL);
         Element open=e(1,"button","打开提示",10,100,100,40);
         Interaction action=new Interaction();action.setElementId(1L);action.setActionType("modal");action.setTargetPageId(2L);
         var bundles=Map.of(1L,new TemplateHtmlRenderer.PageBundle(host,List.of(open),Map.of(1L,List.of(action))),

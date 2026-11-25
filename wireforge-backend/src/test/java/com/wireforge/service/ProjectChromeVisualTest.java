@@ -72,7 +72,7 @@ class ProjectChromeVisualTest {
             assertTrue(components.size() >= 2);
             for (String field : List.of("height", "bottom", "iconWidth", "iconHeight", "font"))
                 assertEquals(1, components.stream().map(n -> n.path(field).asText()).distinct().count(), kind + ": " + field);
-            if (kind.equals("navigation")) assertEquals(1, components.stream().map(n -> n.path("background").asText()).distinct().count());
+            // Backgrounds intentionally follow each page; only shared geometry must match across pages.
         }
     }
 

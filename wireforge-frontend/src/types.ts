@@ -85,6 +85,11 @@ export interface Annotation {
 export interface Page {
   id: number
   name: string
+  name_source?: 'scan' | 'filename' | 'ai' | 'user' | 'legacy' | null
+  source_name?: string | null
+  name_aliases?: string[]
+  page_type?: 'page' | 'modal' | 'drawer' | 'unknown' | null
+  page_type_source?: 'ai' | 'user' | 'legacy' | null
   background_image: string
   canvas_width: number
   canvas_height: number

@@ -114,7 +114,7 @@ public final class NavigationPlanner {
                 }
             if (chosen == null && confirmed.size() > 1) { items.add(proposal(entry,old,null,"conflict","同组已确认导航指向多个页面，不能自动合并",false,pages)); continue; }
             if (chosen == null && confirmed.size() == 1) { chosen = confirmed.iterator().next(); basis = "confirmed_mapping"; }
-            List<Page> exact = pages.stream().filter(p -> AutowirePlanner.normalize(p.getName()).equals(AutowirePlanner.normalize(entry.label()))).toList();
+            List<Page> exact = new PageReferences(pages).candidates(entry.label()).stream().filter(p -> !PageTypes.overlay(p)).toList();
             if (chosen == null && exact.size() == 1) { chosen = exact.get(0).getId(); basis = "exact_name"; }
             if (chosen != null) {
                 Long finalTarget = chosen;
@@ -142,7 +142,7 @@ public final class NavigationPlanner {
         String stable = entry.stableKey() + ":" + (old == null ? "new" : old.getId());
         List<String> refs = List.of("navigation:" + entry.anchor().getId(), "nav_basis:" + basis);
         String fingerprint = AutowirePlanner.sha(stable + "|" + category + "|navigate|" + (target == null ? null : target.getId()) + "|" + basis + "|" + (old == null ? "" : old.getActionType()+":"+old.getTargetPageId()) + "|" + entry.ids().stream().map(id -> entry.members().stream().filter(e -> e.getId().equals(id)).map(AutowirePlanner::elementKey).findFirst().orElse("")).toList());
-        NavigationInfo info = new NavigationInfo(entry.familyKey(),entry.itemKey(),entry.label(),entry.region(),entry.ids(),entry.x(),entry.y(),entry.width(),entry.height(),applicable ? "resolved" : basis,basis,old == null ? null : old.getActionType(),old == null ? null : old.getTargetPageId(),pages.stream().filter(p -> !p.getId().equals(entry.page().getId()) && !AutowirePlanner.safe(p.getName()).matches(".*(弹窗|遮罩|提示弹框|确认弹框).*" )).map(p -> new TargetOption(p.getId(),p.getName())).toList());
+        NavigationInfo info = new NavigationInfo(entry.familyKey(),entry.itemKey(),entry.label(),entry.region(),entry.ids(),entry.x(),entry.y(),entry.width(),entry.height(),applicable ? "resolved" : basis,basis,old == null ? null : old.getActionType(),old == null ? null : old.getTargetPageId(),pages.stream().filter(p -> !p.getId().equals(entry.page().getId()) && !PageTypes.overlay(p)).map(p -> new TargetOption(p.getId(),p.getName())).toList());
         return new Item("nav:"+AutowirePlanner.sha(stable).substring(0,24),category,entry.page().getId(),entry.page().getName(),old == null ? entry.anchor().getId() : old.getElementId(),entry.label(),old == null ? null : old.getId(),old == null ? "click" : old.getTriggerType(),"navigate",target == null ? null : target.getId(),target == null ? "未确定" : target.getName(),"ai_suggestion".equals(basis) ? "ai_inferred" : "autowire_review",reason,refs,applicable,selected,stable,fingerprint,info);
     }
     public static NavigationDiagnostic diag(Entry entry,String status,String reason) { return new NavigationDiagnostic(entry.page().getId(),entry.page().getName(),entry.label(),status,reason); }
